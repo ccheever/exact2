@@ -46,13 +46,14 @@ fn row(id: &str, sender: &str, text: &str, outgoing: bool, at: &str) -> Value {
 
 impl Crew {
     pub fn query(&mut self, args: &[Value]) -> Result<Value, DataError> {
-        let [Value::Number(count), Value::Number(revision), Value::Number(batch), Value::Str(echo), Value::Number(offset), Value::Bool(full)] =
+        let [Value::Number(count), Value::Number(revision), Value::Number(batch), echo @ exact_plan::str_value!(), Value::Number(offset), Value::Bool(full)] =
             args
         else {
             return Err(DataError::BadArguments(
                 "curated history uses the existing six-argument history shape".into(),
             ));
         };
+        let echo = echo.text();
         if *count != 0.
             || *revision != 0.
             || ![1., 8., 32.].contains(batch)
@@ -85,7 +86,7 @@ impl Crew {
             Value::Bool(false),
             Value::Bool(false),
         ]);
-        self.latest = Some((echo.clone(), value.clone()));
+        self.latest = Some((exact_plan::Str::from(echo), value.clone()));
         Ok(value)
     }
 }

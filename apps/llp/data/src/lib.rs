@@ -257,9 +257,9 @@ impl DataSource for Llp {
         if source == "theme" {
             return Ok(Answer::Now(markdown_parse::theme::value()));
         }
-        let asked = match args.first() {
-            Some(Value::Str(s)) => s.to_string(),
-            _ => return Err(DataError::BadArguments(format!("{source}(path, …)"))),
+        let asked = match args.first().and_then(Value::as_str) {
+            Some(s) => s.to_string(),
+            None => return Err(DataError::BadArguments(format!("{source}(path, …)"))),
         };
         if asked.is_empty() {
             return self.query(source, args).map(Answer::Now);
@@ -309,10 +309,11 @@ impl DataSource for Llp {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         if let Outcome::Failed { kind, message } = &outcome {
-            let asked = match args.first() {
-                Some(Value::Str(s)) => s.to_string(),
-                _ => String::new(),
-            };
+            let asked = args
+                .first()
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
             if self
                 .done
                 .lock()
@@ -341,9 +342,11 @@ impl Llp {
         let root = Self::root_of(asked);
         match source {
             "index" => {
-                let text = |i: usize| match args.get(i) {
-                    Some(Value::Str(s)) => s.to_string(),
-                    _ => String::new(),
+                let text = |i: usize| {
+                    args.get(i)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
                 };
                 let newest = matches!(args.get(3), Some(Value::Bool(true)));
                 let open = self.document_of(asked);

@@ -34,7 +34,7 @@ struct Fake {
 
 fn copy(v: &Value) -> Value {
     match v {
-        Value::Str(s) => Value::str(s),
+        s @ exact_plan::str_value!() => Value::str(s.text()),
         Value::Option(Some(v)) => Value::some(copy(v)),
         Value::List(items) => Value::list(items.iter().map(copy).collect()),
         Value::Record(fields) => Value::record(fields.iter().map(copy).collect()),

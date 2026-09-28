@@ -745,7 +745,7 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
         Value::Number(n) if n.is_finite() => Shortest(*n).push_to(out),
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Str(s) => quote(s, out),
+        v @ exact_plan::str_value!() => quote(v.text(), out),
         Value::Option(Some(inner)) => value_json(inner, out),
         Value::List(items) | Value::Record(items) => {
             out.push('[');
@@ -780,5 +780,29 @@ mod quote_tests {
         let mut out = String::new();
         super::quote("a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}é€😀", &mut out);
         assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}é€😀\"");
+    }
+
+    /// Inline and shared text with the same bytes are one JSON text (Charlie,
+    /// 2026-09-28, LLP 1017.003 "The value's text").
+    #[test]
+    fn inline_and_shared_text_are_one_json_text() {
+        use exact_plan::Value;
+        for s in [
+            "",
+            "bold",
+            "exactly14bytes",
+            "a\"b\n",
+            "longer than fourteen bytes",
+        ] {
+            let row =
+                |t: Value| Value::record(vec![t, Value::list(vec![Value::some(Value::str(s))])]);
+            let (mut a, mut b) = (String::new(), String::new());
+            super::value_json(&row(Value::str(s)), &mut a);
+            super::value_json(&row(Value::str_shared_for_tests(s)), &mut b);
+            assert_eq!(a, b);
+            let mut quoted = String::new();
+            super::quote(s, &mut quoted);
+            assert!(a.starts_with(&format!("[{quoted},")), "{a}");
+        }
     }
 }

@@ -44,7 +44,7 @@ impl SaveFile {
     /// The command's positional arguments, `(id, from, suggestedName)`.
     pub fn from_args(args: &[Value]) -> Result<SaveFile, String> {
         let at = |i: usize| match args.get(i) {
-            Some(Value::Str(s)) => Ok(s.to_string()),
+            Some(s @ exact_plan::str_value!()) => Ok(s.text().to_string()),
             _ => Err("saveFile takes (id, from, suggestedName), three strings".to_owned()),
         };
         if args.len() != 3 {
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn args_are_three_strings() {
-        let s = |v: &str| Value::Str(v.into());
+        let s = Value::str;
         let ok = SaveFile::from_args(&[s("x"), s("app:/data/a"), s("a.json")]).unwrap();
         assert_eq!(
             ok.summary(),

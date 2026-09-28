@@ -34,7 +34,7 @@ impl DataSource for MessagesStress {
         if source != "history" {
             return Err(DataError::UnknownSource(source.into()));
         }
-        let [count, revision, batch, Value::Str(echo), offset, Value::Bool(eager), selection @ ..] =
+        let [count, revision, batch, echo @ exact_plan::str_value!(), offset, Value::Bool(eager), selection @ ..] =
             args
         else {
             return Err(DataError::BadArguments(
@@ -57,8 +57,8 @@ impl DataSource for MessagesStress {
             }
         };
         let (rows, earlier, later, has_earlier, has_later) = if let Some(cursor) = cursor {
-            let answer =
-                window(controls, echo, cursor).map_err(|e| DataError::BadArguments(e.into()))?;
+            let answer = window(controls, echo.text(), cursor)
+                .map_err(|e| DataError::BadArguments(e.into()))?;
             (
                 answer.rows,
                 answer.earlier,
@@ -68,7 +68,7 @@ impl DataSource for MessagesStress {
             )
         } else {
             (
-                page(controls, echo, offset, *eager)
+                page(controls, echo.text(), offset, *eager)
                     .map_err(|e| DataError::BadArguments(e.into()))?,
                 String::new(),
                 String::new(),

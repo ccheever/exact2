@@ -254,16 +254,16 @@ impl DataSource for Gallery {
                 .map(Value::str)
                 .collect(),
             )),
-            ("galleryAction", [Value::Str(op), Value::Str(id), n]) => {
+            ("galleryAction", [op @ exact_plan::str_value!(), id @ exact_plan::str_value!(), n]) => {
                 let n = integer(n)?;
-                self.action(op, id, n)
+                self.action(op.text(), id.text(), n)
                     .map_err(|e| DataError::BadArguments(e.into()))?;
                 Ok(self.snapshot())
             }
-            ("galleryReorder", [Value::Str(item), Value::Option(before), revision]) => {
+            ("galleryReorder", [item @ exact_plan::str_value!(), Value::Option(before), revision]) => {
                 let revision = integer(revision)?;
                 let before = before.as_ref().map(|v| v.as_str().ok_or_else(|| DataError::BadArguments("reorder destination must be option<string>".into()))).transpose()?;
-                Ok(self.reorder(item, before, revision))
+                Ok(self.reorder(item.text(), before, revision))
             }
             ("gallery" | "galleryRows" | "theme" | "galleryAction" | "galleryReorder", _) => Err(DataError::BadArguments(
                 "gallery(), galleryRows(revision, page, full), theme(), galleryAction(op, id, n), or galleryReorder(item, before, expectedRevision)".into(),

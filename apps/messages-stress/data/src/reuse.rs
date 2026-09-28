@@ -42,7 +42,9 @@ struct Args {
 
 impl Args {
     fn parse(values: &[Value]) -> Result<Self, DataError> {
-        let [count, revision, batch, Value::Str(echo), offset, Value::Bool(full)] = values else {
+        let [count, revision, batch, echo @ exact_plan::str_value!(), offset, Value::Bool(full)] =
+            values
+        else {
             return Err(DataError::BadArguments(
                 "history(count, revision, batch, echo, offset, eager)".into(),
             ));
@@ -51,7 +53,7 @@ impl Args {
             .map_err(bad_arguments)?;
         let offset = integer(offset)?;
         // Same validation and ordering as model::page, before cache lookup/write.
-        if echo.chars().take(MAX_DRAFT_CHARS + 1).count() > MAX_DRAFT_CHARS {
+        if echo.text().chars().take(MAX_DRAFT_CHARS + 1).count() > MAX_DRAFT_CHARS {
             return Err(bad_arguments(
                 "local echo is limited to 512 Unicode scalar values",
             ));
@@ -65,7 +67,7 @@ impl Args {
             count: controls.count,
             revision: controls.revision,
             batch: controls.batch,
-            echo: echo.clone(),
+            echo: echo.to_shared_str().unwrap_or_default(),
             offset,
             full: *full,
         })

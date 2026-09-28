@@ -133,7 +133,7 @@ fn invalid(message: &str) -> InstanceError {
 // signed-zero changes on the normal path so the stored Value stays exact.
 fn same_key(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::Str(a), Value::Str(b)) => a == b,
+        (a @ exact_plan::str_value!(), b @ exact_plan::str_value!()) => a.text() == b.text(),
         (Value::Number(a), Value::Number(b)) => a.is_finite() && a.to_bits() == b.to_bits(),
         (Value::Bool(a), Value::Bool(b)) => a == b,
         _ => false,

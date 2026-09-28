@@ -274,7 +274,7 @@ struct Timer {
 pub struct Runner<D: DataSource> {
     plan: Plan,
     /// The plan's string pool, interned once (`vm::intern`).
-    strings: Vec<exact_plan::Str>,
+    strings: Vec<Value>,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,

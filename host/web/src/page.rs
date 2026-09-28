@@ -280,12 +280,14 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
                 for item in items.iter() {
                     let answer = match item {
                         Value::Record(fields) => match &fields[..] {
-                            [Value::Str(name), Value::Str(source), Value::List(args), value] => (
-                                String::from(&**name),
-                                String::from(&**source),
-                                args.to_vec(),
-                                value.clone(),
-                            ),
+                            [name @ exact_plan::str_value!(), source @ exact_plan::str_value!(), Value::List(args), value] => {
+                                (
+                                    String::from(name.text()),
+                                    String::from(source.text()),
+                                    args.to_vec(),
+                                    value.clone(),
+                                )
+                            }
                             _ => return Err("answers: not a (name, source, args, value)".into()),
                         },
                         _ => return Err("answers: not a record".into()),

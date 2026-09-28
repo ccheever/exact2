@@ -383,7 +383,7 @@ impl DataSource for Markdown {
         if source != "open" {
             return Err(DataError::UnknownSource(source.to_string()));
         }
-        let Some(Value::Str(asked)) = args.first() else {
+        let Some(asked) = args.first().and_then(Value::as_str) else {
             return Err(DataError::BadArguments("open(path)".into()));
         };
         let asked = asked.to_string();
@@ -444,10 +444,11 @@ impl DataSource for Markdown {
         if source != "open" {
             return Err(DataError::UnknownSource(source.to_string()));
         }
-        let asked = match args.first() {
-            Some(Value::Str(s)) => s.to_string(),
-            _ => String::new(),
-        };
+        let asked = args
+            .first()
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         // A storage reply to the open in progress takes its next step.
         if let Some((generation, open, step)) = self.step.take() {
             if generation == self.next && open == asked {

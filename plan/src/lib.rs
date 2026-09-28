@@ -38,7 +38,7 @@ pub mod generated {
 }
 
 pub use generated::*;
-pub use shared::{Items, Str};
+pub use shared::{HeapStr, InlineStr, Items, Str};
 pub use value::Value;
 
 /// Interned string index.

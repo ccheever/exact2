@@ -44,8 +44,8 @@ fn fits(args: &[Value], value: &Value) -> bool {
         let (bytes, children) = match item {
             Value::Number(_) => (9, None),
             Value::Bool(_) => (2, None),
-            Value::Str(s) => {
-                let Some(bytes) = s.len().checked_add(5) else {
+            s @ exact_plan::str_value!() => {
+                let Some(bytes) = s.text().len().checked_add(5) else {
                     return false;
                 };
                 (bytes, None)

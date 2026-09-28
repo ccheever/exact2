@@ -15,7 +15,7 @@ impl DataSource for Stations {
         let station = |id: &str, name: &str| Value::record(vec![Value::str(id), Value::str(name)]);
         match source {
             "stations" => {
-                let asc = matches!(args.first(), Some(Value::Str(s)) if s.as_ref() == "asc");
+                let asc = args.first().and_then(Value::as_str) == Some("asc");
                 let mut rows = vec![station("mv", "Mountain View"), station("pa", "Palo Alto")];
                 if !asc {
                     rows.reverse();

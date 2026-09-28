@@ -442,8 +442,8 @@ impl<D: DataSource> Presenter<D> {
                 // The app's chosen appearance is what a `light-dark()` colour
                 // resolves to here (LLP 1034 D2); `system` is no override.
                 "setScheme" => self.app_scheme(match c.args.first() {
-                    Some(exact_plan::Value::Str(s)) if &**s == "dark" => Some(true),
-                    Some(exact_plan::Value::Str(s)) if &**s == "light" => Some(false),
+                    Some(v) if v.as_str() == Some("dark") => Some(true),
+                    Some(v) if v.as_str() == Some("light") => Some(false),
                     _ => None,
                 }),
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
@@ -461,9 +461,9 @@ impl<D: DataSource> Presenter<D> {
                             .and_then(|id| self.host.kernel().node(id))
                             .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
                     };
-                    if match c.args.first() {
-                        Some(exact_plan::Value::Str(s)) => holds(s),
-                        _ => true,
+                    if match c.args.first().and_then(exact_plan::Value::as_str) {
+                        Some(s) => holds(s),
+                        None => true,
                     } {
                         self.blur();
                     }
@@ -471,8 +471,8 @@ impl<D: DataSource> Presenter<D> {
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
                 // substitute answers (D9).
-                "showPicker" => match c.args.first() {
-                    Some(exact_plan::Value::Str(id)) => self.show_picker(&id.clone()),
+                "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
+                    Some(id) => self.show_picker(&id.to_string()),
                     _ => eprintln!("exact: showPicker requires an element id"),
                 },
                 // @ref LLP 1069.010 D3 — no save panel here: refused with

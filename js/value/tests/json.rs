@@ -425,3 +425,32 @@ fn numbers_are_written_as_the_formatter_wrote_them() {
         assert_eq!(Json::Number(*n).text(), reference(n), "{n:?}");
     }
 }
+
+/// Inline and shared text with the same bytes cross the JSON bridge as one
+/// text, both ways (Charlie, 2026-09-28, LLP 1017.003 "The value's text").
+#[test]
+fn inline_and_shared_text_are_one_text_across_the_bridge() {
+    use exact_js_value::Shape;
+    use exact_plan::Value;
+    for s in [
+        "",
+        "bold",
+        "exactly14bytes",
+        "👍👍👍",
+        "longer than fourteen bytes",
+    ] {
+        let (built, shared) = (Value::str(s), Value::str_shared_for_tests(s));
+        let a = json::encode(&built, &Shape::String).unwrap();
+        let b = json::encode(&shared, &Shape::String).unwrap();
+        assert!(matches!(&a, Json::String(t) if t == s));
+        assert!(same(&a, &b));
+        let back = json::decode(&a, &Shape::String).unwrap();
+        assert_eq!(back, built);
+        assert_eq!(back, shared);
+        assert_eq!(
+            back.str_strong_count().is_none(),
+            s.len() <= exact_plan::InlineStr::CAP,
+            "decode picks inline for short text"
+        );
+    }
+}

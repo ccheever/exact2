@@ -66,7 +66,7 @@ fn hidden(n: &NodeInst, plan: &Plan) -> bool {
         let b = plan.binding(b);
         b.kind == BindingKind::Style
             && b.id == StyleId::Display as u16
-            && matches!(&n.last[i], Some(Value::Str(s)) if s.as_ref() == "none")
+            && n.last[i].as_ref().and_then(Value::as_str) == Some("none")
     })
 }
 
@@ -85,7 +85,10 @@ fn collect(
                     out.push(String::new());
                 }
                 if text {
-                    if let Some(Value::Str(value)) = n.bound_prop(u.env.plan, PropId::Text) {
+                    if let Some(value) = n
+                        .bound_prop(u.env.plan, PropId::Text)
+                        .and_then(Value::as_str)
+                    {
                         if let Some(last) = out.last_mut() {
                             last.push_str(value);
                         }

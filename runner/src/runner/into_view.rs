@@ -8,10 +8,7 @@ impl IntoView {
     /// the key, then `block`, `inline`, `behavior` and `row`, each `none`
     /// where the author left the default.
     pub(super) fn from_command(args: &[Value]) -> Result<IntoView, String> {
-        let text = |v: Option<&Value>| match v {
-            Some(Value::Str(s)) => Some(s.to_string()),
-            _ => None,
-        };
+        let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_string);
         let align = |v: Option<&Value>, default| match text(v) {
             None => Ok(default),
             Some(name) => Align::parse(&name).ok_or(format!("no alignment {name}")),

@@ -8,18 +8,38 @@
 //! names them. Absence is `Option` and nothing else.
 
 use crate::bytes::{Reader, Writer};
-use crate::{FieldsRange, Items, Plan, PlanError, Str, TypeKind, TypesId};
+use crate::{FieldsRange, HeapStr, InlineStr, Items, Plan, PlanError, Str, TypeKind, TypesId};
 use std::rc::Rc;
 
+/// The pattern for text, whichever variant holds it: match text as
+/// `v @ str_value!()` and read it with [`Value::text`] or
+/// [`Value::as_str`], so no caller names one variant alone.
+#[macro_export]
+macro_rules! str_value {
+    () => {
+        $crate::Value::HeapStr(_) | $crate::Value::InlineStr(_)
+    };
+}
+
 /// A runtime value.
-#[derive(Clone, PartialEq)]
+///
+/// Text is two variants, one meaning: [`Value::InlineStr`] holds up to
+/// [`InlineStr::CAP`] bytes in the value itself and [`Value::HeapStr`] the
+/// rest, shared by count. Construction picks ([`Value::str`], `From`); both
+/// payloads are opaque, so text is read through [`Value::as_str`] and
+/// nothing outside this crate matches either variant for its text. A
+/// wildcard arm that meant "not text" must name both, or ask `is_str`
+/// (Charlie, 2026-09-28; LLP 1017.003 §"The value's text").
+#[derive(Clone)]
 pub enum Value {
     /// IEEE 754 binary64.
     Number(f64),
     /// A boolean.
     Bool(bool),
-    /// UTF-8 text.
-    Str(Str),
+    /// UTF-8 text longer than [`InlineStr::CAP`] bytes.
+    HeapStr(HeapStr),
+    /// UTF-8 text of up to [`InlineStr::CAP`] bytes, held inline.
+    InlineStr(InlineStr),
     /// The unit value.
     Unit,
     /// `none` or `some(v)`.
@@ -39,11 +59,54 @@ impl std::fmt::Debug for Value {
                 .field(&exact_num::ShortestDebug(*n))
                 .finish(),
             Value::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
-            Value::Str(s) => f.debug_tuple("Str").field(s).finish(),
+            Value::HeapStr(_) | Value::InlineStr(_) => f
+                .debug_tuple("Str")
+                .field(&self.as_str().unwrap_or_default())
+                .finish(),
             Value::Unit => f.write_str("Unit"),
             Value::Option(o) => f.debug_tuple("Option").field(o).finish(),
             Value::List(items) => f.debug_tuple("List").field(items).finish(),
             Value::Record(fields) => f.debug_tuple("Record").field(fields).finish(),
+        }
+    }
+}
+
+/// Structural equality; text by its bytes, whichever variant holds it.
+impl PartialEq for Value {
+    fn eq(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Unit, Value::Unit) => true,
+            (Value::Option(a), Value::Option(b)) => a == b,
+            (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => a == b,
+            (a, b) => matches!((a.as_str(), b.as_str()), (Some(x), Some(y)) if x == y),
+        }
+    }
+}
+
+impl From<&str> for Value {
+    #[inline]
+    fn from(s: &str) -> Value {
+        Value::str(s)
+    }
+}
+
+impl From<String> for Value {
+    #[inline]
+    fn from(s: String) -> Value {
+        Value::str(&s)
+    }
+}
+
+/// Shared text becomes a value; short text is held inline instead (the
+/// allocation is released when `s` was its last holder).
+impl From<Str> for Value {
+    #[inline]
+    fn from(s: Str) -> Value {
+        match InlineStr::new(&s) {
+            Some(inline) => Value::InlineStr(inline),
+            None => Value::HeapStr(HeapStr(s)),
         }
     }
 }
@@ -56,9 +119,75 @@ impl Default for Value {
 }
 
 impl Value {
-    /// A string value.
+    /// A string value: inline when it fits, else shared.
+    #[inline]
     pub fn str(s: &str) -> Value {
-        Value::Str(Str::from(s))
+        match InlineStr::new(s) {
+            Some(inline) => Value::InlineStr(inline),
+            None => Value::HeapStr(HeapStr(Str::from(s))),
+        }
+    }
+
+    /// The text, for an arm that matched `str_value!()`; empty for any
+    /// other value.
+    #[inline]
+    pub fn text(&self) -> &str {
+        self.as_str().unwrap_or_default()
+    }
+
+    /// Shared text whatever its length: what construction never makes for
+    /// short text, so a consumer's tests can hold the two forms of one text
+    /// side by side. Not for use outside tests.
+    #[doc(hidden)]
+    pub fn str_shared_for_tests(s: &str) -> Value {
+        Value::HeapStr(HeapStr(Str::from(s)))
+    }
+
+    /// Whether the value is text.
+    #[inline]
+    pub fn is_str(&self) -> bool {
+        matches!(self, Value::HeapStr(_) | Value::InlineStr(_))
+    }
+
+    /// The text as shared text: the value's own allocation, or a new one for
+    /// inline text. For a caller that keeps text beyond the value.
+    pub fn to_shared_str(&self) -> Option<Str> {
+        match self {
+            Value::HeapStr(s) => Some(s.0.clone()),
+            Value::InlineStr(s) => Some(Str::from(s.as_str())),
+            _ => None,
+        }
+    }
+
+    /// Whether two texts are the same object: one allocation, or equal
+    /// inline bytes (equal text, indistinguishable). `false` when either
+    /// is not text.
+    #[inline]
+    pub fn same_str(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::HeapStr(a), Value::HeapStr(b)) => Str::ptr_eq(&a.0, &b.0),
+            (Value::InlineStr(a), Value::InlineStr(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    /// How many hold shared text's allocation; `None` for inline text,
+    /// which has none, and for anything that is not text.
+    pub fn str_strong_count(&self) -> Option<usize> {
+        match self {
+            Value::HeapStr(s) => Some(Str::strong_count(&s.0)),
+            _ => None,
+        }
+    }
+
+    /// An identity for hashing what [`Value::same_str`] compares: the
+    /// allocation, or the inline text's bytes.
+    pub fn str_identity(&self) -> Option<u64> {
+        match self {
+            Value::HeapStr(s) => Some(s.0.addr() as u64),
+            Value::InlineStr(s) => Some(text_hash(s.as_str()) | 1),
+            _ => None,
+        }
     }
 
     /// `some(v)`.
@@ -87,10 +216,12 @@ impl Value {
         }
     }
 
-    /// The text, if it is one.
+    /// The text, if it is one: the one way text is read (both variants).
+    #[inline]
     pub fn as_str(&self) -> Option<&str> {
         match self {
-            Value::Str(s) => Some(s),
+            Value::HeapStr(s) => Some(&s.0),
+            Value::InlineStr(s) => Some(s.as_str()),
             _ => None,
         }
     }
@@ -110,7 +241,7 @@ impl Value {
         match (row.kind, self) {
             (TypeKind::Number, Value::Number(n)) => n.is_finite(),
             (TypeKind::Bool, Value::Bool(_)) => true,
-            (TypeKind::String, Value::Str(_)) => true,
+            (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => true,
             (TypeKind::Unit, Value::Unit) => true,
             (TypeKind::Option, Value::Option(None)) => true,
             (TypeKind::Option, Value::Option(Some(v))) => {
@@ -142,9 +273,9 @@ impl Value {
                 w.u8(1);
                 w.u8(*b as u8);
             }
-            Value::Str(s) => {
+            Value::HeapStr(_) | Value::InlineStr(_) => {
                 w.u8(2);
-                w.string(s);
+                w.string(self.as_str().unwrap_or_default());
             }
             Value::Unit => w.u8(3),
             Value::Option(None) => w.u8(4),
@@ -208,7 +339,10 @@ impl Value {
             2 => {
                 let s = r.str()?;
                 pool.unique = s.len() > Strings::SHORT;
-                return Ok(Value::Str(pool.strings.get(s)));
+                return Ok(match InlineStr::new(s) {
+                    Some(inline) => Value::InlineStr(inline),
+                    None => Value::HeapStr(HeapStr(pool.strings.get(s))),
+                });
             }
             3 => Value::Unit,
             4 => Value::Option(None),
@@ -257,7 +391,8 @@ fn mix(h: u64, x: u64) -> u64 {
     (h.rotate_left(5) ^ x).wrapping_mul(0x517c_c1b7_2722_0a95)
 }
 
-/// Identical short strings in one decoded value share one allocation: a
+/// Identical short strings in one decoded value share one allocation (text
+/// of [`InlineStr::CAP`] bytes or less has none; this is the rest): a
 /// baked list repeats its authors, file names, style names and small
 /// numbers as text, and a separate allocation for each copy is most of a
 /// string's cost. Sharing is sound where identity is compared
@@ -370,7 +505,7 @@ fn shallow_hash(v: &Value) -> u64 {
     match v {
         Value::Number(n) => mix(1, n.to_bits()),
         Value::Bool(b) => 2 + *b as u64,
-        Value::Str(s) => mix(3, s.addr() as u64),
+        Value::HeapStr(_) | Value::InlineStr(_) => mix(3, v.str_identity().unwrap_or(0)),
         Value::Unit => 4,
         Value::Option(None) => 5,
         Value::Option(Some(v)) => mix(6, Rc::as_ptr(v) as usize as u64),
@@ -385,7 +520,7 @@ fn shallow_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
         (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => Str::ptr_eq(a, b),
+        (Value::HeapStr(_) | Value::InlineStr(_), _) => Value::same_str(a, b),
         (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
         (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
         (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
@@ -429,7 +564,7 @@ mod debug_tests {
         match v {
             Value::Number(n) => Derived::Number(*n),
             Value::Bool(b) => Derived::Bool(*b),
-            Value::Str(s) => Derived::Str(Rc::from(&**s)),
+            Value::HeapStr(_) | Value::InlineStr(_) => Derived::Str(Rc::from(v.as_str().unwrap())),
             Value::Unit => Derived::Unit,
             Value::Option(o) => Derived::Option(o.as_deref().map(|v| Rc::new(derived(v)))),
             Value::List(items) => Derived::List(all(items)),
@@ -485,8 +620,8 @@ mod decode_tests {
         items
             .iter()
             .map(|v| match v {
-                Value::Str(s) => s.clone(),
-                _ => panic!("a string"),
+                Value::HeapStr(s) => s.0.clone(),
+                _ => panic!("a shared string"),
             })
             .collect()
     }
@@ -497,7 +632,13 @@ mod decode_tests {
     fn repeated_short_strings_share_one_allocation() {
         let long = "x".repeat(25);
         let items: Vec<Value> = (0..200)
-            .map(|i| Value::str(if i % 2 == 0 { "bold" } else { &long }))
+            .map(|i| {
+                Value::str(if i % 2 == 0 {
+                    "semibold condensed"
+                } else {
+                    &long
+                })
+            })
             .collect();
         let big = Value::List(Items::from(items));
         let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
@@ -505,7 +646,10 @@ mod decode_tests {
         let s = strs(&decoded);
         assert!(Str::ptr_eq(&s[198], &s[196]), "late repeats share");
         assert!(!Str::ptr_eq(&s[199], &s[197]), "long strings stay separate");
-        let small = Value::List(Items::from(vec![Value::str("bold"), Value::str("bold")]));
+        let small = Value::List(Items::from(vec![
+            Value::str("semibold condensed"),
+            Value::str("semibold condensed"),
+        ]));
         let s = strs(&Value::from_bytes(&small.to_bytes()).unwrap());
         assert!(!Str::ptr_eq(&s[0], &s[1]), "a small value makes no table");
     }
@@ -575,4 +719,94 @@ mod decode_tests {
 fn a_value_is_sixteen_bytes() {
     assert_eq!(std::mem::size_of::<Value>(), 16);
     assert_eq!(std::mem::size_of::<Option<Value>>(), 16);
+    assert_eq!(std::mem::size_of::<InlineStr>(), 15);
+}
+
+const _: () = assert!(std::mem::size_of::<Value>() == 16);
+
+#[cfg(test)]
+mod text_tests {
+    use super::Value;
+    use crate::bytes::Writer;
+    use crate::{HeapStr, InlineStr, Str};
+
+    /// Construction picks: text of up to 14 bytes (not characters) inline,
+    /// longer text shared.
+    #[test]
+    fn construction_picks_inline_for_short_text() {
+        for (s, inline) in [
+            ("", true),
+            ("bold", true),
+            ("exactly14bytes", true),
+            ("fifteen bytes!!", false),
+            ("é".repeat(7).as_str(), true),
+            ("é".repeat(8).as_str(), false),
+            ("👍👍👍", true),
+            ("👍👍👍👍", false),
+        ] {
+            let v = Value::str(s);
+            assert_eq!(matches!(v, Value::InlineStr(_)), inline, "{s:?}");
+            assert_eq!(v.as_str(), Some(s));
+            assert!(v.is_str());
+            let from_str = Value::from(Str::from(s));
+            assert_eq!(
+                matches!(from_str, Value::InlineStr(_)),
+                inline,
+                "From<Str> {s:?}"
+            );
+            assert_eq!(Value::from(s), v);
+            assert_eq!(Value::from(s.to_string()), v);
+        }
+    }
+
+    /// Inline and shared text with the same bytes are one value to every
+    /// comparison and to the encoding; a hand-made shared short string (which
+    /// construction never makes) proves it.
+    #[test]
+    fn inline_and_heap_text_are_identical() {
+        for s in ["", "bold", "exactly14bytes", "👍👍👍"] {
+            let inline = Value::str(s);
+            assert!(matches!(inline, Value::InlineStr(_)));
+            let heap = Value::HeapStr(HeapStr(Str::from(s)));
+            assert_eq!(inline, heap);
+            assert_eq!(heap, inline);
+            assert_eq!(inline.to_bytes(), heap.to_bytes());
+            assert_eq!(format!("{inline:?}"), format!("{heap:?}"));
+            assert_eq!(inline.to_shared_str().unwrap().as_str(), s);
+            let decoded = Value::from_bytes(&heap.to_bytes()).unwrap();
+            assert!(
+                matches!(decoded, Value::InlineStr(_)),
+                "decode picks inline"
+            );
+            assert_eq!(decoded, heap);
+            let mut w = Writer::default();
+            w.string(s);
+            let mut tagged = vec![2];
+            tagged.extend(w.into_vec());
+            assert_eq!(inline.to_bytes(), tagged, "the encoding is the text's");
+        }
+        assert_ne!(Value::str("bold"), Value::str("bolder"));
+        assert_ne!(Value::str("bold"), Value::Number(1.0));
+        let long = "x".repeat(30);
+        assert_eq!(
+            Value::str(&long),
+            Value::HeapStr(HeapStr(Str::from(long.as_str())))
+        );
+    }
+
+    /// `same_str`: one allocation for shared text, equal bytes for inline.
+    #[test]
+    fn same_text_is_identity_or_equal_inline_bytes() {
+        let a = Value::str("bold");
+        let b = Value::str("bold");
+        assert!(Value::same_str(&a, &b));
+        assert_eq!(a.str_identity(), b.str_identity());
+        assert!(!Value::same_str(&a, &Value::str("bolt")));
+        let long = "y".repeat(20);
+        let (x, y) = (Value::str(&long), Value::str(&long));
+        assert!(!Value::same_str(&x, &y), "two allocations");
+        assert!(Value::same_str(&x, &x.clone()));
+        assert!(!Value::same_str(&a, &Value::Number(0.0)));
+        assert_eq!(InlineStr::CAP, 14);
+    }
 }

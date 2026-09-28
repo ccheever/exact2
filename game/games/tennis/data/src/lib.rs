@@ -240,12 +240,13 @@ mod tests {
             headers: vec![],
             body: REPLY.as_bytes().to_vec(),
         });
-        let Answer::Now(Value::Str(plan)) = jev
+        let Answer::Now(plan) = jev
             .parse(&mut store, "jev", &[Value::str(ASK)], reply)
             .unwrap()
         else {
             panic!()
         };
+        let plan = plan.text();
         let plan: Json = serde_json::from_str(&plan).unwrap();
         assert_eq!(plan["id"], 7);
         assert_eq!(plan["ok"], true);
@@ -257,12 +258,13 @@ mod tests {
             headers: vec![],
             body: vec![],
         });
-        let Answer::Now(Value::Str(plan)) = jev
+        let Answer::Now(plan) = jev
             .parse(&mut store, "jev", &[Value::str(ASK)], refused)
             .unwrap()
         else {
             panic!()
         };
+        let plan = plan.text();
         assert!(plan.contains("\"ok\":false") && plan.contains("key refused"));
     }
 }

@@ -91,7 +91,7 @@ impl Picker {
             Kind::Directory => "showDirectoryPicker takes (id)",
             Kind::Save => "showSaveFilePicker takes (id, suggestedName)",
         };
-        let Some(Value::Str(id)) = args.first() else {
+        let Some(id) = args.first().and_then(Value::as_str) else {
             return Err(usage.into());
         };
         let mut picker = Picker {
@@ -103,7 +103,9 @@ impl Picker {
         match (kind, &args[1..]) {
             (Kind::Open, []) | (Kind::Directory, []) => {}
             (Kind::Open, [Value::Bool(multiple)]) => picker.multiple = *multiple,
-            (Kind::Save, [Value::Str(name)]) => picker.suggested_name = name.to_string(),
+            (Kind::Save, [name @ exact_plan::str_value!()]) => {
+                picker.suggested_name = name.text().to_string()
+            }
             _ => return Err(usage.into()),
         }
         picker.checked()
@@ -234,7 +236,7 @@ mod tests {
 
     #[test]
     fn each_picker_takes_its_own_arguments() {
-        let s = |v: &str| Value::Str(v.into());
+        let s = Value::str;
         let open = Picker::from_args(Kind::Open, &[s("f")]).unwrap();
         assert_eq!(open.summary(), r#"{"id":"f","multiple":false}"#);
         let many = Picker::from_args(Kind::Open, &[s("f"), Value::Bool(true)]).unwrap();

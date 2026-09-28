@@ -75,7 +75,7 @@ impl BindingScalar {
             Value::Unit => Self::Unit,
             Value::Bool(b) => Self::Bool(*b),
             Value::Number(n) if n.is_finite() => Self::Number(n.to_bits()),
-            Value::Str(s) => return Self::string(s, string_bytes),
+            v @ exact_plan::str_value!() => return Self::string(v.text(), string_bytes),
             _ => return Err(ActionBindingRefusal::Unsupported),
         })
     }
@@ -1045,9 +1045,10 @@ mod retained_binding_tests {
                 Err(ActionBindingRefusal::Unsupported)
             );
         }
-        let text = exact_plan::Str::from("retained-id");
+        // Longer than inline text, so the parent shares an allocation.
+        let text = exact_plan::Str::from("retained-id-of-a-parent-row");
         let parent = Value::record(vec![
-            Value::Str(text.clone()),
+            Value::from(text.clone()),
             Value::list(vec![Value::Unit; 1024]),
         ]);
         let Value::Record(fields) = &parent else {
@@ -1058,7 +1059,10 @@ mod retained_binding_tests {
         assert_eq!(exact_plan::Str::strong_count(&text), before);
         drop(parent);
         assert_eq!(exact_plan::Str::strong_count(&text), 1);
-        assert_eq!(scalar, BindingScalar::String("retained-id".into()));
+        assert_eq!(
+            scalar,
+            BindingScalar::String("retained-id-of-a-parent-row".into())
+        );
         assert_ne!(
             BindingScalar::capture(&Value::Number(0.0), &mut n),
             BindingScalar::capture(&Value::Number(-0.0), &mut n)

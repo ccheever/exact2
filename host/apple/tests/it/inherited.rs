@@ -448,7 +448,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     impl DataSource for InlineData {
         fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
             Ok(Value::list(if args == [Value::Bool(true)] {
-                vec![Value::Str("added".into())]
+                vec![Value::str("added")]
             } else {
                 vec![]
             }))

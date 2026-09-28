@@ -553,7 +553,7 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
         }
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Str(s) => quote(s, out),
+        v @ exact_plan::str_value!() => quote(v.text(), out),
         Value::Option(Some(inner)) => value_json(inner, out),
         Value::List(items) | Value::Record(items) => {
             out.push('[');
@@ -632,7 +632,7 @@ mod finish_bytes_tests {
                                 name: "ordinary".into(),
                                 mode: exact_plan::SurfaceArgsMode::Positional,
                                 names: vec![],
-                                values: vec![exact_plan::Value::Str("日本語".into())],
+                                values: vec![exact_plan::Value::str("日本語")],
                             });
                             batch.command("focus", &[exact_plan::Value::Number(1.)], None);
                             batch.destroy(3);

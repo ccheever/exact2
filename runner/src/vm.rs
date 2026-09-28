@@ -11,7 +11,7 @@
 
 use crate::stdlib;
 use exact_plan::bytes::Reader;
-use exact_plan::{Items, Opcode, Operand, Plan, Stdlib, Str, Value};
+use exact_plan::{Items, Opcode, Operand, Plan, Stdlib, Value};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -82,10 +82,11 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
-    /// The plan's string pool, interned once per runner ([`intern`]): a
-    /// string literal is a shared `Rc`, never a fresh allocation, and two
-    /// evaluations of one literal are the same object.
-    pub strings: &'a [Str],
+    /// The plan's string pool, interned once per runner ([`intern`]) as
+    /// values: a string literal is inline text or one shared allocation,
+    /// never a fresh one, and two evaluations of one literal are the same
+    /// object.
+    pub strings: &'a [Value],
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
@@ -236,9 +237,9 @@ impl Extent {
     fn scalar(v: &Value) -> Option<Extent> {
         match v {
             Value::List(_) | Value::Record(_) | Value::Option(Some(_)) => None,
-            Value::Str(s) => Some(Extent {
+            v if v.is_str() => Some(Extent {
                 nodes: 1,
-                bytes: s.len() as u64,
+                bytes: v.as_str().unwrap_or_default().len() as u64,
                 depth: 0,
             }),
             _ => Some(Extent {
@@ -328,7 +329,7 @@ fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), T
     total.nodes += 1;
     total.depth = total.depth.max(depth);
     match v {
-        Value::Str(s) => total.bytes += s.len() as u64,
+        v if v.is_str() => total.bytes += v.as_str().unwrap_or_default().len() as u64,
         Value::Option(Some(inner)) => {
             total.check(pc)?;
             measure(inner, depth + 1, total, pc)?;
@@ -364,9 +365,12 @@ pub struct Outcome {
     pub store_dependent: bool,
 }
 
-/// The plan's string pool as shared strings, for [`Env::strings`].
-pub fn intern(plan: &Plan) -> Vec<Str> {
-    plan.strings.iter().map(|s| Str::from(s.as_str())).collect()
+/// The plan's string pool as values, for [`Env::strings`].
+pub fn intern(plan: &Plan) -> Vec<Value> {
+    plan.strings
+        .iter()
+        .map(|s| Value::str(s.as_str()))
+        .collect()
 }
 
 /// One decoded instruction: its opcode and operands in declared order,
@@ -534,12 +538,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
         match op {
             Opcode::Number => stack.push(Value::Number(f64_arg)),
             Opcode::Bool => stack.push(Value::Bool(args[0] != 0)),
-            Opcode::Str => stack.push(Value::Str(
+            Opcode::Str => stack.push(
                 env.strings
                     .get(args[0] as usize)
                     .ok_or(malformed(pc))?
                     .clone(),
-            )),
+            ),
             Opcode::None => stack.push(Value::NONE),
             Opcode::Unit => stack.push(Value::Unit),
             Opcode::Some => {
@@ -679,7 +683,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 if json.len() > MAX_STRING {
                     return Err(Trap::StringTooLong { pc });
                 }
-                stack.push(Value::Str(Str::from(json)));
+                stack.push(Value::str(&json));
             }
             Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
             Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),
@@ -707,14 +711,14 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             Opcode::Concat => {
                 let b = pop!(pc);
                 let a = pop!(pc);
-                match (a, b) {
-                    (Value::Str(a), Value::Str(b)) => {
+                match (a.as_str(), b.as_str()) {
+                    (Some(a), Some(b)) => {
                         if a.len() + b.len() > MAX_STRING {
                             return Err(Trap::StringTooLong { pc });
                         }
                         stack.push(stdlib::assembled(|s| {
-                            s.push_str(&a);
-                            s.push_str(&b);
+                            s.push_str(a);
+                            s.push_str(b);
                         }));
                     }
                     _ => return Err(Trap::TypeMismatch { pc, op }),
@@ -1261,7 +1265,7 @@ mod tests {
             eval(plan.code(code), &env, &[]).map(|o| o.value)
         };
         assert!(
-            matches!(joined(MAX_LIST_STEPS), Ok(Value::Str(s)) if s.len() == MAX_LIST_STEPS as usize)
+            matches!(joined(MAX_LIST_STEPS), Ok(s) if s.as_str().map(str::len) == Some(MAX_LIST_STEPS as usize))
         );
         assert!(matches!(
             joined(MAX_LIST_STEPS + 1),

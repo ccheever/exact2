@@ -8,7 +8,7 @@
 //! call names, by design: a deterministic string is what the corpus and the
 //! agent compare, and the web's `Intl` is its oracle.
 
-use exact_plan::{Plan, Stdlib, Str, Value};
+use exact_plan::{Plan, Stdlib, Value};
 
 /// Why a standard function could not produce its value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub fn call(
             },
             crate::vm::MAX_STRING,
         )
-        .map(|s| Value::Str(Str::from(s)))
+        .map(|s| Value::str(&s))
         .ok_or(CallError::StringTooLong);
     }
     call_value(f, args, now_ms, plan, router, format).ok_or(CallError::TypeMismatch)
@@ -93,17 +93,16 @@ fn call_value(
             }
         }
         Stdlib::Contains => Value::Bool(args.first()?.as_str()?.contains(args.get(1)?.as_str()?)),
-        Stdlib::Trim => match args.first()? {
-            Value::Str(s) => {
-                let trimmed = s.trim_matches(is_js_space);
-                if trimmed.len() == s.len() {
-                    Value::Str(s.clone())
-                } else {
-                    Value::str(trimmed)
-                }
+        Stdlib::Trim => {
+            let v = args.first()?;
+            let s = v.as_str()?;
+            let trimmed = s.trim_matches(is_js_space);
+            if trimmed.len() == s.len() {
+                v.clone()
+            } else {
+                Value::str(trimmed)
             }
-            _ => return None,
-        },
+        }
         Stdlib::Now => Value::Number(now_ms),
         Stdlib::FormatTime => match args.get(2)?.as_str()? {
             "short" => format_time(num(0)?, num(1)?),
@@ -130,18 +129,16 @@ fn call_value(
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.
-            Value::Str(s) => s.encode_utf16().count() as f64,
-            _ => return None,
+            v => v.as_str()?.encode_utf16().count() as f64,
         }),
         Stdlib::IsEmpty => Value::Bool(match args.first()? {
             Value::List(items) => items.is_empty(),
-            Value::Str(s) => s.is_empty(),
-            _ => return None,
+            v => v.as_str()?.is_empty(),
         }),
         Stdlib::ToString => match args.first()? {
             Value::Number(n) => assembled(|s| push_number(*n, s)),
             Value::Bool(b) => Value::str(if *b { "true" } else { "false" }),
-            Value::Str(s) => Value::Str(s.clone()),
+            v if v.is_str() => v.clone(),
             _ => return None,
         },
         Stdlib::First => match args.first()? {
@@ -174,11 +171,14 @@ pub enum JoinError {
 /// over strings, numbers and bools, each printed as `toString` prints it, in
 /// at most `limit` bytes.
 pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
-    let [Value::List(items), Value::Str(separator)] = args else {
+    let [Value::List(items), separator] = args else {
         return Err(JoinError::Type);
     };
-    if let [Value::Str(only)] = &items[..] {
-        return Ok(Value::Str(only.clone()));
+    let separator = separator.as_str().ok_or(JoinError::Type)?;
+    if let [only] = &items[..] {
+        if only.is_str() {
+            return Ok(only.clone());
+        }
     }
     let mut result = Ok(());
     let v = assembled(|out| {
@@ -187,7 +187,7 @@ pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
                 out.push_str(separator);
             }
             match item {
-                Value::Str(s) => out.push_str(s),
+                v if v.is_str() => out.push_str(v.as_str().unwrap_or_default()),
                 Value::Number(n) => push_number(*n, out),
                 Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
                 _ => {
@@ -233,7 +233,7 @@ pub fn native_props(pairs: &[Value]) -> Option<String> {
             v => v,
         };
         let text = match value {
-            Value::Str(s) => s.to_string(),
+            v if v.is_str() => v.as_str().unwrap_or_default().to_string(),
             Value::Number(n) => format_number(*n),
             Value::Bool(b) => b.to_string(),
             _ => return None,
@@ -491,10 +491,10 @@ mod tests {
             assert_eq!(trim(text), Ok(Value::str(expected)), "{text:?}");
         }
         // Nothing to strip: the same string, not a copy.
-        let s = Str::from("kept");
-        let Ok(Value::Str(out)) = call(
+        let s = Value::str("kept text longer than fourteen bytes");
+        let Ok(out) = call(
             Stdlib::Trim,
-            &[Value::Str(s.clone())],
+            std::slice::from_ref(&s),
             0.0,
             &plan,
             None,
@@ -502,6 +502,6 @@ mod tests {
         ) else {
             panic!("trim answers a string");
         };
-        assert!(Str::ptr_eq(&s, &out));
+        assert!(Value::same_str(&s, &out));
     }
 }

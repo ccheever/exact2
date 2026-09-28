@@ -105,8 +105,8 @@ impl Place {
     /// Fill a declared field; the date's fields are [`WallTime`]'s.
     pub fn field(&self, name: &str) -> Option<Value> {
         match name {
-            "locale" => Some(Value::Str(self.locale.as_str().into())),
-            "timeZone" => Some(Value::Str(self.time_zone.as_str().into())),
+            "locale" => Some(Value::str(&self.locale)),
+            "timeZone" => Some(Value::str(&self.time_zone)),
             "seed" => Some(Value::Number(self.seed)),
             _ => None,
         }

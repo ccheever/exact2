@@ -91,7 +91,7 @@ fn shaped(
         (TypeKind::Unit, None | Some(Json::Null)) => Value::Unit,
         (TypeKind::Number, Some(Json::Scalar(v @ Value::Number(_))))
         | (TypeKind::Bool, Some(Json::Scalar(v @ Value::Bool(_))))
-        | (TypeKind::String, Some(Json::Scalar(v @ Value::Str(_)))) => v.clone(),
+        | (TypeKind::String, Some(Json::Scalar(v @ exact_plan::str_value!()))) => v.clone(),
         (TypeKind::Option, None | Some(Json::Null)) => Value::NONE,
         (TypeKind::Option, Some(v)) => Value::some(shaped(
             plan,

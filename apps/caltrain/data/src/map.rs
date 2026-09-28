@@ -33,10 +33,7 @@ fn number(v: Option<&Value>) -> Option<f64> {
 }
 
 fn text(v: Option<&Value>) -> Option<&str> {
-    match v? {
-        Value::Str(s) => Some(s),
-        _ => None,
-    }
+    v?.as_str()
 }
 
 /// Progress of the next northbound train toward the selected station, 0–1:

@@ -305,7 +305,7 @@ fn lists<'a>(children: &'a mut [Child], plan: &Plan, frames: &[Frame], out: &mut
         match child {
             Child::Node(node) => {
                 let id = match node.bound_prop(plan, PropId::Id) {
-                    Some(Value::Str(s)) => Some(s.clone()),
+                    Some(v @ exact_plan::str_value!()) => v.to_shared_str(),
                     _ => None,
                 };
                 match &mut node.collection {
@@ -386,7 +386,7 @@ impl Collection {
     /// A key's row identity here, or why it is refused (LLP 1070.000 §2.2).
     fn resolve(&self, key: &Value) -> Result<String, String> {
         // The agent types a key as text; a list keyed by numbers reads it as one.
-        if let Value::Str(s) = key {
+        if let Some(s) = key.as_str() {
             if let Ok(n) = s.parse::<f64>() {
                 if let Ok(found) = self.resolve_exactly(&Value::Number(n)) {
                     return Ok(found);

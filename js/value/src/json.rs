@@ -44,7 +44,7 @@ pub fn encode(v: &Value, shape: &Shape) -> Result<Json, String> {
             Json::Number(Number::Float(*n))
         }
         (Shape::Bool, Value::Bool(b)) => Json::Bool(*b),
-        (Shape::String, Value::Str(s)) => Json::String(String::from(&**s)),
+        (Shape::String, s @ exact_plan::str_value!()) => Json::String(String::from(s.text())),
         (Shape::Unit, Value::Unit) => Json::Null,
         (Shape::Option(_), Value::Option(None)) => Json::Null,
         (Shape::Option(inner), Value::Option(Some(v))) => encode(v, inner)?,

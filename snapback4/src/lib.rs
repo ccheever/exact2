@@ -261,12 +261,12 @@ impl DataSource for Module {
         if !self.active {
             return Err(DataError::Unavailable("Snapback4 is not activated".into()));
         }
-        let [Value::Str(request)] = args else {
+        let [request @ exact_plan::str_value!()] = args else {
             return Err(DataError::BadArguments(
                 "snapback4 takes one JSON request string".into(),
             ));
         };
-        let request = serde_json::from_str(request)
+        let request = serde_json::from_str(request.text())
             .map_err(|e| DataError::BadArguments(format!("Snapback4 request: {e}")))?;
         self.call(&request)
             .map(|answer| Value::str(&answer.to_string()))

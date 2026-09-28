@@ -16,11 +16,10 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
             _ => panic!("expected fields or items"),
         }
     }
+    // One allocation for shared text; equal bytes for inline text, which has none.
     fn shared(a: &Value, b: &Value) {
-        let (Value::Str(a), Value::Str(b)) = (a, b) else {
-            panic!("expected strings");
-        };
-        assert!(exact_plan::Str::ptr_eq(a, b));
+        assert!(a.is_str() && b.is_str(), "expected strings");
+        assert!(Value::same_str(a, b));
     }
     let doc = here("alpha **β** [site](next.md)\n\nalpha **β** [site](next.md)");
     let value = markdown_parse::value::blocks(&doc);
@@ -46,10 +45,7 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     assert_eq!(Value::from_bytes(&value.to_bytes()).unwrap(), value);
     // A separate conversion has independent ownership; closing a document
     // must not leave its content in an intern pool.
-    let Value::Str(text) = &first[1] else {
-        unreachable!();
-    };
-    let kept = text.clone();
+    let kept = first[1].to_shared_str().expect("a string");
     drop(value);
     assert_eq!(exact_plan::Str::strong_count(&kept), 1);
     assert_eq!(

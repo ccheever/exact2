@@ -9,7 +9,7 @@ impl DataSource for Data {
     fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
         if name == "blob" {
             Ok(Value::Record(
-                vec![Value::Str("giant α body ".repeat(8192).into())].into(),
+                vec![Value::str(&"giant α body ".repeat(8192))].into(),
             ))
         } else if name == "numbers" {
             Ok(Value::List(

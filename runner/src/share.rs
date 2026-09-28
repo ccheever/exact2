@@ -41,11 +41,8 @@ impl Share {
         let at = |i: usize| -> Result<Option<String>, String> {
             match args.get(i) {
                 None | Some(Value::Option(None)) => Ok(None),
-                Some(Value::Str(s)) => Ok(Some(s.to_string())),
-                Some(Value::Option(Some(v))) if matches!(&**v, Value::Str(_)) => {
-                    let Value::Str(s) = &**v else { unreachable!() };
-                    Ok(Some(s.to_string()))
-                }
+                Some(s @ exact_plan::str_value!()) => Ok(Some(s.text().to_string())),
+                Some(Value::Option(Some(v))) if v.is_str() => Ok(Some(v.text().to_string())),
                 Some(_) => Err("arguments are strings".into()),
             }
         };
@@ -194,7 +191,7 @@ mod tests {
     use super::*;
 
     fn s(v: &str) -> Value {
-        Value::Str(v.into())
+        Value::str(v)
     }
 
     #[test]

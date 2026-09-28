@@ -931,7 +931,7 @@ pub fn typed_json(plan: &Plan, ty: TypesId, v: &Value, out: &mut String) {
             let _ = write!(out, "{}", num(*n));
         }
         (_, Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
-        (_, Value::Str(s)) => quote(s, out),
+        (_, v @ exact_plan::str_value!()) => quote(v.text(), out),
         (_, Value::Unit) | (_, Value::Option(None)) => out.push_str("null"),
         (TypeKind::Option, Value::Option(Some(inner))) => match row.elem {
             Some(elem) => typed_json(plan, elem, inner, out),
@@ -975,7 +975,7 @@ pub fn untyped_json(v: &Value, out: &mut String) {
             let _ = write!(out, "{}", num(*n));
         }
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Str(s) => quote(s, out),
+        v @ exact_plan::str_value!() => quote(v.text(), out),
         Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Option(Some(inner)) => untyped_json(inner, out),
         Value::List(items) | Value::Record(items) => {

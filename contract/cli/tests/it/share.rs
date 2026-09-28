@@ -48,15 +48,15 @@ fn named_arguments_lower_in_the_web_share_order_with_the_pressed_node() {
     assert_eq!(
         c.args,
         vec![
-            Value::Str("A post".into()),
+            Value::str("A post"),
             Value::Option(None),
-            Value::Str("https://example.com/post/1".into())
+            Value::str("https://example.com/post/1")
         ]
     );
     assert_eq!(c.source, Some(pressed));
     let pressed = press(&mut r, "share-text");
     let c = r.take_commands().pop().unwrap();
-    assert_eq!(c.args[1], Value::Str("hello from exact2".into()));
+    assert_eq!(c.args[1], Value::str("hello from exact2"));
     assert_eq!(
         (c.args[2].clone(), c.source),
         (Value::Option(None), Some(pressed))

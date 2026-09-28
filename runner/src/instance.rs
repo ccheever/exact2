@@ -251,7 +251,7 @@ pub fn value_json(value: &Value, out: &mut String) {
         }
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Str(s) => crate::agent::quote(s, out),
+        v @ exact_plan::str_value!() => crate::agent::quote(v.text(), out),
         Value::Option(Some(v)) => value_json(v, out),
         Value::List(items) | Value::Record(items) => {
             out.push('[');
@@ -933,7 +933,7 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 /// VM's equality), bools. NaN is not a key.
 fn key_text(v: &Value) -> Option<String> {
     match v {
-        Value::Str(s) => Some(exact_num::text!("s:{}", s)),
+        v @ exact_plan::str_value!() => Some(exact_num::text!("s:{}", v.text())),
         Value::Number(n) if n.is_finite() => Some(exact_num::text!(
             "n:{}",
             exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })

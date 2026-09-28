@@ -86,15 +86,14 @@ fn one_tick_reuses_9968_records_and_replaces_only_the_32_changed_bodies() {
     for i in 9968..10_000 {
         assert!(!shared_record(&rows(&before)[i], &rows(&after)[i]));
         for field in [0, 1, 4] {
-            let (Value::Str(a), Value::Str(b)) = (
+            let (a, b) = (
                 &record(&rows(&before)[i])[field],
                 &record(&rows(&after)[i])[field],
-            ) else {
-                panic!("string field")
-            };
+            );
+            assert!(a.is_str() && b.is_str(), "string field");
             assert!(
-                exact_plan::Str::ptr_eq(a, b),
-                "unchanged id/sender/meta stay shared"
+                Value::same_str(a, b),
+                "unchanged id/sender/meta stay shared (inline text: equal bytes)"
             );
         }
     }

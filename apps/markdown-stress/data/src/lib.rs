@@ -68,14 +68,15 @@ impl DocumentArgs {
         if source != "document" {
             return Err(DataError::UnknownSource(source.into()));
         }
-        let [Value::Str(profile), budget, revision, page, Value::Bool(eager), Value::Bool(single)] =
+        let [profile @ exact_plan::str_value!(), budget, revision, page, Value::Bool(eager), Value::Bool(single)] =
             args
         else {
             return Err(DataError::BadArguments(
                 "document(profile, budget, revision, page, eager, single)".into(),
             ));
         };
-        let profile = Profile::parse(profile).map_err(|e| DataError::BadArguments(e.into()))?;
+        let profile =
+            Profile::parse(profile.text()).map_err(|e| DataError::BadArguments(e.into()))?;
         let budget = integer(budget, fixture::MAX_BYTES)?;
         let revision = integer(revision, 1000)?;
         let page = integer(page, fixture::MAX_BYTES)?;

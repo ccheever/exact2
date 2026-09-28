@@ -30,7 +30,9 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         value: value.clone(),
     };
     let out = match (prop.kind(), value) {
-        (exact_kernel::PropKind::Str, Value::Str(s)) => PropValue::Str(String::from(&**s)),
+        (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
+            PropValue::Str(String::from(v.text()))
+        }
         (exact_kernel::PropKind::Str, Value::Number(n)) => {
             PropValue::Str(crate::stdlib::format_number(*n))
         }
@@ -73,7 +75,7 @@ pub fn set_style(
     }
     let style_value = match value {
         Value::Number(n) => StyleValue::Number(*n),
-        Value::Str(s) => match s.as_ref() {
+        v @ exact_plan::str_value!() => match v.text() {
             "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
             // A lone percentage is one; other text ending in `%` is a CSS
             // value (`transform-origin: 0 100%`), as the compiler reads it.

@@ -36,14 +36,15 @@ pub(crate) fn parse_bindings(text: &str) -> Result<(Option<Vec<String>>, Vec<Val
     let mut values = Vec::new();
     if p.s.get(p.i) != Some(&b'}') {
         loop {
-            let Value::Str(name) = p.value()? else {
+            let name = p.value()?;
+            let Some(name) = name.as_str() else {
                 return Err("expected an argument name".into());
             };
             p.ws();
             if name.is_empty() {
                 return Err("empty surface argument name".into());
             }
-            if names.iter().any(|n| n == name.as_ref()) {
+            if names.iter().any(|n| n == name) {
                 return Err(format!("duplicate surface argument `{name}`"));
             }
             if p.s.get(p.i) != Some(&b':') {
@@ -254,10 +255,9 @@ pub fn number(v: &Value, what: &str) -> Result<f64, crate::SurfaceError> {
 
 /// A string, or an error naming the input.
 pub fn text(v: &Value, what: &str) -> Result<String, crate::SurfaceError> {
-    match v {
-        Value::Str(s) => Ok(s.to_string()),
-        _ => Err(crate::SurfaceError(format!("{what}: expected a string"))),
-    }
+    v.as_str()
+        .map(str::to_string)
+        .ok_or_else(|| crate::SurfaceError(format!("{what}: expected a string")))
 }
 
 /// Parse a single device event; every refusal names the event or its field.
@@ -280,9 +280,8 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 if p.s.get(p.i) != Some(&b'"') {
                     return Err("expected a field name".into());
                 }
-                let Value::Str(name) = p.value()? else {
-                    unreachable!()
-                };
+                let name = p.value()?;
+                let name = name.as_str().expect("a quoted field name").to_string();
                 p.ws();
                 if p.s.get(p.i) != Some(&b':') {
                     return Err(format!("{name}: expected :"));
@@ -312,9 +311,9 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
         if p.i != p.s.len() {
             return Err("trailing input".into());
         }
-        let string = |name: &str| match fields.get(name) {
-            Some(Value::Str(s)) => Ok(s.to_string()),
-            _ => Err(format!("{name}: expected a string")),
+        let string = |name: &str| match fields.get(name).and_then(Value::as_str) {
+            Some(s) => Ok(s.to_string()),
+            None => Err(format!("{name}: expected a string")),
         };
         let boolean = |name: &str| match fields.get(name) {
             Some(Value::Bool(b)) => Ok(*b),

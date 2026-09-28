@@ -6,7 +6,9 @@ use super::*;
 
 /// A string argument or write past [`crate::vm::MAX_STRING`] bytes.
 fn too_long(value: &Value) -> bool {
-    matches!(value, Value::Str(s) if s.len() > crate::vm::MAX_STRING)
+    value
+        .as_str()
+        .is_some_and(|s| s.len() > crate::vm::MAX_STRING)
 }
 
 /// Everything a refused commit leaves as it was (§6 atomicity): state, the

@@ -104,6 +104,61 @@ impl PartialEq<str> for Str {
     }
 }
 
+/// Text longer than [`InlineStr::CAP`] bytes inside a [`Value`]: opaque
+/// outside this crate, so text is read only through [`Value::as_str`]
+/// (Charlie, 2026-09-28; LLP 1017.003 §"The value's text").
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct HeapStr(pub(crate) Str);
+
+impl fmt::Debug for HeapStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.0.as_str(), f)
+    }
+}
+
+/// Text of up to [`InlineStr::CAP`] bytes held inside a [`Value`], no
+/// allocation: the length and the bytes. Opaque outside this crate, as
+/// [`HeapStr`] is. Safe code: the bytes are UTF-8 by construction, and
+/// reading them checks it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InlineStr {
+    len: u8,
+    bytes: [u8; InlineStr::CAP],
+}
+
+impl InlineStr {
+    /// The most bytes held inline: a `Value`'s 16 less its tag and this length.
+    pub const CAP: usize = 14;
+
+    /// `s` held inline, when it fits.
+    #[inline]
+    pub(crate) fn new(s: &str) -> Option<InlineStr> {
+        let b = s.as_bytes();
+        if b.len() > Self::CAP {
+            return None;
+        }
+        let mut bytes = [0u8; Self::CAP];
+        bytes[..b.len()].copy_from_slice(b);
+        Some(InlineStr {
+            len: b.len() as u8,
+            bytes,
+        })
+    }
+
+    /// The text.
+    #[inline]
+    pub(crate) fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len as usize])
+            .expect("inline text is UTF-8 by construction")
+    }
+}
+
+impl fmt::Debug for InlineStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
 /// A list's or a record's items, shared: one thin pointer, cloned by count.
 #[derive(Clone)]
 pub struct Items(triomphe::ThinArc<(), Value>);

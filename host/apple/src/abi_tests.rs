@@ -815,7 +815,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let key = host.runner().kernel().find_by_test_id("field")[0];
     let view = host.runner().kernel().node_by_key(key).unwrap().id;
     let slots = |bridge: &Bridge<StorageModule>| bridge.host.as_ref().unwrap().carry().slots;
-    let hello = vec![("text".into(), Value::Str("hello".into()))];
+    let hello = vec![("text".into(), Value::str("hello"))];
     // A collection move (kind 18, include/exact.h) is never the text of a change.
     let packet = Event::ReorderDrop {
         item: "row".into(),
@@ -839,10 +839,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     }
     let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
-    assert_eq!(
-        slots(&bridge),
-        vec![("text".into(), Value::Str("typed".into()))]
-    );
+    assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);
 }
 
 #[test]

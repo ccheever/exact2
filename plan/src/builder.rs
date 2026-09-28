@@ -138,8 +138,8 @@ impl PlanBuilder {
             Value::Bool(b) => {
                 asm.bool(*b);
             }
-            Value::Str(s) => {
-                let id = self.str(s);
+            Value::HeapStr(_) | Value::InlineStr(_) => {
+                let id = self.str(v.as_str().unwrap_or_default());
                 asm.str(id);
             }
             Value::Unit => {

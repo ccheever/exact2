@@ -3,7 +3,7 @@
 //! into two documents that render differently. @ref LLP 1033
 
 use crate::{Block, Document, Run};
-use exact_plan::{Str, Value};
+use exact_plan::{InlineStr, Str, Value};
 use std::collections::{HashMap, HashSet};
 
 /// Sharing is scoped to one conversion: no global pool retains closed files.
@@ -24,12 +24,16 @@ impl Values {
     }
 
     fn string(&mut self, text: &str) -> Value {
+        // Short text is held in the value itself: nothing to share.
+        if text.len() <= InlineStr::CAP {
+            return Value::str(text);
+        }
         let text = self.strings.get(text).cloned().unwrap_or_else(|| {
             let text = Str::from(text);
             self.strings.insert(text.clone());
             text
         });
-        Value::Str(text)
+        Value::from(text)
     }
 
     fn index(&mut self, index: usize) -> Value {

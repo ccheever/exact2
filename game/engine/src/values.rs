@@ -21,7 +21,7 @@ impl From<Value> for Stored {
             Value::Unit => Self::Unit,
             Value::Number(n) => Self::Number(n),
             Value::Bool(b) => Self::Bool(b),
-            Value::Str(s) => Self::Str(s.to_string()),
+            v @ exact_plan::str_value!() => Self::Str(v.text().to_string()),
             Value::Option(v) => Self::Option(v.map(|v| Box::new(Self::from((*v).clone())))),
             Value::List(v) => Self::List(v.iter().cloned().map(Self::from).collect()),
             Value::Record(v) => Self::Record(v.iter().cloned().map(Self::from).collect()),
@@ -84,7 +84,7 @@ impl Data for Value {
             Self::Unit => ("Unit", 0),
             Self::Number(_) => ("Number", 1),
             Self::Bool(_) => ("Bool", 2),
-            Self::Str(_) => ("Str", 3),
+            exact_plan::str_value!() => ("Str", 3),
             Self::Option(_) => ("Option", 4),
             Self::List(_) => ("List", 5),
             Self::Record(_) => ("Record", 6),
@@ -100,7 +100,7 @@ impl Data for Value {
                 Self::Unit => {}
                 Self::Number(n) => n.write(w),
                 Self::Bool(b) => b.write(w),
-                Self::Str(s) => w.string(s),
+                s @ exact_plan::str_value!() => w.string(s.text()),
                 Self::Option(value) => {
                     w.option(value.is_some());
                     if let Some(value) = value {
@@ -342,7 +342,7 @@ fn append_value(out: &mut String, v: &Value, rounded: bool) {
         Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => number_json(out, *n, rounded),
-        Value::Str(s) => crate::json::quote_into(out, s),
+        s @ exact_plan::str_value!() => crate::json::quote_into(out, s.text()),
         Value::Option(Some(v)) => append_value(out, v, rounded),
         Value::List(v) | Value::Record(v) => {
             out.push('[');
