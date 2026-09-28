@@ -217,6 +217,23 @@ struct BatchReader {
         try object { r, key in values[key] = try r.value() }
         return values
     }
+    /// A node's style dictionary, shared with every earlier one of the same
+    /// bytes: a list's rows repeat their template's styles, and building a
+    /// dictionary of boxed values was most of a row's decode. The span is
+    /// validated and found by `skip` (nothing materialized), then looked up.
+    mutating func style() throws -> NodeStyle {
+        whitespace()
+        let start = offset
+        try skip()
+        let span = UnsafeRawBufferPointer(rebasing: UnsafeRawBufferPointer(bytes)[start..<offset])
+        if let hit = StyleCache.shared.get(span) { return hit }
+        let end = offset
+        offset = start
+        let style = try values()
+        guard offset == end else { throw Invalid.wire }
+        StyleCache.shared.put(span, style)
+        return style
+    }
     mutating func value() throws -> BatchValue {
         whitespace()
         switch byte {
@@ -249,5 +266,36 @@ struct BatchReader {
         case 110: try literal("null")
         default: _ = try numberSpan()
         }
+    }
+}
+
+/// Decoded style dictionaries by their exact bytes (`BatchReader.style`).
+/// Bounded: when full it starts over. Batches decode on more than one
+/// thread (a session's executor, the main thread), so a lock guards it.
+final class StyleCache: @unchecked Sendable {
+    static let shared = StyleCache()
+    private struct Entry { let bytes: [UInt8]; let style: NodeStyle }
+    private var entries: [UInt64: Entry] = [:]
+    private let lock = NSLock()
+    private static let capacity = 1024
+
+    private static func hash(_ b: UnsafeRawBufferPointer) -> UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in b { h = (h ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
+        return h
+    }
+    func get(_ b: UnsafeRawBufferPointer) -> NodeStyle? {
+        let h = Self.hash(b)
+        lock.lock(); defer { lock.unlock() }
+        guard let e = entries[h], e.bytes.count == b.count,
+              e.bytes.withUnsafeBytes({ memcmp($0.baseAddress!, b.baseAddress!, b.count) == 0 }) else { return nil }
+        return e.style
+    }
+    func put(_ b: UnsafeRawBufferPointer, _ style: NodeStyle) {
+        guard b.count > 2 else { return }
+        let h = Self.hash(b)
+        lock.lock(); defer { lock.unlock() }
+        if entries.count >= Self.capacity { entries.removeAll(keepingCapacity: true) }
+        entries[h] = Entry(bytes: Array(b), style: style)
     }
 }

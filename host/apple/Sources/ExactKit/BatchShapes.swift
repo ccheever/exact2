@@ -71,7 +71,7 @@ extension BatchReader {
             case (_, "id"): op.nodeID = try id()
             case (.create, "kind"): op.kind = try string()
             case (.create, "props"), (.props, "set"): op.props = try strings()
-            case (.create, "style"), (.style, "style"): op.style = try values()
+            case (.create, "style"), (.style, "style"): op.style = try style()
             case (.create, "handlers"): op.handlers = Set(try array { try $0.string() })
             case (.props, "clear"): op.clear = try array { try $0.string() }
             case (.paragraph, "runs"): op.runs = try array { try $0.inline() }
