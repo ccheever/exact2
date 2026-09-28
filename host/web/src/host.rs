@@ -188,6 +188,11 @@ impl<D: DataSource> HostLinks<D> {
                 } else {
                     None
                 },
+                documents: if linked.documents {
+                    exact_runner::DeviceLinks::<D>::ALL.documents
+                } else {
+                    None
+                },
             },
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)

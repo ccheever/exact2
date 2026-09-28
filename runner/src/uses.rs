@@ -45,11 +45,14 @@ pub enum Capability {
     Backdrop,
     /// `share(…)` (LLP 1069.003): a plan whose code runs the command.
     Share,
+    /// `saveFile` and the three file pickers (LLP 1069.010): a plan whose
+    /// code runs one.
+    Documents,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 10] = [
+    pub const ALL: [Capability; 11] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -60,6 +63,7 @@ impl Capability {
         Capability::Materials,
         Capability::Backdrop,
         Capability::Share,
+        Capability::Documents,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -75,6 +79,7 @@ impl Capability {
             Capability::Materials => "materials",
             Capability::Backdrop => "backdrop",
             Capability::Share => "share",
+            Capability::Documents => "documents",
         }
     }
 
@@ -200,6 +205,17 @@ pub fn uses(plan: &Plan) -> Uses {
     }
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
+    }
+    if runs_command(
+        plan,
+        &[
+            "saveFile",
+            "showOpenFilePicker",
+            "showDirectoryPicker",
+            "showSaveFilePicker",
+        ],
+    ) {
+        uses = uses.with(Capability::Documents);
     }
     uses
 }

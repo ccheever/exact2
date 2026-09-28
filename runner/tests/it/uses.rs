@@ -139,3 +139,13 @@ fn share_is_a_plan_that_runs_the_command() {
     );
     assert!(shares.has(Capability::Share));
 }
+
+#[test]
+fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
+    // @ref LLP 1069.010 — linked by use on the web (the web core's size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Documents));
+    let picks = used(
+        "component A\n  action open\n    showOpenFilePicker(\"opened\")\n  view\n    button \"Open\" press=open\n",
+    );
+    assert!(picks.has(Capability::Documents) && !picks.has(Capability::Share));
+}

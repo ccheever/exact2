@@ -56,6 +56,8 @@ pub struct Linked {
     pub auth: bool,
     /// `share(…)` (LLP 1069.003).
     pub share: bool,
+    /// `saveFile` and the file pickers (LLP 1069.010).
+    pub documents: bool,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -79,6 +81,7 @@ impl Linked {
         backdrop: None,
         auth: false,
         share: false,
+        documents: false,
     };
 
     /// The capabilities registered here.
@@ -113,6 +116,9 @@ impl Linked {
         }
         if self.share {
             uses = uses.with(Capability::Share);
+        }
+        if self.documents {
+            uses = uses.with(Capability::Documents);
         }
         uses
     }

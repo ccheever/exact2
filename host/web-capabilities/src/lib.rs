@@ -15,6 +15,7 @@ pub mod auth;
 pub mod backdrop;
 pub mod canvas_colors;
 pub mod collections;
+pub mod documents;
 pub mod drag;
 pub mod format;
 pub mod inspection;
@@ -51,5 +52,6 @@ pub const ALL: exact_web::Linked = linked!(
     materials,
     backdrop,
     auth,
-    share
+    share,
+    documents
 );

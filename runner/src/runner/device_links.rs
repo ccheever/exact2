@@ -31,6 +31,8 @@ pub struct DeviceLinks<D: DataSource> {
     pub auth: Option<AuthLinks<D>>,
     /// `share(…)` (LLP 1069.003): its ruling, and an agent's answer.
     pub share: Option<(CommandLink<D>, AnswerLink<D>)>,
+    /// `saveFile` (LLP 1069.010 D3) and the file pickers (D2): their rulings.
+    pub documents: Option<(CommandLink<D>, CommandLink<D>)>,
 }
 
 impl<D: DataSource> Clone for AuthLinks<D> {
@@ -61,12 +63,17 @@ impl<D: DataSource> DeviceLinks<D> {
     pub const ALL: DeviceLinks<D> = DeviceLinks {
         auth: Some(AuthLinks::LINKED),
         share: Some((crate::share::request::<D>, crate::share::answered::<D>)),
+        documents: Some((
+            crate::save_file::request::<D>,
+            crate::file_pickers::request::<D>,
+        )),
     };
 
     /// The core alone.
     pub const CORE: DeviceLinks<D> = DeviceLinks {
         auth: None,
         share: None,
+        documents: None,
     };
 }
 
