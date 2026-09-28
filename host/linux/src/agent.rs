@@ -133,6 +133,11 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             return p.surface_request(view, q).to_string();
         }
     }
+    // `tap @t` / `type @t` answer a held device request before any view is
+    // looked up (LLP 1069.007 D4).
+    if let Some(reply) = p.host_mut().answer_hold(line) {
+        return reply;
+    }
     match field_str(line, "op").as_deref() {
         Some("tree") => accessibility_tree(p),
         Some("state") => {
@@ -395,7 +400,27 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
-    clock_within(p, line, SETTLE_BOUND)
+    let reply = clock_within(p, line, SETTLE_BOUND);
+    retell_offset(p);
+    reply
+}
+
+/// The zone's offset at the virtual date the clock now reads: a move across
+/// a DST change re-answers `exactTime()` (LLP 1069.007 D2). The runner's own
+/// date and zone are the drive's (`--epoch`, `--time-zone`); an unchanged
+/// offset commits nothing.
+fn retell_offset<D: DataSource>(p: &mut Presenter<D>) {
+    let time = p.host().runner().wall_time();
+    let zone = p.host().runner().place().time_zone.clone();
+    if time.epoch_at_zero <= 0.0 {
+        return;
+    }
+    let offset = crate::zone::offset_minutes_at(&zone, time.epoch_at_zero + p.host().now());
+    if offset != time.utc_offset {
+        if let Some(e) = p.set_time(time.epoch_at_zero, offset) {
+            eprintln!("exact: {e}");
+        }
+    }
 }
 
 /// `clock settle`'s bound on requests in flight: a network's worth.
@@ -469,6 +494,20 @@ fn clock_within<D: DataSource>(
             .filter_map(|w| w["settleAt"].as_f64())
             .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
         if next <= landed {
+            // A held device request never settles on its own and is never
+            // waited on: the fixed point is reached, and the agent is told
+            // what still waits for it (LLP 1069.007 D3).
+            let held: serde_json::Value =
+                serde_json::from_str(&p.host().agent("{\"op\":\"holds\"}")).unwrap_or_default();
+            if held["holds"].as_array().is_some_and(|h| !h.is_empty()) {
+                let mut r = response(Some(false), false);
+                r.pop();
+                r.push_str(&format!(
+                    ",\"reason\":\"device\",\"tickets\":{}}}",
+                    held["tickets"]
+                ));
+                return r;
+            }
             return response(Some(true), false);
         }
         rounds += 1;
@@ -682,6 +721,205 @@ mod tests {
         assert!(p.dark(), "no app override: the system's dark");
         p.app_scheme(Some(false));
         assert!(!p.dark(), "the app's own choice wins");
+    }
+
+    /// Answers `item` with 1 a moment later, from another thread: a fetch
+    /// still in flight when the clock is asked to move.
+    #[derive(Default)]
+    struct Slow;
+    impl DataSource for Slow {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut exact_runner::Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<exact_runner::Answer, DataError> {
+            Ok(match source {
+                "fallback" => exact_runner::Answer::Now(Value::Number(0.0)),
+                _ => exact_runner::Answer::Later(exact_runner::Request::continuation(1)),
+            })
+        }
+        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+            exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(|reply| {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                    reply.send(exact_runner::Outcome::Storage(b"1".to_vec()));
+                });
+            })))
+        }
+        fn parse(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+            _: exact_runner::Outcome,
+        ) -> Result<exact_runner::Answer, DataError> {
+            Ok(exact_runner::Answer::Now(Value::Number(1.0)))
+        }
+    }
+
+    /// LLP 1069.007 §5 item 4, with a synthetic capability standing in for
+    /// the first real one: a held device request, a due app timer and an
+    /// unfinished fetch together. `clock +N` fires the timer without waiting
+    /// on the hold; `clock settle` waits for the fetch, never for the hold,
+    /// and says `device` with the tickets; `tap @t` / `type @t` answer it
+    /// once, `substituted`; a hold whose node goes is retired.
+    #[test]
+    fn a_held_device_request_is_answered_by_ticket_and_never_waited_on() {
+        let plan = contract::compile(
+            "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock writes count\n    count = count + 1\n  action hide writes show\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
+        )
+        .unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            Slow,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let id = |p: &Presenter<Slow>, test_id: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+        };
+        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+        let (picker, doc, hide) = (id(&p, "picker"), id(&p, "doc"), id(&p, "hide"));
+        let args = r#"{"id":"picker","accept":["image/*"],"multiple":false}"#;
+        let t = p
+            .host_mut()
+            .runner_mut()
+            .hold("pick", Some(picker), args, &[], true);
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        let held = state["pending"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["ticket"] == t)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(held["name"], "picker", "{state}");
+        assert_eq!(held["device"]["capability"], "pick");
+        assert_eq!(held["device"]["args"]["accept"][0], "image/*");
+        assert!(
+            state["pending"].as_array().unwrap().len() >= 2,
+            "the fetch is pending beside the hold: {state}"
+        );
+
+        let bound = std::time::Duration::from_secs(3);
+        let started = std::time::Instant::now();
+        let reply = clock_within(&mut p, r#"{"op":"clock","to":600}"#, bound);
+        assert!(started.elapsed() < bound, "clock +N waited: {reply}");
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        assert_eq!(state["slots"]["count"], 2, "both timers fired: {reply}");
+
+        let started = std::time::Instant::now();
+        let reply = json(clock_within(
+            &mut p,
+            r#"{"op":"clock","settle":true}"#,
+            bound,
+        ));
+        assert!(started.elapsed() < bound, "settle waited on the hold");
+        assert_eq!(reply["settled"], false, "{reply}");
+        assert_eq!(reply["reason"], "device", "{reply}");
+        assert_eq!(reply["tickets"], serde_json::json!([t]), "{reply}");
+        assert_eq!(
+            json(handle(&mut p, r#"{"op":"state"}"#))["resources"]["item"],
+            1,
+            "settle waited for the fetch"
+        );
+
+        let wrong = handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","ticket":{t},"choice":"allow"}}"#),
+        );
+        assert!(wrong.contains("tap takes cancel"), "{wrong}");
+        let answered = json(handle(
+            &mut p,
+            &format!(r#"{{"op":"type","ticket":{t},"text":"fixtures/cat.jpg"}}"#),
+        ));
+        assert_eq!(answered["delivery"], "substituted", "{answered}");
+        assert_eq!(answered["answered"], "value");
+        let again = handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","ticket":{t},"choice":"cancel"}}"#),
+        );
+        assert!(again.contains(&format!("not pending: @{t}")), "{again}");
+        let logs = handle(&mut p, r#"{"op":"logs"}"#);
+        assert!(
+            logs.contains(&format!("device pick {t} held (agent)")),
+            "{logs}"
+        );
+        assert!(logs.contains(&format!("device pick {t} answered: a value")));
+        assert!(
+            !logs.contains("cat.jpg"),
+            "a typed value is never journalled"
+        );
+        let reply = json(clock_within(
+            &mut p,
+            r#"{"op":"clock","settle":true}"#,
+            bound,
+        ));
+        assert_eq!(reply["settled"], true, "{reply}");
+
+        let u = p
+            .host_mut()
+            .runner_mut()
+            .hold("pick", Some(doc), "{}", &[], true);
+        handle(&mut p, &format!(r#"{{"op":"tap","id":{hide}}}"#));
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        assert!(
+            !state["pending"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["ticket"] == u),
+            "the node went, and its hold with it: {state}"
+        );
+        let logs = handle(&mut p, r#"{"op":"logs"}"#);
+        assert!(logs.contains(&format!("device pick {u} retired")), "{logs}");
+        let late = handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","ticket":{u},"choice":"cancel"}}"#),
+        );
+        assert!(late.contains(&format!("not pending: @{u}")), "{late}");
+    }
+
+    /// LLP 1069.007 D2: the offset follows the virtual date across a DST
+    /// change — Los Angeles, an hour before 2026's spring-forward, then two
+    /// hours on.
+    #[test]
+    fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
+        let plan = contract::compile("component App\n  view\n    text \"x\" height=20\n").unwrap();
+        let (mut p, _) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let place = exact_runner::time::Place {
+            locale: "en-US".into(),
+            time_zone: "America/Los_Angeles".into(),
+            seed: 1.0,
+        };
+        assert!(p.set_place(&place).is_none());
+        assert!(p.set_time(1_772_960_400_000.0, -480.0).is_none());
+        let offset = |p: &mut Presenter<NoData>| {
+            let state: serde_json::Value =
+                serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
+            state["time"]["utcOffset"].clone()
+        };
+        handle(&mut p, r#"{"op":"clock","to":1800000}"#);
+        assert_eq!(offset(&mut p), -480, "still standard time at 09:30Z");
+        handle(&mut p, r#"{"op":"clock","to":7200000}"#);
+        assert_eq!(offset(&mut p), -420, "daylight time from 10:00Z");
     }
 
     #[test]

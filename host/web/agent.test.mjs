@@ -463,6 +463,10 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   const time = timeReporter(new URLSearchParams({agent:'1', ...facts}), new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
   expect(time(60000)).toEqual([1790000000000, -240]);
   expect(timeReporter(new URLSearchParams({agent:'1'}))(0)).toEqual([Date.UTC(2026, 0, 1), 0]);
+  // The offset follows the virtual date across a DST change (LLP 1069.007 D2).
+  const spring = timeReporter(new URLSearchParams({agent:'1', timeZone:'America/Los_Angeles', epoch:String(Date.UTC(2026, 2, 8, 9))}));
+  expect(spring(1800000)).toEqual([Date.UTC(2026, 2, 8, 9), -480]);
+  expect(spring(7200000)).toEqual([Date.UTC(2026, 2, 8, 9), -420]);
   for (const epoch of ['-1', 'yesterday']) expect(() => launchFacts({epoch})).toThrow('epoch:');
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});

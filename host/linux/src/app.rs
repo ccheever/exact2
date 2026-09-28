@@ -130,6 +130,12 @@ impl Config {
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
+        // A production bake never enters agent mode (LLP 1069.007 D2, ruled):
+        // the agent's variables are dropped before anything reads them —
+        // this config, the zone and seed, storage, the update store.
+        if exact_runner::delivery::production(compat) {
+            ignore_agent_variables();
+        }
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
         let exact_dev_plan = env("EXACT_DEV_PLAN");
@@ -429,6 +435,26 @@ fn run_registered<D: DataSource + Default>(
     let mut config = Config::from_env(baked, compat);
     config.content_region = region;
     run_config::<D>(&mut config, started)
+}
+
+/// Drop `EXACT_AGENT` and every `EXACT_AGENT_*` variable from this process,
+/// saying so once on stderr when one was set: a production bake runs as a
+/// production launch whatever its environment says (LLP 1069.007 D2).
+fn ignore_agent_variables() {
+    let named: Vec<_> = std::env::vars_os()
+        .filter_map(|(k, _)| k.to_str().map(str::to_owned))
+        .filter(|k| k == "EXACT_AGENT" || k.starts_with("EXACT_AGENT_"))
+        .collect();
+    if named.is_empty() {
+        return;
+    }
+    eprintln!(
+        "exact: a production build ignores {} (LLP 1069.007 D2)",
+        named.join(", ")
+    );
+    for k in named {
+        std::env::remove_var(k);
+    }
 }
 
 /// Answer the tooling receipt request before boot or opening an update store.

@@ -25,6 +25,8 @@ pub use source::{
     Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeCall, NativeHandler, Target,
 };
 mod delivery;
+mod device;
+pub use device::{Hold, HoldAnswer};
 mod kept;
 mod lines;
 mod lists;
@@ -346,6 +348,8 @@ pub struct Runner<D: DataSource> {
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
+    /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
+    device_holds: Vec<device::Hold>,
     journal_start: usize,
     flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
     /// The lists already found conforming to their types, so a live answer
@@ -689,6 +693,7 @@ impl<D: DataSource> Runner<D> {
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
+            device_holds: Vec::new(),
             journal_start: 0,
             flow_warned: Default::default(),
             conformed: Default::default(),
@@ -1145,6 +1150,7 @@ impl<D: DataSource> Runner<D> {
             receipt.layout_invalidated |= tail.layout_invalidated;
         }
         self.commit_router(change);
+        self.retire_holds();
         Ok(receipt)
     }
 

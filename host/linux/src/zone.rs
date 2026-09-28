@@ -36,7 +36,7 @@ pub fn agent_time(
 
 /// A zone's UTC offset at a Unix instant, from the C library's database.
 /// The agent's process adopts the agent zone as its `TZ` to ask.
-fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
+pub(crate) fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
     if matches!(zone, "UTC" | "Etc/UTC") {
         return 0.0;
     }

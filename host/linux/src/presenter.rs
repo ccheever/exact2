@@ -572,6 +572,11 @@ impl<D: DataSource> Presenter<D> {
         &self.host
     }
 
+    /// The host, mutably: the agent answers a held device request there.
+    pub fn host_mut(&mut self) -> &mut Host<D> {
+        &mut self.host
+    }
+
     /// The text engine.
     pub fn text(&self) -> &Shared {
         &self.text

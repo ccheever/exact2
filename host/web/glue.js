@@ -3,6 +3,7 @@
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
 import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime } from "./navigation.js";
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -144,7 +145,7 @@ function moduleCall(op, ptr, len) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
-const agentMode = new URL(location.href).searchParams.has("agent");
+const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
 const { register, seek, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => presence.live?.sync());
 const now = () => agentClock ?? performance.now() - t0;
@@ -1056,6 +1057,7 @@ function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
     if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
+    if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) return tagged(ask(request)); // a held device request, by ticket (LLP 1069.007 D4)
     switch (request.op) {
       case "state": {
         const st = ask(request);
@@ -1121,8 +1123,8 @@ function agentReply(request) {
         }
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
-      case "clock":
-        return clock(request).then(tagged);
+      case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
+        return clock(request).then((r) => { if (!r.error && wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(agentClock))))); return tagged(r); });
       case "tree":
         return tree(request);
       case "tags":
@@ -1192,7 +1194,7 @@ async function clock(request) {
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
     if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
-    if (next <= agentClock && !world.pending) return reply(true);
+    if (next <= agentClock && !world.pending) { const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
     if (rounds >= 15) return reply(false);
   }
 }

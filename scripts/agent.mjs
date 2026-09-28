@@ -7,6 +7,7 @@
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
+//   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   clock <ms|+ms|settle> | prefer <media feature> <value> […]
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
@@ -55,6 +56,8 @@ export function browserDiagnosticNoise(line) {
 
 // ---------------------------------------------------------------- web
 
+/** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
+export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
 export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
@@ -161,6 +164,9 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     page.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
     if (storage !== undefined) page.searchParams.set('storage', storage);
+    // Display preferences are the agent's from launch, never the machine's (LLP 1069.007 D2); `prefer` changes them.
+    const emulated = { ...LAUNCH_MEDIA };
+    await call('Emulation.setEmulatedMedia', { features: Object.entries(emulated).map(([name, value]) => ({ name, value })) });
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
@@ -180,7 +186,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
-    let contact = null, emulated = {};
+    let contact = null;
     const ask = async (req) => {
       // The existing resize input uses Chrome's real viewport and resize event.
       if (req.op === 'tap' && req.resize !== undefined) {
@@ -920,6 +926,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
+      if (ticketOf(target) != null) return s.answer('tap', target, opts.choice);
       let node;
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); }
@@ -989,6 +996,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
+      if (ticketOf(target) != null) return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text);
       const node = await s.find(target);
       const options = typeof text === 'object' && text !== null ? text : { text };
       const key = options.key;
@@ -999,6 +1007,12 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
       return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
+    /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
+    async answer(op, target, value) {
+      const ticket = ticketOf(target);
+      if (value == null || value === '') throw new Error(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
+      return s.op(op === 'tap' ? { op, ticket, choice: String(value) } : { op, ticket, text: String(value) });
+    },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
       const req = { op: 'clock' };
@@ -1008,7 +1022,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
       const r = await s.op(req);
       s.now = r.clock;
-      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
     /** The user's display preferences by CSS's media feature names (LLP 1061 D5): `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). Unnamed features stay. The reply is what the host now reports for all three. */
@@ -1123,6 +1137,9 @@ export async function typeFor({node, target, options, carrier, clock, tagged, de
   return tagged({typed:node.id, target, key, for:duration, delivery:steps[0].reply.delivery, steps});
 }
 /** Parse the CLI type form without treating an ordinary text suffix as a key. */
+/** A held device request's target, `@N` (LLP 1069.007 D4): its ticket, or null. */
+export const ticketOf = (target) => /^@[1-9]\d*$/.test(String(target)) ? Number(String(target).slice(1)) : null;
+
 export function typeArguments(args) {
   if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
   if (args[3] === 'for') {
@@ -1211,7 +1228,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
@@ -1231,7 +1248,8 @@ async function main(argv) {
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
           // `tap hold`, `tap up`, `tap cancel` only while a contact is down;
           // with none down those words are targets like any other.
-          if (s.contact && args[0] === 'move') {
+          if (ticketOf(args[0]) != null) r = await s.tap(args[0], { choice: args[1] }); // `tap @7 cancel` is the ticket, even while a contact is down
+          else if (s.contact && args[0] === 'move') {
             const by = args[1] === 'by';
             const over = args.indexOf('over');
             const [a, b] = by ? [args[2], args[3]] : [args[1], args[2]];

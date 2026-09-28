@@ -97,12 +97,22 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
+// A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
+// host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
+// ships it false, so the minifier drops the agent's paths from a release.
+const AGENT_ADMITTED = 'const AGENT_ADMITTED = true;';
+const production = buildEnv.EXACT_UPDATE_TRUST === 'production';
+const gateAgent = (code, name) => {
+  if (!production) return code;
+  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)/.test(code) && !code.includes(AGENT_ADMITTED)) throw new Error(`${name} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode (LLP 1069.007 D2)`);
+  return code.replaceAll(AGENT_ADMITTED, 'const AGENT_ADMITTED = false;');
+};
 function copyHostFiles(group) {
   for (const [name, source] of Object.entries(webHostFiles(group))) {
     if (!name.endsWith('.js')) { copyFileSync(resolve(root, source), resolve(stage, name)); continue; }
     // Production ships executable code, without source comments and long
     // local names. Keep exports and property names intact across modules.
-    const result = minifySync(name, readFileSync(resolve(root, source), 'utf8'), { module: name !== 'module-prelude.js' });
+    const result = minifySync(name, gateAgent(readFileSync(resolve(root, source), 'utf8'), name), { module: name !== 'module-prelude.js' });
     if (result.errors.length) throw new Error(`${name}: ${JSON.stringify(result.errors)}`);
     writeFileSync(resolve(stage, name), result.code);
   }
@@ -167,7 +177,7 @@ if (typeof exports.exact_module_artifact === 'function') {
   // step. Keep the stateful adapters as shared modules: Rust requests also
   // import them, and must share the same filesystem mutation queues.
   const bundle = await rolldown({ input: resolve(root, 'host/web/module-glue.js'), platform: 'browser',
-    external: ['./storage-fs.js', './storage-sqlite.js'] });
+    external: ['./storage-fs.js', './storage-sqlite.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
   try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
   finally { await bundle.close(); }
 }

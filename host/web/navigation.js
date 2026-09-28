@@ -1,4 +1,5 @@
 // @ref LLP 1038 D6/D7/D11 — host projection and the last committed URL.
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let last = null;
 let refused = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
@@ -533,7 +534,7 @@ export const onPreferences = (changed) => queries().forEach((q) => q.addEventLis
 export function placeReporter(params, platform = globalThis) {
   let seed;
   return () => {
-    if (params.has('agent')) {
+    if (AGENT_ADMITTED && params.has('agent')) {
       const value = Number(params.get('seed') ?? 1);
       if (!Number.isSafeInteger(value) || value < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
       return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
@@ -548,15 +549,17 @@ export function placeReporter(params, platform = globalThis) {
 
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is
 // the drive's epoch (default 2026-01-01T00:00:00Z), and the offset its zone's
-// at that instant; `clock +N` moves the date because `now()` moves.
+// at the virtual instant `elapsed` names; `clock +N` moves the date because
+// `now()` moves, and the glue tells the offset again after each clock move, so
+// crossing a DST change re-answers it (LLP 1069.007 D2).
 export function timeReporter(params, platform = globalThis) {
   return (elapsed) => {
-    if (!params.has('agent')) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
+    if (!(AGENT_ADMITTED && params.has('agent'))) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
     const epoch = Number(params.get('epoch') ?? Date.UTC(2026, 0, 1));
     if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: Unix milliseconds at or after 1970');
     const at = {};
-    for (const {type, value} of new Intl.DateTimeFormat('en-US', {timeZone: params.get('timeZone') ?? 'UTC', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}).formatToParts(epoch)) at[type] = Number(value);
-    return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor(epoch / 1000) * 1000) / 60000];
+    for (const {type, value} of new Intl.DateTimeFormat('en-US', {timeZone: params.get('timeZone') ?? 'UTC', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}).formatToParts(epoch + elapsed)) at[type] = Number(value);
+    return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
 let pageTime;

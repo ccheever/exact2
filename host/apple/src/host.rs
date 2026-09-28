@@ -472,6 +472,13 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
+    /// `tap @t` or `type @t` (LLP 1069.007 D4): the agent answers a held
+    /// device request, consumed here. No capability is admitted yet, so no
+    /// arm takes the answer on; `None` for an ordinary `tap` or `type`.
+    pub fn answer_hold(&mut self, request: &str) -> Option<String> {
+        exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| reply)
+    }
+
     /// What a reload keeps (`Runner::carry`).
     pub fn carry(&self) -> Carried {
         self.runner.carry()

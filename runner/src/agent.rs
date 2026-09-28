@@ -30,6 +30,7 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tree") => tree_request(runner, request),
         Some("state") => state(runner),
         Some("tags") => tags(runner),
+        Some("holds") => holds(runner),
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -67,6 +68,75 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
         kernel.incarnation(),
         num(runner.now_ms())
     )
+}
+
+/// `{"holds":[…],"tickets":[…]}`: the held device requests' tickets, and
+/// every ticket still pending, network and device — what a host's `clock
+/// settle` reports when a hold remains (LLP 1069.007 D3).
+pub fn holds<D: DataSource>(runner: &Runner<D>) -> String {
+    let join = |tickets: &mut dyn Iterator<Item = u64>| {
+        tickets.map(|t| t.to_string()).collect::<Vec<_>>().join(",")
+    };
+    let mut all: Vec<u64> = runner.pending().iter().map(|(_, t)| *t).collect();
+    all.extend(runner.device_holds().iter().map(|h| h.ticket));
+    all.sort_unstable();
+    format!(
+        "{{\"holds\":[{}],\"tickets\":[{}]}}",
+        join(&mut runner.device_holds().iter().map(|h| h.ticket)),
+        join(&mut all.into_iter())
+    )
+}
+
+/// `tap @t <choice>` and `type @t <value>` (LLP 1069.007 D4): the agent
+/// answers held device request `t` — `{"op":"tap","ticket":7,"choice":
+/// "cancel"}`, `{"op":"type","ticket":7,"text":"…"}`. `None` when the
+/// request names no ticket (an ordinary `tap` or `type`). The hold is
+/// consumed before the reply, which says `delivery: "substituted"` and never
+/// echoes a typed value; the consumed hold goes back to the host, whose
+/// capability arm delivers the answer.
+pub fn answer<D: DataSource>(
+    runner: &mut Runner<D>,
+    request: &str,
+) -> Option<(String, Option<crate::Hold>)> {
+    let op = field_str(request, "op")?;
+    if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
+        return None;
+    }
+    let Some(ticket) = field_num(request, "ticket")
+        .filter(|n| *n >= 1.0 && *n <= u32::MAX as f64 && *n == n.trunc())
+        .map(|n| n as u64)
+    else {
+        return Some((error("ticket must be a positive whole number"), None));
+    };
+    let reply = if op == "tap" {
+        match field_str(request, "choice") {
+            Some(choice) => crate::HoldAnswer::Choice(choice),
+            None => return Some((error(&format!("tap @{ticket} needs a choice")), None)),
+        }
+    } else {
+        match field_str(request, "text") {
+            Some(text) => crate::HoldAnswer::Value(text),
+            None => return Some((error(&format!("type @{ticket} needs a value")), None)),
+        }
+    };
+    if runner.holds(ticket) {
+        let e = format!("@{ticket} is a network request; only a held device request is answered");
+        return Some((error(&e), None));
+    }
+    match runner.answer_hold(ticket, &reply) {
+        Ok(hold) => {
+            let mut s = format!("{{\"ticket\":{ticket},\"capability\":");
+            quote(&hold.capability, &mut s);
+            s.push_str(",\"answered\":");
+            match &reply {
+                crate::HoldAnswer::Choice(c) => quote(c, &mut s),
+                crate::HoldAnswer::Value(_) => s.push_str("\"value\""),
+            }
+            s.push_str(",\"delivery\":\"substituted\"}");
+            Some((s, Some(hold)))
+        }
+        Err(e) => Some((error(&e), None)),
+    }
 }
 
 /// `{"error":"…"}`.
@@ -565,6 +635,29 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         s.push_str("{\"name\":");
         quote(name, &mut s);
         let _ = write!(s, ",\"ticket\":{ticket}}}");
+    }
+    // Held device requests, after the network's (LLP 1069.007 D3): each
+    // with its capability and that capability's inspection summary.
+    let network = runner.pending().len();
+    for (i, hold) in runner.device_holds().iter().enumerate() {
+        if i > 0 || network > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(&hold.name, &mut s);
+        let _ = write!(
+            s,
+            ",\"ticket\":{},\"device\":{{\"capability\":",
+            hold.ticket
+        );
+        quote(&hold.capability, &mut s);
+        s.push_str(",\"args\":");
+        if hold.args.starts_with('{') && hold.args.ends_with('}') {
+            s.push_str(&hold.args);
+        } else {
+            s.push_str("{}");
+        }
+        s.push_str("}}");
     }
     // The store's names, never its values (LLP 1018 D5).
     s.push_str("],\"store\":[");

@@ -805,8 +805,10 @@ impl<D: DataSource> Bridge<D> {
     pub fn agent(&mut self, len: usize) -> u32 {
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
-        let out = match self.host.as_ref() {
-            Some(h) => h.agent(&request),
+        // `tap @t` / `type @t` answer a held device request (LLP 1069.007
+        // D4) before any view is looked up.
+        let out = match self.host.as_mut() {
+            Some(h) => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
             None => exact_runner::agent::error("not booted"),
         };
         self.emit(out)

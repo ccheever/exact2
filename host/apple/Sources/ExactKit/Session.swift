@@ -42,7 +42,28 @@ struct LaunchPlace: Equatable {
 /// The process facts every session reads: the agent drives the app
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
-    public static let environment = ProcessInfo.processInfo.environment
+    /// The process's environment. A production bake never enters agent mode
+    /// (LLP 1069.007 D2, ruled): its `EXACT_AGENT` and `EXACT_AGENT_*`
+    /// variables are dropped here, from the process too, before this host
+    /// or its library reads one.
+    public static let environment: [String: String] = {
+        var environment = ProcessInfo.processInfo.environment
+        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        guard !agent.isEmpty, productionBake else { return environment }
+        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
+        for key in agent { environment[key] = nil; unsetenv(key) }
+        return environment
+    }()
+    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`:
+    /// its own `compat.json`'s `inputs.trust`.
+    static var productionBake: Bool {
+        let runtime = Runtime()
+        defer { runtime.destroy() }
+        let length = exact_baked_compat(runtime.rt)
+        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
+        return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
+    }
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
@@ -844,16 +865,24 @@ public final class ExactSession {
     let launchPlace = LaunchPlace()
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
     func tellTime() {
-        if let epoch = launchPlace.epoch {
-            let zone = TimeZone(identifier: launchPlace.timeZone) ?? TimeZone(secondsFromGMT: 0)!
-            let offset = Double(zone.secondsFromGMT(for: Date(timeIntervalSince1970: epoch / 1000))) / 60
-            apply(runtime.setTime(epochAtZero: epoch, utcOffset: offset))
+        if launchPlace.epoch != nil {
+            tellAgentOffset()
         } else {
             let offset = Double(TimeZone.current.secondsFromGMT()) / 60
             apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
+    }
+    /// Under the agent, the drive's date at the clock's zero and its zone's
+    /// offset at the virtual instant the clock reads: told at boot and after
+    /// every `clock`, so a move across a DST change re-answers it (LLP
+    /// 1069.007 D2). An unchanged offset commits nothing.
+    func tellAgentOffset() {
+        guard let epoch = launchPlace.epoch else { return }
+        let zone = TimeZone(identifier: launchPlace.timeZone) ?? TimeZone(secondsFromGMT: 0)!
+        let offset = Double(zone.secondsFromGMT(for: Date(timeIntervalSince1970: (epoch + now()) / 1000))) / 60
+        apply(runtime.setTime(epochAtZero: epoch, utcOffset: offset))
     }
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first

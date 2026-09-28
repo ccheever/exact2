@@ -595,3 +595,38 @@ never the values (a token is not the agent's to see); the journal carries
 every host boots with an empty store and persists nothing (`?agent=1` on the
 web; `EXACT_AGENT=1` on Apple, unless `EXACT_STORE=real`), so a drive is
 deterministic and a smoke against real credentials leaves nothing behind.
+
+## Amended (LLP 1069.007 first slice, 2026-09-27, as built)
+
+- **Only where agent mode is admitted.** A build baked with
+  `EXACT_UPDATE_TRUST=production` never enters agent mode (ruled). Native:
+  the binary's own `compat.json` `inputs.trust`
+  (`exact_runner::delivery::production`); Linux drops `EXACT_AGENT` and every
+  `EXACT_AGENT_*` variable in `Config::from_env`, Apple in
+  `ExactEnv.environment`, each before anything reads one, and says so on
+  stderr. Web: every host file that reads `?agent` declares
+  `AGENT_ADMITTED`, which `host/web/build.mjs` ships `false` in a
+  production build (and refuses a file that reads `?agent` without it).
+- **Held device requests.** A capability's arm under the agent holds its
+  request with `Runner::hold` (a ticket from the runner's own counter);
+  `state.pending` lists it after the network's as `{name, ticket,
+  device:{capability, args}}`, `args` the capability's inspection summary.
+  A hold is not I/O: it is outside `has_pending`, the web's `inflight` and
+  Apple's `pendingCount`, so `clock +N` never waits on one. `clock settle`
+  still waits for the network, then replies `settled: false, reason:
+  "device", tickets: [...]` (every remaining ticket) while a hold remains.
+- **`tap @N <choice>` / `type @N <value>`** (wire `{"op":"tap","ticket":N,
+  "choice":"cancel"}`, `{"op":"type","ticket":N,"text":"…"}`) answer hold `N`,
+  resolved by the host before any view: consumed once, a stale or retired
+  ticket refused as `not pending: @N`, a network ticket refused by name. The
+  reply carries `delivery: "substituted"`, a fifth value beside §1's (the
+  driver also emits `presenter` and `browser-viewport`). A typed value is
+  never echoed or journalled. The journal says `device <cap> <N> held
+  (agent)`, `… answered: <choice>|a value`, `… cancelled`, `… retired` (its
+  node removed). No capability is admitted yet: the proof is a synthetic
+  hold in `host/linux/src/agent.rs`'s tests.
+- **Launch facts.** Display preferences are the agent's from launch
+  (`no-preference`, `no-preference`, `light`, and on the web `prefers-contrast:
+  no-preference`), not the machine's until the first `prefer`; the UTC offset
+  is told again after every `clock`, so a move across a DST change re-answers
+  `exactTime()` (a timer fired inside that jump still reads the old offset).

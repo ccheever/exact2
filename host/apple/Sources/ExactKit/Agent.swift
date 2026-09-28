@@ -20,7 +20,14 @@ public final class Agent {
     weak var pendingTextReveal: TextArea?
     #endif
     let session: ExactSession
-    init(session: ExactSession) { self.session = session }
+    init(session: ExactSession) {
+        self.session = session
+        // The system appearance is the agent's from its first operation:
+        // light, as `prefer` would set it, never the machine's (LLP 1069.007
+        // D2). Reduced motion and transparency start at no-preference
+        // (`DisplayPreferences.agent`).
+        if ExactEnv.agentMode { systemScheme(dark: false) }
+    }
 
     /// The one contact the driver may hold across requests (LLP 1035.003
     /// D1): where it is, in the viewport's space, while the button is down.
@@ -102,6 +109,16 @@ public final class Agent {
             return
         }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
+        // `tap @t` / `type @t` answer a held device request in the library,
+        // before any view is looked up (LLP 1069.007 D4).
+        if (op == "tap" || op == "type"), req["ticket"] != nil {
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            let data = Data(session.agent(json).utf8)
+            Agent.reply(tagged((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]))
+            return
+        }
         switch op {
         case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.natives.decorate(session.webviews.tree(line)))))
         case "layout": Agent.reply(tagged(layout(req)))
@@ -127,7 +144,7 @@ public final class Agent {
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
-        case "clock": Agent.reply(tagged(clock(req)))
+        case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         case "logs":
@@ -314,6 +331,15 @@ public final class Agent {
                     if Date() >= deadline { return reply(landed, false, reason: "transition") }
                     wasBusy = busy
                 }
+                // A held device request is never waited on: the fixed point
+                // stands, and the agent hears what waits for it (LLP 1069.007 D3).
+                if let d = session.agent("{\"op\":\"holds\"}").data(using: .utf8),
+                   let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                   let holds = o["holds"] as? [Any], !holds.isEmpty {
+                    var out = reply(landed, false, reason: "device")
+                    out["tickets"] = o["tickets"]
+                    return out
+                }
                 return reply(landed, true)
             }
             rounds += 1
@@ -347,7 +373,9 @@ public final class Agent {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
         // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
-        return ((o["pending"] as? [Any])?.count ?? 0) + session.presenter.canvas2d.loadingCount
+        // A held device request is not I/O in flight (LLP 1069.007 D3).
+        let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
+        return inFlight + session.presenter.canvas2d.loadingCount
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

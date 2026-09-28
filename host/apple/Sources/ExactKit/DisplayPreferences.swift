@@ -12,7 +12,9 @@ import UIKit
 
 enum DisplayPreferences {
     /// What an agent's `prefer` set, in place of the platform's settings.
-    nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)? {
+    /// Under the agent it starts at `no-preference` for both, never the
+    /// machine's (LLP 1069.007 D2: facts are fixed at launch).
+    nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)? = ExactEnv.agentMode ? (false, false) : nil {
         didSet { center.post(name: agentChanged, object: nil) }
     }
     private static let agentChanged = Notification.Name("ExactDisplayPreferencesChanged")

@@ -8,6 +8,7 @@
 // under base ∘ author, where the browser strokes and shades in user space as
 // it always does. Injected after first paint with the first 2D canvas; an
 // app without one never fetches it (LLP 1047).
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 const OPS = {
   1: "save", 2: "restore", 3: "reset", 4: "setTransform",
   10: "fillColor", 11: "fillGradient", 12: "strokeColor", 13: "strokeGradient",
@@ -188,7 +189,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   const reported = new Map(); // view id -> "w h scale"
   const waiting = new Set(); // watched views whose first geometry is not in yet
   let settle = null, frames = false, framing = false;
-  const agentMode = new URL(location.href).searchParams.has("agent");
+  const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
   const surfaceOf = (el) => el && [...el.children].find(c => c.dataset && c.dataset.surface !== undefined);
   function report(id, el, width, height) {
     const scale = devicePixelRatio || 1, key = `${width} ${height} ${scale}`;

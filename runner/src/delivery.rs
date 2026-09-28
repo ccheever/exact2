@@ -37,6 +37,14 @@ pub fn refuse_analysis(json: &str) -> Result<(), &'static str> {
     }
 }
 
+/// Whether the binary was baked with `EXACT_UPDATE_TRUST=production`: its
+/// `compat.json`'s own `inputs.trust`. Such a build never enters agent mode
+/// (LLP 1069.007 D2, ruled): `EXACT_AGENT` is ignored there, so no clock,
+/// store, fact or request substitute is reachable in a shipped binary.
+pub fn production(json: &str) -> bool {
+    member(json, "inputs").and_then(|inputs| member(inputs, "trust")) == Some("\"production\"")
+}
+
 /// Every field the runner can fill, by the name a declared shape gives it.
 /// A shape that names anything else is refused at bake (`bake-delivery-field`).
 pub const FIELDS: [&str; 7] = [
@@ -257,6 +265,23 @@ mod tests {
             "{}",
         ] {
             assert_eq!(refuse_analysis(json), Ok(()), "{json}");
+        }
+    }
+
+    #[test]
+    fn only_the_binarys_own_production_trust_is_production() {
+        assert!(production(
+            r#"{"id":"a","inputs":{"app":"x","trust":"production"}}"#
+        ));
+        for json in [
+            r#"{"id":"a","inputs":{"trust":"development"}}"#,
+            r#"{"id":"a","inputs":{"trust":null}}"#,
+            r#"{"id":"a","trust":"production","inputs":{}}"#,
+            r#"{"id":"a","inputs":{"receipt":{"trust":"production"}}}"#,
+            "",
+            "{}",
+        ] {
+            assert!(!production(json), "{json}");
         }
     }
 

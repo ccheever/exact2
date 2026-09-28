@@ -169,7 +169,7 @@ public final class ExactView: UIView {
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
-        let env = ProcessInfo.processInfo.environment
+        let env = ExactEnv.environment
         if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
            let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
            width.isFinite, height.isFinite, width > 0, height > 0 {
