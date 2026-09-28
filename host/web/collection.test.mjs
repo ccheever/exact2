@@ -520,10 +520,11 @@ function motionFixture() {
     if(op.op==='style') motion.style(op.id,op.value);
   } };
   const request=r=>{
+    if(r.op==='gesture') return {knee:64,resistance:0.2,edge:20,slop:4}; // exact_motion::gesture::CONSTANTS
     calls.push(r);
     if(r.op==='begin'||r.op==='height-begin') { const token=String(serial++); held.set(token,r); return {token,target:f.heightTarget??r.view,value:[r.x,r.y],batch:{ops:f.beginOps??[]}}; }
     const old=held.get(r.token); if(!old) return {accepted:false};
-    if(r.op==='live') return {accepted:true};
+    if(r.op==='live'||r.op==='track') return {accepted:true};
     if(r.op==='move') { old.x=r.x; old.y=r.y; return {accepted:true,batch:{ops:[]}}; }
     if(r.op==='action'||r.op==='height-action') { f.onAction?.(r); return {accepted:true}; }
     held.delete(r.token);
@@ -575,10 +576,11 @@ test('swipe recognition catches current overshoot unchanged then reverses in dis
     const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}});
     events.pointerdown(event('pointerdown',0));a.currentTime=500;events.pointermove(event('pointermove',10));const caught=getComputedStyle(n).translate;
     f.advance(20);events.pointermove(event('pointermove',30));const forward=getComputedStyle(n).translate;f.advance(20);events.pointermove(event('pointermove',20));const reverse=getComputedStyle(n).translate;
-    f.advance(20);events.pointerup(event('pointerup',20));const release=f.calls.findLast(c=>c.op==='release');
-    return {caught,forward,reverse,velocity:release.x,actions:f.calls.filter(c=>c.op==='action').length};})()`);
+    f.advance(20);events.pointerup(event('pointerup',20));const release=f.calls.findLast(c=>c.op.startsWith('release'));
+    return {caught,forward,reverse,release:[release.op,release.x,release.y],actions:f.calls.filter(c=>c.op==='action').length};})()`);
   expect(result.caught).toBe('100px'); expect(result.forward).toBe('104px'); expect(result.reverse).toBe('102px'); expect(result.actions).toBe(1);
-  expect(result.velocity).toBeLessThan(0); expect(Math.abs(result.velocity)).toBeLessThan(250);
+  // The release velocity is the engine's, over the held values (LLP 1057.001 §3): the wire's slots are zero.
+  expect(result.release).toEqual(['release-measured',0,0]);
 });
 test('swipe survives descendant capture transfer but cancels its own capture loss',async()=>{
   const result=await evaluate(`(() => {const run=loss=>{const f=(${motionFixture})();const m=f.motion,n=f.node;
@@ -720,20 +722,22 @@ test('height header catches current constrained presentation and commits the fin
     f.advance(20);e.pointermove(f.event('pointermove',110));const moved=getComputedStyle(n).height;
     m.style(2,'box-sizing:border-box;width:200px;height:180px;max-height:400px;transition:none');const held=getComputedStyle(n).height;
     let during;f.onAction=r=>{during={height:r.x,velocity:r.y,held:f.held.has(r.token),lastMove:f.calls.findLast(c=>c.op==='move').x};m.style(2,'box-sizing:border-box;width:200px;height:360px;max-height:400px;transition:none');};
-    f.advance(20);e.pointerup(f.event('pointerup',120));const release=f.calls.findLast(c=>c.op==='release');
+    f.advance(20);e.pointerup(f.event('pointerup',120));const release=f.calls.findLast(c=>c.op==='release-measured');
     const calls=f.calls.length;e.pointerup(f.event('pointerup',130));
-    return {caught,moved,held,during,end:getComputedStyle(n).height,release:release.x,old:a.playState,lateCalls:f.calls.length-calls,order:f.calls.filter(c=>['height-action','release'].includes(c.op)).map(c=>c.op)};})()`);
+    return {caught,moved,held,during,end:getComputedStyle(n).height,release:release.x,old:a.playState,lateCalls:f.calls.length-calls,order:f.calls.filter(c=>['height-action','release-measured'].includes(c.op)).map(c=>c.op)};})()`);
   expect(result.caught).toBe('400px');expect(result.moved).toBe('380px');expect(result.held).toBe('380px');
   expect(result.during.height).toBe(370);expect(result.during.lastMove).toBe(370);expect(result.during.held).toBe(true);
-  expect(result.during.velocity).toBeLessThan(0);expect(result.release).toBe(result.during.velocity);
-  expect(result.end).toBe('360px');expect(result.old).toBe('idle');expect(result.lateCalls).toBe(0);expect(result.order).toEqual(['height-action','release']);
+  // Velocity is the engine's over the heights shown (LLP 1057.001 §3): both wire slots are zero.
+  expect(result.during.velocity).toBe(0);expect(result.release).toBe(0);
+  expect(result.end).toBe('360px');expect(result.old).toBe('idle');expect(result.lateCalls).toBe(0);expect(result.order).toEqual(['height-action','release-measured']);
 });
 test('height header reports constrained velocity and keeps negative drag positions out of the host',async()=>{
   const result=await evaluate(`(() => {const run=lower=>{const f=(${heightFixture})((${motionFixture})),m=f.motion,e=f.events;
     m.style(2,lower?'box-sizing:border-box;height:200px;min-height:180px;transition:none':'box-sizing:border-box;height:640px;max-height:400px;transition:none');
     e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',90));f.advance(20);e.pointermove(f.event('pointermove',lower?1000:40));f.advance(20);e.pointerup(f.event('pointerup',lower?1200:0));
-    const action=f.calls.find(c=>c.op==='height-action');return {height:action.x,velocity:action.y,minInput:Math.min(...f.calls.filter(c=>c.op==='move').map(c=>c.x))};};return {upper:run(false),lower:run(true)};})()`);
-  expect(result.upper.height).toBe(400);expect(result.upper.velocity).toBe(0);
+    const action=f.calls.find(c=>c.op==='height-action');return {height:action.x,velocity:action.y,tracks:f.calls.filter(c=>c.op==='track').map(c=>c.x),minInput:Math.min(...f.calls.filter(c=>c.op==='move').map(c=>c.x))};};return {upper:run(false),lower:run(true)};})()`);
+  // The engine estimates from what is shown: a clamped move tracks the displayed height (LLP 1057.001 §3).
+  expect(result.upper.height).toBe(400);expect(result.upper.velocity).toBe(0);expect(result.upper.tracks.length).toBeGreaterThan(0);expect(result.upper.tracks.every(x=>x===400)).toBe(true);
   expect(result.lower.height).toBe(180);expect(result.lower.minInput).toBeGreaterThanOrEqual(0);
 });
 test('height binding invalidation cancels once and refuses stale release after restoration',async()=>{
@@ -764,7 +768,7 @@ test('browser mouse capture carries a header drag outside its bounds and release
   expect(await evaluate(`f.header.hasPointerCapture(f.calls.find(c=>c.op==='height-begin')?1:-1)`)).toBe(true);
   await evaluate(`f.advance(20)`);await mouse('mouseMoved',rect.y+30,1);
   await evaluate(`f.advance(20)`);await mouse('mouseReleased',rect.y+40,0);
-  const result=await evaluate(`({actions:f.calls.filter(c=>c.op==='height-action').length,releases:f.calls.filter(c=>c.op==='release').length,height:f.calls.find(c=>c.op==='height-action')?.x,end:getComputedStyle(f.panel).height,captured:f.header.hasPointerCapture(1)})`);
+  const result=await evaluate(`({actions:f.calls.filter(c=>c.op==='height-action').length,releases:f.calls.filter(c=>c.op==='release-measured').length,height:f.calls.find(c=>c.op==='height-action')?.x,end:getComputedStyle(f.panel).height,captured:f.header.hasPointerCapture(1)})`);
   expect(result).toEqual({actions:1,releases:1,height:350,end:'360px',captured:false});
 });
 
