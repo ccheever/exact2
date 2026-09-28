@@ -688,7 +688,7 @@ impl<D: DataSource> Bridge<D> {
                 "place: expected locale NUL timeZone",
             ));
         };
-        let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
+        let seed = fields.next().and_then(|s| exact_num::parse_f64(s).ok());
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),

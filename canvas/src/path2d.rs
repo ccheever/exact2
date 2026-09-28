@@ -460,7 +460,7 @@ impl Scan<'_> {
                 i = j;
             }
         }
-        let v: f64 = std::str::from_utf8(&s[start..i]).ok()?.parse().ok()?;
+        let v = exact_num::parse_f64(std::str::from_utf8(&s[start..i]).ok()?).ok()?;
         self.at = i;
         v.is_finite().then_some(v)
     }

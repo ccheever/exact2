@@ -169,7 +169,11 @@ fn number(t: &str) -> Option<f64> {
     let ok = !t.is_empty()
         && t.bytes()
             .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+' | b'e'));
-    let v: f64 = if ok { t.parse().ok()? } else { return None };
+    let v = if ok {
+        exact_num::parse_f64(t).ok()?
+    } else {
+        return None;
+    };
     v.is_finite().then_some(v)
 }
 

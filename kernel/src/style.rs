@@ -806,8 +806,8 @@ impl Color {
         // a byte (1 for a channel, 255 for alpha).
         let byte = |s: &str, unit: f32| -> Option<u8> {
             let v = match s.strip_suffix('%') {
-                Some(p) => p.parse::<f32>().ok()? / 100.0 * 255.0,
-                None => s.parse::<f32>().ok()? * unit,
+                Some(p) => exact_num::parse_f32(p).ok()? / 100.0 * 255.0,
+                None => exact_num::parse_f32(s).ok()? * unit,
             };
             v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
         };

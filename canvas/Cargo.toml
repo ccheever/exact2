@@ -1,5 +1,6 @@
 # Canvas 2D (LLP 1056): the recorder, the list format, the canvas colour
-# parser and f64 path geometry. A leaf: nothing above it, no dependencies.
+# parser and f64 path geometry. A leaf: nothing above it; it reads numbers
+# with exact-num, std's reader without std's tables (LLP 1047 §6).
 [package]
 name = "exact-canvas"
 version.workspace = true
@@ -11,3 +12,6 @@ publish = false
 [lib]
 name = "exact_canvas"
 crate-type = ["rlib"]
+
+[dependencies]
+exact-num = { path = "../num" }

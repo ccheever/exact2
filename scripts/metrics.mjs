@@ -759,7 +759,11 @@ if (long) {
 // ~15 KiB past its line, and d4ef1636 linked the optional ones by use (QUEUE:
 // new optional web capabilities link by use). Each is now that size plus ~2 KiB;
 // a size lane is cutting the core, and lowers these when its cuts land.
-const WEB_CORE_KIB = { realworld: 312, 'video-player': 258, caltrain: 320 };
+// Lowered 2026-09-28 (perf/web-core-size): std's float reader had come back
+// through seven `str::parse::<f64|f32>` sites (a range input's bounds, rgb()
+// channels, the launch seed, Canvas 2D's numbers), its 7.6 KB Eisel–Lemire
+// table with it; they read through exact-num (std's bits), 12.2–13.0 KiB.
+const WEB_CORE_KIB = { realworld: 301, 'video-player': 247, caltrain: 310 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),

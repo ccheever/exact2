@@ -244,7 +244,11 @@ fn num(t: &str) -> Option<f64> {
         && t.bytes()
             .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+' | b'e' | b'E'))
         && t.bytes().any(|b| b.is_ascii_digit());
-    let v: f64 = if ok { t.parse().ok()? } else { return None };
+    let v = if ok {
+        exact_num::parse_f64(t).ok()?
+    } else {
+        return None;
+    };
     v.is_finite().then_some(v)
 }
 

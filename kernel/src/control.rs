@@ -153,7 +153,7 @@ pub struct Range {
 }
 
 fn number(s: Option<&str>) -> Option<f64> {
-    s.and_then(|s| s.trim().parse::<f64>().ok())
+    s.and_then(|s| exact_num::parse_f64(s.trim()).ok())
         .filter(|n| n.is_finite())
 }
 

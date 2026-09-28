@@ -17,14 +17,14 @@ fn spacing(v: &str, font_size: f64) -> Option<(String, f64)> {
         .find(|c: char| c.is_ascii_alphabetic())
         .map(|i| t.split_at(i))?;
     let px = if unit == "em" {
-        n.parse::<f64>().ok().map(|v| v * font_size)
+        exact_num::parse_f64(n).ok().map(|v| v * font_size)
     } else {
         font::length_px(&t, false)
     }?;
     if !px.is_finite() || n.is_empty() {
         return None;
     }
-    let value: f64 = n.parse().ok()?;
+    let value = exact_num::parse_f64(n).ok()?;
     Some((format!("{}{unit}", font::js_number(value)), px))
 }
 

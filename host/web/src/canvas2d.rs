@@ -83,7 +83,7 @@ impl<D: DataSource> Host<D> {
     pub fn canvas_image(&mut self, payload: &str) -> String {
         let mut parts = payload.split('\0');
         let src = parts.next().unwrap_or("");
-        let num = |p: Option<&str>| p.and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        let num = |p: Option<&str>| p.and_then(|v| exact_num::parse_f64(v).ok()).unwrap_or(0.0);
         let (w, h) = (num(parts.next()), num(parts.next()));
         let ok = parts.next() == Some("1");
         let lifetimes: Vec<u64> = parts
