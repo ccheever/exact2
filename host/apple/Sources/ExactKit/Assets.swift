@@ -12,6 +12,8 @@ public final class AssetResolver {
     private var directory: URL?
     private let lock = NSRecursiveLock()
     private var lastRefusal: String?
+    /// The root with its symlinks resolved, once: resolving reads each component.
+    private lazy var base = root.standardizedFileURL.resolvingSymlinksInPath()
     var refusal: String? { lock.lock(); defer { lock.unlock() }; return lastRefusal }
     var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
 
@@ -118,7 +120,6 @@ public final class AssetResolver {
 
     private func embeddedURL(_ name: String) -> URL? {
         guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { return nil }
-        let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
         return url.path.hasPrefix(base.path + "/") ? url : nil
     }

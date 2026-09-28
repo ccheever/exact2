@@ -59,6 +59,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 addGestureRecognizer(g)
                 hoverRecognizer = g
             }
+            video?.update() // the media events the player reports
         }
     }
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {

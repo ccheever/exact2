@@ -64,7 +64,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = []
+    var handlers: Set<String> = [] { didSet { video?.update() } } // the media events the player reports
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? // its surface at a layout transition's size (`Surface.swift`)
     var arrangeShift = CGPoint.zero

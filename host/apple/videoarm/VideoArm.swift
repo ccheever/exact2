@@ -31,6 +31,29 @@ private final class VideoLayerView: UIView {
 }
 #endif
 
+/// One parsed asset per unchanged local file (LLP 1042): a feed that repeats a
+/// source makes each new item from it instead of opening and inspecting the
+/// file again. A remote source is always its own asset; a failed item's asset
+/// is dropped. The file's size and modification time are part of the key, so
+/// a replaced file is a new asset.
+private enum SharedAssets {
+    static let cache: NSCache<NSString, AVURLAsset> = { let c = NSCache<NSString, AVURLAsset>(); c.countLimit = 16; return c }()
+    static func key(_ url: URL) -> NSString? {
+        guard url.isFileURL else { return nil }
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        return "\(info.st_size) \(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec) \(url.path)" as NSString
+    }
+    static func asset(_ url: URL) -> AVURLAsset {
+        guard let key = key(url) else { return AVURLAsset(url: url) }
+        if let asset = cache.object(forKey: key) { return asset }
+        let asset = AVURLAsset(url: url)
+        cache.setObject(asset, forKey: key)
+        return asset
+    }
+    static func forget(_ url: URL) { if let key = key(url) { cache.removeObject(forKey: key) } }
+}
+
 private final class VideoArm: NSObject {
     let player = AVPlayer()
     let container = VideoContainer(frame: .zero)
@@ -58,6 +81,12 @@ private final class VideoArm: NSObject {
     var wantsPlay = false
     var lastPaused = true
     var lastTimeStatus = AVPlayer.TimeControlStatus.paused
+    /// The playback rate last reported by `ratechange` (HTML's playbackRate):
+    /// starting and pausing change the player's rate, not this.
+    var reportedRate: Float = 1
+    /// The media events the node handles. Only these, and state snapshots,
+    /// cross the ABI, as the web glue sends only handled events.
+    var listeners: Set<String> = []
 
     init(context: UnsafeMutableRawPointer?, callback: @escaping VideoCallback) {
         self.context = context; self.callback = callback
@@ -79,14 +108,30 @@ private final class VideoArm: NSObject {
         poster.isHidden = true
         playerObservations = [
             player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in self?.timeStatusChanged() },
-            player.observe(\.rate, options: [.new]) { [weak self] _, _ in self?.emit("ratechange") },
+            player.observe(\.rate, options: [.new]) { [weak self] _, _ in self?.rateChanged() },
             player.observe(\.volume, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") },
             player.observe(\.isMuted, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") }
         ]
-        tick = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
-            guard let self, !self.invalidated else { return }
-            self.emit("timeupdate", payload: String(self.seconds))
+    }
+    /// The periodic observer runs only while `timeupdate` is handled; `state`
+    /// reads the time from the player when asked.
+    func updateTick() {
+        let wants = listeners.contains("timeupdate") && !invalidated
+        if wants && tick == nil {
+            tick = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
+                guard let self, !self.invalidated else { return }
+                self.emit("timeupdate", payload: String(self.seconds))
+            }
+        } else if !wants, let tick {
+            player.removeTimeObserver(tick); self.tick = nil
         }
+    }
+    func rateChanged() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.rateChanged() }; return }
+        let rate = player.rate
+        guard !invalidated, rate != 0, rate != reportedRate else { return }
+        reportedRate = rate
+        emit("ratechange")
     }
     var seconds: Double { let s = player.currentTime().seconds; return s.isFinite ? s : 0 }
     func bool(_ name: String, _ fallback: Bool = false) -> Bool { props[name].map { $0 == "true" } ?? fallback }
@@ -115,6 +160,7 @@ private final class VideoArm: NSObject {
             DispatchQueue.main.async { [weak self] in self?.emit(event, payload: payload) }; return
         }
         if event == "error" { lastError = payload }
+        guard event == "snapshot" || listeners.contains(event) else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: ["event": event, "payload": payload, "state": snapshot]) else { return }
         data.withUnsafeBytes { callback(context, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
     }
@@ -133,6 +179,8 @@ private final class VideoArm: NSObject {
     func update(_ values: [String: String]) {
         let old = props
         props = values
+        listeners = Set((values["exactListeners"] ?? "").split(separator: " ").map(String.init))
+        updateTick()
         let changed = { (name: String) in old[name] != values[name] }
         for (name, min, max) in [("volume", 0.0, 1.0), ("playbackRate", 0.25, 4.0), ("currentTime", 0.0, Double.greatestFiniteMagnitude), ("preferredPeakBitRate", 0.0, Double.greatestFiniteMagnitude), ("preferredForwardBufferDuration", 0.0, Double.greatestFiniteMagnitude)] {
             if let text = props[name], let value = Double(text), value.isFinite, value >= min, value <= max { continue }
@@ -155,11 +203,15 @@ private final class VideoArm: NSObject {
         controller?.requiresLinearPlayback = bool("requiresLinearPlayback")
         controller?.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
         #endif
-        player.isMuted = bool("muted")
-        player.volume = Float(number("volume", 1))
-        player.allowsExternalPlayback = !bool("disableremoteplayback") && !(props["controlslist"] ?? "").split(separator: " ").contains("noremoteplayback")
-        player.automaticallyWaitsToMinimizeStalling = bool("automaticallyWaitsToMinimizeStalling", true)
-        player.preventsDisplaySleepDuringVideoPlayback = bool("preventsDisplaySleepDuringVideoPlayback", true)
+        // Each setter is a command to the media server and a KVO event; only a
+        // changed value is sent.
+        set(\.isMuted, bool("muted"))
+        set(\.volume, Float(number("volume", 1)))
+        set(\.allowsExternalPlayback, !bool("disableremoteplayback") && !(props["controlslist"] ?? "").split(separator: " ").contains("noremoteplayback"))
+        set(\.automaticallyWaitsToMinimizeStalling, bool("automaticallyWaitsToMinimizeStalling", true))
+        set(\.preventsDisplaySleepDuringVideoPlayback, bool("preventsDisplaySleepDuringVideoPlayback", true))
+        // HTML's loop seeks to the start at the end without pausing (no pause, play or ended).
+        set(\.actionAtItemEnd, bool("loop") ? .none : .pause)
         if changed("poster") { loadPoster() }
         if changed("src") {
             wantsPlay = props["paused"].map { $0 == "false" } ?? bool("autoplay")
@@ -169,17 +221,26 @@ private final class VideoArm: NSObject {
             wantsPlay = value == "false"
             if wantsPlay { if player.currentItem == nil { loadSource() }; play() } else { player.pause() }
         }
-        if changed("playbackRate"), player.rate != 0 { player.rate = rate }
+        if changed("playbackRate") {
+            if rate != reportedRate { reportedRate = rate; emit("ratechange") }
+            if player.rate != 0 { player.rate = rate }
+        }
         if changed("currentTime"), props["currentTime"] != nil { seek(number("currentTime", 0)) }
         configureItem()
         if let error = props["sourceError"], error != old["sourceError"] { emit("error", payload: error) }
         layout()
         emit()
     }
+    func set<Value: Equatable>(_ key: ReferenceWritableKeyPath<AVPlayer, Value>, _ value: Value) {
+        if player[keyPath: key] != value { player[keyPath: key] = value }
+    }
     func configureItem() {
-        player.currentItem?.preferredPeakBitRate = number("preferredPeakBitRate", 0)
-        player.currentItem?.preferredForwardBufferDuration = number("preferredForwardBufferDuration", 0)
-        player.currentItem?.audioTimePitchAlgorithm = bool("preservesPitch", true) ? .spectral : .varispeed
+        guard let item = player.currentItem else { return }
+        let peak = number("preferredPeakBitRate", 0), buffer = number("preferredForwardBufferDuration", 0)
+        let pitch: AVAudioTimePitchAlgorithm = bool("preservesPitch", true) ? .spectral : .varispeed
+        if item.preferredPeakBitRate != peak { item.preferredPeakBitRate = peak }
+        if item.preferredForwardBufferDuration != buffer { item.preferredForwardBufferDuration = buffer }
+        if item.audioTimePitchAlgorithm != pitch { item.audioTimePitchAlgorithm = pitch }
     }
     func loadSource() {
         generation += 1
@@ -192,17 +253,20 @@ private final class VideoArm: NSObject {
         pendingSeek = props["currentTime"].flatMap(Double.init)
         guard let source = props["src"], !source.isEmpty, let url = URL(string: source) else { return }
         // preload is a hint: AVKit may prepare an item so its native Play control works.
-        let item = AVPlayerItem(url: url)
+        let item = AVPlayerItem(asset: SharedAssets.asset(url))
         player.replaceCurrentItem(with: item)
         configureItem()
         let token = generation
         observations = [item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
             DispatchQueue.main.async {
                 guard let self, let item, !self.invalidated, self.generation == token else { return }
-                if item.status == .failed { self.emit("error", payload: item.error?.localizedDescription ?? "Media could not be loaded") }
+                if item.status == .failed {
+                    SharedAssets.forget(url)
+                    self.emit("error", payload: item.error?.localizedDescription ?? "Media could not be loaded")
+                }
                 if item.status == .readyToPlay {
                     self.naturalSize = item.presentationSize
-                    self.emit("loadedmetadata")
+                    self.emit(self.listeners.contains("loadedmetadata") ? "loadedmetadata" : "snapshot")
                     if item.duration.seconds.isFinite { self.emit("durationchange", payload: String(item.duration.seconds)) }
                     self.emit("canplay")
                     if let time = self.pendingSeek { self.pendingSeek = nil; self.seek(time) }
@@ -218,11 +282,9 @@ private final class VideoArm: NSObject {
         }]
         notifications.append(NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             guard let self, !self.invalidated, self.generation == token else { return }
-            if self.bool("loop") {
-                self.player.seek(to: .zero) { [weak self] complete in
-                    DispatchQueue.main.async { guard let self, complete, !self.invalidated, self.generation == token, self.wantsPlay else { return }; self.play() }
-                }
-            } else { self.wantsPlay = false; self.emit("ended") }
+            // The player keeps its rate at the end (`actionAtItemEnd` is none);
+            // the seek reports seeking, seeked and timeupdate, as Chrome does.
+            if self.bool("loop") { self.seek(0) } else { self.wantsPlay = false; self.emit("ended") }
         })
         if wantsPlay { play() }
     }

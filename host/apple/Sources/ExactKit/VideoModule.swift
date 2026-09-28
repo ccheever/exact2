@@ -48,6 +48,11 @@ final class VideoView {
     private var observed: [String: Any] = ["unavailable": true]
     private var intrinsicSize: CGSize?
     private var visibilityBlocked = false
+    /// The last source resolved per name (`src`, `poster`): its authored text
+    /// and what it resolved to. A resolution reads the file system.
+    private var resolved: [String: (source: String, url: URL?)] = [:]
+    /// The media events the arm reports (LLP 1042 §3); others are not sent.
+    static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error"]
     private var visibilityThreshold: CGFloat? {
         guard let owner, owner.props["paused"] != nil,
               let raw = owner.props["playbackVisibilityThreshold"],
@@ -115,11 +120,17 @@ final class VideoView {
         props["objectFit"] = owner.style["object_fit"]?.string ?? "contain"
         for name in ["src", "poster"] {
             if let source = props[name], !source.isEmpty {
-                let resolved = NodeView.resolveSource(source, app: owner.presenter?.session?.app)
-                props[name] = resolved?.absoluteString ?? ""
-                if name == "src" && resolved == nil { props["sourceError"] = "Unsupported media source" }
+                let url: URL?
+                if let hit = resolved[name], hit.source == source { url = hit.url } else {
+                    url = NodeView.resolveSource(source, app: owner.presenter?.session?.app)
+                    resolved[name] = (source, url)
+                }
+                props[name] = url?.absoluteString ?? ""
+                if name == "src" && url == nil { props["sourceError"] = "Unsupported media source" }
             }
         }
+        let listeners = owner.handlers.intersection(Self.events)
+        if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
         guard props != last else { return }
         last = props
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
