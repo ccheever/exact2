@@ -250,12 +250,6 @@
                 "type": "string"
               }
             },
-            "permissions": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
             "team": {
               "type": "string"
             }
@@ -270,12 +264,6 @@
             },
             "team": {
               "type": "string"
-            },
-            "permissions": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
             },
             "urlSchemes": {
               "type": "array",

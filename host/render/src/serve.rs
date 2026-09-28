@@ -83,6 +83,8 @@ struct Shared {
     plan: Plan,
     shell: String,
     csp: String,
+    /// The pages' `Permissions-Policy` (LLP 1069.008 D6), beside the CSP.
+    permissions: String,
     pages: Mutex<VecDeque<CachedPage>>,
     variants: Variants,
     generations: Option<crate::generations::Generations>,
@@ -134,6 +136,7 @@ impl Server {
             .ok_or_else(|| std::io::Error::other("the dist has no shell"))?;
         let listener = TcpListener::bind(("127.0.0.1", serve.port))?;
         let csp = csp(grants, &serve.dist);
+        let permissions = exact_runner::device::permissions_policy(grants);
         // The transport's first start in a process is slow (Apple's takes
         // seconds); pay it here, not in the first request.
         drop(crate::Executor::start(grants));
@@ -154,6 +157,7 @@ impl Server {
                 plan,
                 shell,
                 csp,
+                permissions,
                 pages: Mutex::new(VecDeque::new()),
                 variants,
                 generations,
@@ -229,7 +233,7 @@ impl Server {
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
                 let _ = read_request(&mut stream);
-                busy.write(&mut stream, false, &shared.csp);
+                busy.write(&mut stream, false, &shared.csp, &shared.permissions);
                 close(stream);
                 continue;
             }
@@ -294,11 +298,14 @@ impl Response {
         self
     }
 
-    fn write(&self, stream: &mut TcpStream, head: bool, csp: &str) {
+    fn write(&self, stream: &mut TcpStream, head: bool, csp: &str, permissions: &str) {
         // Header values can contain app data; refuse the entire response before
         // writing anything, including on the 304 path.
-        if self.headers.iter().any(|(_, value)| invalid_header(value)) || invalid_header(csp) {
-            Response::text(500, "invalid response header\n").write(stream, head, "");
+        if self.headers.iter().any(|(_, value)| invalid_header(value))
+            || invalid_header(csp)
+            || invalid_header(permissions)
+        {
+            Response::text(500, "invalid response header\n").write(stream, head, "", "");
             return;
         }
         let reason = match self.status {
@@ -340,6 +347,11 @@ impl Response {
             .any(|(name, value)| *name == "Content-Type" && value.starts_with("text/html"));
         if page {
             let _ = write!(out, "Content-Security-Policy: {csp}\r\n");
+            // A page's own code never reaches a device the app was not
+            // granted: the same promise the CSP makes for `connect-src`.
+            if !permissions.is_empty() {
+                let _ = write!(out, "Permissions-Policy: {permissions}\r\n");
+            }
         }
         let _ = write!(
             out,
@@ -384,7 +396,12 @@ fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let Ok(request) = read_request(&mut stream) else {
-        Response::text(400, "bad request\n").write(&mut stream, false, &shared.csp);
+        Response::text(400, "bad request\n").write(
+            &mut stream,
+            false,
+            &shared.csp,
+            &shared.permissions,
+        );
         return stream;
     };
     let head = request.method == "HEAD";
@@ -393,7 +410,7 @@ fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D
     } else {
         finish(respond(&request, shared, data), &request)
     };
-    response.write(&mut stream, head, &shared.csp);
+    response.write(&mut stream, head, &shared.csp, &shared.permissions);
     stream
 }
 
@@ -1316,7 +1333,7 @@ mod tests {
                 let (mut server, _) = listener.accept().unwrap();
                 Response::text(status, "original")
                     .header("X-Robots-Tag", value)
-                    .write(&mut server, false, "default-src 'self'");
+                    .write(&mut server, false, "default-src 'self'", "");
                 server.shutdown(std::net::Shutdown::Write).unwrap();
                 let mut received = String::new();
                 client.read_to_string(&mut received).unwrap();
@@ -1324,6 +1341,33 @@ mod tests {
                 assert!(!received.contains("X-Robots-Tag"));
                 assert!(!received.contains("injected"));
             }
+        }
+    }
+
+    #[test]
+    fn a_page_carries_the_permissions_policy_its_grants_derive() {
+        let policy = exact_runner::device::permissions_policy(
+            "net.fetch https://x/\ndevice.microphone purpose.mic",
+        );
+        assert_eq!(policy, "microphone=(self), camera=(), geolocation=()");
+        for (content_type, expected) in [("text/html; charset=utf-8", true), ("text/plain", false)]
+        {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (mut server, _) = listener.accept().unwrap();
+            let mut page = Response::text(200, "<p>");
+            page.headers[0].1 = content_type.into();
+            page.write(&mut server, false, "default-src 'self'", &policy);
+            server.shutdown(std::net::Shutdown::Write).unwrap();
+            let mut received = String::new();
+            client.read_to_string(&mut received).unwrap();
+            assert_eq!(
+                received.contains(
+                    "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=()\r\n"
+                ),
+                expected,
+                "{received}"
+            );
         }
     }
 }

@@ -54,6 +54,9 @@ pub struct Compat {
     pub target: String,
     /// Embedded bundle provenance and its complete static roster.
     pub embedded: serde_json::Value,
+    /// What the app can reach and each host's spelling of it (LLP 1069.008
+    /// D7): beside the id, not in it; `null` when the grants are unknown.
+    pub reach: serde_json::Value,
 }
 
 impl Compat {
@@ -80,6 +83,8 @@ impl Compat {
         canonical(&serde_json::json!(self.target), &mut s);
         s.push_str(",\"embedded\":");
         canonical(&self.embedded, &mut s);
+        s.push_str(",\"reach\":");
+        canonical(&self.reach, &mut s);
         s.push_str("}\n");
         s
     }
@@ -136,6 +141,7 @@ pub fn compatibility_id_sources(
     if let Some(rust) = rust_grants {
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
+    crate::reach::derive(app_dir, platform, &mut compat)?;
     if let Some(out) = std::env::var_os("OUT_DIR") {
         crate::receipt::emit(
             &mut compat,
@@ -179,7 +185,7 @@ fn source_scopes(compat: &mut Compat, javascript: &str, rust: &str) {
     compat.id = compatibility_digest(&compat.inputs);
 }
 
-fn compatibility_digest(inputs: &serde_json::Value) -> String {
+pub(crate) fn compatibility_digest(inputs: &serde_json::Value) -> String {
     let mut canon = String::new();
     canonical(inputs, &mut canon);
     let mut h = Sha256::new();
@@ -359,6 +365,7 @@ fn compatibility_with_trust(
         activate: manifest.activate(),
         target: target.into(),
         embedded: serde_json::Value::Null,
+        reach: serde_json::Value::Null,
     })
 }
 
@@ -533,7 +540,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// JSON with sorted keys and no whitespace: the same bytes for the same
 /// inputs, whatever built the value.
-fn canonical(v: &serde_json::Value, out: &mut String) {
+pub(crate) fn canonical(v: &serde_json::Value, out: &mut String) {
     use serde_json::Value;
     match v {
         Value::Null => out.push_str("null"),

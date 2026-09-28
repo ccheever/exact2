@@ -248,6 +248,11 @@ fn each_route_answers_by_its_policy() {
         csp.contains("connect-src 'self' https://api.blog.test;"),
         "{csp}"
     );
+    // Beside it, every device the app does not grant is denied (LLP 1069.008 D6).
+    assert_eq!(
+        header(&headers, "permissions-policy"),
+        Some("microphone=(), camera=(), geolocation=()")
+    );
     // The page's one inline script that runs, the capture script, by hash.
     let capture = {
         use sha2::{Digest, Sha256};

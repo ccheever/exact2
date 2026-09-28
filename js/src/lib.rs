@@ -709,7 +709,10 @@ impl Module {
                     }));
                 self.host.native = Some(native);
             }
-            self.storage = Some(storage::Session::open(paths, &self.grants)?);
+            self.storage = Some(storage::Session::open(
+                paths,
+                &exact_runner::io_grants(&self.grants),
+            )?);
             // Retain the borrowed queue even if adapter initialization fails;
             // the local engine must be destroyed before its storage context.
             engine.install_storage(&self.storage.as_ref().unwrap().context)?;

@@ -23,6 +23,7 @@ mod surface;
 mod symbols;
 mod typescript;
 
+pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
@@ -32,6 +33,18 @@ pub use map::{plan_digest, SourceMap};
 pub use rust::rust;
 pub use symbols::symbols_json;
 pub use typescript::typescript;
+
+/// The app's strings tables (LLP 1060 D1), `None` for an app without a
+/// `strings` directory, every refusal in one message: the bake reads grant
+/// purposes from them (LLP 1069.008 D1).
+pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>, String> {
+    strings::load(app_root, &app_root.join("app.contract")).map_err(|all| {
+        all.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
 
 use contract_syntax::{Expr, File, Span, Step, TestDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};

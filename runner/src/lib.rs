@@ -19,6 +19,8 @@
 //!   own `set_dynamic`.
 //! - [`delivery`] — what this binary and its update store know about
 //!   delivery (LLP 1030 D7): one resource the runner answers itself.
+//! - [`device`] — `device.*` grants and the one table every host's
+//!   permission spelling derives from (LLP 1069.008).
 //! - [`instance`] — the instance tree: nodes, `when`/`match` arms, keyed
 //!   `each` rows, and the ops that keep the kernel equal to it.
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
@@ -41,6 +43,7 @@ pub mod bridge;
 pub mod compare;
 mod conform;
 pub mod delivery;
+pub mod device;
 pub mod head;
 pub mod held;
 pub mod instance;

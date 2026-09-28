@@ -437,30 +437,39 @@ export const entitlements = (app, team, debuggable = true) => {
   return plistFile(dict);
 };
 
-/** Each macOS usage key and the hardened-runtime entitlement that resource
- * also needs (Apple's "Hardened Runtime" resource-access entitlements). The
- * usage string alone is not enough: a hardened app without the entitlement is
- * silently refused, so a notarised build can't hear what a development one can.
- * LLP 1069.008 moves this to `device.*` grants. */
-const HARDENED_RESOURCES = {
-  NSMicrophoneUsageDescription: 'com.apple.security.device.audio-input',
-  NSCameraUsageDescription: 'com.apple.security.device.camera',
-  NSLocationUsageDescription: 'com.apple.security.personal-information.location',
-  NSLocationWhenInUseUsageDescription: 'com.apple.security.personal-information.location',
-  NSLocationAlwaysAndWhenInUseUsageDescription: 'com.apple.security.personal-information.location',
-  NSContactsUsageDescription: 'com.apple.security.personal-information.addressbook',
-  NSCalendarsUsageDescription: 'com.apple.security.personal-information.calendars',
-  NSCalendarsFullAccessUsageDescription: 'com.apple.security.personal-information.calendars',
-  NSCalendarsWriteOnlyAccessUsageDescription: 'com.apple.security.personal-information.calendars',
-  NSPhotoLibraryUsageDescription: 'com.apple.security.personal-information.photos-library',
-  NSAppleEventsUsageDescription: 'com.apple.security.automation.apple-events',
+/** The device grants' derivations (LLP 1069.008 D4), from the bake's
+ * `reach` (`bake/src/reach.rs`, over the runner's one table): each usage key
+ * with the base locale's purpose, and `CFBundleLocalizations` with every
+ * strings table's tag. Nothing when the app grants no device. */
+export const usageKeys = (reach) => {
+  const usage = Object.entries(reach?.usage ?? {});
+  if (!usage.length) return {};
+  return {
+    ...Object.fromEntries(usage.map(([key, texts]) => [key, texts[reach.base]])),
+    CFBundleDevelopmentRegion: reach.base,
+    CFBundleLocalizations: reach.locales,
+  };
 };
 
-/** The hardened-runtime entitlements `exact release` signs the Mac app with,
- * from the usage keys `host.macos.permissions` declares; null when none needs one. */
-export const macReleaseEntitlements = (app) => {
-  const names = Object.keys(app.manifest.host?.macos?.permissions ?? {}).map((key) => HARDENED_RESOURCES[key]).filter(Boolean);
-  return names.length ? plistFile(Object.fromEntries([...new Set(names)].sort().map((name) => [name, true]))) : null;
+/** `<tag>.lproj/InfoPlist.strings` under `dir`, one per strings table, with
+ * that table's purposes (a missing translation already fell back to the
+ * base in the bake, as `t` does). */
+export function writeUsageStrings(reach, dir) {
+  const usage = Object.entries(reach?.usage ?? {});
+  if (!usage.length) return;
+  for (const locale of reach.locales) {
+    mkdirSync(resolve(dir, `${locale}.lproj`), { recursive: true });
+    writeFileSync(resolve(dir, `${locale}.lproj`, 'InfoPlist.strings'), plistFile(Object.fromEntries(usage.map(([key, texts]) => [key, texts[locale]]))));
+  }
+}
+
+/** The hardened-runtime entitlements `exact release` signs the Mac app with:
+ * the bake's derivation from the app's `device.*` grants (a usage string
+ * alone is not enough; a hardened app without the entitlement is silently
+ * refused). Null when the app grants no such device. */
+export const macReleaseEntitlements = (compat) => {
+  const names = compat?.reach?.entitlements ?? [];
+  return names.length ? plistFile(Object.fromEntries(names.map((name) => [name, true]))) : null;
 };
 
 /** Build with Xcode when `xcode-select` names the Command Line Tools, which
@@ -495,7 +504,7 @@ function wrapFramework(frameworks, loose, name, app) {
 }
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {}, distribution = null } = {}) => {
+export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, reach = null } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const families = (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
@@ -520,7 +529,7 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
   }
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
   Object.assign(dict, openingLinks(app, 'ios', development));
-  for (const [key, text] of Object.entries(ios.permissions ?? {})) dict[key] = text;
+  Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   if (distribution) Object.assign(dict, distribution);
   return plistFile(dict);
@@ -683,7 +692,7 @@ function launchScreen(app, catalog) {
 }
 
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
-export const macInfoPlist = (app, { development = null, icon = {} } = {}) => plistFile({
+export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
   ...icon,
   CFBundleExecutable: 'ExactMac',
   CFBundleIdentifier: app.id,
@@ -694,9 +703,8 @@ export const macInfoPlist = (app, { development = null, icon = {} } = {}) => pli
   CFBundleShortVersionString: '0.1.0',
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
-  // Usage strings for protected resources (NSMicrophoneUsageDescription, …),
-  // as `host.ios.permissions` writes them for iOS.
-  ...(app.manifest.host?.macos?.permissions ?? {}),
+  // Usage strings for the devices the app's grants name (LLP 1069.008).
+  ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app), ExactLaunchMode: launchMode(app) } : {}),
   ...openingLinks(app, 'macos', development),
@@ -1068,7 +1076,7 @@ function main(args) {
     // so two apps built here are two identities to the keychain (LLP 1018 D7).
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
-    writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development }));
+    writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach }));
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
@@ -1094,10 +1102,11 @@ function main(args) {
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
       for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, icon: appIcon(app, resources, 'macos') }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: appIcon(app, resources, 'macos') }));
+      writeUsageStrings(bakedCompat.reach, resources);
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
@@ -1128,12 +1137,13 @@ function main(args) {
   const bundle = resolve(binDir, 'ExactIOS.app');
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach }));
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: iosAssets(app, bundle, device, { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: iosAssets(app, bundle, device, { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null }));
+  writeUsageStrings(bakedCompat.reach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
@@ -1146,7 +1156,8 @@ function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(resolve(binDir, 'ExactHostIOS'), resolve(hostBundle, 'ExactHostIOS'));
     // The sample host takes no development link: it would share the scheme.
-    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)' }));
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: bakedCompat.reach }));
+    writeUsageStrings(bakedCompat.reach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
     bundles.push([hostBundle, true]);

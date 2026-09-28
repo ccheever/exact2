@@ -66,7 +66,7 @@ import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, macReleaseEntitlements, useXcode } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -925,16 +925,38 @@ test('manifest colours follow the web and retired launch and alias keys are refu
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a release signs with the hardened-runtime entitlements its usage keys need, and only those', () => {
-  const app = (permissions) => ({ manifest: { host: { macos: { permissions } } } });
-  assert.equal(macReleaseEntitlements({ manifest: {} }), null);
-  assert.equal(macReleaseEntitlements(app({ NSSpeechRecognitionUsageDescription: 'no hardened entitlement' })), null);
-  const both = macReleaseEntitlements(app({ NSMicrophoneUsageDescription: 'hear', NSLocationUsageDescription: 'a', NSLocationWhenInUseUsageDescription: 'b', NSSpeechRecognitionUsageDescription: 'c' }));
-  const keys = [...both.matchAll(/<key>([^<]+)<\/key><true\/>/g)].map((m) => m[1]);
-  assert.deepEqual(keys, ['com.apple.security.device.audio-input', 'com.apple.security.personal-information.location']);
-  if (process.platform === 'darwin') {
-    const dir = mkdtempSync(resolve(tmpdir(), 'exact-entitlements-')), file = resolve(dir, 'entitlements.plist');
-    try { writeFileSync(file, both); assert.equal(spawnSync('plutil', ['-lint', file]).status, 0); }
-    finally { rmSync(dir, { recursive: true, force: true }); }
+test('device grants derive the plists, their translations and the release entitlements (LLP 1069.008)', async () => {
+  const { readManifest } = await import('./app.mjs');
+  // The bake's `reach` for `device.microphone purpose.mic` and
+  // `device.speech-recognition purpose.speech`, with en and fr tables.
+  const reach = { base: 'en', locales: ['en', 'fr'], rows: [], entitlements: ['com.apple.security.device.audio-input'],
+    usage: { NSMicrophoneUsageDescription: { en: 'Records "takes".', fr: 'Enregistre.' }, NSSpeechRecognitionUsageDescription: { en: 'Transcribes.', fr: 'Transcrit.' } } };
+  const app = { id: 'com.example.fixture', displayName: 'Fixture', manifest: { host: {} } };
+  assert.equal(macReleaseEntitlements(null), null);
+  assert.equal(macReleaseEntitlements({ reach: { ...reach, entitlements: [] } }), null);
+  const entitled = macReleaseEntitlements({ reach });
+  assert.deepEqual([...entitled.matchAll(/<key>([^<]+)<\/key><true\/>/g)].map((m) => m[1]), ['com.apple.security.device.audio-input']);
+  for (const plist of [infoPlist(app, false, { reach }), macInfoPlist(app, { reach })]) {
+    assert.match(plist, /<key>NSMicrophoneUsageDescription<\/key><string>Records "takes".<\/string>/);
+    assert.match(plist, /<key>NSSpeechRecognitionUsageDescription<\/key><string>Transcribes.<\/string>/);
+    assert.match(plist, /<key>CFBundleLocalizations<\/key><array><string>en<\/string><string>fr<\/string><\/array>/);
   }
+  // No device grant, no key: the plists are what they were.
+  for (const plist of [infoPlist(app, false), macInfoPlist(app, { reach: { ...reach, usage: {} } })]) assert.doesNotMatch(plist, /UsageDescription|CFBundleLocalizations/);
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-usage-'));
+  try {
+    writeUsageStrings(reach, dir);
+    const fr = readFileSync(resolve(dir, 'fr.lproj/InfoPlist.strings'), 'utf8');
+    assert.match(fr, /<key>NSMicrophoneUsageDescription<\/key><string>Enregistre.<\/string>/);
+    assert.ok(existsSync(resolve(dir, 'en.lproj/InfoPlist.strings')));
+    if (process.platform === 'darwin') {
+      writeFileSync(resolve(dir, 'entitlements.plist'), entitled);
+      for (const file of ['entitlements.plist', 'fr.lproj/InfoPlist.strings']) assert.equal(spawnSync('plutil', ['-lint', resolve(dir, file)]).status, 0, file);
+    }
+    // The hand-written keys are gone, and the refusal names the grant form.
+    for (const platform of ['ios', 'macos']) {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ app: { id: 'com.example.fixture', name: 'Fixture' }, host: { [platform]: { permissions: { NSMicrophoneUsageDescription: 'x' } } } }));
+      assert.throws(() => readManifest(dir, 'fixture'), new RegExp(`host\\.${platform}\\.permissions: deleted \\(LLP 1069\\.008\\); declare the device .*device\\.microphone purpose\\.microphone`));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

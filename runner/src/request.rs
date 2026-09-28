@@ -15,12 +15,14 @@ use exact_plan::Value;
 pub const MAX_HOST_WORK_BYTES: usize = 16 << 20;
 
 /// Grants understood by the platform I/O executor. Surface capabilities are
-/// enforced by the presenter and must not make an older I/O parser reject the
-/// otherwise independent filesystem, network, database, or secret grants.
+/// enforced by the presenter, and device grants by the OS and the capability
+/// that asks (LLP 1069.008 D3); neither may make an older I/O parser reject
+/// the otherwise independent filesystem, network, database, or secret grants.
 pub fn io_grants(spec: &str) -> String {
     spec.lines()
         .map(str::trim)
         .filter(|line| !line.starts_with("surface.read ") && !line.starts_with("surface.write "))
+        .filter(|line| !crate::device::is_device_line(line))
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
@@ -546,7 +548,9 @@ mod tests {
             .unwrap_err()
             .contains("multiple host-work kinds"));
         assert_eq!(
-            io_grants("fs.read app:/data\nsurface.read world\nsurface.write world"),
+            io_grants(
+                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nsurface.write world"
+            ),
             "fs.read app:/data"
         );
     }

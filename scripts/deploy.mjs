@@ -46,7 +46,7 @@
 // platform with no completed receipt is reported as unbuilt.
 import { spawnSync } from 'node:child_process';
 import { randomBytes, verify } from 'node:crypto';
-import { Refusal, refuse, canonicalBytes, publicKeyFromRaw, loadSigner, keygen, validateRawIntegers } from './deploy-signing.mjs';
+import { Refusal, refuse, canonicalBytes, canonicalJson, publicKeyFromRaw, loadSigner, keygen, validateRawIntegers } from './deploy-signing.mjs';
 export { canonicalBytes, publicKeyFromRaw, loadSigner } from './deploy-signing.mjs';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
@@ -922,7 +922,20 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
 
   return { release, snapshot: { id: snapshot.id ?? snapshot.commit, commit: snapshot.commit, dirty: snapshot.dirty, changes: snapshot.changes,
     ...(snapshot.sources ? { sources: snapshot.sources.map(({ roles, commit, workingSha256 }) => ({ roles, commit, workingSha256 })) } : {}) },
-  app: { id: app.id, name: app.displayName }, channel, origin: { kind: origin.kind, location: origin.describe() }, dryRun: !opts.yes, notes, rows };
+  app: { id: app.id, name: app.displayName }, channel, origin: { kind: origin.kind, location: origin.describe() }, dryRun: !opts.yes, notes, rows,
+  // What the app can reach (LLP 1069.008 D7): the bake's rows, the same union on every platform.
+  reach: (compat.web ?? Object.values(compat).find((c) => c?.reach))?.reach?.rows ?? null };
+}
+
+/** The reach table (LLP 1069.008 D7): each grant line, its purpose in the
+ * base locale, and what enforces it: the runtime, the OS, or only a native
+ * module's declaration. */
+export function renderReach(rows) {
+  if (!rows?.length) return [];
+  const width = (key, cap) => Math.min(cap, Math.max(key.length, ...rows.map((r) => (r[key] ?? '—').length + (key === 'purpose' && r.purpose ? 2 : 0))));
+  const g = width('grant', 44), p = width('purpose', 44);
+  return ['what this app can reach:', `  ${'reach'.padEnd(g)}  ${'purpose'.padEnd(p)}  enforced by`,
+    ...rows.map((r) => `  ${r.grant.padEnd(g)}  ${(r.purpose ? JSON.stringify(r.purpose) : '—').padEnd(p)}  ${r.enforced}`)];
 }
 
 // ------------------------------------------------------------------ printing
@@ -959,6 +972,7 @@ export function renderTable(table) {
   }
   const binaries = table.rows.filter((r) => r.action === 'binary');
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); independently safe bundle rows still publish`);
+  out.push(...renderReach(table.reach));
   return out.join('\n');
 }
 

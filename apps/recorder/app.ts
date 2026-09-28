@@ -7,7 +7,7 @@
 import type { Answer, NativeModule } from './app.contract.d.ts';
 
 export const appId = 'com.exact.recorder';
-export const grants = '';
+export const grants = 'device.microphone purpose.microphone';
 
 type Native = NativeModule | null | undefined;
 const unavailable = { available: false, recording: false, message: 'Recording is not available here.' };

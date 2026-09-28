@@ -9,6 +9,7 @@
 #![deny(missing_docs)]
 
 pub mod compat;
+mod reach;
 mod receipt;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat};

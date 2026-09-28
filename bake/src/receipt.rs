@@ -453,6 +453,11 @@ fn artifact_graph(
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }
+    // A purpose's text is in the installed binary's Info.plist: a bundle
+    // whose purposes differ is a binary release (LLP 1069.008 D5).
+    if inputs.get("grantPurposes").is_some() {
+        requires.insert("grantPurposes".into(), inputs["grantPurposes"].clone());
+    }
     let rust = assets
         .iter()
         .any(|asset| asset["name"] == "rust/app.module.json");
@@ -946,6 +951,7 @@ mod tests {
             origin: None,
             activate: "next-launch".into(),
             target: "aarch64-apple-ios".into(),
+            reach: Value::Null,
             embedded: json!({"seq":0,"genesis":true,"entryDigest":null,"plan":{"sha256":head.plan.sha256,"bytes":head.plan.bytes},"assets":assets}),
         };
         (

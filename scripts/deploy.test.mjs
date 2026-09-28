@@ -903,5 +903,22 @@ async function rejects(action, matches) {
     JSON.stringify({ rolledBack: rolledBack.rows[0], inStep: inStep.rows[0] }));
 }
 
+{
+  // LLP 1069.008 D7: the dry run ends with what the app can reach.
+  const reach = [
+    { grant: 'net.fetch https://api.example.com/', purpose: null, enforced: 'runtime (all hosts); CSP (served web)' },
+    { grant: 'device.microphone purpose.microphone', purpose: 'Records your takes.', enforced: 'OS prompt (iOS, macOS); Permissions-Policy (served web; a static dist sends none); declared by app.ts' },
+  ];
+  const table = (rows) => renderTable({ release: 'test', snapshot: { commit: '0'.repeat(40), dirty: false }, channel: 'prod',
+    origin: { kind: 'directory', location: '/origin' }, notes: [], rows: [], reach: rows }).split('\n');
+  const shown = table(reach), none = table(null);
+  result('the dry run prints what the app can reach, with who enforces each line',
+    shown[1] === 'what this app can reach:' && /^ {2}reach +purpose +enforced by$/.test(shown[2])
+      && /^ {2}net\.fetch https:\/\/api\.example\.com\/ +— +runtime \(all hosts\); CSP \(served web\)$/.test(shown[3])
+      && shown[4].includes('"Records your takes."') && shown[4].endsWith('declared by app.ts')
+      && none.length === 1,
+    shown.join('\n'));
+}
+
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

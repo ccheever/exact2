@@ -353,3 +353,11 @@ test('the production server sends warm bodies compressed, with validators', asyn
   } finally { production.close(); plain.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+
+test('the install page lists what the app can reach, escaped, and only when the bake says (LLP 1069.008 D7)', () => {
+  const reach = [{ grant: 'device.microphone purpose.mic', purpose: 'Records <your> takes.', enforced: 'OS prompt (iOS, macOS); declared by app.ts' }];
+  const page = installPage(manifest, { build: { reach } });
+  assert.match(page, /<h2 id="heading-reach">What this app can reach<\/h2>/);
+  assert.match(page, /<code>device\.microphone purpose\.mic<\/code><p>Records &lt;your&gt; takes\.<\/p><p class="enforced">Enforced by OS prompt \(iOS, macOS\); declared by app\.ts<\/p>/);
+  assert.doesNotMatch(installPage(manifest), /heading-reach/);
+});

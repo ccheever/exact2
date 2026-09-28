@@ -24,7 +24,7 @@ function requireUnicodeScalars(text) {
   return text;
 }
 
-function canonicalJson(value, dropSignature = false) {
+export function canonicalJson(value, dropSignature = false) {
   if (value === null) return 'null';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string') return JSON.stringify(requireUnicodeScalars(value));

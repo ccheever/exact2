@@ -412,7 +412,9 @@ export function readManifest(dir, name) {
   if (!existsSync(path) && !game) return fallback;
   let parsed;
   try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
-  const problems = validate(parsed, schema(), '', schema());
+  // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
+  const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
+    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json` : p);
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
