@@ -2,6 +2,14 @@
 fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
 fn photoZoom(scale: number): number = min(max(scale, 1), 4)
 fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
+// LLP 1051.000 §3: the sheet's stops from geometry. Full is the room its bay
+// has, at most 640; Read fits content shorter than 360. Without an answer (the
+// web before its geometry piece has loaded; a measure while a change waits to
+// be laid out) the last stops stand, and they start as the authored 640 and 360.
+fn sheetFullOf(bay: Geometry, last: number): number = bay.unavailable ? last : max(180, min(640, bay.height))
+fn sheetReadOf(sheet: Geometry, full: number, last: number): number = sheet.unavailable ? min(last, full) : max(180, min(min(360, sheet.height), full))
+fn sheetChoice(value: number, read: number, full: number, px: number): number = value == 180 ? 180 : (value == 360 ? read : (value == 640 ? full : px))
+fn sheetStop(projected: number, read: number, full: number): number = projected < (180 + read) / 2 ? 180 : (projected < (read + full) / 2 ? read : full)
 
 // LLP 1061: the header rises in unless the reader asked for less motion.
 keyframes rise
@@ -98,6 +106,10 @@ component InteractionGallery
   state draft = ""
   state rendering = "windowed"
   state sheetPx = 360
+  state sheetRead = 360
+  state sheetFull = 640
+  // The stop the sheet is at, by its authored name (180, 360, 640).
+  derive sheetNominal = sheetPx == sheetFull ? 640 : (sheetPx == sheetRead ? 360 : sheetPx)
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
   resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
 
@@ -105,16 +117,21 @@ component InteractionGallery
     if value == "windowed" or value == "manual" or value == "eager"
       rendering = value
 
-  action chooseSheet(value: number) writes sheetPx
-    if value == 180 or value == 360 or value == 640
-      sheetPx = value
+  // An action reads state as it was before it ran, so each stop is written
+  // out where it is used.
+  action chooseSheet(value: number) writes sheetPx, sheetRead, sheetFull
+    sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
+    sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
+    sheetPx = sheetChoice(value, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull), sheetPx)
 
-  action snapSheet(height: number, velocity: number) writes sheetPx
-    sheetPx = (height + velocity * 0.15 < 270 ? 180 : (height + velocity * 0.15 < 500 ? 360 : 640))
+  action snapSheet(height: number, velocity: number) writes sheetPx, sheetRead, sheetFull
+    sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
+    sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
+    sheetPx = sheetStop(height + velocity * 0.15, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull))
 
   action command(op: string, id: string, n: number) writes changed, sheetPx
     if op == "reset" or op == "load"
-      sheetPx = 360
+      sheetPx = sheetRead
     send changed = galleryAction(op, id, n)
     if op == "open"
       focus("close-viewer")
@@ -210,10 +227,10 @@ component InteractionGallery
                   each photo in rows key=photo.id
                     ArrangeCard(photo=photo, gallery=gallery, windowed=false, command=command)
         when gallery.mode == "sheet"
-          column flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
+          column id="sheet-bay" flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
             when gallery.hasSelection
               image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height="100%" object-fit="cover"
-            when sheetPx != 640
+            when sheetNominal != 640
               column position="absolute" top=16 left=20 right=20 max-width=340 padding=12 box-sizing="border-box" border-radius=10 background-color="#203b37" gap=5
                 text "A little closer." font-size=30 font-weight=600 color="#ffffff"
                 text "Drag the header or choose a height; scroll the notes inside." font-size=13 color="#ffffff"
@@ -222,9 +239,9 @@ component InteractionGallery
                 column heightDragFor="reading-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize reading sheet" flex=1 min-width=120 gap=3 padding-top=2 padding-bottom=2
                   text "Field notes" font-size=20 font-weight=600 color=theme.ink
                   text "Drag to resize" font-size=10 color=theme.muted
-                SheetButton(name="peek", label="Peek", px=180, selected=sheetPx, choose=chooseSheet)
-                SheetButton(name="read", label="Read", px=360, selected=sheetPx, choose=chooseSheet)
-                SheetButton(name="full", label="Full", px=640, selected=sheetPx, choose=chooseSheet)
+                SheetButton(name="peek", label="Peek", px=180, selected=sheetNominal, choose=chooseSheet)
+                SheetButton(name="read", label="Read", px=360, selected=sheetNominal, choose=chooseSheet)
+                SheetButton(name="full", label="Full", px=640, selected=sheetNominal, choose=chooseSheet)
               when rendering == "windowed"
                 list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
                   each photo in rows key=photo.id

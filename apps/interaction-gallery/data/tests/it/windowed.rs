@@ -370,3 +370,54 @@ fn local_sheet_stops_preserve_manual_and_eager_read_controls() {
     assert_eq!(r.collections()[0].count, 100);
     settle(&mut r, 0., 1180.);
 }
+
+/// LLP 1051.000 §3: Full is the room the sheet's bay has, read by the action
+/// that chooses it, where the authored 640 would overrun a short window.
+#[test]
+fn full_is_the_room_a_short_sheet_bay_has() {
+    let mut r = boot();
+    press(&mut r, "mode-sheet");
+    settle_at(&mut r, 0., 1180., 760., None);
+    let room = frame_height(&r, "sheet-stage");
+    assert!(
+        room > 360. && room < 640.,
+        "a 760 window leaves the bay {room}"
+    );
+    let selected = |r: &Runner<Gallery>, name: &str| {
+        let key = r.kernel().find_by_test_id(name)[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(PropId::AccessibilityLabel)
+            .unwrap()
+            .ends_with(", selected")
+    };
+    press(&mut r, "sheet-full");
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(f64::from(room))));
+    assert_eq!(r.slot("sheetRead"), Some(&Value::Number(360.)));
+    settle_at(&mut r, 0., 1180., 760., None);
+    assert!(selected(&r, "sheet-full") && !selected(&r, "sheet-read"));
+    assert_eq!(frame_height(&r, "reading-sheet"), room);
+    // A fling lands on the same stop, and so does one before the change
+    // is laid out: `frame` answers the box last laid out (D1).
+    let handle = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("sheet-handle")[0])
+        .unwrap()
+        .id;
+    press(&mut r, "sheet-peek");
+    settle_at(&mut r, 0., 1180., 760., None);
+    let fling = Event::HeightRelease {
+        height: 200.,
+        velocity: 2400.,
+    };
+    r.dispatch(handle, fling.clone()).unwrap();
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(f64::from(room))));
+    press(&mut r, "sheet-peek");
+    r.dispatch(handle, fling).unwrap();
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(f64::from(room))));
+    // A bay taller than 640 keeps the authored stop.
+    settle_at(&mut r, 0., 1180., 960., None);
+    assert!(frame_height(&r, "sheet-stage") > 640.);
+    press(&mut r, "sheet-full");
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(640.)));
+}
