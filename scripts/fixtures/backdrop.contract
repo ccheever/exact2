@@ -1,0 +1,31 @@
+// LLP 1053.000's parity page: CSS `backdrop-filter: blur()`, the browser the
+// oracle. A backdrop of hard-edged colour bars, and over it four glass boxes:
+// a small and a large blur, the feed's glass (blur 20, rounded, a translucent
+// white tint) and a blur across a black/white edge, which is what measures a
+// host's Gaussian. `none` is the control: it must leave the bars sharp.
+// Chrome's picture (the web host at 1×) is backdrop.web.png; Linux's raster
+// test holds both painters to it, and LLP 1053.000 §3 records how far each
+// Apple mapping lands from it.
+component Backdrop
+  view
+    main testId="backdrop" position="relative" width=390 height=460 background-color="#ffffff"
+      box position="absolute" left=0 top=0 width=390 height=300 display="flex" flex-direction="row"
+        box width=30 background-color="#e53935"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#1e88e5"
+        box width=30 background-color="#fdd835"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#43a047"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#8e24aa"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#fb8c00"
+        box width=30 background-color="#00897b"
+        box width=30 background-color="#000000"
+      box position="absolute" left=0 top=300 width=195 height=160 background-color="#000000"
+      box testId="blur4" position="absolute" left=20 top=20 width=160 height=100 backdrop-filter="blur(4px)"
+      box testId="blur20" position="absolute" left=210 top=20 width=160 height=100 backdrop-filter="blur(20px)"
+      box testId="glass" position="absolute" left=20 top=150 width=350 height=110 border-radius=16 background-color="#ffffff80" backdrop-filter="blur(20px)"
+      box testId="none" position="absolute" left=20 top=270 width=100 height=20 backdrop-filter="none"
+      box testId="edge" position="absolute" left=95 top=320 width=200 height=120 backdrop-filter="blur(8px)"

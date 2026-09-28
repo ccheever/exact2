@@ -521,6 +521,36 @@ fn nowrap_collapses_whitespace_and_never_soft_wraps() {
 }
 
 #[test]
+fn pre_preserves_and_breaks_only_where_forced() {
+    // @ref LLP 1053 G5 — `pre` is preserve × nowrap: spaces and tabs are
+    // text, a line feed ends a line, no width ends one, and a line's
+    // trailing spaces are kept rather than hung.
+    let text = "  one   two  \nthree four";
+    let p = prepare(
+        text,
+        Options {
+            white_space: exact_textflow::WhiteSpace::Pre,
+            overflow_wrap: OverflowWrap::Anywhere,
+            hyphen_advance: 8.0,
+        },
+    );
+    let got = lines(&p, 24.0);
+    assert_eq!(got.len(), 2);
+    assert!(got[0].hard_break);
+    assert_eq!(
+        got[0].width,
+        13.0 * 8.0,
+        "\"  one   two  \" keeps every space"
+    );
+    assert_eq!(got[1].width, 10.0 * 8.0);
+    assert_eq!(p.line_stats(24.0), (2, 13.0 * 8.0));
+    assert_eq!(p.min_content_width(), 13.0 * 8.0);
+    assert_eq!(p.natural_width(), 13.0 * 8.0);
+    // Spaces carry no ink wherever they are kept.
+    assert_eq!(p.paint_range(text, 0..14), 0..11);
+}
+
+#[test]
 fn sub_pixel_fit_tolerance_matches_engine_rounding() {
     // Advances summing to within 0.005 past the offer still fit, as with
     // Pretext's lineFitEpsilon; anything further past still breaks.
@@ -600,6 +630,7 @@ fn fast_path_agrees_with_streaming_walker_on_fuzz() {
             exact_textflow::WhiteSpace::PreWrap,
             exact_textflow::WhiteSpace::Nowrap,
             exact_textflow::WhiteSpace::PreLine,
+            exact_textflow::WhiteSpace::Pre,
         ] {
             for mode in [
                 OverflowWrap::Normal,

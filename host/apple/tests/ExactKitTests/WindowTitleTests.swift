@@ -94,9 +94,16 @@ final class MaterialPresentationTests: XCTestCase {
         XCTAssertEqual(blur?.state, .followsWindowActiveState)
         XCTAssertNil(blur?.appearance)
         XCTAssertEqual(blur?.layer?.cornerRadius, 12)
+        // A computed name the table lacks draws ultra-thin (LLP 1053.000 D4).
         parent.applyProps(set: ["backgroundMaterial": "unknown"], clear: [])
-        XCTAssertNil(parent.materialView)
-        XCTAssertEqual(parent.appliedMaterial, "unsupported")
+        XCTAssertEqual((parent.materialView as? NSVisualEffectView)?.material, .popover)
+        XCTAssertEqual(parent.appliedMaterial, "NSVisualEffectView(.popover)")
+        // Every AppKit material by its name.
+        parent.applyProps(set: ["backgroundMaterial": "sidebar"], clear: [])
+        XCTAssertEqual((parent.materialView as? NSVisualEffectView)?.material, .sidebar)
+        XCTAssertEqual(parent.appliedMaterial, "NSVisualEffectView(.sidebar)")
+        parent.applyProps(set: ["backgroundMaterial": "hud-window"], clear: [])
+        XCTAssertEqual((parent.materialView as? NSVisualEffectView)?.material, .hudWindow)
         withExtendedLifetime(presenter) {}
     }
 

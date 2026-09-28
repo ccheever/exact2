@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod canvas_colors;
 pub mod collections;
 pub mod drag;
 pub mod inspection;
@@ -39,5 +40,6 @@ pub const ALL: exact_web::Linked = linked!(
     drag,
     surfaces,
     router,
-    inspection
+    inspection,
+    canvas_colors
 );

@@ -31,11 +31,17 @@ pub struct Linked {
     /// GPU canvas surfaces: the runner's answer for a surface's record, and
     /// their exports (`surface_exports!`) are in.
     pub surface_answer: exact_runner::SurfaceAnswer,
+    /// Canvas 2D (LLP 1056), linked with surfaces: a canvas with a surface
+    /// is a 2D one when its source draws it.
+    pub canvas: exact_runner::CanvasLink,
     /// The router (LLP 1038): the runner's routing for a plan with routes.
     pub router: exact_runner::RouterLink,
     /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
     /// entry links it by policy, in production too (LLP 1047 §10, Q3).
     pub inspection: bool,
+    /// Canvas 2D's wide colour forms (LLP 1056 §8.2), linked when the data
+    /// crate's source names one: registered at [`link`].
+    pub canvas_colors: Option<fn()>,
 }
 
 impl Linked {
@@ -46,8 +52,10 @@ impl Linked {
         collections: None,
         drag: false,
         surface_answer: None,
+        canvas: None,
         router: None,
         inspection: false,
+        canvas_colors: None,
     };
 
     /// The capabilities registered here.
@@ -83,6 +91,9 @@ thread_local! {
 
 /// Register what this artifact links: its entry does before every boot.
 pub fn link(linked: Linked) {
+    if let Some(link) = linked.canvas_colors {
+        link();
+    }
     LINKED.with(|cell| cell.set(linked));
 }
 
@@ -101,6 +112,7 @@ pub(crate) fn link_for_tests() {
         collections: Some(&exact_runner::LISTS),
         drag: true,
         surface_answer: exact_runner::RunnerLinks::ALL.surface_answer,
+        canvas: exact_runner::RunnerLinks::ALL.canvas,
         router: exact_runner::RunnerLinks::ALL.router,
         inspection: true,
         ..linked()
@@ -113,6 +125,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         surface_answer: linked().surface_answer,
         router: linked().router,
         lists: linked().collections,
+        canvas: linked().canvas,
     }
 }
 

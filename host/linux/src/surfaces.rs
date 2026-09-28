@@ -834,7 +834,9 @@ impl Surfaces {
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn sync_surfaces(&mut self) {
         // LLP 1056: the 2D canvases' draws for this turn's commits.
-        self.dirty |= self.host.sync_canvases(self.brush.scale as f64, false);
+        self.dirty |= self
+            .host
+            .sync_canvases(self.brush.scale as f64, false, &self.assets);
         // A publication/message may change the canvas arguments. Drain to a fixed
         // point; an app feedback loop is refused rather than hanging the carrier.
         for _ in 0..16 {

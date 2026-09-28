@@ -17,6 +17,7 @@ use crate::generated::{
     StyleProps,
 };
 
+mod backdrop;
 mod shadow;
 pub use shadow::BoxShadow;
 
@@ -438,6 +439,18 @@ impl StyleValue {
                     shadow.opacity
                 });
             }
+        }
+        // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
+        if style == StyleId::BackdropBlur {
+            return match self {
+                StyleValue::Text(t) => backdrop::parse(t)
+                    .map_err(|reason| StyleValueError::BadBackdropFilter { style, reason }),
+                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
+                _ => Err(StyleValueError::BadBackdropFilter {
+                    style,
+                    reason: "`backdrop-filter` is `none` or `blur(<length>)` (LLP 1053.000 D1)",
+                }),
+            };
         }
         // @ref LLP 1043.000 §3 D1 — shape-margin is a nonnegative CSS length.
         if style == StyleId::ShapeMargin {

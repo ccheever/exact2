@@ -279,6 +279,8 @@ pub struct Host<D: DataSource> {
     computed: document::Computed,
     /// `@keyframes` rules already in the page's stylesheet (LLP 1055 D7).
     keyframes: SortedSet<String>,
+    /// Computed `backgroundMaterial` names the schema lacks, logged once each.
+    unknown_materials: SortedSet<String>,
     /// The 2D canvases the page watches (LLP 1056 D4).
     canvas2d: canvas2d::Watch,
 }
@@ -434,6 +436,7 @@ impl<D: DataSource> Host<D> {
             head_dirty: false,
             computed,
             keyframes: Default::default(),
+            unknown_materials: Default::default(),
             canvas2d: Default::default(),
         };
         // Everything live is new to the page.
@@ -1308,6 +1311,14 @@ impl<D: DataSource> Host<D> {
                 batch.keyframes(&a.name, &crate::css::keyframes_css(&a.keyframes));
             }
         }
+        // @ref LLP 1053.000 D4 — a computed name the table lacks draws
+        // ultra-thin, and says so once.
+        let unknown = node
+            .props
+            .str(PropId::BackgroundMaterial)
+            .filter(|name| exact_kernel::generated::material(name).is_none())
+            .filter(|name| !self.unknown_materials.contains(*name))
+            .map(str::to_string);
         let mut props = props_for(&node);
         svg_props(self.runner.kernel(), &node, &mut props);
         let (css, _skipped) =
@@ -1333,6 +1344,12 @@ impl<D: DataSource> Host<D> {
         if css != m.css {
             batch.style(id, &css);
             m.css = css;
+        }
+        if let Some(name) = unknown {
+            self.runner.log(format!(
+                "backgroundMaterial `{name}` is not a material; drawing ultra-thin"
+            ));
+            self.unknown_materials.insert(name);
         }
     }
 

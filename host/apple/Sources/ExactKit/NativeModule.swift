@@ -417,6 +417,7 @@ final class NativeViews {
         case .success(let m): module = m
         }
         entry.snapshotBit = caps["snapshot"] as? Bool == true && table.snapshot != nil
+        let started = CFAbsoluteTimeGetCurrent()
         let nonce = NativeProcess.next
         NativeProcess.next &+= 1
         NativeProcess.owners[nonce] = WeakNatives(self)
@@ -453,7 +454,20 @@ final class NativeViews {
         entry.props = props
         entry.state = "ready"
         entry.error = nil
+        measured?("native", CFAbsoluteTimeGetCurrent() - started)
         log("\(entry.name) #\(entry.id): ready")
+    }
+
+    /// A host that holds a costly view mid-fling (LLP 1068 §5.1): `holds`
+    /// answers whether `owner`'s instance waits, `measured` hears each
+    /// creation's cost, and `release` makes a held instance now, from the
+    /// owner's latest props.
+    var holds: ((NodeView) -> Bool)?
+    var measured: ((String, TimeInterval) -> Void)?
+    func release(_ owner: NodeView) {
+        guard gateOpen, let entry = entries[owner.id], entry.owner === owner, entry.handle == nil,
+              entry.state == "loading", !entry.name.isEmpty else { return }
+        attach(entry)
     }
 
     /// A props commit: the first names the module (the create commit carries
@@ -463,7 +477,7 @@ final class NativeViews {
         if entry.name.isEmpty, entry.state == "loading" {
             entry.name = owner.props["nativeViewModuleName"] ?? ""
             log("\(entry.name) #\(owner.id): loading")
-            if gateOpen { attach(entry) }
+            if gateOpen, holds?(owner) != true { attach(entry) }
             return
         }
         guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }

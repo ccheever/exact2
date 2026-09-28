@@ -3,12 +3,16 @@
 // host; `direct.html` runs the same functions against Chrome's own
 // CanvasRenderingContext2D, with no recorder and no glue — the API oracle.
 // Each is `(ctx, frame, args) => boolean | void`: true asks for a frame.
-// Stage 1's members only: shapes, paths, lines, colours, gradients,
-// compositing, clipping and the state stack.
+// Pages 1–3 are stage 1's members; pages 4 and 5 are stage 2's: text in the
+// app's declared face, images by handle, Path2D, patterns, conic gradients,
+// shadows, the clip-extent operators, raw pixels and wide colours.
 
 import type { Ctx2D, Frame } from './app.contract.d.ts';
 
 const TAU = Math.PI * 2;
+/** The gallery's image handle: an asset, as an `image` node's `src`. */
+export const TILE = "assets/tile.png";
+const FACE = "'Exposure Sans'";
 
 type Fixture = (ctx: Ctx2D, frame: Frame, args: number[]) => boolean | void;
 
@@ -144,6 +148,123 @@ export const fixtures: Record<string, Fixture> = {
     ctx.fillStyle = "#0f172a";
     for (let y = 0; y < 5; y++) for (let x = 0; x < 8; x++) if ((x + y) % 2) ctx.fillRect(x * 5, y * 5, 5, 5);
     ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 25); ctx.lineTo(40, 0); ctx.stroke();
+  },
+
+  // Page 4: text, in the declared face (LLP 1056 D8).
+  textalign(ctx) {
+    ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(75.5, 0); ctx.lineTo(75.5, 100); ctx.stroke();
+    ctx.font = `15px ${FACE}`; ctx.fillStyle = "#0f172a";
+    (["start", "end", "left", "right", "center"] as const).forEach((a, i) => { ctx.textAlign = a; ctx.fillText(a, 75, 16 + i * 19); });
+  },
+  baseline(ctx) {
+    ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, 50.5); ctx.lineTo(150, 50.5); ctx.stroke();
+    ctx.font = `bold 18px ${FACE}`; ctx.fillStyle = "#1e293b";
+    (["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"] as const).forEach((b, i) => { ctx.textBaseline = b; ctx.fillText("Ág", 2 + i * 25, 50); });
+  },
+  textstyle(ctx) {
+    ctx.font = `italic 16px ${FACE}`; ctx.fillStyle = "#7c3aed"; ctx.fillText("Italic", 6, 20);
+    ctx.font = `bold 22px ${FACE}`; ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1; ctx.strokeText("Stroke", 70, 22);
+    const g = ctx.createLinearGradient(6, 0, 140, 0); g.addColorStop(0, "#ef4444"); g.addColorStop(1, "#2563eb");
+    ctx.fillStyle = g; ctx.font = `bold 24px ${FACE}`; ctx.fillText("Gradient", 6, 52);
+    ctx.fillStyle = "#16a34a"; ctx.font = `16px ${FACE}`; ctx.fillText("Squeezed into sixty", 6, 74, 60);
+    ctx.letterSpacing = "3px"; ctx.fillStyle = "#0f172a"; ctx.fillText("spaced", 72, 74);
+    ctx.letterSpacing = "0px"; ctx.save(); ctx.translate(20, 92); ctx.rotate(-0.12); ctx.fillStyle = "#b45309"; ctx.fillText("rotated 12°", 0, 0); ctx.restore();
+  },
+  textmeasure(ctx) {
+    ctx.font = `26px ${FACE}`; ctx.fillStyle = "#0f172a"; ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 1;
+    const box = (text: string, x: number, y: number) => {
+      const m = ctx.measureText(text);
+      ctx.strokeRect(x - m.actualBoundingBoxLeft, y - m.actualBoundingBoxAscent, m.actualBoundingBoxLeft + m.actualBoundingBoxRight, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent);
+      ctx.fillRect(x - m.actualBoundingBoxLeft, y + m.actualBoundingBoxDescent + 2, m.width, 2);
+      ctx.fillText(text, x, y);
+    };
+    box("Measure", 8, 36);
+    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.font = `bold 20px ${FACE}`; box("jumpy", 75, 60);
+  },
+  textrtl(ctx) {
+    ctx.font = `16px ${FACE}`; ctx.fillStyle = "#0f172a";
+    ctx.direction = "rtl"; ctx.textAlign = "start"; ctx.fillText("Hello, world!", 144, 22);
+    ctx.textAlign = "end"; ctx.fillText("(end) 42", 144, 46);
+    ctx.direction = "ltr"; ctx.textAlign = "start"; ctx.fillStyle = "#2563eb"; ctx.fillText("Hello, world!", 6, 72);
+    ctx.fillStyle = "currentColor"; ctx.fillText("current colour", 6, 94);
+  },
+
+  // Page 5: images, Path2D, patterns, conic gradients, shadows, the
+  // clip-extent operators, pixels (LLP 1056 D9, §3 stage 2).
+  image(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
+    ctx.drawImage(TILE, 4, 4);
+    ctx.drawImage(TILE, 50, 4, 60, 45);
+    ctx.drawImage(TILE, 20, 15, 20, 15, 114, 4, 32, 24);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(TILE, 4, 52, 80, 45);
+    ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 0.5; ctx.drawImage(TILE, -10, -10, 40, 30, 90, 55, 56, 42);
+  },
+  pattern(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
+    const p = ctx.createPattern(TILE, "repeat");
+    if (p) { ctx.fillStyle = p; ctx.fillRect(0, 0, 70, 100); }
+    const q = ctx.createPattern(TILE, "repeat-x");
+    if (q) { q.setTransform({ a: 0.5, b: 0, c: 0, d: 0.5, e: 75, f: 10 }); ctx.fillStyle = q; ctx.fillRect(75, 0, 75, 60); }
+    const r = ctx.createPattern(TILE, "no-repeat");
+    if (r) { ctx.strokeStyle = r; ctx.lineWidth = 12; ctx.strokeRect(84, 66, 50, 26); }
+  },
+  conic(ctx) {
+    const g = ctx.createConicGradient(-Math.PI / 2, 40, 50);
+    ["#ef4444", "#f59e0b", "#16a34a", "#2563eb", "#ef4444"].forEach((c, i) => g.addColorStop(i / 4, c));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(40, 50, 36, 0, TAU); ctx.fill();
+    const h = ctx.createConicGradient(0.8, 110, 50);
+    h.addColorStop(0, "#0f172a"); h.addColorStop(0.5, "#e2e8f0"); h.addColorStop(1, "#0f172a");
+    ctx.fillStyle = h; ctx.fillRect(80, 20, 60, 60);
+  },
+  path2d(ctx) {
+    const heart = new Path2D("M 30 25 A 10 10 0 0 1 50 25 A 10 10 0 0 1 70 25 Q 70 45 50 60 Q 30 45 30 25 z");
+    ctx.fillStyle = "#e11d48"; ctx.fill(heart);
+    const ring = new Path2D(); ring.arc(110, 50, 30, 0, TAU); ring.arc(110, 50, 15, 0, TAU, true);
+    ctx.fillStyle = "#0ea5e9"; ctx.fill(ring, "evenodd");
+    const both = new Path2D(); both.addPath(heart, { a: 0.6, b: 0, c: 0, d: 0.6, e: -10, f: 55 });
+    ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 2; ctx.stroke(both);
+    ctx.save(); ctx.clip(ring); ctx.fillStyle = "rgba(250, 204, 21, 0.8)"; ctx.fillRect(80, 40, 70, 20); ctx.restore();
+    ctx.beginPath(); ctx.rect(2, 2, 10, 10); ctx.fill(heart); ctx.fillStyle = "#16a34a"; ctx.fill(); // the current path survives
+  },
+  shadow(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
+    ctx.shadowColor = "rgba(15, 23, 42, 0.6)"; ctx.shadowBlur = 6; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 5;
+    ctx.fillStyle = "#38bdf8"; ctx.fillRect(10, 10, 50, 34);
+    ctx.save(); ctx.translate(100, 30); ctx.scale(2, 2); ctx.rotate(0.3); // offsets and blur ignore the transform
+    ctx.strokeStyle = "#f97316"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.stroke(); ctx.restore();
+    ctx.shadowColor = "#dc2626"; ctx.shadowBlur = 0; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = -3;
+    ctx.fillStyle = "#0f172a"; ctx.font = `bold 20px ${FACE}`; ctx.fillText("Shadow", 10, 80);
+    ctx.shadowBlur = 3; ctx.drawImage(TILE, 100, 62, 40, 30);
+  },
+  extent(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
+    const ops: GlobalCompositeOperation[] = ["source-in", "source-out", "destination-in", "destination-atop", "copy"];
+    ops.forEach((op, i) => {
+      const x = i * 30 + 1;
+      ctx.save(); ctx.beginPath(); ctx.rect(x, 2, 28, 60); ctx.clip();
+      ctx.fillStyle = "rgba(37, 99, 235, 0.8)"; ctx.fillRect(x, 2, 20, 40);
+      ctx.globalCompositeOperation = op;
+      ctx.fillStyle = "rgba(239, 68, 68, 0.7)"; ctx.beginPath(); ctx.arc(x + 17, 34, 11, 0, TAU); ctx.fill();
+      ctx.restore();
+    });
+    ctx.save(); ctx.beginPath(); ctx.rect(4, 66, 142, 30); ctx.clip();
+    ctx.fillStyle = "#16a34a"; ctx.fillRect(0, 60, 150, 40);
+    ctx.globalCompositeOperation = "copy"; ctx.globalAlpha = 0.6; ctx.drawImage(TILE, 60, 70, 30, 22);
+    ctx.restore();
+  },
+  pixels(ctx, f) {
+    ctx.fillStyle = "#e2e8f0"; ctx.fillRect(0, 0, 150, 100);
+    const w = Math.round(40 * f.scale), h = Math.round(30 * f.scale), d = ctx.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; d.data[i] = (x * 255) / w; d.data[i + 1] = (y * 255) / h; d.data[i + 2] = 160; d.data[i + 3] = x < w / 2 ? 255 : 128; }
+    ctx.save(); ctx.rotate(0.4); ctx.globalAlpha = 0.2; // putImageData ignores all of these
+    ctx.putImageData(d, Math.round(10 * f.scale), Math.round(10 * f.scale));
+    ctx.putImageData(d, Math.round(40 * f.scale), Math.round(50 * f.scale), Math.round(10 * f.scale), Math.round(5 * f.scale), Math.round(40 * f.scale), Math.round(18 * f.scale));
+    ctx.restore();
+    ctx.fillStyle = "lab(50% 40 59.5)"; ctx.fillRect(100, 8, 40, 20);
+    ctx.fillStyle = "oklch(0.7 0.1 200 / 0.8)"; ctx.fillRect(100, 34, 40, 20);
+    ctx.fillStyle = "color(display-p3 0.2 0.6 0.3)"; ctx.fillRect(100, 60, 40, 20);
   },
 
   // Sequences (page 3): each draw is one step of `step`, on the same context.

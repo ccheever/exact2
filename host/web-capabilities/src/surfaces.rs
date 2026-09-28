@@ -7,8 +7,11 @@
 
 use exact_web::Linked;
 
-/// Link surfaces into `linked`: the runner's answer for a surface's record.
+/// Link surfaces into `linked`: the runner's answer for a surface's record,
+/// and Canvas 2D's engine, since a canvas with a surface is a 2D one when
+/// its source draws it (LLP 1056).
 pub const fn link(mut linked: Linked) -> Linked {
     linked.surface_answer = Some(exact_runner::surface_record::answer);
+    linked.canvas = Some(exact_runner::canvas_engine);
     linked
 }

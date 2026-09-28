@@ -212,6 +212,7 @@ impl TextFlow {
                 1 => exact_textflow::WhiteSpace::PreWrap,
                 2 => exact_textflow::WhiteSpace::Nowrap,
                 3 => exact_textflow::WhiteSpace::PreLine,
+                4 => exact_textflow::WhiteSpace::Pre,
                 _ => return Err("invalid white-space"),
             },
             overflow_wrap,

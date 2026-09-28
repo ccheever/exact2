@@ -14,7 +14,7 @@
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27 (r1, r2 and r3)
-**Implementer:** Claude (Opus 5.5), stage by stage in §8's order; stage 1 from 2026-09-27 on `feat/canvas2d-stage1`.
+**Implementer:** Claude (Opus 5.5), stage by stage in §8's order; stage 1 from 2026-09-27 on `feat/canvas2d-stage1`, stage 2 on `feat/canvas2d-stage2` (§8.2).
 **Related:**
 - LLP 1009: the `canvas` node and wgpu surfaces. D2's roster and publish-after-commit rule and D4's frame ownership are reused here.
 - LLP 1014 and 1014.000: canvas children.
@@ -636,6 +636,53 @@ What stage 1 ships, and where it differs from the text above. `QUEUE.md` lists w
   - **macOS against the web:** mean 0.31, worst 2.10; pixels off 2.37% worst. At native resolution (2×): mean 0.28, worst 1.82.
   - **iOS against the web:** mean 0.18, worst 1.07; pixels off 2.35% worst. At native resolution (3×): mean 0.11, worst 2.23.
   - **Caltrain's line map**, the strip no child covers, with the sky off: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
+
+## 8.2 Stage 2 as built (2026-09-27, `feat/canvas2d-stage2`)
+
+What stage 2 ships, and where it differs from the text above. `QUEUE.md` lists what it still owes.
+
+- **The recorders.** Both recorders have every stage-2 member of §3:
+  - text: `font` (Chrome's parse and serialisation), `textAlign`, `textBaseline`, `direction`, `letterSpacing`, `wordSpacing`, `fontKerning`, `fontStretch`, `fontVariantCaps`, `textRendering`, `fillText`, `strokeText` and `measureText`;
+  - images and pixels: `drawImage` (three overloads), `createPattern` with `setTransform`, `createImageData`, `putImageData` (with its dirty rectangle), `ImageData`;
+  - paths and paint: `Path2D` (every method, `addPath`, SVG path data), `createConicGradient`, shadows, smoothing, and the five clip-extent operators.
+
+  `canvas/tests/cases.txt` gains ten stage-2 cases; headless Chrome agrees with all 24, and the two recorders' lists agree record by record. The list gains records 22–25, 33–37, 60–62, 70–72 and 80–87 (`canvas/src/list.rs`); no existing record changed meaning, so its version stays 1.
+- **Text (D8).** The recorder measures through the environment's text engine and resolves alignment, baselines and `maxWidth` itself, with Chrome's formulas (`canvas/src/font.rs`). The list carries a run's left end on its alphabetic baseline and its squeeze, so each replayer only draws a line. The engines:
+  - **Web:** the page's own context, called from the module realm; Chrome measures what it draws. A declared face that loads redraws the canvases that drew text (cause `"font"`).
+  - **Apple:** Core Text through a new callback, `exact_set_canvas_text`, on the executor's thread; one Core Text line measures and draws.
+  - **Linux:** a canvas font system of its own (cosmic-text), loaded from the host catalog's faces on the first text; glyph outlines are drawn as tiny-skia paths.
+
+  Families resolve as box text resolves them: declared faces by name first, then the generics, then an installed family by name, then serif (Chrome's default).
+- **Images (D9).** An image handle is a string: the URL or asset an `image` node's `src` takes. Readiness is the runner's image table, read at the call. A handle not yet decoded draws nothing and is requested of the host. Its decode redraws every canvas that asked for it (cause `"image"`), and `state.canvas[].brokenImages` names the ones that failed. The web loads handles into the page's own table, Apple decodes off the main thread (assets and http(s)), and Linux decodes PNG assets synchronously.
+- **Path2D** crosses as segments at its paint, transformed by the matrix current then, followed by the paint (records 80–87). The replayers keep no live path objects.
+- **The TypeScript seam.** `measureText` and `drawImage` reach the host through two new host ops (9, 10) natively, and through the page's functions on the web. `Ctx2D` gains stage 2's members, with `drawImage` and `createPattern` taking an `ImageHandle`.
+- **Linked by use (LLP 1047 D2; Charlie, 2026-09-27: "try (b) if we can do it", against raising Caltrain's web-core ceiling):**
+  - **Text** is reached only from the text members, so an app whose draws never call one carries no font or text code.
+  - **The image table** is made by the first image call a draw makes (`images_in`), so an app that draws no image carries no table or requests.
+  - **The wide colour forms** are linked by a call (`color::link_wide`): native hosts make it at start, and a web artifact makes it when its Rust data crate's source names `lab(`, `lch(`, `oklab(`, `oklch(` or `color(` in a string (the generated entry's `canvas_colors`). A TypeScript draw parses colours in its own recorder, so the web wasm needs them only for a Rust crate. A Rust crate that builds such a colour from data at run time without naming it gets the sRGB forms only on the web; declared.
+  - Caltrain's web core is 302.8 KiB brotli-11 against its 303 KiB ceiling (main 300.5); RealWorld 292.8 (295) and video-player 237.9 (240).
+- **Deviations resolved:** `currentColor` is the canvas node's `color`, and `direction = "inherit"` its `direction` (§8.1's (5)). `lab()`, `lch()`, `oklab()`, `oklch()` and `color()` parse; they keep Chrome's serialisation and draw as Chrome's sRGB pixels (§8.1's (6)).
+- **Declared differences:**
+  - `em`, `rem`, `%`, `larger` and `smaller` in `font` resolve against 10px, a detached canvas's font, as Chrome does for one outside a document.
+  - Handles are discovered at the call, not by a surface argument's type.
+  - Canvas images have their own cache on each host, outside LLP 1010 §6's budget.
+  - Linux draws colour glyphs as outlines, and decodes PNG only.
+  - Apple ignores `fontStretch` and `textRendering`, and draws oblique as italic.
+  - A shadow under a clip-extent operator may differ from Chrome's on Linux.
+  - A Rust data crate that draws text on the web measures with the estimator: no web text engine is set on the wasm runner.
+- **Parity** (`bun scripts/smoke.mjs canvas`, 94 crops a host). Mean |Δ| per crop (/255) and pixels off by more than 32:
+  - **The API oracle** (the web against `direct.html`): mean 0.21, worst 1.66; 0.22% mean, 1.59% worst.
+  - **Linux** (cpu and gpu identical): pages 1–3 unchanged (worst 0.81); page 5 mean 0.48, worst 1.46; page 4 (text) mean 1.79, worst 4.94, 8.1% worst. That is inside SVG's Linux text band (mean 14, 16%), which the smoke now holds Linux text to, as §4 says.
+  - **macOS:** mean 0.56, worst 5.31; at 2× against `direct.html` mean 0.48, worst 3.97.
+  - **iOS:** mean 0.50, worst 6.04; at 3× mean 0.37, worst 3.92.
+  - Every Apple crop is within §4's default bands except `fx-textstyle` on white: macOS 5.31 (7.84% off), macOS 2× 3.97 (6.29%), iOS 6.04 (9.28%), iOS 3× 3.92 (5.36%). Its glyph positions and bounds match Chrome's. The residue is the 1 px `strokeText` "Stroke", which carries 1.66× Chrome's ink.
+- **The Apple text band (Charlie, 2026-09-27).** Charlie ruled "(b) is ok": emulate Chrome's `strokeText` by stroking each glyph's Core Text outline as an ordinary Core Graphics path with the context's line style, falling back to (a), a declared Apple text band, if three rounds did not bring `fx-textstyle` within §4's bands. The rounds:
+  1. **Outlines stroked as a path.** This is how the replayer already draws `strokeText`: the glyph outlines from `CTFontCreatePathForGlyph`, stroked with the context's width, join, cap, miter and dash. It measures as above.
+  2. **Skia's glyph-mask contrast.** A probe drew the stroked outlines into a coverage mask with a gamma curve, against Chrome's own 1× crop. It lowers the ink but not the difference: at best 11.75/255 on the stroke's region, against 18.24 without the curve.
+  3. **Where the residue is.** The same probe varied the line width. Chrome's stroke carries the ink of a Core Graphics stroke about 0.6 px wide, and still differs by about 6/255 in shape at the best width. So the difference is Skia's rasterization of glyph masks, not the stroke's geometry, and a path stroke cannot remove it.
+
+  So Apple takes (a). `smoke.mjs canvas` holds Apple's `fx-text*` crops to a declared band of mean 8/255 and 12% of pixels off by more than 32. It is above the measured worst (6.04, 9.28%), and tighter than Linux's text band (14, 16%). The replayer keeps drawing `strokeText` as outlines stroked as a path, which is Chrome's model.
+  - **Caltrain's line map** is unchanged: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
 
 ## 9. `rules/DEFERRED.md`: the admission
 

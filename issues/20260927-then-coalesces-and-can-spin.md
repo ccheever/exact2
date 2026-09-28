@@ -1,6 +1,6 @@
 # `mutation … then action` runs once for several answers, and a `then` that re-sends its own mutation spins the host at the fire limit
 
-**Status:** Partly fixed: the analyzer refuses a `then` action that sends its own mutation, including sends in branches; compiler/runner regressions pass. Remaining: Charlie must choose per-answer completion delivery or coalescing against the latest answer.
+**Status:** Fixed: the analyzer refuses a `then` action that sends its own mutation, including sends in branches (compiler/runner regressions pass). Charlie ruled 2026-09-27 that a `then` runs once after the answers that landed, reading the latest, which is what the runner does; LLP 1016.001 records it.
 **Systems:** Runner (`runner/src/runner/commit.rs`, `runner/src/runner.rs`), Contract analyzer
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

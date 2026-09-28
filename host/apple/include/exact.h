@@ -104,6 +104,11 @@ typedef struct ExactCollapseEdit { size_t utf16, removed; } ExactCollapseEdit;
 size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, size_t count,
     uint8_t white_space, uint8_t *out, size_t *out_lens, ExactCollapseEdit *edits, size_t edit_cap);
 
+/* LLP 1053.000 D4. This platform's name (platform 0 iOS, 1 macOS) for a backgroundMaterial:
+ * its length and static bytes at *out, `~` first when another is drawn in its place; 0 when
+ * the schema has no such material. */
+size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
+
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
 typedef struct ExactFlowPair { float x, y; } ExactFlowPair;
@@ -146,7 +151,7 @@ typedef struct ExactMeasureRequest {
     uint8_t align;         /* 0 left, 1 center, 2 right, 3 justify */
     uint32_t line_clamp;   /* 0 = unlimited */
     uint8_t overflow_wrap; /* 0 normal, 1 break-word, 2 anywhere */
-    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line; runs arrive collapsed unless 1 */
+    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line, 4 pre; runs arrive collapsed unless 1 or 4 */
     uint8_t direction;     /* 0 ltr, 1 rtl */
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
@@ -226,6 +231,24 @@ typedef void (*ExactWakeFn)(void *ctx);
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
+/* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
+ * runs, with the context exact_set_measure was given. The strings live for
+ * the call. v: width, left, right, ascent, descent (ink, from the run's left
+ * alphabetic origin), font ascent, font descent, em ascent, em descent,
+ * hanging, ideographic — CSS px. */
+typedef struct ExactCanvasText {
+    const uint8_t *text; size_t len;
+    const uint8_t *families; size_t families_len; /* names joined by ',' */
+    double size, stretch, letter_spacing, word_spacing;
+    uint16_t weight;
+    uint8_t style;   /* 0 normal, 1 italic, 2 oblique */
+    uint8_t caps;    /* fontVariantCaps index */
+    uint8_t kerning; /* 0 auto, 1 normal, 2 none */
+    uint8_t rtl;
+} ExactCanvasText;
+typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
+typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
+void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 
@@ -343,6 +366,10 @@ uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.
 uint32_t exact_canvas_display(ExactRuntime rt, double scale, double memory);
+/* LLP 1056 D9: a Canvas 2D image handle the batch's "canvasImages" named,
+ * decoded (ok 1, its size in pixels) or not (ok 0); the handle is the input
+ * buffer's first len bytes. Returns the batch length. */
+uint32_t exact_canvas_image(ExactRuntime rt, size_t len, uint32_t width, uint32_t height, uint32_t ok);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).
    Row heights use the kernel frames already delivered to the presenter. */

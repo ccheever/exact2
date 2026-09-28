@@ -278,6 +278,7 @@ impl Picture {
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
                 cost += usize::from(paint.gradient.is_some());
+                cost += usize::from(paint.backdrop > 0.);
                 cost += paint.borders(&geometry).len() + paint.shadow_fills(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,

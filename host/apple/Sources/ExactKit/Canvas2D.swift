@@ -5,54 +5,87 @@
 // coordinates, so fills and clips draw them under the base transform (the
 // flip and the device scale), and a stroke takes them back to user space and
 // strokes under base ∘ author, so its width follows the author's matrix.
-// iOS and macOS share this file.
+// Every paint goes through `render` (Canvas2DPaint.swift): shadows, global
+// alpha and the compositing operators, including the five that reach
+// outside the shape. Text is Canvas2DText.swift, images and pixels
+// Canvas2DImage.swift. iOS and macOS share these files.
 import CoreGraphics
+import CoreText
 import Foundation
 import QuartzCore
 
-/// No implicit animations: new pixels appear with the batch that drew them.
-private final class Instant: NSObject, CALayerDelegate {
-    static let shared = Instant()
-    func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
-}
-
 /// The list's opcodes (canvas/src/list.rs `Op`), by number.
-private enum Op: UInt32 {
+enum Canvas2DOp: UInt32 {
     case save = 1, restore = 2, reset = 3, setTransform = 4
     case fillColor = 10, fillGradient = 11, strokeColor = 12, strokeGradient = 13
     case lineWidth = 14, lineCap = 15, lineJoin = 16, miterLimit = 17, lineDash = 18, lineDashOffset = 19
-    case globalAlpha = 20, composite = 21
-    case linearGradient = 30, radialGradient = 31, colorStop = 32
+    case globalAlpha = 20, composite = 21, shadowColor = 22, shadowBlur = 23, shadowOffset = 24, imageSmoothing = 25
+    case linearGradient = 30, radialGradient = 31, colorStop = 32, conicGradient = 33
+    case pattern = 34, patternTransform = 35, fillPattern = 36, strokePattern = 37
     case beginPath = 40, moveTo = 41, lineTo = 42, quadTo = 43, cubicTo = 44, closePath = 45
     case fill = 50, stroke = 51, clip = 52, fillRect = 53, strokeRect = 54, clearRect = 55
+    case font = 60, fillText = 61, strokeText = 62
+    case image = 70, drawImage = 71, putImageData = 72
+    case pathMoveTo = 80, pathLineTo = 81, pathQuadTo = 82, pathCubicTo = 83, pathClose = 84
+    case fillPath = 85, strokePath = 86, clipPath = 87
 }
 
 /// `globalCompositeOperation`, by the list's index (`exact_canvas::COMPOSITE`).
-private let blends: [CGBlendMode] = [
+let canvas2DBlends: [CGBlendMode] = [
     .normal, .sourceIn, .sourceOut, .sourceAtop, .destinationOver, .destinationIn,
     .destinationOut, .destinationAtop, .plusLighter, .copy, .xor, .multiply, .screen, .overlay,
     .darken, .lighten, .colorDodge, .colorBurn, .hardLight, .softLight, .difference, .exclusion,
     .hue, .saturation, .color, .luminosity,
 ]
 
-private enum Style: Equatable { case color(CGColor), gradient(UInt32) }
+/// The operators that change pixels outside the shape, within the clip
+/// (`exact_canvas::composite_clips_extent`).
+func canvas2DClipsExtent(_ k: Int) -> Bool { [1, 2, 5, 7, 9].contains(k) }
 
-private struct CanvasGradient {
-    var linear: [Double]?   // x0 y0 x1 y1
-    var radial: [Double]?   // x0 y0 r0 x1 y1 r1
+enum Canvas2DStyle { case color(CGColor), gradient(UInt32), pattern(UInt32) }
+
+struct Canvas2DGradient {
+    enum Kind { case linear([Double]), radial([Double]), conic([Double]) }
+    var kind: Kind
     var stops: [(Double, CGColor)] = []
 }
 
-/// What the replayer keeps beside Core Graphics' own state stack.
-private struct State {
-    var author = CGAffineTransform.identity
-    var fill: Style = .color(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
-    var stroke: Style = .color(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
-    var dash: [CGFloat] = []
-    var dashOffset = 0.0
+struct Canvas2DPattern {
+    var image: UInt32
+    var repetition: Int // 0 repeat, 1 repeat-x, 2 repeat-y, 3 no-repeat
+    var transform = CGAffineTransform.identity
 }
 
-private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+/// The text style a `Font` record sets.
+struct Canvas2DFont: Hashable {
+    var size = 10.0, weight = 400, style = 0, stretch = 100.0, caps = 0, kerning = 0, rendering = 0
+    var letterSpacing = 0.0, wordSpacing = 0.0
+    var families = ["sans-serif"]
+}
+
+/// What the replayer keeps beside Core Graphics' own state stack (which
+/// holds the clip): everything a paint applies at the paint.
+struct Canvas2DState {
+    var author = CGAffineTransform.identity
+    var fill: Canvas2DStyle = .color(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+    var stroke: Canvas2DStyle = .color(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+    var lineWidth: CGFloat = 1, cap = CGLineCap.butt, join = CGLineJoin.miter, miter: CGFloat = 10
+    var dash: [CGFloat] = [], dashOffset: CGFloat = 0
+    var alpha: CGFloat = 1, composite = 0
+    var shadowColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0), shadowBlur: CGFloat = 0, shadowOffset = CGSize.zero
+    var smoothing = true, quality = 0
+    var font = Canvas2DFont()
+}
+
+let canvas2DSRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+let canvas2DBitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+
+/// What a replayer draws with beyond its list: the session's fonts and its
+/// decoded image handles (the presenter's `Canvas2DHost`).
+protocol Canvas2DEnv: AnyObject {
+    var canvasText: CanvasText? { get }
+    func canvasImage(_ src: String) -> CGImage?
+}
 
 /// One canvas's bitmap and replayer.
 final class Canvas2DReplayer {
@@ -60,17 +93,23 @@ final class Canvas2DReplayer {
     let generation: UInt32
     let context: CGContext?
     let base: CGAffineTransform
-    private var state = State()
-    private var stack: [State] = []
+    let width: Int, height: Int
+    var state = Canvas2DState()
+    private var stack: [Canvas2DState] = []
     /// The current path, in canvas coordinates; it survives painting.
     private var path = CGMutablePath()
-    private var gradients: [UInt32: CanvasGradient] = [:]
+    /// A `Path2D`'s segments for the next path paint.
+    private var scratch = CGMutablePath()
+    var gradients: [UInt32: Canvas2DGradient] = [:]
+    var patterns: [UInt32: Canvas2DPattern] = [:]
+    var imageSources: [UInt32: String] = [:]
+    weak var env: Canvas2DEnv?
 
     init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
         self.lifetime = lifetime; self.generation = generation
-        let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        self.width = width; self.height = height
         context = width > 0 && height > 0
-            ? CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: sRGB, bitmapInfo: info)
+            ? CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: canvas2DSRGB, bitmapInfo: canvas2DBitmapInfo)
             : nil
         // Flip once to the canvas's y-down space, then the device scale.
         base = CGAffineTransform(a: CGFloat(scale), b: 0, c: 0, d: -CGFloat(scale), tx: 0, ty: CGFloat(height))
@@ -82,67 +121,20 @@ final class Canvas2DReplayer {
         }
     }
 
-    private func color(_ n: [Double], _ i: Int) -> CGColor {
+    /// The device scale the base transform applies.
+    var scale: CGFloat { base.a }
+
+    func color(_ n: [Double], _ i: Int) -> CGColor {
         CGColor(srgbRed: n[i] / 255, green: n[i + 1] / 255, blue: n[i + 2] / 255, alpha: n[i + 3])
     }
 
-    /// Paint the clip-bounded area with a gradient under the author matrix.
-    private func drawGradient(_ c: CGContext, _ id: UInt32) {
-        guard let g = gradients[id], !g.stops.isEmpty else { return }
-        c.concatenate(state.author)
-        if g.stops.count == 1 {
-            c.setFillColor(g.stops[0].1)
-            c.fill(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7))
-            return
-        }
-        guard let gradient = CGGradient(colorsSpace: sRGB, colors: g.stops.map(\.1) as CFArray,
-                                        locations: g.stops.map { CGFloat($0.0) }) else { return }
-        let extend: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-        if let l = g.linear {
-            if l[0] == l[2] && l[1] == l[3] { return }
-            c.drawLinearGradient(gradient, start: CGPoint(x: l[0], y: l[1]), end: CGPoint(x: l[2], y: l[3]), options: extend)
-        } else if let r = g.radial {
-            if r[0] == r[3] && r[1] == r[4] && r[2] == r[5] { return }
-            c.drawRadialGradient(gradient, startCenter: CGPoint(x: r[0], y: r[1]), startRadius: CGFloat(r[2]),
-                                 endCenter: CGPoint(x: r[3], y: r[4]), endRadius: CGFloat(r[5]), options: extend)
-        }
-    }
-
-    /// Fill `canvasPath` (canvas coordinates) with the fill style.
-    private func fill(_ c: CGContext, _ canvasPath: CGPath, rule: CGPathFillRule) {
-        switch state.fill {
-        case .color(let color):
-            c.setFillColor(color)
-            c.addPath(canvasPath)
-            c.fillPath(using: rule)
-        case .gradient(let id):
-            c.saveGState()
-            c.addPath(canvasPath)
-            c.clip(using: rule)
-            drawGradient(c, id)
-            c.restoreGState()
-        }
-    }
-
-    /// Stroke `userPath` (user space) under base ∘ author.
-    private func stroke(_ c: CGContext, _ userPath: CGPath) {
-        c.saveGState()
-        c.concatenate(state.author)
-        c.addPath(userPath)
-        switch state.stroke {
-        case .color(let color):
-            c.setStrokeColor(color)
-            c.strokePath()
-        case .gradient(let id):
-            c.replacePathWithStrokedPath()
-            c.clip()
-            c.concatenate(state.author.inverted())
-            drawGradient(c, id)
-        }
-        c.restoreGState()
-    }
-
     private func rect(_ n: [Double]) -> CGRect { CGRect(x: n[0], y: n[1], width: n[2], height: n[3]) }
+
+    private func text(_ n: [Double], from: Int, count: Int) -> String {
+        var s = String.UnicodeScalarView()
+        for i in from..<max(from, count) { if let u = Unicode.Scalar(UInt32(max(0, n[i]))) { s.append(u) } }
+        return String(s)
+    }
 
     /// Apply one list; false when it is not one this reader can read.
     func apply(_ data: Data) -> Bool {
@@ -151,169 +143,126 @@ final class Canvas2DReplayer {
             guard raw.count >= 8, raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self).littleEndian == 0x4432_4345,
                   raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self).littleEndian == 1 else { return false }
             var at = 8
-            var n = [Double](repeating: 0, count: 8)
+            var n = [Double](repeating: 0, count: 16)
             while at + 8 <= raw.count {
                 let code = raw.loadUnaligned(fromByteOffset: at, as: UInt32.self).littleEndian
                 let count = Int(raw.loadUnaligned(fromByteOffset: at + 4, as: UInt32.self).littleEndian)
                 at += 8
-                guard at + count * 8 <= raw.count, let op = Op(rawValue: code) else { return false }
+                guard at + count * 8 <= raw.count, let op = Canvas2DOp(rawValue: code) else { return false }
                 if n.count < count { n = [Double](repeating: 0, count: count) }
                 for i in 0..<count { n[i] = Double(bitPattern: raw.loadUnaligned(fromByteOffset: at + i * 8, as: UInt64.self).littleEndian) }
                 at += count * 8
-                switch op {
-                case .save: stack.append(state); c.saveGState()
-                case .restore:
-                    if let s = stack.popLast() { state = s; c.restoreGState() }
-                case .reset:
-                    while stack.popLast() != nil { c.restoreGState() }
-                    c.restoreGState(); c.saveGState()
-                    state = State(); path = CGMutablePath()
-                    c.clear(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7))
-                case .setTransform: state.author = CGAffineTransform(a: n[0], b: n[1], c: n[2], d: n[3], tx: n[4], ty: n[5])
-                case .fillColor: state.fill = .color(color(n, 0))
-                case .fillGradient: state.fill = .gradient(UInt32(n[0]))
-                case .strokeColor: state.stroke = .color(color(n, 0))
-                case .strokeGradient: state.stroke = .gradient(UInt32(n[0]))
-                case .lineWidth: c.setLineWidth(n[0])
-                case .lineCap: c.setLineCap([CGLineCap.butt, .round, .square][Int(n[0])])
-                case .lineJoin: c.setLineJoin([CGLineJoin.miter, .round, .bevel][Int(n[0])])
-                case .miterLimit: c.setMiterLimit(n[0])
-                case .lineDash:
-                    state.dash = (0..<count).map { CGFloat(n[$0]) }
-                    c.setLineDash(phase: state.dashOffset, lengths: state.dash)
-                case .lineDashOffset:
-                    state.dashOffset = n[0]
-                    c.setLineDash(phase: state.dashOffset, lengths: state.dash)
-                case .globalAlpha: c.setAlpha(n[0])
-                case .composite: c.setBlendMode(blends[min(Int(n[0]), blends.count - 1)])
-                case .linearGradient: gradients[UInt32(n[0])] = CanvasGradient(linear: Array(n[1...4]))
-                case .radialGradient: gradients[UInt32(n[0])] = CanvasGradient(radial: Array(n[1...6]))
-                case .colorStop:
-                    let id = UInt32(n[0])
-                    if var g = gradients[id] {
-                        let i = g.stops.firstIndex { $0.0 > n[1] } ?? g.stops.count
-                        g.stops.insert((n[1], color(n, 2)), at: i)
-                        gradients[id] = g
-                    }
-                case .beginPath: path = CGMutablePath()
-                case .moveTo: path.move(to: CGPoint(x: n[0], y: n[1]))
-                case .lineTo: path.isEmpty ? path.move(to: CGPoint(x: n[0], y: n[1])) : path.addLine(to: CGPoint(x: n[0], y: n[1]))
-                case .quadTo: path.addQuadCurve(to: CGPoint(x: n[2], y: n[3]), control: CGPoint(x: n[0], y: n[1]))
-                case .cubicTo:
-                    path.addCurve(to: CGPoint(x: n[4], y: n[5]), control1: CGPoint(x: n[0], y: n[1]), control2: CGPoint(x: n[2], y: n[3]))
-                case .closePath: if !path.isEmpty { path.closeSubpath() }
-                case .fill: if !path.isEmpty { fill(c, path, rule: n[0] == 1 ? .evenOdd : .winding) }
-                case .stroke:
-                    if !path.isEmpty {
-                        var inverse = state.author.inverted()
-                        if let user = path.copy(using: &inverse) { stroke(c, user) }
-                    }
-                case .clip:
-                    if path.isEmpty { c.clip(to: CGRect.zero) } else { c.addPath(path); c.clip(using: n[0] == 1 ? .evenOdd : .winding) }
-                case .fillRect:
-                    var author = state.author
-                    fill(c, CGPath(rect: rect(n), transform: &author), rule: .winding)
-                case .strokeRect:
-                    let r = rect(n)
-                    if r.width == 0 && r.height == 0 { break }
-                    let p = CGMutablePath()
-                    if r.width == 0 || r.height == 0 {
-                        p.move(to: r.origin); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
-                    } else {
-                        p.addRect(r)
-                    }
-                    stroke(c, p)
-                case .clearRect:
-                    c.saveGState()
-                    c.concatenate(state.author)
-                    c.setBlendMode(.clear)
-                    c.setAlpha(1)
-                    c.addRect(rect(n))
-                    c.fillPath()
-                    c.restoreGState()
-                }
+                step(c, op, n, count)
             }
             return at == raw.count
         }
     }
 
-    func image() -> CGImage? { context?.makeImage() }
-}
-
-/// A presenter's 2D canvases, by view id: the `canvas2d` op, and cleanup
-/// when a view goes. The bitmap shows in a sublayer below the view's
-/// children, framed to the content box.
-final class Canvas2DHost {
-    private var replayers: [UInt32: Canvas2DReplayer] = [:]
-    private var layers: [UInt32: CALayer] = [:]
-    /// Lists that could not be read, for `logs`.
-    var errors: [String] = []
-    /// The views' real scale differs from what the canvases were drawn at.
-    var onScale: ((CGFloat) -> Void)?
-    private var reported: CGFloat = 0
-
-    func apply(_ id: UInt32, _ payload: [String: Any], layer parent: CALayer?) {
-        guard let parent else { return }
-        let num = { (key: String) -> Double in (payload[key] as? NSNumber)?.doubleValue ?? 0 }
-        let lifetime = UInt64(num("lifetime")), generation = UInt32(num("generation"))
-        if (payload["fresh"] as? NSNumber)?.boolValue == true {
-            replayers[id] = Canvas2DReplayer(width: Int(num("w")), height: Int(num("h")), scale: num("scale"),
-                                             lifetime: lifetime, generation: generation)
-        }
-        guard let r = replayers[id], r.lifetime == lifetime, r.generation == generation else { return }
-        for case let text as String in payload["lists"] as? [Any] ?? [] {
-            guard let data = Data(base64Encoded: text), r.apply(data) else {
-                errors.append("canvas \(id): unreadable list"); continue
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private func step(_ c: CGContext, _ op: Canvas2DOp, _ n: [Double], _ count: Int) {
+        switch op {
+        case .save: stack.append(state); c.saveGState()
+        case .restore:
+            if let s = stack.popLast() { state = s; c.restoreGState() }
+        case .reset:
+            while stack.popLast() != nil { c.restoreGState() }
+            c.restoreGState(); c.saveGState()
+            state = Canvas2DState(); path = CGMutablePath(); scratch = CGMutablePath()
+            c.clear(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7))
+        case .setTransform: state.author = CGAffineTransform(a: n[0], b: n[1], c: n[2], d: n[3], tx: n[4], ty: n[5])
+        case .fillColor: state.fill = .color(color(n, 0))
+        case .fillGradient: state.fill = .gradient(UInt32(n[0]))
+        case .fillPattern: state.fill = .pattern(UInt32(n[0]))
+        case .strokeColor: state.stroke = .color(color(n, 0))
+        case .strokeGradient: state.stroke = .gradient(UInt32(n[0]))
+        case .strokePattern: state.stroke = .pattern(UInt32(n[0]))
+        case .lineWidth: state.lineWidth = n[0]
+        case .lineCap: state.cap = [CGLineCap.butt, .round, .square][Int(n[0])]
+        case .lineJoin: state.join = [CGLineJoin.miter, .round, .bevel][Int(n[0])]
+        case .miterLimit: state.miter = n[0]
+        case .lineDash: state.dash = (0..<count).map { CGFloat(n[$0]) }
+        case .lineDashOffset: state.dashOffset = n[0]
+        case .globalAlpha: state.alpha = n[0]
+        case .composite: state.composite = min(Int(n[0]), canvas2DBlends.count - 1)
+        case .shadowColor: state.shadowColor = color(n, 0)
+        case .shadowBlur: state.shadowBlur = n[0]
+        case .shadowOffset: state.shadowOffset = CGSize(width: n[0], height: n[1])
+        case .imageSmoothing: state.smoothing = n[0] != 0; state.quality = Int(n[1])
+        case .linearGradient: gradients[UInt32(n[0])] = Canvas2DGradient(kind: .linear(Array(n[1...4])))
+        case .radialGradient: gradients[UInt32(n[0])] = Canvas2DGradient(kind: .radial(Array(n[1...6])))
+        case .conicGradient: gradients[UInt32(n[0])] = Canvas2DGradient(kind: .conic(Array(n[1...3])))
+        case .colorStop:
+            let id = UInt32(n[0])
+            if var g = gradients[id] {
+                let i = g.stops.firstIndex { $0.0 > n[1] } ?? g.stops.count
+                g.stops.insert((n[1], color(n, 2)), at: i)
+                gradients[id] = g
             }
-        }
-        let layer = layers[id] ?? {
-            let l = CALayer(); l.delegate = Instant.shared; l.contentsGravity = .resize
-            l.magnificationFilter = .linear; l.minificationFilter = .linear
-            layers[id] = l; return l
-        }()
-        if layer.superlayer !== parent { parent.insertSublayer(layer, at: 0) }
-        let box = (payload["box"] as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
-        if box.count == 4 { layer.frame = CGRect(x: box[0], y: box[1], width: box[2], height: box[3]) }
-        // A rounded canvas clips its bitmap to the content edge's curve, as
-        // the web clips replaced content.
-        let radii = (payload["radii"] as? [Any])?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } ?? []
-        if radii.count == 4, radii.contains(where: { $0 > 0 }) {
-            let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-            mask.path = Canvas2DHost.rounded(CGRect(origin: .zero, size: layer.bounds.size), radii)
-            layer.mask = mask
-        } else {
-            layer.mask = nil
-        }
-        layer.contentsScale = max(1, num("scale"))
-        layer.contents = r.image()
-        let actual = parent.contentsScale
-        if (payload["stretch"] as? NSNumber)?.boolValue != true, actual >= 1, abs(actual - num("scale")) > 0.01, actual != reported {
-            reported = actual
-            onScale?(actual)
+        case .pattern: patterns[UInt32(n[0])] = Canvas2DPattern(image: UInt32(n[1]), repetition: Int(n[2]))
+        case .patternTransform:
+            patterns[UInt32(n[0])]?.transform = CGAffineTransform(a: n[1], b: n[2], c: n[3], d: n[4], tx: n[5], ty: n[6])
+        case .beginPath: path = CGMutablePath()
+        case .moveTo: path.move(to: CGPoint(x: n[0], y: n[1]))
+        case .lineTo: Canvas2DReplayer.line(path, n)
+        case .quadTo: path.addQuadCurve(to: CGPoint(x: n[2], y: n[3]), control: CGPoint(x: n[0], y: n[1]))
+        case .cubicTo:
+            path.addCurve(to: CGPoint(x: n[4], y: n[5]), control1: CGPoint(x: n[0], y: n[1]), control2: CGPoint(x: n[2], y: n[3]))
+        case .closePath: if !path.isEmpty { path.closeSubpath() }
+        case .pathMoveTo: scratch.move(to: CGPoint(x: n[0], y: n[1]))
+        case .pathLineTo: Canvas2DReplayer.line(scratch, n)
+        case .pathQuadTo: scratch.addQuadCurve(to: CGPoint(x: n[2], y: n[3]), control: CGPoint(x: n[0], y: n[1]))
+        case .pathCubicTo:
+            scratch.addCurve(to: CGPoint(x: n[4], y: n[5]), control1: CGPoint(x: n[0], y: n[1]), control2: CGPoint(x: n[2], y: n[3]))
+        case .pathClose: if !scratch.isEmpty { scratch.closeSubpath() }
+        case .fill: fillPath(c, path, rule: n[0] == 1 ? .evenOdd : .winding)
+        case .fillPath: fillPath(c, scratch, rule: n[0] == 1 ? .evenOdd : .winding); scratch = CGMutablePath()
+        case .stroke: strokeCanvasPath(c, path)
+        case .strokePath: strokeCanvasPath(c, scratch); scratch = CGMutablePath()
+        case .clip: clip(c, path, rule: n[0] == 1 ? .evenOdd : .winding)
+        case .clipPath: clip(c, scratch, rule: n[0] == 1 ? .evenOdd : .winding); scratch = CGMutablePath()
+        case .fillRect:
+            var author = state.author
+            fillPath(c, CGPath(rect: rect(n), transform: &author), rule: .winding)
+        case .strokeRect:
+            let r = rect(n)
+            if r.width == 0 && r.height == 0 { break }
+            let p = CGMutablePath()
+            if r.width == 0 || r.height == 0 {
+                p.move(to: r.origin); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+            } else {
+                p.addRect(r)
+            }
+            strokeUserPath(c, p)
+        case .clearRect:
+            c.saveGState()
+            c.concatenate(state.author)
+            c.setBlendMode(.clear)
+            c.setAlpha(1)
+            c.addRect(rect(n))
+            c.fillPath()
+            c.restoreGState()
+        case .font:
+            var f = Canvas2DFont()
+            f.size = n[0]; f.weight = Int(n[1]); f.style = Int(n[2]); f.stretch = n[3]; f.caps = Int(n[4])
+            f.kerning = Int(n[5]); f.rendering = Int(n[6]); f.letterSpacing = n[7]; f.wordSpacing = n[8]
+            f.families = text(n, from: 9, count: count).split(separator: ",").map(String.init)
+            state.font = f
+        case .fillText, .strokeText:
+            guard count >= 4 else { break }
+            drawText(c, fill: op == .fillText, x: n[0], y: n[1], scaleX: n[2], rtl: n[3] != 0, text: text(n, from: 4, count: count))
+        case .image: imageSources[UInt32(n[0])] = text(n, from: 1, count: count)
+        case .drawImage: drawImage(c, n)
+        case .putImageData: putImageData(c, n, count)
         }
     }
 
-    /// A rectangle with four corner radii (top-left, top-right, bottom-right,
-    /// bottom-left), in a y-down layer.
-    static func rounded(_ r: CGRect, _ radii: [CGFloat]) -> CGPath {
-        let p = CGMutablePath(), (x0, y0, x1, y1) = (r.minX, r.minY, r.maxX, r.maxY)
-        let f = min(1, r.width / max(radii[0] + radii[1], radii[2] + radii[3], 1e-9), r.height / max(radii[0] + radii[3], radii[1] + radii[2], 1e-9))
-        let (tl, tr, br, bl) = (radii[0] * f, radii[1] * f, radii[2] * f, radii[3] * f)
-        p.move(to: CGPoint(x: x0 + tl, y: y0))
-        p.addLine(to: CGPoint(x: x1 - tr, y: y0))
-        p.addArc(tangent1End: CGPoint(x: x1, y: y0), tangent2End: CGPoint(x: x1, y: y0 + tr), radius: tr)
-        p.addLine(to: CGPoint(x: x1, y: y1 - br))
-        p.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x1 - br, y: y1), radius: br)
-        p.addLine(to: CGPoint(x: x0 + bl, y: y1))
-        p.addArc(tangent1End: CGPoint(x: x0, y: y1), tangent2End: CGPoint(x: x0, y: y1 - bl), radius: bl)
-        p.addLine(to: CGPoint(x: x0, y: y0 + tl))
-        p.addArc(tangent1End: CGPoint(x: x0, y: y0), tangent2End: CGPoint(x: x0 + tl, y: y0), radius: tl)
-        p.closeSubpath()
-        return p
+    private static func line(_ p: CGMutablePath, _ n: [Double]) {
+        p.isEmpty ? p.move(to: CGPoint(x: n[0], y: n[1])) : p.addLine(to: CGPoint(x: n[0], y: n[1]))
     }
 
-    func forget(_ id: UInt32) {
-        replayers.removeValue(forKey: id)
-        layers.removeValue(forKey: id)?.removeFromSuperlayer()
+    private func clip(_ c: CGContext, _ p: CGPath, rule: CGPathFillRule) {
+        if p.isEmpty { c.clip(to: CGRect.zero) } else { c.addPath(p); c.clip(using: rule) }
     }
+
+    func image() -> CGImage? { context?.makeImage() }
 }

@@ -36,12 +36,14 @@
 pub mod abi;
 pub mod app_module;
 pub mod batch;
+pub mod canvas_text;
 pub mod collapse;
 pub mod content_region;
 pub mod delivery;
 pub mod executor;
 pub mod host;
 pub mod markup;
+pub mod material;
 pub mod measure;
 pub mod raster;
 mod raster_exports;

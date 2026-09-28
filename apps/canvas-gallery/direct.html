@@ -6,9 +6,21 @@
      result: every fixture's pixels as a PNG data URL, at `?scale=` backing
      pixels per CSS px, for each `?steps=` of the sequences. Development only. -->
 <meta charset="utf-8">
+<style>
+@font-face { font-family: "Exposure Sans"; src: url(assets/ExposureSansOriginal03-Regular.ttf); }
+@font-face { font-family: "Exposure Sans"; font-style: italic; src: url(assets/ExposureSansOriginal03-Italic.ttf); }
+@font-face { font-family: "Exposure Sans"; font-weight: 700; src: url(assets/ExposureSansOriginal03-Bold.ttf); }
+</style>
 <pre id="out"></pre>
 <script type="module">
-import { fixtures, sequences } from "./fixtures.js";
+import { fixtures, sequences, TILE } from "./fixtures.js";
+// The declared face and the image handle, loaded before anything draws: on
+// the web host the recorder's page does the same (LLP 1056 D8, D9).
+await Promise.all(["16px 'Exposure Sans'", "bold 16px 'Exposure Sans'", "italic 16px 'Exposure Sans'"].map((f) => document.fonts.load(f)));
+const tile = new Image(); tile.src = TILE; await tile.decode();
+const images = { [TILE]: tile };
+// The canvases whose node sets `color` in app.contract (currentColor).
+const colors = { textrtl: "#be185d" };
 const q = new URLSearchParams(location.search);
 const scale = Number(q.get("scale") ?? 1), steps = Number(q.get("steps") ?? 4);
 // The Contract's sizes: every tile 150 × 100, the resizing one 90 + 20 × step
@@ -20,18 +32,23 @@ const errors = [];
 // author's matrix (LLP 1056 D6): setTransform, resetTransform and reset
 // replace only the author's part. On the web an author scales by hand, so
 // this page puts the scale back under whatever the fixture sets.
+const SHADOW = new Set(["shadowBlur", "shadowOffsetX", "shadowOffsetY"]);
 function scaled(ctx, s) {
-  if (s === 1) return ctx;
   const base = new DOMMatrix([s, 0, 0, s, 0, 0]);
   const own = {
+    // An image handle is an element here (LLP 1056 D9).
+    drawImage: (img, ...a) => ctx.drawImage(images[img] ?? img, ...a),
+    createPattern: (img, rep) => ctx.createPattern(images[img] ?? img, rep),
     setTransform: (...m) => ctx.setTransform(base.multiply(m.length === 1 ? DOMMatrix.fromMatrix(m[0]) : new DOMMatrix(m.length ? m : [1, 0, 0, 1, 0, 0]))),
     resetTransform: () => ctx.setTransform(base),
     reset: () => { ctx.reset(); ctx.setTransform(base); },
     getTransform: () => base.inverse().multiply(ctx.getTransform()),
   };
   return new Proxy(ctx, {
-    get: (t, k) => own[k] ?? (typeof t[k] === "function" ? t[k].bind(t) : t[k]),
-    set: (t, k, v) => { t[k] = v; return true; },
+    // Shadows ignore the author's matrix but are canvas pixels × the device
+    // scale (LLP 1056 §1): on the web they would be bitmap pixels.
+    get: (t, k) => own[k] ?? (typeof t[k] === "function" ? t[k].bind(t) : SHADOW.has(k) ? t[k] / s : t[k]),
+    set: (t, k, v) => { t[k] = SHADOW.has(k) ? Number(v) * s : v; return true; },
   });
 }
 function draw(name, canvas, ctx, step) {
@@ -44,6 +61,7 @@ function draw(name, canvas, ctx, step) {
 for (const name of Object.keys(fixtures)) {
   const sequence = sequences.includes(name);
   const canvas = document.createElement("canvas");
+  if (colors[name]) { canvas.style.color = colors[name]; canvas.hidden = true; document.body.append(canvas); }
   let ctx, last = null;
   for (let step = 0; step < (sequence ? steps : 1); step++) {
     const [w, h] = size(name, step), bitmap = name === "bitmap";

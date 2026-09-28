@@ -10,13 +10,15 @@ final class TextRasterizer {
         weak var node: NodeView?
         let key: TextRasterKey
         let namespace: Int
+        /// The node's incarnation when the job was issued (LLP 1068 §4.9).
+        let incarnation: UInt64
         let group = DispatchGroup()
         var result: TextRasterImage?
         weak var operation: Operation?
         private let lock = NSLock()
         private var started = false, abandoned = false
         init(_ node: NodeView, key: TextRasterKey, namespace: Int) {
-            self.node = node; self.key = key; self.namespace = namespace
+            self.node = node; self.key = key; self.namespace = namespace; incarnation = node.incarnation
             group.enter()
         }
         /// The worker's claim: false once the job was abandoned unstarted.
@@ -185,8 +187,9 @@ final class TextRasterizer {
         // Dropped unstarted: no pixels, and no failure either.
         guard !work.wasAbandoned else { return }
         if work.key.clip == nil { keep(work.result, for: work.key, namespace: work.namespace) }
-        work.node?.showTextRaster(work.result, for: work.key)
-        work.node?.presenter?.requestTextPublication()
+        guard let node = work.node, node.incarnation == work.incarnation else { return }
+        node.showTextRaster(work.result, for: work.key)
+        node.presenter?.requestTextPublication()
     }
     /// Jobs whose paragraph left, or whose text or box changed since, or
     /// that the list has already carried past (`passed`), and that no worker

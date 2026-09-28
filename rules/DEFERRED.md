@@ -275,6 +275,10 @@ reading. Nothing that isn't HTML is added by it.
   cost trigger it alongside 60 fps. Take: further Messages decorative Tapback/emoji
   artwork, material matching and animation-timing polish move behind list memory.
   O(N) input data is named separately from O(window) UI; recycling is no flat-memory claim.
+- No host keep-alive of heavy views by row key, and no reuse of a web view
+  or of a native-module view without that module's opt-in (LLP 1068 §4.7,
+  §4.8, §5.3; Charlie, 2026-09-27). A reused view is indistinguishable from a
+  new element; state that must survive scrolling lives in keyed data.
 
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`

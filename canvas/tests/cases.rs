@@ -18,7 +18,7 @@ fn parse_value(s: &str) -> (V, &str) {
     let s = s.trim_start();
     if let Some(rest) = s.strip_prefix('"') {
         let end = rest.find('"').unwrap();
-        return (V::S(rest[..end].into()), &rest[end + 1..]);
+        return (V::S(rest[..end].replace("\\t", "\t")), &rest[end + 1..]);
     }
     if let Some(mut rest) = s.strip_prefix('[') {
         let mut items = Vec::new();
@@ -104,6 +104,7 @@ fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
                 "createRadialGradient" => {
                     ctx.create_radial_gradient(f(0), f(1), f(2), f(3), f(4), f(5))?
                 }
+                "createConicGradient" => ctx.create_conic_gradient(f(0), f(1), f(2))?,
                 other => panic!("{other}"),
             });
             return Ok(());
@@ -121,12 +122,68 @@ fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
             ("strokeStyle", V::G) => ctx.set_stroke_style_canvas_gradient(g.as_ref().unwrap()),
             ("fillStyle", v) => ctx.set_fill_style_str(s(v)),
             ("strokeStyle", v) => ctx.set_stroke_style_str(s(v)),
+            ("font", v) => ctx.set_font(s(v)),
+            ("textAlign", v) => ctx.set_text_align(s(v)),
+            ("textBaseline", v) => ctx.set_text_baseline(s(v)),
+            ("direction", v) => ctx.set_direction(s(v)),
+            ("fontKerning", v) => ctx.set_font_kerning(s(v)),
+            ("textRendering", v) => ctx.set_text_rendering(s(v)),
+            ("fontStretch", v) => ctx.set_font_stretch(s(v)),
+            ("fontVariantCaps", v) => ctx.set_font_variant_caps(s(v)),
+            ("letterSpacing", v) => ctx.set_letter_spacing(s(v)),
+            ("wordSpacing", v) => ctx.set_word_spacing(s(v)),
+            ("shadowColor", v) => ctx.set_shadow_color(s(v)),
+            ("shadowBlur", v) => ctx.set_shadow_blur(n(v)),
+            ("shadowOffsetX", v) => ctx.set_shadow_offset_x(n(v)),
+            ("shadowOffsetY", v) => ctx.set_shadow_offset_y(n(v)),
+            ("imageSmoothingEnabled", V::B(b)) => ctx.set_image_smoothing_enabled(*b),
+            ("imageSmoothingQuality", v) => ctx.set_image_smoothing_quality(s(v)),
             (other, _) => panic!("attribute {other}"),
         }
         return Ok(());
     }
-    let (name, a) = line.split_once('(').unwrap();
-    let a = args(a.strip_suffix(')').unwrap());
+    let (name, rest) = line.split_once('(').unwrap();
+    if let Some(d) = rest.strip_prefix("new Path2D(\"") {
+        let (d, after) = d.split_once("\")").unwrap();
+        let path = exact_canvas::Path2d::new_with_path_string(d);
+        let rule = if after.contains("evenodd") {
+            CanvasWindingRule::Evenodd
+        } else {
+            CanvasWindingRule::Nonzero
+        };
+        match name {
+            "fill" => ctx.fill_with_path_2d_and_winding(&path, rule),
+            "stroke" => ctx.stroke_with_path(&path),
+            "clip" => ctx.clip_with_path_2d_and_winding(&path, rule),
+            other => panic!("path method {other}"),
+        }
+        return Ok(());
+    }
+    if name == "putImageData" {
+        let (w, tail) = rest
+            .strip_prefix("ctx.createImageData(")
+            .unwrap()
+            .split_once(')')
+            .unwrap();
+        let wh = args(w);
+        let data = ctx.create_image_data_with_sw_and_sh(n(&wh[0]), n(&wh[1]))?;
+        let a = args(tail.trim_start_matches(',').strip_suffix(')').unwrap());
+        let f = |i: usize| n(&a[i]);
+        return if a.len() == 2 {
+            ctx.put_image_data(&data, f(0), f(1))
+        } else {
+            ctx.put_image_data_with_dirty_x_and_dirty_y_and_dirty_width_and_dirty_height(
+                &data,
+                f(0),
+                f(1),
+                f(2),
+                f(3),
+                f(4),
+                f(5),
+            )
+        };
+    }
+    let a = args(rest.strip_suffix(')').unwrap());
     let f = |i: usize| n(&a[i]);
     let b = |i: usize| matches!(&a[i], V::B(true));
     let rule = |v: &V| {
@@ -188,6 +245,15 @@ fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
                 .collect();
             ctx.round_rect_with_radii(f(0), f(1), f(2), f(3), &radii)?
         }
+        "createImageData" => ctx
+            .create_image_data_with_sw_and_sh(f(0), f(1))
+            .map(|_| ())?,
+        "fillText" if a.len() == 4 => ctx.fill_text_with_max_width(s(&a[0]), f(1), f(2), f(3))?,
+        "fillText" => ctx.fill_text(s(&a[0]), f(1), f(2))?,
+        "strokeText" if a.len() == 4 => {
+            ctx.stroke_text_with_max_width(s(&a[0]), f(1), f(2), f(3))?
+        }
+        "strokeText" => ctx.stroke_text(s(&a[0]), f(1), f(2))?,
         other => panic!("method {other}"),
     }
     Ok(())
@@ -197,6 +263,7 @@ fn query(ctx: &Context2d, q: &str) -> String {
     let style = |st: Style| match st {
         Style::Color(c) => c,
         Style::Gradient(_) => "[object CanvasGradient]".into(),
+        Style::Pattern(_) => "[object CanvasPattern]".into(),
     };
     let num = |v: f64| format!("{v}");
     match q {
@@ -209,6 +276,22 @@ fn query(ctx: &Context2d, q: &str) -> String {
         "globalCompositeOperation" => ctx.global_composite_operation(),
         "fillStyle" => style(ctx.fill_style()),
         "strokeStyle" => style(ctx.stroke_style()),
+        "font" => ctx.font(),
+        "textAlign" => ctx.text_align(),
+        "textBaseline" => ctx.text_baseline(),
+        "direction" => ctx.direction(),
+        "fontKerning" => ctx.font_kerning(),
+        "textRendering" => ctx.text_rendering(),
+        "fontStretch" => ctx.font_stretch(),
+        "fontVariantCaps" => ctx.font_variant_caps(),
+        "letterSpacing" => ctx.letter_spacing(),
+        "wordSpacing" => ctx.word_spacing(),
+        "shadowColor" => ctx.shadow_color(),
+        "shadowBlur" => num(ctx.shadow_blur()),
+        "shadowOffsetX" => num(ctx.shadow_offset_x()),
+        "shadowOffsetY" => num(ctx.shadow_offset_y()),
+        "imageSmoothingEnabled" => ctx.image_smoothing_enabled().to_string(),
+        "imageSmoothingQuality" => ctx.image_smoothing_quality(),
         "getLineDash()" => ctx
             .get_line_dash()
             .iter()
@@ -258,6 +341,7 @@ fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
 /// 1e-9 (the two languages' `sin`/`cos` may differ in the last bit).
 #[test]
 fn the_typescript_recorder_writes_the_rust_recorders_lists() {
+    exact_canvas::color::link_wide();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
         .arg(dir.join("cases.mjs"))
@@ -325,6 +409,7 @@ fn the_typescript_recorder_writes_the_rust_recorders_lists() {
 
 #[test]
 fn the_shared_cases_hold_for_the_rust_recorder() {
+    exact_canvas::color::link_wide();
     let text = include_str!("cases.txt");
     let mut failures = Vec::new();
     let mut ctx = Context2d::new();

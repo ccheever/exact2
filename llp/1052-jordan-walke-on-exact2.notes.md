@@ -112,15 +112,42 @@ over CDP (`Runtime.getHeapUsage`) while scrolling the whole history.
   held the walk to 5.1 MB against 65–71 MB for the whole history, and they
   are LLP 1027.004's rule.
 
+**The same on an iPhone 17 Pro Max (iOS 26.6.1), natively.** The same app
+at 100,000 messages, built for the device at `ed59545d`. It was driven over
+the network through the agent, with `wheel` scrolls of 10,000 pt, and ran
+until the offset stopped moving each way. Instruments couldn't reach the
+phone over Wi-Fi ("timed out waiting for device to boot"). So a local-only
+probe, never committed, logged the app's `phys_footprint` (`task_vm_info`)
+once a second, and the samples were aligned to the driver's phases.
+
+| Mode | Phone footprint | Web wasm memory, for comparison |
+|---|---|---|
+| Boot | 18–20 MB | 3.9 MB |
+| Virtualized, whole history: load, then rested | 124 MB peak, 113 rested | 65.1 MB |
+| The same, across two full passes (0 → 8.3 M pt → 0, twice) | 90–97 MB, level | 65.7 MB, level |
+| The same, then back to 100 messages, rested 15 s | **19.8 MB** | 71.1 MB |
+| The same, then 100,000 again, rested | 89.7 MB | 71.1 MB |
+| Bounded, walked through every window to messages 0–199 (1,011 wheels, 166 s) | 21–24 MB, level; 17 MB at rest | 5.1 MB |
+
+- **Natively, memory goes back.** Dropping from 100,000 messages to 100
+  returned the footprint to the boot level within 15 seconds; the session's
+  rest trim releases what the allocator freed. On the web the same step kept
+  71 MB. Jordan's "hard to know when to evict" is a web problem here, not a
+  Rust one: wasm memory can grow and never shrink.
+- **Both hosts level off, and loading 100,000 again costs no more than the
+  first time.**
+- **The whole history costs about 70–75 MB above boot on the phone; the
+  bounded window costs 3–5 MB.** Granularity again decides it.
+
 Not measured yet:
 - **Crossing cost at this scale.** `messages-stress` has no TypeScript side.
   Messages can't reach 100,000 records today: Hermes' 64 MiB heap and 100 ms
   call budget (`js/src/lib.rs`), Snapback's 512-record edit limit, and a
   transcript that isn't virtualized. It needs a TypeScript-data variant of the
   stress app.
-- **A device.** The iPad Pro is shared with the heavy-list lanes on another
-  Mac. The repo has no memory tooling for a device: those lanes measure
-  `phys_footprint` with a harness outside it.
+- **Memory tooling for a device.** The repo has none. The heavy-list lanes
+  measure `phys_footprint` with a harness outside it, and this measurement
+  used a probe it didn't keep.
 
 ## To ask Jordan
 

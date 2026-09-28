@@ -21,7 +21,7 @@
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 
@@ -1044,6 +1044,11 @@ async function fixtureRun(app, use, run, key) {
       if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR;
       else process.env.CARGO_TARGET_DIR = previousTarget;
     }
+    // Hermes (js/build.rs) is provisioned beside the checkout, in `ibex`; a
+    // capture has none there, so a TypeScript app's bake failed in it. Link
+    // the live checkout's, as that layout expects.
+    const ibex = resolve(dirname(ROOT), 'ibex'), besideCapture = resolve(dirname(fixture.exactRoot), 'ibex');
+    if (existsSync(ibex) && !existsSync(besideCapture)) symlinkSync(ibex, besideCapture);
     const env = { ...process.env, EXACT_APP_DIR: fixture.app.dir, EXACT2: fixture.exactRoot,
       CARGO_TARGET_DIR: resolve(run, 'target'), EXACT_WEB_DIST: resolve(fixture.exactRoot, 'host/web/dist'),
       EXACT_BAKE_OUTPUT: resolve(run, 'bake'), EXACT_UPDATE_DIR: resolve(run, 'update'),

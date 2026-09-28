@@ -43,6 +43,8 @@ final class Presenter {
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var pool = NodePool(self)
+    /// Heavy leaves held mid-fling (LLP 1068 §5.1).
+    lazy var leaves = HeavyLeaves(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
@@ -281,6 +283,7 @@ final class Presenter {
         menus.reset()
         swipeActions.reset()
         pool.reset()
+        leaves.reset()
         modals.reset()
         navigation.reset()
         session?.canvases.reset()
@@ -465,6 +468,7 @@ final class Presenter {
     var textClips: TextClips?
     func listVelocity(_ id: UInt32) -> Double { scrollPump.velocity(id) }
     func settlePump() {
+        leaves.settle()
         scrollPump.settle()
         textRasters.settleVisible(textViews.values.filter { textIsVisible($0) })
     }
@@ -651,6 +655,7 @@ final class Presenter {
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
                 views[id] = v
+                if v.kind == "video" { leaves.created(v) }
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
             case .paragraph:

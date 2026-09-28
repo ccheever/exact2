@@ -158,3 +158,135 @@ g.addColorStop(0.25, "#0f08")
 strokeStyle = g
 globalCompositeOperation = "copy"
 globalCompositeOperation = "xor"
+
+## stage 2: every compositing operator is accepted
+globalCompositeOperation = "source-in"
+? globalCompositeOperation => source-in
+globalCompositeOperation = "copy"
+? globalCompositeOperation => copy
+fillRect(0, 0, 5, 5)
+
+## stage 2: font serialises as Chrome does and ignores what does not parse
+? font => 10px sans-serif
+font = "italic small-caps 700 15px/2 serif"
+? font => italic bold small-caps 15px serif
+font = "12pt Georgia, 'Times New Roman', serif"
+? font => 16px Georgia, "Times New Roman", serif
+font = "12px"
+? font => 16px Georgia, "Times New Roman", serif
+font = "2em serif"
+? font => 20px serif
+font = "condensed 12px sans-serif"
+? fontStretch => condensed
+font = "12px serif"
+? fontStretch => normal
+fontVariantCaps = "small-caps"
+font = "bold 12px serif"
+? fontVariantCaps => normal
+
+## stage 2: the text attributes ignore unknown values
+? textAlign => start
+textAlign = "center"
+textAlign = "middle"
+? textAlign => center
+? textBaseline => alphabetic
+textBaseline = "top"
+textBaseline = "TOP"
+? textBaseline => top
+? direction => ltr
+direction = "rtl"
+direction = "sideways"
+? direction => rtl
+fontKerning = "none"
+font = "13px serif"
+? fontKerning => none
+? textRendering => auto
+textRendering = "optimizeSpeed"
+? textRendering => optimizeSpeed
+fontStretch = "expanded"
+fontStretch = "wide"
+? fontStretch => expanded
+
+## stage 2: letterSpacing and wordSpacing take lengths with units
+? letterSpacing => 0px
+letterSpacing = "2px"
+? letterSpacing => 2px
+letterSpacing = "1em"
+? letterSpacing => 1em
+letterSpacing = "0"
+letterSpacing = "3%"
+letterSpacing = "bad"
+? letterSpacing => 1em
+wordSpacing = "-1.5px"
+? wordSpacing => -1.5px
+
+## stage 2: shadows ignore invalid values
+? shadowColor => rgba(0, 0, 0, 0)
+shadowColor = "red"
+shadowColor = "nope"
+? shadowColor => #ff0000
+shadowBlur = 3
+shadowBlur = -1
+shadowBlur = NaN
+? shadowBlur => 3
+shadowOffsetX = 4
+shadowOffsetX = Infinity
+shadowOffsetY = -2
+? shadowOffsetX => 4
+? shadowOffsetY => -2
+fillRect(0, 0, 5, 5)
+
+## stage 2: image smoothing
+? imageSmoothingEnabled => true
+? imageSmoothingQuality => low
+imageSmoothingEnabled = false
+imageSmoothingQuality = "high"
+imageSmoothingQuality = "best"
+? imageSmoothingEnabled => false
+? imageSmoothingQuality => high
+
+## stage 2: wide colours keep their own serialisation
+fillStyle = "lab(50% 40 59.5)"
+? fillStyle => lab(50 40 59.5)
+fillStyle = "oklch(0.7 0.1 200 / 0.5)"
+? fillStyle => oklch(0.7 0.1 200 / 0.5)
+strokeStyle = "color(srgb 1 0 0.5)"
+? strokeStyle => color(srgb 1 0 0.5)
+fillStyle = "lab(50, 40, 59.5)"
+? fillStyle => oklch(0.7 0.1 200 / 0.5)
+
+## stage 2: conic gradients and pixels throw by the IDL
+g = createConicGradient(NaN, 1, 2) ! TypeError
+g = createConicGradient(0.5, 40, 50)
+g.addColorStop(0, "red")
+g.addColorStop(1, "blue")
+fillStyle = g
+? fillStyle => [object CanvasGradient]
+fillRect(0, 0, 10, 10)
+createImageData(0, 3) ! IndexSizeError
+createImageData(NaN, 3) ! TypeError
+putImageData(ctx.createImageData(1, 1), NaN, 0) ! TypeError
+putImageData(ctx.createImageData(2, 2), 3, 4, -1, 1, 5, -3)
+
+## stage 2: text records its font, alignment and baseline
+font = "bold 20px serif"
+textAlign = "right"
+textBaseline = "middle"
+fillText("Hi\tthere", 50, 40)
+fillText("x", NaN, 40)
+fillText("x", 1, 2, 0)
+strokeText("squeezed", 5, 6, 1)
+save()
+font = "10px monospace"
+fillText("mono", 0, 0)
+restore()
+fillText("serif again", 0, 0)
+
+## stage 2: Path2D paints under the matrix at the paint and keeps the current path
+beginPath()
+rect(1, 1, 4, 4)
+translate(10, 0)
+fill(new Path2D("M0 0 h 10 v10 H0 z m 2 2 C1 1 2 2 3 3 S 4 4 5 5 Q 6 6 7 7 T 8 8 A 5 5 30 1 0 20 20 L x 9"), "evenodd")
+stroke(new Path2D("M0 0 L 5 5"))
+clip(new Path2D("M0 0 L 5 5 L 0 5 Z"))
+fill()

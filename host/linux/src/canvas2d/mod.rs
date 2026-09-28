@@ -7,16 +7,24 @@
 //! The list's geometry is resolved (`exact_canvas::list`): paths arrive in
 //! canvas coordinates, so a fill or clip draws them under the base scale; a
 //! stroke takes them back to user space and strokes under base ∘ author, so
-//! a line's width follows the author's matrix as the canvas's does.
+//! a line's width follows the author's matrix as the canvas's does. Every
+//! paint goes through one pipeline (`draw.rs`): shadows, the clip-extent
+//! operators, patterns, images and conic gradients; text is glyph outlines
+//! (`text.rs`).
 
-use exact_canvas::list::{self, Op};
+mod draw;
+pub(crate) mod text;
+
+use draw::Geom;
+use exact_canvas::list::{self, text_at, Op};
 use exact_kernel::ViewId;
 use exact_runner::CanvasList;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use text::{CanvasText, RunStyle};
 use tiny_skia::{
-    BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Mask, Paint, Path,
-    PathBuilder, Pixmap, Point, RadialGradient, Shader, SpreadMode, Stroke, StrokeDash, Transform,
+    BlendMode, Color, FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Shader,
+    Stroke, StrokeDash, Transform,
 };
 
 /// One canvas's snapshot for the painters.
@@ -29,7 +37,8 @@ pub(crate) struct CanvasPaint {
 #[derive(Clone, Copy, PartialEq)]
 enum Style {
     Color([f64; 4]),
-    Gradient(u32),
+    /// A gradient or pattern, by id.
+    Object(u32),
 }
 
 #[derive(Clone)]
@@ -44,7 +53,12 @@ struct State {
     dash: Vec<f32>,
     dash_offset: f32,
     alpha: f32,
-    blend: BlendMode,
+    composite: usize,
+    shadow_color: [f64; 4],
+    shadow_blur: f32,
+    shadow_offset: (f32, f32),
+    smoothing: (bool, u8),
+    font: Option<Arc<RunStyle>>,
     clip: Option<Mask>,
 }
 
@@ -61,32 +75,45 @@ impl Default for State {
             dash: Vec::new(),
             dash_offset: 0.0,
             alpha: 1.0,
-            blend: BlendMode::SourceOver,
+            composite: 0,
+            shadow_color: [0.0; 4],
+            shadow_blur: 0.0,
+            shadow_offset: (0.0, 0.0),
+            smoothing: (true, 0),
+            font: None,
             clip: None,
         }
     }
 }
 
-enum Kind {
-    Linear([f32; 4]),
-    Radial([f32; 6]),
+enum Object {
+    Linear([f32; 4], Vec<(f32, [f64; 4])>),
+    Radial([f32; 6], Vec<(f32, [f64; 4])>),
+    Conic([f32; 3], Vec<(f32, [f64; 4])>),
+    Pattern {
+        image: u32,
+        repetition: u8,
+        transform: Transform,
+    },
+    Image(String),
 }
 
-struct Gradient {
-    kind: Kind,
-    stops: Vec<(f32, [f64; 4])>,
-}
+/// The decoded image handles, shared by every replayer (LLP 1056 D9).
+pub(crate) type ImageCache = HashMap<String, Arc<Pixmap>>;
 
 /// One canvas's replayer: its bitmap and the state the lists build on.
 pub(crate) struct Replayer {
     pixmap: Pixmap,
     base: Transform,
+    scale: f32,
     lifetime: u64,
     generation: u32,
     state: State,
     stack: Vec<State>,
     path: PathBuilder,
-    gradients: HashMap<u32, Gradient>,
+    /// A `Path2D`'s segments for the next path paint.
+    scratch: PathBuilder,
+    objects: HashMap<u32, Object>,
 }
 
 fn blend(k: usize) -> BlendMode {
@@ -134,17 +161,25 @@ fn color(c: [f64; 4], alpha: f32) -> Color {
     .unwrap_or(Color::TRANSPARENT)
 }
 
+/// What a replay needs beyond the list: the images and the text engine.
+pub(crate) struct Env<'a> {
+    pub images: &'a ImageCache,
+    pub text: Option<&'a CanvasText>,
+}
+
 impl Replayer {
     fn new(w: u32, h: u32, scale: f64, lifetime: u64, generation: u32) -> Option<Replayer> {
         Some(Replayer {
             pixmap: Pixmap::new(w, h)?,
             base: Transform::from_scale(scale as f32, scale as f32),
+            scale: scale as f32,
             lifetime,
             generation,
             state: State::default(),
             stack: Vec::new(),
             path: PathBuilder::new(),
-            gradients: HashMap::new(),
+            scratch: PathBuilder::new(),
+            objects: HashMap::new(),
         })
     }
 
@@ -152,72 +187,7 @@ impl Replayer {
         self.base.pre_concat(self.state.author)
     }
 
-    /// The paint for a style, with its shader in `space` (user space mapped
-    /// by the path's transform), or `None` when it paints nothing.
-    fn paint(&self, style: Style, shader_ts: Transform) -> Option<Paint<'static>> {
-        let alpha = self.state.alpha;
-        let shader = match style {
-            Style::Color(c) => Shader::SolidColor(color(c, alpha)),
-            Style::Gradient(id) => {
-                let g = self.gradients.get(&id)?;
-                if g.stops.is_empty() {
-                    return None;
-                }
-                let stops: Vec<GradientStop> = g
-                    .stops
-                    .iter()
-                    .map(|(o, c)| GradientStop::new(*o, color(*c, alpha)))
-                    .collect();
-                match g.kind {
-                    Kind::Linear([x0, y0, x1, y1]) => {
-                        if x0 == x1 && y0 == y1 {
-                            return None;
-                        }
-                        LinearGradient::new(
-                            Point::from_xy(x0, y0),
-                            Point::from_xy(x1, y1),
-                            stops,
-                            SpreadMode::Pad,
-                            shader_ts,
-                        )?
-                    }
-                    Kind::Radial([x0, y0, r0, x1, y1, r1]) => {
-                        if x0 == x1 && y0 == y1 && r0 == r1 {
-                            return None;
-                        }
-                        RadialGradient::new(
-                            Point::from_xy(x0, y0),
-                            r0,
-                            Point::from_xy(x1, y1),
-                            r1,
-                            stops,
-                            SpreadMode::Pad,
-                            shader_ts,
-                        )?
-                    }
-                }
-            }
-        };
-        Some(Paint {
-            shader,
-            blend_mode: self.state.blend,
-            anti_alias: true,
-            ..Default::default()
-        })
-    }
-
-    fn fill_canvas_path(&mut self, path: &Path, rule: FillRule) {
-        let Some(paint) = self.paint(self.state.fill, self.state.author) else {
-            return;
-        };
-        self.pixmap
-            .fill_path(path, &paint, rule, self.base, self.state.clip.as_ref());
-    }
-
-    fn stroke_user_path(&mut self, user: &Path) {
-        let Some(paint) = self.paint(self.state.stroke, Transform::identity()) else {
-            return;
-        };
+    fn stroke_style(&self) -> Option<Stroke> {
         let mut stroke = Stroke {
             width: self.state.width,
             miter_limit: self.state.miter,
@@ -227,13 +197,50 @@ impl Replayer {
         };
         if !self.state.dash.is_empty() {
             if self.state.dash.iter().all(|v| *v == 0.0) {
-                return;
+                return None;
             }
             stroke.dash = StrokeDash::new(self.state.dash.clone(), self.state.dash_offset);
         }
+        Some(stroke)
+    }
+
+    /// Fill a path in canvas coordinates with the fill style.
+    fn fill_canvas_path(&mut self, path: &Path, rule: FillRule, env: &Env<'_>) {
+        let ts = self.base;
+        let source = self.source(self.state.fill, env);
+        self.draw(Geom::Fill(path, rule, ts), source);
+    }
+
+    /// Stroke a path in canvas coordinates: back to user space, stroked
+    /// under base ∘ author.
+    fn stroke_canvas_path(&mut self, path: &Path, env: &Env<'_>) {
+        let Some(inv) = self.state.author.invert() else {
+            return;
+        };
+        if let Some(user) = path.clone().transform(inv) {
+            self.stroke_user_path(&user, env);
+        }
+    }
+
+    fn stroke_user_path(&mut self, user: &Path, env: &Env<'_>) {
+        let Some(stroke) = self.stroke_style() else {
+            return;
+        };
         let ts = self.device();
-        self.pixmap
-            .stroke_path(user, &paint, &stroke, ts, self.state.clip.as_ref());
+        let source = self.source(self.state.stroke, env);
+        self.draw(Geom::Stroke(user, stroke, ts), source);
+    }
+
+    fn clip_path(&mut self, path: Option<Path>, rule: FillRule) {
+        let clip = self.state.clip.get_or_insert_with(|| {
+            let mut m = Mask::new(self.pixmap.width(), self.pixmap.height()).expect("sized");
+            m.data_mut().fill(255);
+            m
+        });
+        match path {
+            Some(path) => clip.intersect_path(&path, rule, true, self.base),
+            None => clip.data_mut().fill(0),
+        }
     }
 
     fn rect_path(x: f64, y: f64, w: f64, h: f64) -> Option<Path> {
@@ -247,10 +254,46 @@ impl Replayer {
         pb.finish()
     }
 
-    fn apply(&mut self, bytes: &[u8]) -> Result<(), String> {
+    fn rule(v: f64) -> FillRule {
+        if v == 1.0 {
+            FillRule::EvenOdd
+        } else {
+            FillRule::Winding
+        }
+    }
+
+    fn stops(&mut self, id: u32) -> Option<&mut Vec<(f32, [f64; 4])>> {
+        match self.objects.get_mut(&id)? {
+            Object::Linear(_, s) | Object::Radial(_, s) | Object::Conic(_, s) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn text(&mut self, fill: bool, r: &list::Record<'_>, env: &Env<'_>) {
+        let (Some(engine), Some(font)) = (env.text, self.state.font.clone()) else {
+            return;
+        };
+        let text = text_at(r, 4);
+        let shaped = engine.shape(&font, &text, r.at(3) == 1.0);
+        let Some(path) = shaped.path else {
+            return;
+        };
+        let (x, y, sx) = (r.at(0) as f32, r.at(1) as f32, r.at(2) as f32);
+        let ts = self.device().pre_translate(x, y).pre_scale(sx, 1.0);
+        if fill {
+            let source = self.source(self.state.fill, env);
+            self.draw(Geom::Fill(&path, FillRule::Winding, ts), source);
+        } else if let Some(stroke) = self.stroke_style() {
+            let source = self.source(self.state.stroke, env);
+            self.draw(Geom::Stroke(&path, stroke, ts), source);
+        }
+    }
+
+    fn apply(&mut self, bytes: &[u8], env: &Env<'_>) -> Result<(), String> {
         let recs = list::records(bytes).map_err(|e| e.to_string())?;
         for r in recs {
             let f = |i: usize| r.at(i) as f32;
+            let c4 = |i: usize| [r.at(i), r.at(i + 1), r.at(i + 2), r.at(i + 3)];
             match r.op {
                 Op::Save => self.stack.push(self.state.clone()),
                 Op::Restore => {
@@ -263,18 +306,19 @@ impl Replayer {
                     self.state = State::default();
                     self.stack.clear();
                     self.path = PathBuilder::new();
+                    self.scratch = PathBuilder::new();
                 }
                 Op::SetTransform => {
                     self.state.author = Transform::from_row(f(0), f(1), f(2), f(3), f(4), f(5))
                 }
-                Op::FillColor => {
-                    self.state.fill = Style::Color([r.at(0), r.at(1), r.at(2), r.at(3)])
+                Op::FillColor => self.state.fill = Style::Color(c4(0)),
+                Op::FillGradient | Op::FillPattern => {
+                    self.state.fill = Style::Object(r.at(0) as u32)
                 }
-                Op::FillGradient => self.state.fill = Style::Gradient(r.at(0) as u32),
-                Op::StrokeColor => {
-                    self.state.stroke = Style::Color([r.at(0), r.at(1), r.at(2), r.at(3)])
+                Op::StrokeColor => self.state.stroke = Style::Color(c4(0)),
+                Op::StrokeGradient | Op::StrokePattern => {
+                    self.state.stroke = Style::Object(r.at(0) as u32)
                 }
-                Op::StrokeGradient => self.state.stroke = Style::Gradient(r.at(0) as u32),
                 Op::LineWidth => self.state.width = f(0),
                 Op::LineCap => {
                     self.state.cap =
@@ -288,33 +332,50 @@ impl Replayer {
                 Op::LineDash => self.state.dash = r.operands().map(|v| v as f32).collect(),
                 Op::LineDashOffset => self.state.dash_offset = f(0),
                 Op::GlobalAlpha => self.state.alpha = f(0),
-                Op::Composite => self.state.blend = blend(r.at(0) as usize),
+                Op::Composite => self.state.composite = r.at(0) as usize,
+                Op::ShadowColor => self.state.shadow_color = c4(0),
+                Op::ShadowBlur => self.state.shadow_blur = f(0),
+                Op::ShadowOffset => self.state.shadow_offset = (f(0), f(1)),
+                Op::ImageSmoothing => self.state.smoothing = (r.at(0) == 1.0, r.at(1) as u8),
                 Op::LinearGradient => {
-                    self.gradients.insert(
-                        r.at(0) as u32,
-                        Gradient {
-                            kind: Kind::Linear([f(1), f(2), f(3), f(4)]),
-                            stops: Vec::new(),
-                        },
-                    );
+                    let g = Object::Linear([f(1), f(2), f(3), f(4)], Vec::new());
+                    self.objects.insert(r.at(0) as u32, g);
                 }
                 Op::RadialGradient => {
-                    self.gradients.insert(
-                        r.at(0) as u32,
-                        Gradient {
-                            kind: Kind::Radial([f(1), f(2), f(3), f(4), f(5), f(6)]),
-                            stops: Vec::new(),
-                        },
-                    );
+                    let g = Object::Radial([f(1), f(2), f(3), f(4), f(5), f(6)], Vec::new());
+                    self.objects.insert(r.at(0) as u32, g);
+                }
+                Op::ConicGradient => {
+                    let g = Object::Conic([f(1), f(2), f(3)], Vec::new());
+                    self.objects.insert(r.at(0) as u32, g);
                 }
                 Op::ColorStop => {
-                    if let Some(g) = self.gradients.get_mut(&(r.at(0) as u32)) {
-                        let at = f(1);
+                    let at = f(1);
+                    let c = c4(2);
+                    if let Some(stops) = self.stops(r.at(0) as u32) {
                         // Stops at one offset keep their order (spec).
-                        let i = g.stops.partition_point(|(o, _)| *o <= at);
-                        g.stops
-                            .insert(i, (at, [r.at(2), r.at(3), r.at(4), r.at(5)]));
+                        let i = stops.partition_point(|(o, _)| *o <= at);
+                        stops.insert(i, (at, c));
                     }
+                }
+                Op::Pattern => {
+                    let p = Object::Pattern {
+                        image: r.at(1) as u32,
+                        repetition: r.at(2) as u8,
+                        transform: Transform::identity(),
+                    };
+                    self.objects.insert(r.at(0) as u32, p);
+                }
+                Op::PatternTransform => {
+                    if let Some(Object::Pattern { transform, .. }) =
+                        self.objects.get_mut(&(r.at(0) as u32))
+                    {
+                        *transform = Transform::from_row(f(1), f(2), f(3), f(4), f(5), f(6));
+                    }
+                }
+                Op::Image => {
+                    self.objects
+                        .insert(r.at(0) as u32, Object::Image(text_at(&r, 1)));
                 }
                 Op::BeginPath => self.path = PathBuilder::new(),
                 Op::MoveTo => self.path.move_to(f(0), f(1)),
@@ -322,55 +383,44 @@ impl Replayer {
                 Op::QuadTo => self.path.quad_to(f(0), f(1), f(2), f(3)),
                 Op::CubicTo => self.path.cubic_to(f(0), f(1), f(2), f(3), f(4), f(5)),
                 Op::ClosePath => self.path.close(),
+                Op::PathMoveTo => self.scratch.move_to(f(0), f(1)),
+                Op::PathLineTo => self.scratch.line_to(f(0), f(1)),
+                Op::PathQuadTo => self.scratch.quad_to(f(0), f(1), f(2), f(3)),
+                Op::PathCubicTo => self.scratch.cubic_to(f(0), f(1), f(2), f(3), f(4), f(5)),
+                Op::PathClose => self.scratch.close(),
                 Op::Fill => {
                     if let Some(path) = self.path.clone().finish() {
-                        let rule = if r.at(0) == 1.0 {
-                            FillRule::EvenOdd
-                        } else {
-                            FillRule::Winding
-                        };
-                        self.fill_canvas_path(&path, rule);
+                        self.fill_canvas_path(&path, Self::rule(r.at(0)), env);
+                    }
+                }
+                Op::FillPath => {
+                    if let Some(path) = std::mem::take(&mut self.scratch).finish() {
+                        self.fill_canvas_path(&path, Self::rule(r.at(0)), env);
                     }
                 }
                 Op::Stroke => {
-                    let inv = self.state.author.invert();
-                    if let (Some(path), Some(inv)) = (self.path.clone().finish(), inv) {
-                        if let Some(user) = path.transform(inv) {
-                            self.stroke_user_path(&user);
-                        }
+                    if let Some(path) = self.path.clone().finish() {
+                        self.stroke_canvas_path(&path, env);
+                    }
+                }
+                Op::StrokePath => {
+                    if let Some(path) = std::mem::take(&mut self.scratch).finish() {
+                        self.stroke_canvas_path(&path, env);
                     }
                 }
                 Op::Clip => {
-                    let rule = if r.at(0) == 1.0 {
-                        FillRule::EvenOdd
-                    } else {
-                        FillRule::Winding
-                    };
                     let path = self.path.clone().finish();
-                    let clip = self.state.clip.get_or_insert_with(|| {
-                        let mut m =
-                            Mask::new(self.pixmap.width(), self.pixmap.height()).expect("sized");
-                        m.data_mut().fill(255);
-                        m
-                    });
-                    match path {
-                        Some(path) => clip.intersect_path(&path, rule, true, self.base),
-                        None => clip.data_mut().fill(0),
-                    }
+                    self.clip_path(path, Self::rule(r.at(0)));
+                }
+                Op::ClipPath => {
+                    let path = std::mem::take(&mut self.scratch).finish();
+                    self.clip_path(path, Self::rule(r.at(0)));
                 }
                 Op::FillRect => {
                     if let Some(p) = Self::rect_path(r.at(0), r.at(1), r.at(2), r.at(3)) {
-                        let Some(paint) = self.paint(self.state.fill, Transform::identity()) else {
-                            continue;
-                        };
                         let ts = self.device();
-                        self.pixmap.fill_path(
-                            &p,
-                            &paint,
-                            FillRule::Winding,
-                            ts,
-                            self.state.clip.as_ref(),
-                        );
+                        let source = self.source(self.state.fill, env);
+                        self.draw(Geom::Fill(&p, FillRule::Winding, ts), source);
                     }
                 }
                 Op::StrokeRect => {
@@ -387,7 +437,7 @@ impl Replayer {
                         Self::rect_path(x, y, w, h)
                     };
                     if let Some(p) = p {
-                        self.stroke_user_path(&p);
+                        self.stroke_user_path(&p, env);
                     }
                 }
                 Op::ClearRect => {
@@ -410,17 +460,36 @@ impl Replayer {
                         );
                     }
                 }
+                Op::Font => {
+                    self.state.font = Some(Arc::new(RunStyle {
+                        size: f(0),
+                        weight: r.at(1) as u16,
+                        style: r.at(2) as u8,
+                        stretch: f(3),
+                        kerning: r.at(5) as u8,
+                        letter_spacing: f(7),
+                        word_spacing: f(8),
+                        families: text_at(&r, 9).split(',').map(str::to_string).collect(),
+                    }))
+                }
+                Op::FillText => self.text(true, &r, env),
+                Op::StrokeText => self.text(false, &r, env),
+                Op::DrawImage => self.draw_image(&r, env),
+                Op::PutImageData => self.put_image_data(&r),
             }
         }
         Ok(())
     }
 }
 
-/// Every 2D canvas's replayer and snapshot.
+/// Every 2D canvas's replayer and snapshot, the decoded images, and the
+/// text engine.
 #[derive(Default)]
 pub(crate) struct Canvases {
     replayers: BTreeMap<ViewId, Replayer>,
     snapshots: BTreeMap<ViewId, CanvasPaint>,
+    pub(crate) images: ImageCache,
+    pub(crate) text: Option<Arc<CanvasText>>,
 }
 
 impl Canvases {
@@ -429,6 +498,10 @@ impl Canvases {
     pub(crate) fn apply(&mut self, lists: Vec<CanvasList>) -> Vec<String> {
         let mut errors = Vec::new();
         let mut touched = Vec::new();
+        let env = Env {
+            images: &self.images,
+            text: self.text.as_deref(),
+        };
         for c in lists {
             if c.fresh {
                 self.snapshots.remove(&c.view);
@@ -455,7 +528,7 @@ impl Canvases {
                 continue;
             }
             for l in &c.lists {
-                if let Err(e) = r.apply(l) {
+                if let Err(e) = r.apply(l, &env) {
                     errors.push(format!("canvas {}: {e}", c.view));
                 }
             }
@@ -475,10 +548,14 @@ impl Canvases {
         errors
     }
 
-    /// Drop the canvases whose nodes are gone.
+    /// Drop the canvases whose nodes are gone, and the images when no
+    /// canvas is left.
     pub(crate) fn retain(&mut self, live: &[ViewId]) {
         self.replayers.retain(|v, _| live.contains(v));
         self.snapshots.retain(|v, _| live.contains(v));
+        if live.is_empty() {
+            self.images.clear();
+        }
     }
 
     /// The painters' view of every canvas.
@@ -488,60 +565,4 @@ impl Canvases {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use exact_canvas::Context2d;
-
-    fn replay(w: u32, h: u32, scale: f64, draw: impl Fn(&Context2d)) -> Pixmap {
-        let ctx = Context2d::new();
-        draw(&ctx);
-        let mut r = Replayer::new(w, h, scale, 1, 0).unwrap();
-        for l in ctx.take_lists() {
-            r.apply(&l).unwrap();
-        }
-        r.pixmap
-    }
-
-    fn at(p: &Pixmap, x: u32, y: u32) -> [u8; 4] {
-        let c = p.pixel(x, y).unwrap();
-        [c.red(), c.green(), c.blue(), c.alpha()]
-    }
-
-    #[test]
-    fn a_clockwise_arc_bulges_down_in_canvas_space() {
-        // arc(50, 50, 40, 0, π): clockwise from +x through +y (down).
-        let p = replay(100, 100, 1.0, |c| {
-            c.set_fill_style_str("red");
-            c.begin_path();
-            c.arc(50.0, 50.0, 40.0, 0.0, std::f64::consts::PI).unwrap();
-            c.fill();
-        });
-        assert_eq!(at(&p, 50, 80), [255, 0, 0, 255], "the lower half is filled");
-        assert_eq!(at(&p, 50, 20)[3], 0, "the upper half is not");
-    }
-
-    #[test]
-    fn device_scale_and_author_matrix_compose() {
-        let p = replay(40, 40, 2.0, |c| {
-            c.translate(10.0, 0.0).unwrap();
-            c.fill_rect(0.0, 0.0, 5.0, 5.0);
-        });
-        assert_eq!(at(&p, 21, 1)[3], 255);
-        assert_eq!(at(&p, 19, 1)[3], 0);
-        assert_eq!(at(&p, 29, 9)[3], 255);
-        assert_eq!(at(&p, 31, 9)[3], 0);
-    }
-
-    #[test]
-    fn clear_rect_obeys_the_clip_and_the_path_survives_fill() {
-        let p = replay(20, 20, 1.0, |c| {
-            c.fill_rect(0.0, 0.0, 20.0, 20.0);
-            c.begin_path();
-            c.rect(0.0, 0.0, 10.0, 20.0);
-            c.clip();
-            c.clear_rect(0.0, 0.0, 20.0, 20.0);
-        });
-        assert_eq!(at(&p, 5, 5)[3], 0);
-        assert_eq!(at(&p, 15, 5)[3], 255);
-    }
-}
+mod tests;

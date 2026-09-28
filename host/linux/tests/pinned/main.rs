@@ -1,9 +1,11 @@
 //! The Linux host's integration tests that pin the fixture font: one binary.
 //! `tests/it/` holds the ones that leave the font environment alone.
 
+mod backdrop;
 mod borders;
 mod gradients;
 mod host;
+mod materials;
 mod motion_paint;
 mod paint;
 mod text;

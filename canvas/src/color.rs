@@ -3,8 +3,10 @@
 //! and `currentColor` — and the canvas serialisation (`#rrggbb` when opaque,
 //! `rgba(r, g, b, a)` otherwise). The kernel's parser takes hex, `rgb()` and
 //! `transparent` only; this one is the canvas's, and the kernel may adopt it.
-//! A form outside these (`lab()`, `color()`) does not parse, so an assignment
-//! of it is ignored as any unparseable colour is.
+//! The wide forms (`lab()`, `lch()`, `oklab()`, `oklch()` and `color()` in
+//! `srgb`, `srgb-linear`, `display-p3`, `xyz`, `xyz-d50` and `xyz-d65`) are
+//! converted to sRGB and clipped, as an sRGB canvas draws them, and keep
+//! their own serialisation, as Chrome's getters return it.
 
 /// A colour: sRGB channels 0–255 and alpha 0–1, non-premultiplied.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,10 +71,14 @@ pub fn alpha_text(a: f64) -> String {
 }
 
 /// What an assignment of a colour string parsed to.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Parsed {
     /// A colour.
     Color(Rgba),
+    /// A wide-gamut colour: its sRGB pixels, clipped, and its serialisation
+    /// in its own space (`lab(50 40 59.5)`), which is what Chrome's getter
+    /// returns.
+    Wide(Rgba, String),
     /// `currentColor`: the canvas node's `color`, resolved by the caller.
     Current,
 }
@@ -98,6 +104,9 @@ pub fn parse(input: &str) -> Option<Parsed> {
     if let Some(open) = s.find('(') {
         let name = s[..open].trim();
         let body = s[open + 1..].strip_suffix(')')?;
+        if let Some(wide) = WIDE.get().and_then(|f| f(name, body)) {
+            return Some(wide);
+        }
         return functional(name, body).map(Parsed::Color);
     }
     named(&s).map(Parsed::Color)
@@ -306,6 +315,205 @@ snow fffafa springgreen 00ff7f steelblue 4682b4 tan d2b48c teal 008080 thistle d
 tomato ff6347 turquoise 40e0d0 violet ee82ee wheat f5deb3 white ffffff whitesmoke f5f5f5 \
 yellow ffff00 yellowgreen 9acd32";
 
+/// The wide forms' parser, once linked ([`link_wide`]).
+static WIDE: std::sync::OnceLock<fn(&str, &str) -> Option<Parsed>> = std::sync::OnceLock::new();
+
+/// Link the wide forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
+/// `color()`): until a host calls this, they do not parse and their
+/// assignments are ignored. Native hosts link them at start; a web artifact
+/// links them when its data crate's source names one (LLP 1047 D2: linked
+/// by use; the web core's budget).
+pub fn link_wide() {
+    let _ = WIDE.set(wide);
+}
+
+/// The wide forms: modern syntax only, three components and an alpha.
+fn wide(name: &str, body: &str) -> Option<Parsed> {
+    let (space, body) = if name == "color" {
+        let body = body.trim_start();
+        let end = body.find(char::is_whitespace)?;
+        (Some(&body[..end]), &body[end..])
+    } else {
+        (None, body)
+    };
+    let kind = match (name, space) {
+        ("lab", None) => 0,
+        ("lch", None) => 1,
+        ("oklab", None) => 2,
+        ("oklch", None) => 3,
+        ("color", Some("srgb")) => 4,
+        ("color", Some("srgb-linear")) => 5,
+        ("color", Some("display-p3")) => 6,
+        ("color", Some("xyz" | "xyz-d65")) => 7,
+        ("color", Some("xyz-d50")) => 8,
+        _ => return None,
+    };
+    if body.contains(',') {
+        return None;
+    }
+    let (parts, a) = args(body)?;
+    let c: Vec<Arg> = parts.iter().map(|p| component(p)).collect::<Option<_>>()?;
+    // Percentages' reference ranges (CSS Color 4 §8–§10).
+    let pct = [
+        [100.0, 125.0, 125.0],
+        [100.0, 150.0, 0.0],
+        [1.0, 0.4, 0.4],
+        [1.0, 0.4, 0.0],
+        [1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0],
+    ][kind];
+    let mut v = [0.0; 3];
+    for i in 0..3 {
+        v[i] = match c[i] {
+            Arg::Num(n) => n,
+            Arg::Pct(p) if !(matches!(kind, 1 | 3) && i == 2) => p / 100.0 * pct[i],
+            Arg::Pct(_) => return None,
+        };
+    }
+    if matches!(kind, 0 | 1) {
+        v[0] = v[0].clamp(0.0, 100.0);
+    }
+    if matches!(kind, 2 | 3) {
+        v[0] = v[0].clamp(0.0, 1.0);
+    }
+    if matches!(kind, 1 | 3) {
+        v[1] = v[1].max(0.0);
+        v[2] = v[2].rem_euclid(360.0);
+    }
+    let alpha_raw = match a.map(component) {
+        None => 1.0,
+        Some(Some(Arg::Num(n))) => n,
+        Some(Some(Arg::Pct(p))) => p / 100.0,
+        Some(None) => return None,
+    }
+    .clamp(0.0, 1.0);
+    let lin = match kind {
+        0 => lab_to_linear(v[0], v[1], v[2]),
+        1 => {
+            let h = v[2].to_radians();
+            lab_to_linear(v[0], v[1] * h.cos(), v[1] * h.sin())
+        }
+        2 => oklab_to_linear(v[0], v[1], v[2]),
+        3 => {
+            let h = v[2].to_radians();
+            oklab_to_linear(v[0], v[1] * h.cos(), v[1] * h.sin())
+        }
+        4 => v.map(to_linear),
+        5 => v,
+        6 => {
+            let xyz = mul(&P3_TO_XYZ, v.map(to_linear));
+            mul(&XYZ_TO_SRGB, xyz)
+        }
+        7 => mul(&XYZ_TO_SRGB, v),
+        _ => mul(&XYZ_TO_SRGB, mul(&D50_TO_D65, v)),
+    };
+    let byte = |c: f64| channel(from_linear(c) * 255.0);
+    let rgba = Rgba {
+        r: byte(lin[0]),
+        g: byte(lin[1]),
+        b: byte(lin[2]),
+        a: (alpha_raw * 255.0).round() / 255.0,
+    };
+    let n = crate::font::js_number;
+    let mut text = match space {
+        Some(space) => format!("color({space} {} {} {}", n(v[0]), n(v[1]), n(v[2])),
+        None => format!("{name}({} {} {}", n(v[0]), n(v[1]), n(v[2])),
+    };
+    if alpha_raw < 1.0 {
+        text.push_str(&format!(" / {}", n(alpha_raw)));
+    }
+    text.push(')');
+    Some(Parsed::Wide(rgba, text))
+}
+
+type M3 = [[f64; 3]; 3];
+const XYZ_TO_SRGB: M3 = [
+    [3.2409699419045226, -1.537383177570094, -0.4986107602930034],
+    [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559],
+    [
+        0.05563007969699366,
+        -0.20397695888897652,
+        1.0569715142428786,
+    ],
+];
+const D50_TO_D65: M3 = [
+    [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
+    [
+        -0.0283697093338637,
+        1.0099953980813041,
+        0.021041441191917323,
+    ],
+    [
+        0.012314014864481998,
+        -0.020507649298898964,
+        1.330365926242124,
+    ],
+];
+const P3_TO_XYZ: M3 = [
+    [0.4865709486482162, 0.26566769316909306, 0.1982172852343625],
+    [0.2289745640697488, 0.6917385218365064, 0.079286914093745],
+    [0.0, 0.04511338185890264, 1.043944368900976],
+];
+
+fn mul(m: &M3, v: [f64; 3]) -> [f64; 3] {
+    [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
+}
+
+fn to_linear(c: f64) -> f64 {
+    let a = c.abs();
+    let v = if a <= 0.04045 {
+        a / 12.92
+    } else {
+        ((a + 0.055) / 1.055).powf(2.4)
+    };
+    v.copysign(c)
+}
+
+fn from_linear(c: f64) -> f64 {
+    let a = c.abs();
+    let v = if a <= 0.0031308 {
+        12.92 * a
+    } else {
+        1.055 * a.powf(1.0 / 2.4) - 0.055
+    };
+    v.copysign(c).clamp(0.0, 1.0)
+}
+
+fn lab_to_linear(l: f64, a: f64, b: f64) -> [f64; 3] {
+    const K: f64 = 24389.0 / 27.0;
+    const E: f64 = 216.0 / 24389.0;
+    let f1 = (l + 16.0) / 116.0;
+    let f0 = a / 500.0 + f1;
+    let f2 = f1 - b / 200.0;
+    let x = if f0.powi(3) > E {
+        f0.powi(3)
+    } else {
+        (116.0 * f0 - 16.0) / K
+    };
+    let y = if l > K * E { f1.powi(3) } else { l / K };
+    let z = if f2.powi(3) > E {
+        f2.powi(3)
+    } else {
+        (116.0 * f2 - 16.0) / K
+    };
+    let d50 = [x * 0.3457 / 0.3585, y, z * (1.0 - 0.3457 - 0.3585) / 0.3585];
+    mul(&XYZ_TO_SRGB, mul(&D50_TO_D65, d50))
+}
+
+fn oklab_to_linear(l: f64, a: f64, b: f64) -> [f64; 3] {
+    let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+    let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+    let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    [
+        4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+        -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+        -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_,
+    ]
+}
+
 fn named(s: &str) -> Option<Rgba> {
     let mut it = NAMED.split_whitespace();
     while let (Some(name), Some(hex)) = (it.next(), it.next()) {
@@ -321,8 +529,10 @@ mod tests {
     use super::*;
 
     fn c(s: &str) -> String {
+        link_wide();
         match parse(s) {
             Some(Parsed::Color(c)) => c.serialize(),
+            Some(Parsed::Wide(c, text)) => format!("{text} {}", c.serialize()),
             Some(Parsed::Current) => "current".into(),
             None => "none".into(),
         }
@@ -352,13 +562,24 @@ mod tests {
         assert_eq!(c("hsl(120 50 50)"), "#40bf40");
         assert_eq!(c("rgb(50%,50%,50%)"), "#808080");
         assert_eq!(c("currentColor"), "current");
+        // The wide forms: their own serialisation (Chrome's), sRGB pixels.
+        assert_eq!(c("lab(50% 40 59.5)"), "lab(50 40 59.5) #bf5700");
+        assert_eq!(
+            c("oklch(0.7 0.1 200 / 0.5)"),
+            "oklch(0.7 0.1 200 / 0.5) rgba(64, 177, 183, 0.5)"
+        );
+        assert_eq!(c("color(srgb 1 0 0.5)"), "color(srgb 1 0 0.5) #ff0080");
+        assert_eq!(
+            c("color(display-p3 1 0 0)"),
+            "color(display-p3 1 0 0) #ff0000"
+        );
         for bad in [
             "",
             "#12",
             "rgb(1, 2)",
             "rgb(1, 2%, 3)",
             "blurple",
-            "lab(50 0 0)",
+            "lab(50, 0, 0)",
             "rgb(1 2, 3)",
             "hsl(120, 50, 50)",
         ] {

@@ -136,6 +136,46 @@ fn pre_line_keeps_line_feeds_wraps_and_sizes_by_forced_lines() {
 }
 
 #[test]
+fn pre_keeps_spaces_and_tabs_and_breaks_only_at_line_feeds() {
+    // @ref LLP 1053 G5 — Chrome 154's widths at 16px DejaVu Sans (the
+    // pinned face, as a web font): kept spaces, trailing ones included,
+    // tab stops every eight spaces from the line's start, and lines only
+    // at line feeds.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    for (text, chrome, lines) in [
+        ("  lead   inner  ", 111.0_f64, 1),
+        ("ab   ", 35.21875, 1),
+        ("abcdefghij\tk", 131.328125, 1),
+        ("a\tb", 50.84375, 1),
+        ("\t\tx", 90.84375, 1),
+        ("one\n\nthree  ", 52.5, 3),
+    ] {
+        let s = spec(text, WhiteSpace::Pre);
+        assert_eq!(s.runs[0].text, text, "pre collapses nothing");
+        let max = e.measure(&s, AxisOffer::MaxContent);
+        // This engine holds a width in whole pixels, up (`text.rs`).
+        assert_eq!(
+            f64::from(max.width),
+            chrome.ceil(),
+            "{text:?} against Chrome's {chrome}"
+        );
+        // As many lines as `pre-wrap` takes at max-content: the line feeds'.
+        let wrap = e.measure(&spec(text, WhiteSpace::PreWrap), AxisOffer::MaxContent);
+        assert_eq!(max.height, wrap.height, "{text:?}, {lines} lines");
+        assert_eq!(
+            e.measure(&s, AxisOffer::MinContent),
+            max,
+            "min-content is max-content"
+        );
+        assert_eq!(
+            e.measure(&s, AxisOffer::Definite(20.0)).height,
+            max.height,
+            "no width wraps it"
+        );
+    }
+}
+
+#[test]
 fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     let mut e = engine(INTER, "Inter");
     let s = spec(

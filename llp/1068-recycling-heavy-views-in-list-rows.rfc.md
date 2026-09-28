@@ -1,10 +1,10 @@
 # LLP 1068: Recycling heavy native views in list rows
 
 **Type:** RFC
-**Status:** Draft (r2: two reviews folded, §0; five questions await Charlie, §10)
+**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1; "for now", with a revisit left open. r2 folded two reviews, §0). Stage 1 built, with Q2's deviation (§0.2)
 **Systems:** Apple host (`NodePoolIOS.swift` and its reset contract; `NodeViewIOS.swift`'s material, scroll and field views; `GpuIOS.swift`'s canvases; the video, web and native-module arms), GPU module ABI (LLP 1009: stage 3 only), native-module ABI (LLP 1024: one optional entry, stage 3 only), Runner (none), Contract (none)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Implementer:** none named. `rules/RULES.md` wants one before this is built; the lane that builds the Extra Heavy feed (`~/bench/xheavy`) is the natural owner of stages 1–2, and Charlie names it when he rules
+**Implementer:** Claude (Opus 5.5), stage 1 from 2026-09-27 on `feat/heavy-pool-stage1`; later stages by the lane that builds the Extra Heavy feed (`~/bench/xheavy`), each behind its gate
 **Date:** 2026-09-27 (r1 and r2)
 **Related:**
 - `~/bench/xheavy/EXACT2-GAPS.md` gap 1 (the audit this answers) and `SPEC.md` (the 17 row kinds).
@@ -52,7 +52,7 @@ shape it:
    id after a rebind. So heavy reuse is staged behind proof, one kind at a
    time, and the first stage reuses no heavy view at all.
 
-**Per-kind decisions (recommendations for Charlie):**
+**Per-kind decisions (as ruled, §0.1):**
 
 | Kind | Decision | Stage |
 |---|---|---|
@@ -112,6 +112,100 @@ files. The changes, in order of weight:
   because it changes row lifetime on one host, not because the agent could
   not reproduce it.
 - **Baseline first** (Astra): the unpooled port is measured before stage 1.
+
+## 0.1 Charlie's rulings (r3, 2026-09-27)
+
+Charlie ruled on §10's five questions on 2026-09-27: "go with your recs for
+1068 for now. maybe we'll revisit them later though". Every recommendation is
+accepted as written, and each is open to a later revisit:
+
+1. **Q1, stage 1:** yes, after the stage 0 baseline — rows pool around their
+   heavy leaves (holes, full-subtree validation, index restore, cross-shape
+   eviction), and materials are recreated rather than reused.
+2. **Q2, the mid-fling deviation (§5.1):** yes — during user motion a heavy
+   leaf whose measured creation cost exceeds the frame is created when the
+   list slows; its row is present and its box painted. The stage-1 lane
+   builds it with the rest of stage 1.
+3. **Q3, web views:** not pooled; the ~0.5 s (simulator) or 70–90 ms (Mac) to
+   content per web-view row is declared. Reuse is left to a stage-3
+   experiment that must prove a fresh browsing context.
+4. **Q4, GPU canvases:** profile `gpu_create` first; pool the layer (with a
+   presentation signal in the GPU ABI) only if the UIKit layer and surface
+   setup are a large share. LLP 1009 D2 and D4 stand.
+5. **Q5, video players and module views:** neither is pooled until the iPad
+   shows the saving; then a player pool (amending LLP 1042's "one node
+   incarnation owns one player" to "one item") and the native
+   `prepare_for_reuse` opt-in, with `NativeMap` its adopter.
+
+§7's line is in `rules/DEFERRED.md`.
+
+## 0.2 Stage 1 as built (2026-09-27, `feat/heavy-pool-stage1`)
+
+Built: §4.0 (holes in both shape walks, the walk through each node's
+logical container, whole-subtree validation before any destroy, the
+index restore at the take, least-recently-parked eviction per shape and
+across shapes, an evicted root leaving its list, a memory warning dropping
+every parked tree), §4.1 (the effect view dropped at park, its children
+back in the node, a new one from the next row's props), §4.9 (a node's
+`incarnation`, zeroed at park before the reset and issued anew at the take;
+the double-click, scroll-event and refresh callbacks and the text-raster
+worker check it), §5.1 as Q2 ruled (`HeavyLeavesIOS.swift`) and §6's counts
+(`state.pool`). Tests: `NodePoolIOSTests`.
+
+Choices §5.1 left open, made here:
+- **"Exceeds the frame"** is Q2's wording, and it is used rather than §5.1's
+  "the host's slice" (2–4 ms), which would also hold web views and videos
+  on the simulator.
+- **User motion** is UIKit's drag or deceleration with the list's measured
+  velocity at least a viewport a second; under it the leaf is made.
+- **A kind's cost** is the median of its last five creations, leaving out
+  the process's first of the kind (which pays for loading a dylib, 100–200 ms);
+  a kind not yet measured is never held. A web view is timed at its
+  creation, a video at its player's, a module view at its attach.
+- **A video** is held only when its box sets both `width` and `height`.
+- **Accessibility:** nothing is held while VoiceOver or Switch Control runs,
+  so focus cannot move into a waiting leaf; a keyboard focus into one makes
+  it at once.
+
+**Measured** with an outside fixture (`~/bench/pool1`: 3,000 rows of 236 pt
+cycling plain, video, `native-map`, material, carousel, input, GPU canvas,
+2D canvas and iframe; the heavybench probe with platform views counted by
+class), three interleaved rounds of `fling` against the unpooled baseline
+(stage 0, origin/main `d8710fc3`). The probe sets the offset, which UIKit
+reports as neither drag nor deceleration, so a third flavour, **coast**,
+makes the driven scroll view report `isDecelerating` as a fling would: that
+is the only way the probe exercises §5.1. M1 iPad Pro 12.9", 120 Hz:
+
+| pt/s | fps base / stage 1 / coast | late frames/s | main CPU ms/s | node views made/s | maps made/s | footprint peak, end (MB) |
+|---|---|---|---|---|---|---|
+| 1k | 108 / 109 / 111 | 8.0 / 7.4 / 5.4 | 218 / 221 / 227 | 76 / 32 / 31 | 0.5 / 0.5 / 0.7 | |
+| 3k | 101 / 100 / 101 | 16 / 16 / 15 | 305 / 301 / 265 | 223 / 91 / 91 | 1.8 / 1.7 / 0 | |
+| 6k | 91 / 91 / 100 | 20 / 21 / 15 | 458 / 465 / 320 | 403 / 190 / 175 | 3.1 / 3.2 / 0 | |
+| 12k | 96 / 98 / 106 | 21 / 20 / 13 | 644 / 632 / 348 | 635 / 243 / 261 | 5.7 / 5.6 / 0 | |
+| 24k | 27 / 29 / 108 | 25 / 26 / 9 | 878 / 873 / 507 | 1,232 / 477 / 475 | 11.2 / 11.1 / 0 | 274, 230 / 269, 222 / 197, 56 |
+
+- **Stage 1 alone** makes 2.4–2.6× fewer node views and changes nothing
+  else measurably: fps, late frames and main-thread CPU are within noise of
+  the baseline, and every heavy view is made as often as before (web views,
+  maps, players, Metal layers, effect views and fields per second are the
+  baseline's). The heavy views are the cost; their rows' plain views were not.
+- **With §5.1 engaged** (coast) no map is made during the fling, and about
+  half as many web views and players (the probe cannot say which were held
+  and then retired unmade; `state.pool` can, under a real fling):
+  24k pt/s goes from 27–29 fps to 108, main-thread CPU falls 40–60% from
+  6k up, and the footprint ends at 56 MB instead of 222–230 (§3's maps that
+  are not released promptly are never made).
+- iPad Pro 11" (M5) simulator, 60 Hz, a heavily loaded Mac: the same shape
+  (node views 2.5–3× fewer; coast 55 fps at 3k pt/s against 41–43).
+- The probe's blank detector reads every sampled frame of this fixture as
+  blank on all three flavours (Metal, video and map content are invisible to
+  it), so pending-leaf area is not measured here.
+- Pixel parity, base against stage 1 on the simulator (top, down 4,000 pt,
+  back 2,500): the crypto GPU list, Messages and Markdown are identical;
+  heavybench is identical once its images have decoded, in three rounds.
+
+What stage 2 inherits: the GPU profile (Q4), scroll views and fields
+(§4.2, §4.3), and the Extra Heavy ladder once that app exists.
 
 ## 1. What the pool is today
 
@@ -645,7 +739,9 @@ second, from `state`.
 - It never moves a surface instance, an `AVPlayerItem` or a document between
   rows.
 
-## 10. Questions for Charlie
+## 10. Questions for Charlie, as ruled (r3)
+
+All five ruled yes as recommended on 2026-09-27, "for now" (§0.1).
 
 **Q1. Build stage 1: pool rows around their heavy leaves (holes,
 full-subtree validation, index restore, cross-shape eviction), recreating

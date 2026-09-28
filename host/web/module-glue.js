@@ -209,7 +209,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const realm = { frame, meta, id, placement: 'main',
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
-      draw: request => JSON.parse(win.__exact_draw(request)),
+      // Text is measured and images answered on the page (LLP 1056 D8, D9).
+      draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
       retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.

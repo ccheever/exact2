@@ -16,12 +16,17 @@
 //! lifetime or generation is discarded whole.
 
 use super::{DataSource, Runner};
-use exact_canvas::{list, Causes, Context2d, Frame};
+use exact_canvas::{list, Causes, Context2d, Env, Frame, ImageSlot, Images, Rgba, TextEngine};
 use exact_kernel::ViewId;
 use exact_plan::Value;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+/// A canvas node's CSS `color` (for `currentColor`) and whether its
+/// `direction` is `rtl` (for `direction = "inherit"`), LLP 1056 D3, D8.
+pub type NodeStyle<'a> = &'a dyn Fn(ViewId) -> (Option<Rgba>, bool);
 
 /// A canvas's content box in coordinate units and its device scale, as the
 /// host that lays it out reports it; `bitmap` is an explicit bitmap size
@@ -136,6 +141,10 @@ pub struct DrawRequest<'a> {
     pub names: &'a [String],
     /// What the draw is told.
     pub frame: Frame,
+    /// The canvas node's `color`, for `currentColor`.
+    pub current_color: Option<Rgba>,
+    /// The canvas node's `direction` is `rtl`.
+    pub rtl: bool,
 }
 
 impl DrawRequest<'_> {
@@ -185,6 +194,18 @@ impl DrawRequest<'_> {
             f.pixel_height,
             crate::agent::num(f.scale)
         );
+        s.pop();
+        if let Some(c) = self.current_color {
+            let _ = write!(
+                s,
+                ",\"currentColor\":[{},{},{},{}]",
+                c.r,
+                c.g,
+                c.b,
+                crate::agent::num(c.a)
+            );
+        }
+        let _ = write!(s, ",\"rtl\":{}}}", self.rtl);
         s
     }
 }
@@ -288,40 +309,141 @@ struct Record {
     /// The clock value it was last drawn at for a frame (D5: at most once
     /// per clock value).
     framed_at: Option<f64>,
+    /// Its last draw drew text: a font that loads redraws it (D8).
+    text: bool,
 }
 
 /// Every 2D canvas the runner draws.
 #[derive(Default)]
-pub(crate) struct Canvases {
+struct Canvases {
     records: BTreeMap<ViewId, Record>,
     roster: Option<Vec<(String, usize)>>,
     limits: Limits,
     out: Vec<CanvasList>,
     retired: Vec<(u64, u32)>,
     notes: Vec<String>,
+    text: Option<Arc<dyn TextEngine>>,
+    images: ImageSlot,
 }
 
 /// Lists waiting for the host beyond this hold new draws back (LLP 1056 D4).
 const QUEUED_BYTES: usize = 8 << 20;
 
-impl<D: DataSource> Runner<D> {
-    /// Route one commit's surface updates: a 2D surface's to its record
-    /// (mount or arguments), the rest to the GPU module's side-output.
-    pub(super) fn publish_surfaces(&mut self, updates: Vec<crate::SurfaceUpdate>) {
-        if updates.is_empty() {
-            return;
+/// Canvas 2D's engine, linked by use (LLP 1047 D2, 1047.000 §9): only
+/// [`engine`] makes one, and only [`crate::RunnerLinks::ALL`] and a web
+/// artifact whose plan has a canvas with a surface name it, so a plan with
+/// none carries none of it. The [`Runner`]'s canvas methods are its whole
+/// interface; they pass in what the engine needs of the runner: the
+/// source's roster and draws, the clock, which views are live, and the log.
+pub trait CanvasEngine {
+    /// Take one commit's 2D surface updates (mounts and arguments), and
+    /// return the rest, the GPU module's, in order.
+    fn publish(
+        &mut self,
+        updates: Vec<crate::SurfaceUpdate>,
+        roster: &dyn Fn() -> Vec<(String, usize)>,
+        now: f64,
+    ) -> Vec<crate::SurfaceUpdate>;
+    /// [`Runner::set_canvas_limits`].
+    fn set_limits(&mut self, limits: Limits);
+    /// The live canvases in tree order, dropping those `alive` denies.
+    fn views(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<ViewId>;
+    /// [`Runner::set_canvas_geometry`].
+    fn set_geometry(&mut self, view: ViewId, geometry: Geometry);
+    /// [`Runner::canvas_frame`], at `now`.
+    fn frame(&mut self, now: f64);
+    /// [`Runner::canvas_wants_frame`].
+    fn wants_frame(&self) -> bool;
+    /// Drop the canvases `alive` denies, and take the generations retired
+    /// since the last take, for the source.
+    fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)>;
+    /// [`Runner::draw_canvases`]: every due draw, through `draw`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw(
+        &mut self,
+        ready: bool,
+        now: f64,
+        on_screen: &dyn Fn(ViewId) -> bool,
+        style: NodeStyle<'_>,
+        draw: &mut dyn FnMut(&DrawRequest<'_>, &Context2d) -> Drawn,
+        log: &mut dyn FnMut(String),
+    );
+    /// [`Runner::canvas_reply`], at `now`.
+    fn reply(
+        &mut self,
+        lifetime: u64,
+        generation: u32,
+        seq: u64,
+        reply: DrawReply,
+        now: f64,
+        log: &mut dyn FnMut(String),
+    ) -> Result<(), String>;
+    /// [`Runner::take_canvas_lists`].
+    fn take(&mut self) -> Vec<CanvasList>;
+    /// [`Runner::is_canvas_2d`].
+    fn is_2d(&self, view: ViewId) -> bool;
+    /// `state.canvas`'s records.
+    fn state(&self, s: &mut String);
+    /// [`Runner::canvas_describe`].
+    fn describe(&self, view: ViewId) -> Option<Vec<String>>;
+    /// [`Runner::set_canvas_text`].
+    fn set_text(&mut self, engine: Arc<dyn TextEngine>);
+    /// [`Runner::take_canvas_image_requests`].
+    fn take_image_requests(&mut self) -> Vec<String>;
+    /// [`Runner::canvas_images_pending`].
+    fn images_pending(&self) -> bool;
+    /// [`Runner::canvas_image`].
+    fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]);
+    /// [`Runner::canvas_fonts_loaded`].
+    fn fonts_loaded(&mut self);
+}
+
+/// A Canvas 2D engine: what [`crate::RunnerLinks::canvas`] names.
+pub fn engine() -> Box<dyn CanvasEngine> {
+    Box::<Canvases>::default()
+}
+
+impl Canvases {
+    /// The image table, if a draw has made one (it is linked by use).
+    fn table(&self) -> Option<Arc<dyn Images>> {
+        self.images
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn prune(&mut self, alive: &dyn Fn(ViewId) -> bool) {
+        let gone: Vec<ViewId> = self
+            .records
+            .keys()
+            .copied()
+            .filter(|v| !alive(*v))
+            .collect();
+        for v in gone {
+            let r = self.records.remove(&v).expect("listed");
+            self.retired.push((r.lifetime, r.generation));
         }
-        if self.canvases.roster.is_none() {
-            self.canvases.roster = Some(self.data.canvas_surfaces());
+    }
+}
+
+impl CanvasEngine for Canvases {
+    fn publish(
+        &mut self,
+        updates: Vec<crate::SurfaceUpdate>,
+        roster: &dyn Fn() -> Vec<(String, usize)>,
+        now: f64,
+    ) -> Vec<crate::SurfaceUpdate> {
+        if self.roster.is_none() {
+            self.roster = Some(roster());
         }
-        let now = self.now_ms;
+        let mut rest = Vec::new();
         for u in updates {
-            let roster = self.canvases.roster.as_deref().unwrap_or(&[]);
+            let roster = self.roster.as_deref().unwrap_or(&[]);
             if !roster.iter().any(|(name, _)| *name == u.name) {
-                self.surfaces.push(u);
+                rest.push(u);
                 continue;
             }
-            match self.canvases.records.get_mut(&u.view) {
+            match self.records.get_mut(&u.view) {
                 Some(r) if r.surface == u.name => {
                     r.args = u.values;
                     r.names = u.names;
@@ -330,10 +452,10 @@ impl<D: DataSource> Runner<D> {
                     r.error = None;
                 }
                 _ => {
-                    if let Some(old) = self.canvases.records.remove(&u.view) {
-                        self.canvases.retired.push((old.lifetime, old.generation));
+                    if let Some(old) = self.records.remove(&u.view) {
+                        self.retired.push((old.lifetime, old.generation));
                     }
-                    self.canvases.records.insert(
+                    self.records.insert(
                         u.view,
                         Record {
                             surface: u.name,
@@ -360,54 +482,33 @@ impl<D: DataSource> Runner<D> {
                             last_draw: None,
                             draws: 0,
                             framed_at: None,
+                            text: false,
                         },
                     );
                 }
             }
         }
+        rest
     }
 
-    /// The size limits this host enforces; the web's by default.
-    pub fn set_canvas_limits(&mut self, limits: Limits) {
-        self.canvases.limits = limits;
+    fn set_limits(&mut self, limits: Limits) {
+        self.limits = limits;
     }
 
-    /// The live 2D canvases, in tree order: the views whose geometry the
-    /// host reports. Canvases whose node is gone are dropped here.
-    pub fn canvas_views(&mut self) -> Vec<ViewId> {
-        self.prune_canvases();
-        self.canvases.records.keys().copied().collect()
+    fn views(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<ViewId> {
+        self.prune(alive);
+        self.records.keys().copied().collect()
     }
 
-    fn prune_canvases(&mut self) {
-        let kernel = &self.kernel;
-        let gone: Vec<ViewId> = self
-            .canvases
-            .records
-            .keys()
-            .copied()
-            .filter(|v| kernel.node(*v).is_none())
-            .collect();
-        for v in gone {
-            let r = self.canvases.records.remove(&v).expect("listed");
-            self.canvases.retired.push((r.lifetime, r.generation));
-        }
-    }
-
-    /// The host's layout of one 2D canvas (LLP 1056 D4): natively the
-    /// kernel's, on the web the browser's `ResizeObserver`. A change of
-    /// backing size or scale starts a new generation; a refused size is
-    /// reported through `state` and shows the box's background.
-    pub fn set_canvas_geometry(&mut self, view: ViewId, geometry: Geometry) {
-        let limits = self.canvases.limits;
+    fn set_geometry(&mut self, view: ViewId, geometry: Geometry) {
+        let limits = self.limits;
         let others: u64 = self
-            .canvases
             .records
             .iter()
             .filter(|(v, r)| **v != view && r.refused.is_none())
             .filter_map(|(_, r)| r.backing.map(|b| 2 * b.bytes()))
             .sum();
-        let Some(r) = self.canvases.records.get_mut(&view) else {
+        let Some(r) = self.records.get_mut(&view) else {
             return;
         };
         if r.geometry == Some(geometry) {
@@ -458,7 +559,7 @@ impl<D: DataSource> Runner<D> {
         let had = r.backing.is_some();
         r.backing = Some(next);
         if had {
-            self.canvases.retired.push((r.lifetime, r.generation));
+            self.retired.push((r.lifetime, r.generation));
             r.generation += 1;
             r.causes = r.causes.with(Causes::SIZE);
         }
@@ -469,88 +570,46 @@ impl<D: DataSource> Runner<D> {
         r.framed_at = None;
     }
 
-    /// A canvas's explicit bitmap size, from `bitmap-width` and
-    /// `bitmap-height` (LLP 1056 D6, r3): an unset one is the web's
-    /// default, 300 or 150; neither set is the automatic default.
-    pub fn canvas_bitmap(&self, view: ViewId) -> Option<(u32, u32)> {
-        let node = self.kernel.node(view)?;
-        let int = |id| match node.props.get(id) {
-            Some(exact_kernel::PropValue::Int(v)) => Some((*v).clamp(0, u32::MAX as i64) as u32),
-            Some(exact_kernel::PropValue::Float(v)) if v.is_finite() => Some(v.max(0.0) as u32),
-            _ => None,
-        };
-        let (w, h) = (
-            int(exact_kernel::PropId::BitmapWidth),
-            int(exact_kernel::PropId::BitmapHeight),
-        );
-        (w.is_some() || h.is_some()).then(|| (w.unwrap_or(300), h.unwrap_or(150)))
-    }
-
-    /// A native host's geometry for every 2D canvas, from the kernel's
-    /// layout in this turn (LLP 1056 D4): the content box, the device
-    /// `scale`, and an explicit bitmap size ([`Runner::canvas_bitmap`]).
-    pub fn layout_canvases(&mut self, scale: f64) {
-        for view in self.canvas_views() {
-            let Some(node) = self.kernel.node(view) else {
-                continue;
-            };
-            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
-            let bitmap = self.canvas_bitmap(view);
-            self.set_canvas_geometry(
-                view,
-                Geometry {
-                    width: w as f64,
-                    height: h as f64,
-                    scale,
-                    bitmap,
-                },
-            );
-        }
-    }
-
-    /// The host presented a frame (LLP 1056 D5): every canvas that asked
-    /// for one is due, once per clock value.
-    pub fn canvas_frame(&mut self) {
-        let now = self.now_ms;
-        for r in self.canvases.records.values_mut() {
+    fn frame(&mut self, now: f64) {
+        for r in self.records.values_mut() {
             if r.wants_frame && r.framed_at != Some(now) {
                 r.causes = r.causes.with(Causes::FRAME);
             }
         }
     }
 
-    /// Whether any canvas asked for another frame: the host keeps its frame
-    /// source running while this holds.
-    pub fn canvas_wants_frame(&self) -> bool {
-        self.canvases.records.values().any(|r| r.wants_frame)
+    fn wants_frame(&self) -> bool {
+        self.records.values().any(|r| r.wants_frame)
     }
 
-    /// Run every due draw, in tree order, after this turn's commits and
-    /// geometry. `on_screen` is the host's judgement; a frame request waits
-    /// for it, every other cause draws regardless (D4).
-    pub fn draw_canvases(&mut self, on_screen: &dyn Fn(ViewId) -> bool) {
-        self.prune_canvases();
-        if !self.canvases.retired.is_empty() {
-            let retired = std::mem::take(&mut self.canvases.retired);
-            self.data.canvases_retired(&retired);
-        }
-        let views: Vec<ViewId> = self.canvases.records.keys().copied().collect();
-        let ready = self.data.ready();
+    fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)> {
+        self.prune(alive);
+        std::mem::take(&mut self.retired)
+    }
+
+    fn draw(
+        &mut self,
+        ready: bool,
+        now: f64,
+        on_screen: &dyn Fn(ViewId) -> bool,
+        style: NodeStyle<'_>,
+        draw: &mut dyn FnMut(&DrawRequest<'_>, &Context2d) -> Drawn,
+        log: &mut dyn FnMut(String),
+    ) {
+        let views: Vec<ViewId> = self.records.keys().copied().collect();
         for view in views {
             let queued: usize = self
-                .canvases
                 .out
                 .iter()
                 .flat_map(|c| c.lists.iter().map(Vec::len))
                 .sum();
-            let now = self.now_ms;
-            let r = self.canvases.records.get_mut(&view).expect("listed");
+            let r = self.records.get_mut(&view).expect("listed");
             if r.fresh {
                 // The host learns the new generation even before a draw, so
                 // an empty or refused store clears the old bitmap.
                 r.fresh = false;
                 let b = r.backing.expect("fresh has a backing");
-                self.canvases.out.push(CanvasList {
+                self.out.push(CanvasList {
                     view,
                     lifetime: r.lifetime,
                     generation: r.generation,
@@ -602,6 +661,14 @@ impl<D: DataSource> Runner<D> {
                 r.names.clone(),
                 r.ctx.clone(),
             );
+            let (current_color, rtl) = style(view);
+            ctx.set_env(Env {
+                canvas: lifetime,
+                text: self.text.clone(),
+                images: self.images.clone(),
+                current_color,
+                rtl,
+            });
             let request = DrawRequest {
                 canvas: lifetime,
                 generation,
@@ -610,32 +677,28 @@ impl<D: DataSource> Runner<D> {
                 args: &args,
                 names: &names,
                 frame,
+                current_color,
+                rtl,
             };
-            match self.data.draw(&request, &ctx) {
-                super::Drawn::Now(reply) => {
-                    let _ = self.canvas_reply(lifetime, generation, seq, reply);
+            match draw(&request, &ctx) {
+                Drawn::Now(reply) => {
+                    let _ = self.reply(lifetime, generation, seq, reply, now, log);
                 }
-                super::Drawn::Later => {}
+                Drawn::Later => {}
             }
         }
     }
 
-    /// A draw's reply (LLP 1056 D4). Applied, in order, only if its stamps
-    /// are the canvas's live lifetime, generation and the draw in flight;
-    /// otherwise discarded whole, with the recorder state it produced.
-    /// A reply that fails the structural check starts a new generation, so
-    /// the recorder and the host cannot diverge. Returns why a reply was
-    /// discarded.
-    pub fn canvas_reply(
+    fn reply(
         &mut self,
         lifetime: u64,
         generation: u32,
         seq: u64,
         reply: DrawReply,
+        now: f64,
+        log: &mut dyn FnMut(String),
     ) -> Result<(), String> {
-        let now = self.now_ms;
         let Some((&view, r)) = self
-            .canvases
             .records
             .iter_mut()
             .find(|(_, r)| r.lifetime == lifetime)
@@ -660,18 +723,24 @@ impl<D: DataSource> Runner<D> {
                     );
                     r.error = Some(e.to_string());
                     r.wants_frame = false;
-                    self.canvases.retired.push((r.lifetime, r.generation));
+                    self.retired.push((r.lifetime, r.generation));
                     r.generation += 1;
                     r.fresh = true;
                     r.causes = r.causes.with(Causes::SIZE);
                     r.ctx = Context2d::new();
                     r.gradients.clear();
-                    self.log(line);
+                    log(line);
                     return Err("malformed list".into());
                 }
             }
         }
         r.gradients = gradients;
+        r.text = reply.lists.iter().any(|l| {
+            list::records(l).is_ok_and(|recs| {
+                recs.iter()
+                    .any(|x| matches!(x.op, list::Op::FillText | list::Op::StrokeText))
+            })
+        });
         r.applied_seq = seq;
         r.draws += 1;
         r.last_draw = Some(now);
@@ -703,36 +772,31 @@ impl<D: DataSource> Runner<D> {
         };
         let surface = r.surface.clone();
         if !out.lists.is_empty() {
-            self.canvases.out.push(out);
+            self.out.push(out);
         }
         for n in reply.notes {
-            self.canvases
-                .notes
-                .push(format!("canvas {view} ({surface}): {n}"));
+            self.notes.push(format!("canvas {view} ({surface}): {n}"));
         }
         if let Some(line) = line {
-            self.log(line);
+            log(line);
         }
-        for n in std::mem::take(&mut self.canvases.notes) {
-            self.log(n);
+        for n in std::mem::take(&mut self.notes) {
+            log(n);
         }
         Ok(())
     }
 
-    /// The stamped lists since the last take, for the host to apply in order.
-    pub fn take_canvas_lists(&mut self) -> Vec<CanvasList> {
-        std::mem::take(&mut self.canvases.out)
+    fn take(&mut self) -> Vec<CanvasList> {
+        std::mem::take(&mut self.out)
     }
 
-    /// Whether `view` is a 2D canvas this runner draws.
-    pub fn is_canvas_2d(&self, view: ViewId) -> bool {
-        self.canvases.records.contains_key(&view)
+    fn is_2d(&self, view: ViewId) -> bool {
+        self.records.contains_key(&view)
     }
 
-    /// `state.canvas` (LLP 1056 §5): one record per 2D canvas.
-    pub(crate) fn canvas_state(&self, s: &mut String) {
+    fn state(&self, s: &mut String) {
         s.push('[');
-        for (i, (view, r)) in self.canvases.records.iter().enumerate() {
+        for (i, (view, r)) in self.records.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
@@ -774,6 +838,15 @@ impl<D: DataSource> Runner<D> {
                 }
                 None => s.push_str("null"),
             }
+            let broken = self.table().map_or_else(Vec::new, |t| t.broken(r.lifetime));
+            s.push_str(",\"brokenImages\":[");
+            for (i, b) in broken.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                crate::agent::quote(b, s);
+            }
+            s.push(']');
             for (key, v) in [("error", &r.error), ("refused", &r.refused)] {
                 let _ = write!(s, ",\"{key}\":");
                 match v {
@@ -786,13 +859,292 @@ impl<D: DataSource> Runner<D> {
         s.push(']');
     }
 
-    /// `layout <node>`'s readable form of a 2D canvas's last list (LLP 1056
-    /// §5): at most 200 lines and 16 KiB, development builds only.
-    pub fn canvas_describe(&self, view: ViewId) -> Option<Vec<String>> {
-        let r = self.canvases.records.get(&view)?;
+    fn describe(&self, view: ViewId) -> Option<Vec<String>> {
+        let r = self.records.get(&view)?;
         if r.last_list.is_empty() {
             return Some(Vec::new());
         }
         Some(list::describe(&r.last_list, 200, 16 * 1024))
     }
+
+    fn set_text(&mut self, engine: Arc<dyn TextEngine>) {
+        self.text = Some(engine);
+    }
+
+    fn take_image_requests(&mut self) -> Vec<String> {
+        self.table().map_or_else(Vec::new, |t| t.take_requests())
+    }
+
+    fn images_pending(&self) -> bool {
+        self.table().is_some_and(|t| t.pending())
+    }
+
+    fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) {
+        let subscribers = match self.table() {
+            Some(t) => t.answer(src, result, also),
+            None => also.to_vec(),
+        };
+        for r in self.records.values_mut() {
+            if subscribers.contains(&r.lifetime) {
+                r.causes = r.causes.with(Causes::IMAGE);
+            }
+        }
+    }
+
+    fn fonts_loaded(&mut self) {
+        for r in self.records.values_mut() {
+            if r.text {
+                r.causes = r.causes.with(Causes::FONT);
+            }
+        }
+    }
+}
+
+/// The runner's Canvas 2D interface. Each call reaches the engine only when
+/// it is linked; unlinked, there are no 2D canvases, and every canvas with
+/// a surface is the GPU module's.
+impl<D: DataSource> Runner<D> {
+    /// Route one commit's surface updates: a 2D surface's to its record
+    /// (mount or arguments), the rest to the GPU module's side-output.
+    pub(super) fn publish_surfaces(&mut self, updates: Vec<crate::SurfaceUpdate>) {
+        if updates.is_empty() {
+            return;
+        }
+        let now = self.now_ms;
+        let rest = match self.canvases.as_mut() {
+            Some(c) => {
+                let data = &self.data;
+                c.publish(updates, &|| data.canvas_surfaces(), now)
+            }
+            None => updates,
+        };
+        self.surfaces.extend(rest);
+    }
+
+    /// The size limits this host enforces; the web's by default.
+    pub fn set_canvas_limits(&mut self, limits: Limits) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.set_limits(limits);
+        }
+    }
+
+    /// The live 2D canvases, in tree order: the views whose geometry the
+    /// host reports. Canvases whose node is gone are dropped here.
+    pub fn canvas_views(&mut self) -> Vec<ViewId> {
+        let kernel = &self.kernel;
+        match self.canvases.as_mut() {
+            Some(c) => c.views(&|v| kernel.node(v).is_some()),
+            None => Vec::new(),
+        }
+    }
+
+    /// The host's layout of one 2D canvas (LLP 1056 D4): natively the
+    /// kernel's, on the web the browser's `ResizeObserver`. A change of
+    /// backing size or scale starts a new generation; a refused size is
+    /// reported through `state` and shows the box's background.
+    pub fn set_canvas_geometry(&mut self, view: ViewId, geometry: Geometry) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.set_geometry(view, geometry);
+        }
+    }
+
+    /// A canvas's explicit bitmap size, from `bitmap-width` and
+    /// `bitmap-height` (LLP 1056 D6, r3): an unset one is the web's
+    /// default, 300 or 150; neither set is the automatic default.
+    pub fn canvas_bitmap(&self, view: ViewId) -> Option<(u32, u32)> {
+        let node = self.kernel.node(view)?;
+        let int = |id| match node.props.get(id) {
+            Some(exact_kernel::PropValue::Int(v)) => Some((*v).clamp(0, u32::MAX as i64) as u32),
+            Some(exact_kernel::PropValue::Float(v)) if v.is_finite() => Some(v.max(0.0) as u32),
+            _ => None,
+        };
+        let (w, h) = (
+            int(exact_kernel::PropId::BitmapWidth),
+            int(exact_kernel::PropId::BitmapHeight),
+        );
+        (w.is_some() || h.is_some()).then(|| (w.unwrap_or(300), h.unwrap_or(150)))
+    }
+
+    /// A native host's geometry for every 2D canvas, from the kernel's
+    /// layout in this turn (LLP 1056 D4): the content box, the device
+    /// `scale`, and an explicit bitmap size ([`Runner::canvas_bitmap`]).
+    pub fn layout_canvases(&mut self, scale: f64) {
+        for view in self.canvas_views() {
+            let Some(node) = self.kernel.node(view) else {
+                continue;
+            };
+            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
+            let bitmap = self.canvas_bitmap(view);
+            self.set_canvas_geometry(
+                view,
+                Geometry {
+                    width: w as f64,
+                    height: h as f64,
+                    scale,
+                    bitmap,
+                },
+            );
+        }
+    }
+
+    /// The host presented a frame (LLP 1056 D5): every canvas that asked
+    /// for one is due, once per clock value.
+    pub fn canvas_frame(&mut self) {
+        let now = self.now_ms;
+        if let Some(c) = self.canvases.as_mut() {
+            c.frame(now);
+        }
+    }
+
+    /// Whether any canvas asked for another frame: the host keeps its frame
+    /// source running while this holds.
+    pub fn canvas_wants_frame(&self) -> bool {
+        self.canvases.as_ref().is_some_and(|c| c.wants_frame())
+    }
+
+    /// Run every due draw, in tree order, after this turn's commits and
+    /// geometry. `on_screen` is the host's judgement; a frame request waits
+    /// for it, every other cause draws regardless (D4).
+    pub fn draw_canvases(&mut self, on_screen: &dyn Fn(ViewId) -> bool) {
+        let kernel = &self.kernel;
+        let Some(c) = self.canvases.as_mut() else {
+            return;
+        };
+        let retired = c.take_retired(&|v| kernel.node(v).is_some());
+        if !retired.is_empty() {
+            self.data.canvases_retired(&retired);
+        }
+        let ready = self.data.ready();
+        let now = self.now_ms;
+        let data = &mut self.data;
+        let mut lines = Vec::new();
+        let style = |view: ViewId| canvas_node_style(kernel, view);
+        c.draw(
+            ready,
+            now,
+            on_screen,
+            &style,
+            &mut |request, ctx| data.draw(request, ctx),
+            &mut |line| lines.push(line),
+        );
+        for line in lines {
+            self.log(line);
+        }
+    }
+
+    /// A draw's reply (LLP 1056 D4). Applied, in order, only if its stamps
+    /// are the canvas's live lifetime, generation and the draw in flight;
+    /// otherwise discarded whole, with the recorder state it produced.
+    /// A reply that fails the structural check starts a new generation, so
+    /// the recorder and the host cannot diverge. Returns why a reply was
+    /// discarded.
+    pub fn canvas_reply(
+        &mut self,
+        lifetime: u64,
+        generation: u32,
+        seq: u64,
+        reply: DrawReply,
+    ) -> Result<(), String> {
+        let now = self.now_ms;
+        let Some(c) = self.canvases.as_mut() else {
+            return Err(format!("canvas {lifetime} is gone"));
+        };
+        let mut lines = Vec::new();
+        let result = c.reply(lifetime, generation, seq, reply, now, &mut |line| {
+            lines.push(line)
+        });
+        for line in lines {
+            self.log(line);
+        }
+        result
+    }
+
+    /// The stamped lists since the last take, for the host to apply in order.
+    pub fn take_canvas_lists(&mut self) -> Vec<CanvasList> {
+        self.canvases.as_mut().map_or_else(Vec::new, |c| c.take())
+    }
+
+    /// Whether `view` is a 2D canvas this runner draws.
+    pub fn is_canvas_2d(&self, view: ViewId) -> bool {
+        self.canvases.as_ref().is_some_and(|c| c.is_2d(view))
+    }
+
+    /// `state.canvas` (LLP 1056 §5): one record per 2D canvas.
+    pub(crate) fn canvas_state(&self, s: &mut String) {
+        match self.canvases.as_ref() {
+            Some(c) => c.state(s),
+            None => s.push_str("[]"),
+        }
+    }
+
+    /// `layout <node>`'s readable form of a 2D canvas's last list (LLP 1056
+    /// §5): at most 200 lines and 16 KiB, development builds only.
+    pub fn canvas_describe(&self, view: ViewId) -> Option<Vec<String>> {
+        self.canvases.as_ref()?.describe(view)
+    }
+
+    /// The host's text engine for Canvas 2D, callable on the executor's
+    /// thread (LLP 1056 D8). Without one, text is measured by
+    /// [`exact_canvas::font::Estimate`].
+    pub fn set_canvas_text(&mut self, engine: Arc<dyn TextEngine>) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.set_text(engine);
+        }
+    }
+
+    /// The image handles a draw asked for since the last take: the host
+    /// decodes each and answers [`Runner::canvas_image`] (LLP 1056 D9).
+    pub fn take_canvas_image_requests(&mut self) -> Vec<String> {
+        self.canvases
+            .as_mut()
+            .map_or_else(Vec::new, |c| c.take_image_requests())
+    }
+
+    /// Whether any requested image is still unanswered.
+    pub fn canvas_images_pending(&self) -> bool {
+        self.canvases.as_ref().is_some_and(|c| c.images_pending())
+    }
+
+    /// The host decoded `src` (`Ok` with its natural size in pixels) or
+    /// could not (`Err` with why). Every canvas that asked for it, and
+    /// `also` (lifetimes the host knows asked, on the web), draws again with
+    /// cause `"image"`; a broken image draws nothing and `state` names it.
+    pub fn canvas_image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.image(src, result, also);
+        }
+    }
+
+    /// A font finished loading (the web, LLP 1056 D8): every canvas whose
+    /// last draw drew text draws again with cause `"font"`.
+    pub fn canvas_fonts_loaded(&mut self) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.fonts_loaded();
+        }
+    }
+}
+
+/// A canvas's node `color` and `direction` (LLP 1056 D3, D8):
+/// `currentColor` and `direction = "inherit"` resolve to them.
+fn canvas_node_style(kernel: &exact_kernel::Kernel, view: ViewId) -> (Option<Rgba>, bool) {
+    let Some(node) = kernel.node(view) else {
+        return (None, false);
+    };
+    let c = match node.text_color() {
+        exact_kernel::ColorValue::Fixed(c) | exact_kernel::ColorValue::LightDark(c, _) => c.0,
+    };
+    let [r, g, b, a] = c.to_be_bytes();
+    let rtl = node
+        .computed_style(exact_kernel::StyleMask::INHERITED)
+        .direction
+        == exact_kernel::Direction::Rtl;
+    (
+        Some(Rgba {
+            r,
+            g,
+            b,
+            a: a as f64 / 255.0,
+        }),
+        rtl,
+    )
 }

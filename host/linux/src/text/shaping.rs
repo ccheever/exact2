@@ -247,7 +247,7 @@ impl ShapedSource {
         ellipsis: bool,
     ) -> Paragraph {
         let spec = &self.spec;
-        let wrap = if spec.white_space == exact_kernel::WhiteSpace::Nowrap {
+        let wrap = if !spec.white_space.model().wraps() {
             Wrap::None
         } else {
             wrap.unwrap_or(
@@ -388,7 +388,7 @@ impl ShapedSource {
         wrap: Option<Wrap>,
     ) -> Paragraph {
         let spec = &self.spec;
-        let wrap = if spec.white_space == exact_kernel::WhiteSpace::Nowrap {
+        let wrap = if !spec.white_space.model().wraps() {
             Wrap::None
         } else {
             wrap.unwrap_or(

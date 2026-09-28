@@ -501,15 +501,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // Transparency and Increase Contrast; do not freeze the effective appearance.
     var appliedMaterial: String {
         guard let materialView, materialView.superview === self else {
+            if (layer?.backgroundFilters?.count ?? 0) > 0 { return "backgroundFilters(CIGaussianBlur)" }
             return props["backgroundMaterial"] == nil ? "none" : "unsupported"
         }
-        if #available(macOS 26.0, *), materialView is NSGlassEffectView { return "NSGlassEffectView(.regular)" }
-        return "NSVisualEffectView(.popover)"
+        if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView { return "NSGlassEffectView(.\(glass.style == .clear ? "clear" : "regular"))" }
+        return "NSVisualEffectView(.\(materialKind.map { Materials.resolve($0) { _ in } } ?? "popover"))"
     }
 
     func updateMaterial() {
         let requested = props["backgroundMaterial"]
-        let kind = requested == "glass" || requested == "ultra-thin" ? requested : nil
+        defer { applyBackdrop() }
+        let kind = requested
         if materialKind != kind {
             let children = container.subviews.compactMap { $0 as? NodeView }
             let old = materialView
@@ -520,16 +522,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 let content = MaterialContent(frame: bounds)
                 content.autoresizingMask = [.width, .height]
                 let effect: NSView
-                if kind == "glass", #available(macOS 26.0, *) {
+                let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
+                if apple == "glass" || apple == "glassClear", #available(macOS 26.0, *) {
                     let glass = GlassBackground(frame: bounds)
-                    glass.style = .regular
+                    glass.style = apple == "glass" ? .regular : .clear
                     glass.contentView = content
                     effect = glass
                 } else {
-                    // AppKit has no ultra-thin material. Popover is its
-                    // semantic floating-surface fallback, not iOS pixel parity.
+                    // The table's material; AppKit's stand-in where it lacks
+                    // the named one (ultra-thin draws popover), LLP 1053.000 D4.
                     let blur = BlurBackground(frame: bounds)
-                    blur.material = .popover
+                    blur.material = Materials.material(apple) ?? .popover
                     blur.blendingMode = .withinWindow
                     blur.state = .followsWindowActiveState
                     blur.addSubview(content)

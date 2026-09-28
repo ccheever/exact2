@@ -17,6 +17,9 @@ pub struct Batch {
     pub spatial: bool,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
+    /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
+    /// decodes each and answers `exact_canvas_image`.
+    images: Vec<String>,
 }
 
 pub use exact_runner::agent::quote;
@@ -307,6 +310,11 @@ impl Batch {
         self.canvas = wants;
     }
 
+    /// Image handles for the presenter to decode (LLP 1056 D9).
+    pub fn canvas_images(&mut self, srcs: Vec<String>) {
+        self.images.extend(srcs);
+    }
+
     /// A canvas binding, preserving positional values or authored argument names.
     pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = String::new();
@@ -488,6 +496,16 @@ impl Batch {
         }
         if self.spatial {
             s.push_str(",\"spatial\":true");
+        }
+        if !self.images.is_empty() {
+            s.push_str(",\"canvasImages\":[");
+            for (i, src) in self.images.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(src, &mut s);
+            }
+            s.push(']');
         }
         let _ = write!(
             s,

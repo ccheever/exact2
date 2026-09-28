@@ -264,6 +264,10 @@ public final class Agent {
         // twenty seconds, not sixteen times that.
         let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
         if settle { waitForReplies(until: deadline) }
+        #if os(iOS)
+        // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
+        if settle { presenter.leaves.settle() }
+        #endif
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
@@ -342,7 +346,8 @@ public final class Agent {
     func pendingCount() -> Int {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
-        return (o["pending"] as? [Any])?.count ?? 0
+        // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
+        return ((o["pending"] as? [Any])?.count ?? 0) + session.presenter.canvas2d.loadingCount
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

@@ -50,6 +50,42 @@ pub fn web_rust_mode(inputs: &serde_json::Value) -> &str {
     }
 }
 
+/// Whether the app's Rust data crate (`../data` beside the web crate that
+/// builds this) names a wide colour function in its source: Canvas 2D's
+/// `lab()`, `lch()`, `oklab()`, `oklch()` or `color()` (LLP 1056 §8.2).
+/// TypeScript draws parse colours in their own recorder, not the wasm.
+fn names_wide_colors() -> bool {
+    let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") else {
+        return false;
+    };
+    let data = std::path::Path::new(&dir).join("../data");
+    println!("cargo:rerun-if-changed={}", data.display());
+    fn scan(dir: &std::path::Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        entries.flatten().any(|e| {
+            let p = e.path();
+            if p.is_dir() {
+                return scan(&p);
+            }
+            p.extension().is_some_and(|x| x == "rs")
+                && std::fs::read_to_string(&p).is_ok_and(|s| {
+                    // Inside string literals only: the odd pieces between
+                    // quotes on a line.
+                    s.lines().any(|line| {
+                        line.split('"').skip(1).step_by(2).any(|lit| {
+                            ["lab(", "lch(", "oklab(", "oklch(", "color("]
+                                .iter()
+                                .any(|f| lit.contains(f))
+                        })
+                    })
+                })
+        })
+    }
+    scan(&data)
+}
+
 /// The web entry's `EXACT_LINKED` (LLP 1047 D3): the capabilities `plan`
 /// uses, each registered from `exact-web-capabilities`, so the linker drops
 /// the rest. A development build links every capability (D7): the dev loop
@@ -80,6 +116,7 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
         .iter()
         .map(|c| c.name())
         .chain(["inspection"])
+        .chain((all || names_wide_colors()).then_some("canvas_colors"))
         .collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
     entry.push_str(&format!("/// Whether a running page can take a new data module (LLP 1029.000).\nconst EXACT_REPLACEMENT: bool = {replacement};\n"));

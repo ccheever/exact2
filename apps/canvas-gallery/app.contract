@@ -1,4 +1,4 @@
-// Canvas gallery — the LLP 1056 fixture: every Canvas 2D stage-1 member,
+// Canvas gallery — the LLP 1056 fixture: every Canvas 2D member of stages 1 and 2,
 // drawn by fixtures.js through the recorder on each host. Chrome (the web
 // host) is the reference; `bun scripts/smoke.mjs canvas` crops each `fx-*`
 // canvas on every host and compares it, and holds the web's recorded path to
@@ -10,6 +10,12 @@
 
 routes nav
   tab home "/"
+
+// Text is drawn in a declared face: the tight case for parity (LLP 1056 D8).
+font "Exposure Sans"
+  400 = "assets/ExposureSansOriginal03-Regular.ttf"
+  400 italic = "assets/ExposureSansOriginal03-Italic.ttf"
+  700 = "assets/ExposureSansOriginal03-Bold.ttf"
 
 style Tile
   width=150
@@ -26,6 +32,10 @@ component Gallery
     page = 2
   action three writes page
     page = 3
+  action four writes page
+    page = 4
+  action five writes page
+    page = 5
   action advance writes step
     step = step + 1
   action flip writes dark
@@ -40,6 +50,10 @@ component Gallery
           text "2" font-size=13
         button press=three testId="page-3" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 3 ? "#e2e8f0" : "#f8fafc")
           text "3" font-size=13
+        button press=four testId="page-4" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 4 ? "#e2e8f0" : "#f8fafc")
+          text "4" font-size=13
+        button press=five testId="page-5" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 5 ? "#e2e8f0" : "#f8fafc")
+          text "5" font-size=13
         button press=advance testId="step" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
           text `step ${step}` font-size=13
         button press=flip testId="backdrop" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
@@ -51,6 +65,10 @@ component Gallery
           Paint(bg=(dark ? "#000000" : "#ffffff"))
         when page == 3
           Sequences(step=step, bg=(dark ? "#000000" : "#ffffff"))
+        when page == 4
+          Text(bg=(dark ? "#000000" : "#ffffff"))
+        when page == 5
+          Pictures(bg=(dark ? "#000000" : "#ffffff"))
 
 // Shapes and paths: arcs first (the direction under Core Graphics' flip).
 component Shapes
@@ -90,3 +108,29 @@ component Sequences
     canvas surface=reset(step) class=Tile background-color=bg testId="fx-reset"
     canvas surface=throws(step) class=Tile background-color=bg testId="fx-throws"
     canvas surface=resize(step) class=Tile background-color=bg width=(90 + step * 20) testId="fx-resize"
+
+// Text (stage 2): alignment, baselines, styles, measurement, direction and
+// currentColor (the canvas node's `color`).
+component Text
+  props
+    bg: string
+  view
+    canvas surface=textalign() class=Tile background-color=bg testId="fx-textalign"
+    canvas surface=baseline() class=Tile background-color=bg testId="fx-baseline"
+    canvas surface=textstyle() class=Tile background-color=bg testId="fx-textstyle"
+    canvas surface=textmeasure() class=Tile background-color=bg testId="fx-textmeasure"
+    canvas surface=textrtl() class=Tile background-color=bg color="#be185d" testId="fx-textrtl"
+
+// Pictures (stage 2): images by handle, patterns, conic gradients, Path2D,
+// shadows, the clip-extent operators, raw pixels and wide colours.
+component Pictures
+  props
+    bg: string
+  view
+    canvas surface=image() class=Tile background-color=bg testId="fx-image"
+    canvas surface=pattern() class=Tile background-color=bg testId="fx-pattern"
+    canvas surface=conic() class=Tile background-color=bg testId="fx-conic"
+    canvas surface=path2d() class=Tile background-color=bg testId="fx-path2d"
+    canvas surface=shadow() class=Tile background-color=bg testId="fx-shadow"
+    canvas surface=extent() class=Tile background-color=bg testId="fx-extent"
+    canvas surface=pixels() class=Tile background-color=bg testId="fx-pixels"

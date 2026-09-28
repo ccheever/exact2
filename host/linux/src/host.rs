@@ -263,13 +263,52 @@ impl<D: DataSource> Host<D> {
     /// content boxes at `scale`, a presented frame for canvases that asked
     /// (`frame`), the due draws, and their lists replayed. Whether any
     /// bitmap changed.
-    pub(crate) fn sync_canvases(&mut self, scale: f64, frame: bool) -> bool {
+    pub(crate) fn sync_canvases(
+        &mut self,
+        scale: f64,
+        frame: bool,
+        assets: &crate::image::Assets,
+    ) -> bool {
         if !self.runner.plan().surfaces.is_empty() {
+            if self.canvas2d.text.is_none() {
+                // Text measured and drawn by one engine (LLP 1056 D8).
+                let text = std::sync::Arc::new(crate::canvas2d::text::CanvasText::new(
+                    self.runner.plan().clone(),
+                    assets.clone(),
+                ));
+                self.canvas2d.text = Some(text.clone());
+                self.runner.set_canvas_text(text);
+                // Native hosts parse the wide colour forms (LLP 1056 §8.2).
+                exact_runner::exact_canvas::color::link_wide();
+            }
             self.runner.layout_canvases(scale);
             if frame {
                 self.runner.canvas_frame();
             }
             self.runner.draw_canvases(&|_| true);
+            // The images the draws asked for, decoded now; each redraws the
+            // canvases that asked (LLP 1056 D9).
+            let asked = self.runner.take_canvas_image_requests();
+            for src in &asked {
+                let decoded = assets
+                    .read(src)
+                    .ok_or_else(|| format!("{src} is not an asset"))
+                    .and_then(|bytes| {
+                        tiny_skia::Pixmap::decode_png(&bytes)
+                            .map_err(|e| format!("{src} does not decode: {e}"))
+                    });
+                let result = decoded.map(|p| {
+                    let size = (p.width(), p.height());
+                    self.canvas2d
+                        .images
+                        .insert(src.clone(), std::sync::Arc::new(p));
+                    size
+                });
+                self.runner.canvas_image(src, result, &[]);
+            }
+            if !asked.is_empty() {
+                self.runner.draw_canvases(&|_| true);
+            }
         }
         let lists = self.runner.take_canvas_lists();
         let changed = !lists.is_empty();

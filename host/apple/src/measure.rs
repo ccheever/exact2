@@ -77,7 +77,7 @@ pub struct CRequest {
     pub line_clamp: u32,
     /// CSS overflow-wrap: normal, break-word, anywhere.
     pub overflow_wrap: u8,
-    /// CSS white-space: normal, pre-wrap, nowrap, pre-line. Runs arrive collapsed
+    /// CSS white-space: normal, pre-wrap, nowrap, pre-line, pre. Runs arrive collapsed
     /// unless it preserves (LLP 1053 G5).
     pub white_space: u8,
     /// CSS direction: ltr, rtl.

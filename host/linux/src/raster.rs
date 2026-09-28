@@ -4,6 +4,8 @@
 //!
 //! @ref LLP 1015 §2
 
+mod backdrop;
+
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::GradientPaint;
@@ -984,6 +986,10 @@ impl Backend for Raster {
                 clip,
             );
         }
+    }
+
+    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+        self.blur_backdrop(shape, sigma, ts);
     }
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {

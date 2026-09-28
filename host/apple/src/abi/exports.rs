@@ -21,6 +21,7 @@ macro_rules! host {
         $crate::markup_exports!();
         $crate::collapse_exports!();
         $crate::app_module_exports!();
+        $crate::material_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -44,6 +45,23 @@ macro_rules! host {
             ctx: *mut ::std::ffi::c_void,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.measure = measure; e.hooks.ctx = ctx; });
+        }
+
+        /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
+        /// thread with the context `exact_set_measure` was given.
+        #[no_mangle]
+        pub extern "C" fn exact_set_canvas_text(
+            rt: u32,
+            measure: ::std::option::Option<$crate::canvas_text::CanvasTextFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.canvas_text = measure; });
+        }
+
+        /// A Canvas 2D image handle decoded (LLP 1056 D9): the handle is
+        /// the input buffer's first `len` bytes; the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_image(rt: u32, len: usize, width: u32, height: u32, ok: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_image(len, width, height, ok != 0), |n| n)
         }
 
         /// The wake for a request's reply (LLP 1016 D2), called on the

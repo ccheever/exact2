@@ -29,6 +29,8 @@ impl<D: DataSource> Host<D> {
     /// The limits for this device: WebKit's iOS area on iOS, a quarter of
     /// physical memory everywhere (LLP 1056 D4, r3).
     pub(crate) fn canvas_limits(&mut self) {
+        // Native hosts parse the wide colour forms (LLP 1056 §8.2).
+        exact_runner::exact_canvas::color::link_wide();
         let memory = MEMORY.load(Ordering::Relaxed);
         self.runner.set_canvas_limits(exact_runner::Limits::native(
             memory,
@@ -66,6 +68,32 @@ impl<D: DataSource> Host<D> {
                     });
             batch.canvas2d(&c, content, radii);
         }
+        batch.canvas_images(self.runner.take_canvas_image_requests());
+    }
+
+    /// The app's Core Text measurer for Canvas 2D (LLP 1056 D8).
+    pub(crate) fn set_canvas_text(
+        &mut self,
+        f: crate::canvas_text::CanvasTextFn,
+        ctx: *mut std::ffi::c_void,
+    ) {
+        self.runner
+            .set_canvas_text(std::sync::Arc::new(crate::canvas_text::CallbackText::new(
+                f, ctx,
+            )));
+    }
+
+    /// The presenter decoded image handle `src` (`size` in pixels) or could
+    /// not (`None`): the canvases that asked for it draw again (LLP 1056 D9).
+    pub fn canvas_image(&mut self, src: &str, size: Option<(u32, u32)>) -> String {
+        self.runner.canvas_image(
+            src,
+            size.ok_or_else(|| "the image could not be loaded or decoded".to_string()),
+            &[],
+        );
+        let mut batch = Batch::new();
+        self.canvas_turn(&mut batch);
+        self.finish(batch, None)
     }
 
     /// The display changed: canvases redraw at the new scale (a new

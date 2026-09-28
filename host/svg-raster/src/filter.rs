@@ -238,7 +238,7 @@ fn primitive(p: &Primitive, source: &Img, results: &[(Img, Rect)], rect: Rect, s
 
 /// A σ per axis in pixels, as Filter Effects 1 §15.6 says: three box blurs
 /// when σ ≥ 2, else a true Gaussian kernel.
-fn blur(mut img: Img, sx: f32, sy: f32) -> Img {
+pub(crate) fn blur(mut img: Img, sx: f32, sy: f32) -> Img {
     if sx < 0.0 || sy < 0.0 || !(sx.is_finite() && sy.is_finite()) {
         return Img::clear(img.w, img.h, img.linear);
     }

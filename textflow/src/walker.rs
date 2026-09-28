@@ -54,20 +54,27 @@ pub enum WhiteSpace {
     /// segment break: a carriage return is a space, and U+2028 and the other
     /// Unicode breaks collapse as under `normal`.
     PreLine,
+    /// Preserve like `pre-wrap` with no soft wrap opportunity: each forced
+    /// break ends a line and nothing else does; spaces at a line's end are
+    /// kept, not hung (CSS Text 3 §4.1.3).
+    Pre,
 }
 impl WhiteSpace {
     /// `white-space-collapse: preserve`: spaces and segment breaks are kept;
     /// otherwise they collapse ([`crate::collapse`] on native engines).
     pub fn preserves(self) -> bool {
-        self == WhiteSpace::PreWrap
+        matches!(self, WhiteSpace::PreWrap | WhiteSpace::Pre)
     }
     /// `preserve` or `preserve-breaks`: a segment break is a forced line break.
     pub fn preserves_breaks(self) -> bool {
-        matches!(self, WhiteSpace::PreWrap | WhiteSpace::PreLine)
+        matches!(
+            self,
+            WhiteSpace::PreWrap | WhiteSpace::PreLine | WhiteSpace::Pre
+        )
     }
     /// `text-wrap-mode: wrap`: soft wrap opportunities may end a line.
     pub fn wraps(self) -> bool {
-        self != WhiteSpace::Nowrap
+        !matches!(self, WhiteSpace::Nowrap | WhiteSpace::Pre)
     }
 }
 /// Width-independent preparation options; letter spacing belongs to `Measure`.
@@ -168,7 +175,7 @@ impl Prepared {
     ) -> Self {
         let options = Options {
             hyphen_advance: advance(options.hyphen_advance),
-            overflow_wrap: if options.white_space == WhiteSpace::Nowrap {
+            overflow_wrap: if !options.white_space.wraps() {
                 OverflowWrap::Normal
             } else {
                 options.overflow_wrap
@@ -183,11 +190,11 @@ impl Prepared {
             units: 0,
             content_end: 0,
         };
-        let preserve = options.white_space == WhiteSpace::PreWrap;
+        let preserve = options.white_space.preserves();
         // A forced break: every Unicode hard break when preserving, only a line
         // feed under `pre-line`; any other break character is collapsible space.
         let forced = |ch| match options.white_space {
-            WhiteSpace::PreWrap => hard_break(ch),
+            WhiteSpace::PreWrap | WhiteSpace::Pre => hard_break(ch),
             WhiteSpace::PreLine => ch == '\n',
             WhiteSpace::Normal | WhiteSpace::Nowrap => false,
         };
@@ -303,7 +310,7 @@ impl Prepared {
     /// Source ink range; trailing hanging spaces carry no ink, leading preserved spaces remain.
     pub fn paint_range(&self, text: &str, range: Range<usize>) -> Range<usize> {
         let raw = &text[range.clone()];
-        if self.options.white_space == WhiteSpace::PreWrap {
+        if self.options.white_space.preserves() {
             range.start..range.start + raw.trim_end_matches(|ch| space(ch) || hard_break(ch)).len()
         } else {
             let trim = |ch| space(ch) || hard_break(ch);
@@ -330,7 +337,7 @@ impl Prepared {
             let mut atom = if i == start.segment { start.atom } else { 0 };
             // Emergency continuation may begin at an internal collapsed space.
             // Own those bytes but give them no width at the new line's start.
-            while self.options.white_space != WhiteSpace::PreWrap
+            while !self.options.white_space.preserves()
                 && atom > 0
                 && atom < segment.atoms.len()
                 && self.atoms[segment.atoms.start + atom].space
@@ -413,11 +420,15 @@ impl Prepared {
                 });
             }
             visible |= segment.visible;
+            let ends = LineRange {
+                width: finite(paint + self.kept(segment)),
+                ..line
+            };
             if segment.hard {
-                return Some(line);
+                return Some(ends);
             }
             if i + 1 == self.segments.len() {
-                return visible.then_some(line);
+                return visible.then_some(ends);
             }
             let candidate = LineRange {
                 width: finite(
@@ -501,10 +512,10 @@ impl Prepared {
                 }
                 visible |= segment.visible;
                 if segment.hard {
-                    break Some((i + 1, finite(paint)));
+                    break Some((i + 1, finite(paint + self.kept(segment))));
                 }
                 if i + 1 == n {
-                    break visible.then_some((n, finite(paint)));
+                    break visible.then_some((n, finite(paint + self.kept(segment))));
                 }
                 let candidate = hyphenated(paint, segment.hyphen, hyphen);
                 if visible {
@@ -525,6 +536,14 @@ impl Prepared {
         }
         (count, max)
     }
+    /// The spaces a line ending in `segment` keeps: `pre` never hangs them.
+    fn kept(&self, segment: &Segment) -> f64 {
+        if self.options.white_space == WhiteSpace::Pre {
+            segment.space as f64
+        } else {
+            0.0
+        }
+    }
     /// Max-content width: the widest mandatory-break-delimited line.
     pub fn natural_width(&self) -> f32 {
         self.line_stats(f32::INFINITY).1
@@ -533,7 +552,7 @@ impl Prepared {
     /// Min-content width; only `Anywhere` counts emergency grapheme opportunities,
     /// and `nowrap` has none at all, so its min-content is its max-content.
     pub fn min_content_width(&self) -> f32 {
-        if self.options.white_space == WhiteSpace::Nowrap {
+        if !self.options.white_space.wraps() {
             return self.natural_width();
         }
         let mut max: f32 = 0.0;
@@ -564,7 +583,7 @@ impl Prepared {
     }
     /// The advance a line may paint before it breaks; `nowrap` never breaks.
     fn fit(&self, width: f32) -> f64 {
-        if self.options.white_space == WhiteSpace::Nowrap {
+        if !self.options.white_space.wraps() {
             return f64::INFINITY;
         }
         (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON

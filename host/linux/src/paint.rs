@@ -115,6 +115,9 @@ struct BoxPaint {
     gradient: Option<gradient::Captured>,
     padding: [f32; 4],
     shadow: Option<shadow::ShadowPaint>,
+    /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
+    /// host material, which wins (LLP 1053.000 D3).
+    backdrop: f32,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -146,6 +149,13 @@ impl BoxPaint {
             Dimension::Calc(p, x) => w * p / 100.0 + x,
             Dimension::Auto | Dimension::Env(..) => 0.0,
         };
+        // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
+        // name the table lacks draws ultra-thin ([`material_note`]).
+        let material = node.props.str(PropId::BackgroundMaterial).map(|name| {
+            exact_kernel::generated::material(name)
+                .or_else(|| exact_kernel::generated::material("ultra-thin"))
+                .expect("the schema declares ultra-thin")
+        });
         Self {
             radii: [
                 s.border_radius_top_left,
@@ -155,9 +165,21 @@ impl BoxPaint {
             ],
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
-            background: rgba(s.background_color.resolve(dark)),
+            background: match material {
+                // The material's tint where the author painted no background,
+                // as the web's rule sits under an inline one (LLP 1053.000 D4).
+                Some(m) if s.background_color.resolve(dark).a() == 0 => {
+                    if dark {
+                        m.dark
+                    } else {
+                        m.light
+                    }
+                }
+                _ => rgba(s.background_color.resolve(dark)),
+            },
             gradient: gradient::Captured::capture(s, dark),
             shadow: shadow::ShadowPaint::capture(s, dark),
+            backdrop: material.map_or(s.backdrop_blur.max(0.0), |m| m.blur),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -184,6 +206,10 @@ impl BoxPaint {
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
         for band in self.shadow_fills(geometry) {
             backend.fill_border(&band, ts);
+        }
+        // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
+        if self.backdrop > 0.0 {
+            backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
         if let Some(g) = &self.gradient {
@@ -337,6 +363,10 @@ pub trait Backend {
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
     /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
     fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
+    /// CSS `backdrop-filter: blur(σ)` (LLP 1053.000 D2): what is painted
+    /// under `shape` so far, blurred (σ in points, mirrored edges) and put
+    /// back inside it, under the current clip.
+    fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
     /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
@@ -450,6 +480,8 @@ pub struct Painter {
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
+    /// `backgroundMaterial` names the schema lacks, and those not yet logged.
+    materials: (std::collections::BTreeSet<String>, Vec<String>),
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -471,6 +503,26 @@ struct Walk<'a, 'b> {
 }
 
 impl Painter {
+    /// Whether `node` has a material (which blurs its backdrop); notes a name
+    /// the schema lacks, once, for the host's log (LLP 1053.000 D4).
+    fn material_note(&mut self, node: &NodeRef<'_>) -> bool {
+        let Some(name) = node.props.str(PropId::BackgroundMaterial) else {
+            return false;
+        };
+        if exact_kernel::generated::material(name).is_none() && self.materials.0.insert(name.into())
+        {
+            self.materials.1.push(format!(
+                "backgroundMaterial `{name}` is not a material; drawing ultra-thin"
+            ));
+        }
+        true
+    }
+
+    /// The lines [`Painter::material_note`] noted since the last call.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.materials.1)
+    }
+
     #[cfg(any(target_os = "linux", test))]
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
@@ -501,6 +553,7 @@ impl Painter {
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
+            materials: Default::default(),
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
@@ -749,6 +802,9 @@ impl Painter {
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
             || node.style.shadow_opacity > 0.0
+            // A backdrop reads what is under it, beyond any damage.
+            || node.style.backdrop_blur > 0.0
+            || self.material_note(&node)
             || !p.colors.is_empty();
         let ts = if p.moves() {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).

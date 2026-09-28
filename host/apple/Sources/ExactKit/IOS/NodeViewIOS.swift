@@ -11,8 +11,9 @@ import ImageIO
 import UIKit
 
 final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-    /// The kernel's id; a parked view takes a new row's (`NodePool`).
+    /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     var id: UInt32
+    var incarnation = NodePool.issue()
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
@@ -166,7 +167,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
-        DispatchQueue.main.async { [weak self] in if let self, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
+        DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var translate = CGPoint.zero
     var scale: CGFloat = 1
@@ -494,8 +495,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             addSubview(f)
             field = f
         }
-        if kind == "video" { video = VideoView(owner: self) }
-        embedPlatformView(presenter)
+        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -508,7 +508,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children.
-    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? clipBox ?? self }
+    var container: UIView { scroll ?? overlay ?? (Materials.glass(materialKind) ? materialView?.contentView : nil) ?? clipBox ?? self }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -566,10 +566,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }
         scrollEventQueued = true
-        DispatchQueue.main.async { [weak self] in
+        DispatchQueue.main.async { [weak self, token = incarnation] in
             guard let self else { return }
             self.scrollEventQueued = false
-            self.sendScrollEvent()
+            if self.incarnation == token { self.sendScrollEvent() }
         }
     }
 
@@ -680,7 +680,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
-                if child === materialView, materialKind == "glass", let contentView = materialView?.contentView {
+                if child === materialView, Materials.glass(materialKind), let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
@@ -880,17 +880,17 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func updateMaterial() {
-        let kind = props["backgroundMaterial"]
-        let supported = kind == "ultra-thin" || kind == "glass"
-        let interactive = kind == "glass" && handlers.contains("press") && !disabled
+        let kind = materialRequest
+        let supported = kind != nil
+        let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
             materialView?.removeFromSuperview()
             materialView = nil
             materialKind = nil
             if supported {
-                let effect = UIVisualEffectView()
-                effect.isUserInteractionEnabled = kind == "glass"
+                let effect = kind == "backdrop" ? BackdropEffectView() : UIVisualEffectView()
+                effect.isUserInteractionEnabled = Materials.glass(kind)
                 effect.frame = bounds
                 effect.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 insertSubview(effect, at: 0)
@@ -900,16 +900,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
         }
         guard let materialView else { return }
-        if materialView.effect == nil || materialInteractive != interactive {
-            let visual: UIVisualEffect
-            if kind == "glass", #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: .regular)
-                glass.isInteractive = interactive
-                visual = glass
-            } else {
-                visual = UIBlurEffect(style: .systemUltraThinMaterial)
-            }
-            materialView.effect = visual
+        if materialView.effect == nil || materialInteractive != interactive || backdropStale {
+            materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
         let radius = number("border_radius", number("border_radius_top_left"))
@@ -1110,7 +1102,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     @objc func pulledToRefresh() {
         presenter?.refresh(id)
         // An app that starts nothing leaves `refreshing` false: end promptly.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.updateRefresh() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, token = incarnation] in if self?.incarnation == token { self?.updateRefresh() } }
     }
 
     func needScroll() {

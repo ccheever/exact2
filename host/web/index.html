@@ -51,9 +51,10 @@
   [navigationPresentation="modal"]::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #00000033; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
   input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
-  /* A platform material, distinct from the CSS blur-radius row. */
-  [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
-  [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets
+     (element.rs `material_css`). It wins over an authored backdrop-filter on the same node, as the native hosts do. */
+  [backgroundMaterial] { backdrop-filter: blur(var(--exact-material-blur)) saturate(var(--exact-material-saturate)) !important; background-color: light-dark(var(--exact-material-light), var(--exact-material-dark)); }
+  [backgroundMaterial^="glass"] { box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   /* LLP 1061: a press multiplies the scale row's current number, including
      during a CSS transition. Keep it local to the node, as `scale` is. */
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }

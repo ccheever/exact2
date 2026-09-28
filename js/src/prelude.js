@@ -373,10 +373,15 @@
     return ok(result);
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
-  global.__exact_draw = function (request) {
+  // Text is measured and image handles are answered where the draw runs
+  // (LLP 1056 D8, D9): the page's functions on the web, else the host door.
+  global.__exact_draw = function (request, measure, image) {
     initializing = false;
     if (!global.exact.drawCanvas) throw new Error("the module exports no draw");
-    return global.exact.drawCanvas(request);
+    return global.exact.drawCanvas(request, {
+      measure: measure || function (json) { return host(9, json, ""); },
+      image: image || function (json) { var r = host(10, json, ""); return r === undefined ? "" : r; },
+    });
   };
   global.__exact_retire = function (retired) {
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);

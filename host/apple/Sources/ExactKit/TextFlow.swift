@@ -72,7 +72,7 @@ final class TextFlowSource {
         for i in 0..<original.length {
             let ch = original.character(at: i)
             // `pre-line` keeps a line feed, a forced break (LLP 1053 G5).
-            if shape.spec.whiteSpace != 1 && !(shape.spec.whiteSpace == 3 && ch == 10)
+            if !shape.spec.preserves && !(shape.spec.whiteSpace == 3 && ch == 10)
                 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
                 if space { replacements.append((i, "\u{200b}")) }
                 else if ch != 32 { replacements.append((i, " ")) }

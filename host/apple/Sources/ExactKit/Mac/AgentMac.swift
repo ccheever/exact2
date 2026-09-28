@@ -289,8 +289,9 @@ extension Agent {
             let size = leaf.image?.size ?? .zero
             native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
         }
-        if v.props["backgroundMaterial"] != nil {
+        if v.materialRequest != nil {
             native["effect"] = v.appliedMaterial
+            if let m = v.props["backgroundMaterial"] { native["material"] = Materials.agentMaterial(m) }
         }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]

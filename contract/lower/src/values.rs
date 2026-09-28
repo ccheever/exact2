@@ -55,6 +55,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
         StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
+        StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
 
@@ -409,6 +410,21 @@ pub(crate) fn check_prop_value(
             "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
             span,
         );
+    }
+    // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
+    if prop == PropId::BackgroundMaterial {
+        if let Expr::Str(name, _) = value {
+            if exact_kernel::generated::material(name).is_none() {
+                return err(
+                    "lower-attr-value",
+                    format!(
+                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
+                        exact_kernel::generated::MATERIALS.join(", ")
+                    ),
+                    span,
+                );
+            }
+        }
     }
     if prop == PropId::ImageSource {
         if let Expr::Str(source, _) = value {

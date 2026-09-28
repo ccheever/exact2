@@ -842,23 +842,37 @@ fn bake_in(
 const RECORDER: &str = include_str!("../../../canvas/recorder.js");
 
 /// Its seam's type, for the generated entry's strict check.
-const RECORDER_TYPES: &str = "export declare function canvasSeam(draw: (surface: string, args: any, ctx: any, frame: any) => unknown): { draw(request: unknown): string; retire(retired: unknown): void };\n";
+const RECORDER_TYPES: &str = "export declare function canvasSeam(draw: (surface: string, args: any, ctx: any, frame: any) => unknown): { draw(request: unknown, host?: unknown): string; retire(retired: unknown): void };\n";
 
 /// The entry's Canvas 2D half: the roster as JSON and the seam's two calls.
-const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\nexport const surfacesJson: string = JSON.stringify(app.surfaces);\nconst seam = canvasSeam(app.draw);\nexport const drawCanvas = (request: string): string => seam.draw(JSON.parse(request));\nexport const retireCanvases = (retired: string): void => seam.retire(JSON.parse(retired));\n";
+const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\nexport const surfacesJson: string = JSON.stringify(app.surfaces);\nconst seam = canvasSeam(app.draw);\nexport const drawCanvas = (request: string, host?: unknown): string => seam.draw(JSON.parse(request), host);\nexport const retireCanvases = (retired: string): void => seam.retire(JSON.parse(retired));\n";
 
-/// What a drawing module's author types against (LLP 1056 D1, stage 1):
-/// the context is the web's own interface, narrowed to stage 1's members.
+/// What a drawing module's author types against (LLP 1056 D1, stages 1–2):
+/// the context is the web's own interface, narrowed to the built members,
+/// with `drawImage` and `createPattern` taking an image handle (D9).
 const CANVAS_TYPES: &str = "
-/** The 2D context a surface draws with (LLP 1056 §3, stage 1). */
+/** An image, by the URL or asset an `image` node's `src` takes (LLP 1056 D9). */
+export type ImageHandle = string;
+/** The 2D context a surface draws with (LLP 1056 §3, stages 1 and 2). */
 export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
   | 'save' | 'restore' | 'reset'
   | 'translate' | 'rotate' | 'scale' | 'transform' | 'setTransform' | 'resetTransform' | 'getTransform'
   | 'beginPath' | 'moveTo' | 'lineTo' | 'quadraticCurveTo' | 'bezierCurveTo' | 'arc' | 'arcTo' | 'ellipse' | 'rect' | 'roundRect' | 'closePath'
   | 'fill' | 'stroke' | 'clip' | 'fillRect' | 'strokeRect' | 'clearRect'
   | 'lineWidth' | 'lineCap' | 'lineJoin' | 'miterLimit' | 'setLineDash' | 'getLineDash' | 'lineDashOffset'
-  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient'
-  | 'globalAlpha' | 'globalCompositeOperation'>;
+  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient' | 'createConicGradient'
+  | 'globalAlpha' | 'globalCompositeOperation'
+  | 'shadowColor' | 'shadowBlur' | 'shadowOffsetX' | 'shadowOffsetY'
+  | 'imageSmoothingEnabled' | 'imageSmoothingQuality'
+  | 'font' | 'textAlign' | 'textBaseline' | 'direction' | 'letterSpacing' | 'wordSpacing'
+  | 'fontKerning' | 'fontStretch' | 'fontVariantCaps' | 'textRendering'
+  | 'fillText' | 'strokeText' | 'measureText'
+  | 'createImageData' | 'putImageData'> & {
+  drawImage(image: ImageHandle, dx: number, dy: number): void;
+  drawImage(image: ImageHandle, dx: number, dy: number, dw: number, dh: number): void;
+  drawImage(image: ImageHandle, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void;
+  createPattern(image: ImageHandle, repetition: string | null): CanvasPattern | null;
+};
 /** What one draw is told (LLP 1056 D4–D6). */
 export interface Frame {
   readonly time: number;

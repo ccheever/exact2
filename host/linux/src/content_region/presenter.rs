@@ -45,7 +45,8 @@ impl<D: DataSource> Presenter<D> {
     /// Paint a frame and publish its immutable pixels, hits and native source together.
     pub fn frame(&mut self) -> Arc<Pixmap> {
         self.brush.placements = self.surfaces.placements(&self.host);
-        self.host.sync_canvases(self.brush.scale as f64, true);
+        self.host
+            .sync_canvases(self.brush.scale as f64, true, &self.assets);
         self.brush.canvases = self.host.canvas_snapshots();
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
@@ -128,6 +129,7 @@ impl<D: DataSource> Presenter<D> {
                 painted = paint(&mut self.brush);
             }
         }
+        let notes = self.brush.take_notes();
         self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => {
@@ -172,6 +174,9 @@ impl<D: DataSource> Presenter<D> {
                     node.id
                 ));
             }
+        }
+        for note in notes {
+            self.host.log(note);
         }
         self.boxes = boxes;
         if self.last_frame_succeeded {

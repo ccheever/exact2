@@ -1,6 +1,6 @@
 # A failed request relabels the last value as the answer for the failed arguments, and promotes a placeholder to an answer
 
-**Status:** Partly fixed: failed arguments have a separate rollback-safe marker; standing answer arguments stay intact and store changes do not retry failures, verified by Contract runner regressions. Remaining: Charlie must rule on placeholder-after-failure behavior and Contract-readable `failed(x)`.
+**Status:** Fixed: failed arguments have a separate rollback-safe marker, the standing answer keeps its own arguments, and store changes don't retry a failure (Contract runner regressions). Charlie's 2026-09-27 ruling (LLP 1054.000.002) is built in `issues/20260927-failed-read-in-contract.md`: `failed(x)` is readable, and a placeholder stays a placeholder after a failure.
 **Systems:** Runner (`runner/src/runner/admission.rs` `release_failed`, `runner/src/runner/settlement.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

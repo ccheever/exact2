@@ -416,6 +416,15 @@ public final class ExactSession {
         frames.session = self
         runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
+        // handles this session decodes.
+        runtime.setCanvasText(CanvasText.measureRun)
+        presenter.canvas2d.textEngine = { [weak self] in self?.text }
+        presenter.canvas2d.assetBytes = { [weak app] in app?.assetBytes($0) }
+        presenter.canvas2d.onImage = { [weak self] src, image in
+            guard let self, self.state != .destroyed else { return }
+            self.apply(self.runtime.canvasImage(src, width: image?.width ?? 0, height: image?.height ?? 0, ok: image != nil))
+        }
         // LLP 1056 D4: Canvas 2D backs its bitmaps at the display's scale.
         #if canImport(UIKit)
         let scale = UIScreen.main.scale
@@ -690,6 +699,7 @@ public final class ExactSession {
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         presenter.apply(batch)
+        if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion

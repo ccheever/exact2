@@ -499,3 +499,65 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     let e = refused("background-image=(true ? \"none\" : \"conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
 }
+
+#[test]
+fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
+    // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
+    // grammar at run time as a literal at compile time.
+    let source = "component App\n  state blur = 8\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px)\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let style = |id: &str| {
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .clone()
+    };
+    assert_eq!(style("code").white_space, exact_kernel::WhiteSpace::Pre);
+    assert_eq!(style("glass").backdrop_blur, 8.0);
+    assert_eq!(style("plain").backdrop_blur, 0.0);
+    for (value, named) in [
+        ("blur(20px) saturate(180%)", "`saturate()` is CSS"),
+        ("brightness(1.2)", "`brightness()` is CSS"),
+        ("url(#f)", "`url()` is CSS"),
+        ("blur(2em)", "a length in px"),
+    ] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    box backdrop-filter=\"{value}\"\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-attr-value");
+        assert!(error.message.contains(named), "{error}");
+    }
+    // @ref LLP 1053.000 D4 — every platform material by name; others refused.
+    for name in [
+        "ultra-thin",
+        "chrome-dark",
+        "prominent",
+        "sidebar",
+        "hud-window",
+        "glass-clear",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
+        ))
+        .unwrap();
+    }
+    let error =
+        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
+            .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
+        "{error}"
+    );
+}

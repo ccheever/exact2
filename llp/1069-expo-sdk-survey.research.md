@@ -577,6 +577,13 @@ Each wave needs only what the waves before it land.
 - **The rest of 1069.010:** Fieldnotes' export and import (needs
   1069.002), the cross-window topic, `doc:` handles and the three pickers.
 
+### Accepted after the pass
+
+Charlie accepted the pass's own choices on 2026-09-27 ("go w your recs for
+now … we can revisit later"): the `doc:` grant spelling, import through
+`input type=file`, refusal without `showOpenFilePicker`, and `canShare`
+true under the agent. Each is recorded in its document's §Rulings.
+
 ### Open after the pass
 
 The pass could not settle these from the documents; each is the spec's or

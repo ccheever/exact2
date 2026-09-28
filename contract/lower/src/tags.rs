@@ -685,6 +685,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
             StyleId::ShadowRadius,
             StyleId::ShadowOpacity,
         ]),
+        // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
+        // CSS's filter functions are refused by name.
+        "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
         "letter-spacing" => styles(&[StyleId::LetterSpacing]),
         "line-height" => styles(&[StyleId::LineHeight]),
         "text-align" => styles(&[StyleId::TextAlign]),

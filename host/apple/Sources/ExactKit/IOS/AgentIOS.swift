@@ -184,7 +184,9 @@ extension Agent {
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         // The scene's title as UIKit holds it (LLP 1048.003 D1; the app sets it).
         let window: [String: Any] = ["title": presenter.session?.view?.window?.windowScene?.title ?? NSNull()]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window]
+        // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
+        let pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
@@ -373,7 +375,8 @@ extension Agent {
         if let canvas { native["canvas"] = "#\(canvas.id)" }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
-        if let m = host.materialKind { native["effect"] = m }
+        if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
+        if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         var responder: UIResponder? = host
         while let current = responder {

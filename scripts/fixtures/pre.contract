@@ -1,0 +1,38 @@
+// LLP 1053 G5's parity page for `white-space: pre`, the browser the oracle.
+// Each `text` shrinks to its lines (a flex column at flex-start), so its box
+// is what the engine measured: kept spaces (leading, inner and trailing),
+// tabs to CSS's `tab-size: 8` stops (in a monospace face, and in system-ui,
+// whose stops Apple declares narrower: LLP 1053 §0 r3), forced breaks only, and a long line
+// that overflows its clipped card rather than wrapping. `code` is the feed's
+// code row: many styled runs in `pre`, clipped at the card's padding, and
+// `scroller` the same line in a horizontal scroll. `pre-wrap` beside it
+// wraps the same source. Chrome's numbers (the web host at 1×, `layout`)
+// are what the Apple XCTests and Linux's text tests hold their engines to.
+component Pre
+  view
+    main testId="pre" width=390 height=460 display="flex" flex-direction="column" align-items="flex-start" row-gap=8 padding=12 font-size=13
+      text "  lead   inner  " testId="spaces" white-space="pre" background-color="#fdd835"
+      text "a\tb\n\tc\nabcdefghij\tk" testId="tabs" white-space="pre" font-family="ui-monospace" background-color="#80deea"
+      text "abcdefghij\tk" testId="tabs-sans" white-space="pre" background-color="#80deea"
+      text "one\n\nthree  " testId="breaks" white-space="pre" background-color="#ce93d8"
+      box testId="code" width=220 padding=12 overflow="hidden" background-color="#0d1117" border-radius=12 display="flex" flex-direction="column"
+        text testId="code-line1" white-space="pre" font-family="ui-monospace" color="#e6edf3"
+          text "pub" color="#ff7b72"
+          text " "
+          text "fn" color="#ff7b72"
+          text " "
+          text "delay" color="#d2a8ff"
+          text "(&"
+          text "mut" color="#ff7b72"
+          text " self, k: usize) -> "
+          text "Option" color="#ffa657"
+          text "<f32> {"
+        text testId="code-line2" white-space="pre" font-family="ui-monospace" color="#e6edf3"
+          text "        "
+          text "let" color="#ff7b72"
+          text " total = "
+          text "382.0" color="#79c0ff"
+          text ";"
+      scroll testId="scroller" width=220 height=24 flex-direction="row" overflow-x="scroll" background-color="#eeeeee"
+        text "let a_very_long_line = compute(alpha, beta, gamma, delta);" testId="long" white-space="pre"
+      text "let a_very_long_line = compute(alpha, beta, gamma, delta);" testId="wrapped" width=220 white-space="pre-wrap" background-color="#a5d6a7"

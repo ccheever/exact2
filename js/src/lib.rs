@@ -147,6 +147,9 @@ struct HostState {
     hosted: bool,
     /// The host's app module's `native.call`, when it answers one (D9).
     hosted_call: Option<exact_runner::NativeCall>,
+    /// The canvas a draw in progress draws: its text engine and images
+    /// (LLP 1056 D8, D9), for the recorder's `measureText` and `drawImage`.
+    canvas: Option<exact_runner::exact_canvas::Env>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -297,6 +300,8 @@ unsafe extern "C" fn host_door(
             }
             Ok(None)
         }
+        9 => canvas_measure(state.canvas.as_ref(), &a).map(Some),
+        10 => Ok(canvas_image(state.canvas.as_ref(), &a)),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -311,6 +316,55 @@ unsafe extern "C" fn host_door(
             1
         }
     }
+}
+
+/// `measureText`'s run from the TypeScript recorder, measured by the
+/// canvas's text engine on this thread (LLP 1056 D8): the eleven raw metrics
+/// as a JSON array.
+fn canvas_measure(
+    env: Option<&exact_runner::exact_canvas::Env>,
+    json: &str,
+) -> Result<String, String> {
+    use exact_runner::exact_canvas::font::{Estimate, Font, TextEngine, TextRun};
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let n = |x: &serde_json::Value| x.as_f64().unwrap_or(0.0);
+    let f = &v["font"];
+    let font = Font {
+        size: n(&f[0]),
+        weight: n(&f[1]) as u16,
+        style: n(&f[2]) as u8,
+        stretch: n(&f[3]),
+        caps: n(&f[4]) as u8,
+        families: v["families"]
+            .as_str()
+            .unwrap_or("")
+            .split(',')
+            .map(str::to_string)
+            .collect(),
+    };
+    let run = TextRun {
+        font: &font,
+        text: v["text"].as_str().unwrap_or(""),
+        rtl: v["rtl"].as_bool().unwrap_or(false),
+        letter_spacing: n(&v["ls"]),
+        word_spacing: n(&v["ws"]),
+        kerning: n(&v["kerning"]) as u8,
+    };
+    let raw = match env.and_then(|e| e.text.as_ref()) {
+        Some(engine) => engine.measure(&run),
+        None => Estimate.measure(&run),
+    };
+    serde_json::to_string(&raw.to_array()).map_err(|e| e.to_string())
+}
+
+/// An image handle's natural size for the TypeScript recorder, or nothing
+/// while it is not decoded (which asks the host for it).
+fn canvas_image(env: Option<&exact_runner::exact_canvas::Env>, json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let env = env?;
+    let (w, h) =
+        exact_runner::exact_canvas::images_in(&env.images).size(env.canvas, v["src"].as_str()?)?;
+    Some(format!("[{w},{h}]"))
 }
 
 /// A malloc'd copy the shim frees.
@@ -1207,12 +1261,14 @@ impl DataSource for Module {
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,
-        _ctx: &exact_runner::exact_canvas::Context2d,
+        ctx: &exact_runner::exact_canvas::Context2d,
     ) -> exact_runner::Drawn {
+        self.host.canvas = Some(ctx.env());
         let reply = match self.engine.as_mut() {
             None => Err("the module is not loaded".to_string()),
             Some(engine) => engine.call("__exact_draw", [&request.json(), "", ""]),
         };
+        self.host.canvas = None;
         exact_runner::Drawn::Now(match reply {
             Ok(json) => exact_runner::DrawReply::from_seam(&json),
             Err(e) => exact_runner::DrawReply {
