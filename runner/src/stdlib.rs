@@ -154,6 +154,22 @@ fn call_value(
                 .map_or(Value::Option(None), Value::some),
             _ => return None,
         },
+        // `Array.prototype.at` (LLP 1006 §3): the index as ToIntegerOrInfinity
+        // makes it (NaN is 0, fractions truncate toward zero), a negative one
+        // counted from the end, and `none` where JavaScript answers undefined.
+        Stdlib::At => match (args.first()?, args.get(1)?) {
+            (Value::List(items), Value::Number(i)) => {
+                let i = if i.is_nan() { 0.0 } else { i.trunc() };
+                let len = items.len() as f64;
+                let at = if i < 0.0 { len + i } else { i };
+                if (0.0..len).contains(&at) {
+                    Value::some(items[at as usize].clone())
+                } else {
+                    Value::Option(None)
+                }
+            }
+            _ => return None,
+        },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes.
         Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
@@ -477,6 +493,55 @@ mod tests {
                 "{text}"
             );
         }
+    }
+    #[test]
+    fn at_answers_what_javascript_answers() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let xs = Value::list(vec![Value::str("a"), Value::str("b"), Value::str("c")]);
+        let at = |i: f64| {
+            call(
+                Stdlib::At,
+                &[xs.clone(), Value::Number(i)],
+                0.0,
+                &plan,
+                None,
+                None,
+                None,
+            )
+        };
+        // `["a","b","c"].at(i)` in Bun, undefined as `none`.
+        for (i, expected) in [
+            (0.0, Some("a")),
+            (2.0, Some("c")),
+            (3.0, None),
+            (-1.0, Some("c")),
+            (-3.0, Some("a")),
+            (-4.0, None),
+            (1.9, Some("b")),
+            (-0.5, Some("a")),
+            (-1.5, Some("c")),
+            (f64::NAN, Some("a")),
+            (f64::INFINITY, None),
+            (f64::NEG_INFINITY, None),
+        ] {
+            let want = expected.map_or(Value::Option(None), |s| Value::some(Value::str(s)));
+            assert_eq!(at(i), Ok(want), "at({i})");
+        }
+        let empty = Value::list(vec![]);
+        assert_eq!(
+            call(
+                Stdlib::At,
+                &[empty, Value::Number(0.0)],
+                0.0,
+                &plan,
+                None,
+                None,
+                None
+            ),
+            Ok(Value::Option(None))
+        );
     }
     #[test]
     fn trim_strips_what_javascript_strips() {

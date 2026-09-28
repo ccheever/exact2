@@ -118,7 +118,9 @@ Each `stdlib` entry has one body: `now`, `formatClockTime` (UTC `h:mm AM`),
 `formatCountdownMinutes`, `formatDistance` (miles, one decimal, `nearby` under
 0.1), `formatWalk` (80 m/min), `length` (text in UTF-16 code units, as the
 web's `String.length` and `maxlength` count), `isEmpty`, `toString` (integers print
-as JavaScript does), `floor`, `max`, `min`. Deterministic and locale-free by
+as JavaScript does), `floor`, `max`, `min`, and `at` (`Array.prototype.at` as
+an option, appended 2026-09-28 at the table's end so earlier ordinals hold;
+LLP 1006 §3). Deterministic and locale-free by
 design. The compiler type-checks calls against the same table (LLP 1006 §3).
 
 LLP 1038 D3 adds these signatures, preserving the existing roster entries

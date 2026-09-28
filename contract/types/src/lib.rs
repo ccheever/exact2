@@ -144,7 +144,7 @@ fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
     match (f, spec) {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
         (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
-        (Stdlib::First, "any") => matches!(t, Ty::List(_)),
+        (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
 }
@@ -183,7 +183,7 @@ fn roster_spelling(f: Stdlib, spec: &str) -> &str {
     match (f, spec) {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
-        (Stdlib::First, "any") => "list",
+        (Stdlib::First | Stdlib::At, "any") => "list",
         _ => spec,
     }
 }
@@ -810,6 +810,8 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 match (f, given.first()) {
                     // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
                     (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                    // `at(list<T>, number)` is `option<T>` (LLP 1006 §3).
+                    (Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
                     _ => Ty::from_roster(f.returns()),
                 }
             } else {

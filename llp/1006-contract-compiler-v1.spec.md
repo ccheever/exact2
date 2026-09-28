@@ -281,6 +281,15 @@ deep and its tree be 100 deep, which fits a 2 MB thread's stack even
 unoptimized; past either is `syntax-expression-depth`, never a stack overflow.
 `length` and `isEmpty` take a string or list and `toString` a number, string
 or bool; the roster's `any` is the checker's, so the table is unchanged.
+`at(list<T>, number)` is `option<T>` (2026-09-28): JavaScript's
+`Array.prototype.at`, the index truncated toward zero (NaN is 0), a negative
+one counted from the end, `none` where the web answers `undefined`; `xs.at(i)`
+is refused with that spelling. It is added under Charlie's standing rule
+(2026-09-28: a decision that matches what the SwiftUI benchmark app does
+needs no ruling): the xheavy inbox found each message with
+`first(filter(pool, …))`, a 997-step scan per row, where SwiftUI's inbox
+indexes its array: in the inbox's fastest inner fling on the iPad the VM's
+evaluation was 155 of the main thread's 681 ms/s, and 4 with `at`. Other list operations stay refused (LLP 1017.003).
 Authored-function and roster arity refusals include the ordered parameter types
 as a signature, including empty parameter lists and nested types. Their type
 mismatches name the one-based argument position. The existing signature tables

@@ -327,7 +327,7 @@ pub(crate) fn compile(
             asm.call(f);
             match (f, given.first()) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
                 _ => Ty::from_roster(f.returns()),
             }
         }

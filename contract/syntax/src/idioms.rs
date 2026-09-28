@@ -15,6 +15,7 @@ pub fn method_fix(name: &str) -> String {
         "includes" => "write `contains(s, t)` for text; `includes` on a list is refused (LLP 1017.003)".into(),
         "toString" => "write `toString(x)`".into(),
         "trim" => "write `trim(s)`".into(),
+        "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(
@@ -30,7 +31,7 @@ pub fn refusal(name: &str) -> Option<String> {
     Some(match name {
         "reduce" | "reduceRight" | "find" | "findIndex" | "findLast" | "some" | "every"
         | "sort" | "toSorted" | "slice" | "flatMap" | "flat" | "concat" | "indexOf"
-        | "forEach" | "reverse" | "toReversed" | "at" => format!(
+        | "forEach" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have only `map`, `filter` and `join`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         "min" | "max" => format!(
