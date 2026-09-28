@@ -477,3 +477,59 @@ SDK capability is introduced. The app no longer puts a username in the
 iframe URL. Its nested opaque deck remains a browser-owned input region;
 Exact's agent outline reaches the wrapper, not the nested opaque DOM.
 This move needs no new Exact reply API, property, hook, or injected script.
+
+## 10. One document per row (Charlie, 2026-09-28; as built on `perf/webview-direct`)
+
+**Decided:** an iframe row on Apple is one document in its web view, as the
+Extra Heavy benchmark's SwiftUI row is (a fresh `WKWebView`, one
+`loadHTMLString`, no reuse); web views stay unpooled (LLP 1068 Q3). Chrome's
+`<iframe>` stays the oracle for what the guest sees. The wrapper and its
+inner frame remain only where one document cannot keep that parity:
+
+| Guest | macOS | iOS |
+|---|---|---|
+| Local document (a schemeless `src`) | direct | direct when its viewport `<meta>` asks for `width=device-width` at scale 1; otherwise the wrapper |
+| Remote http(s), no `sandbox` | direct | the wrapper |
+| Remote with `sandbox`, and `data:`/`about:`/`blob:` | the wrapper | the wrapper |
+
+- **Direct** is the web view's own document. A local one is served at the
+  synthetic origin `https://exact.invalid` (a srcdoc frame's origin in the
+  wrapper), with `sandbox` sent as a `Content-Security-Policy: sandbox …`
+  header, which WebKit enforces on a top-level document, opaque origin
+  included. A remote one is loaded as itself.
+- **Messages.** A direct guest's `parent` is its own window, so a post to
+  `parent` is a message from itself. A script in the agent's content world
+  takes it at document start, before the page's listeners, and hands it to
+  the app, as an iframe's post never reaches its own window. It is accepted
+  only from the committed `src`'s origin and only until the guest navigates
+  itself, the wrapper's rule. The page world gets no bridge: the wrapper's
+  `webkit.messageHandlers.exact` exists only while a wrapper is served.
+- **Navigation.** The guest may navigate itself, as a frame may; each
+  document it loads fires `load`.
+- **Why a sandboxed remote `src` keeps the wrapper.** WebKit cannot sandbox a
+  top-level network load. Fetching the document natively to add the header
+  would change cookies, redirects and response headers, and approximating
+  the sandbox is the fail-open class D2 removed.
+- **Why iOS is stricter.** iOS lays a top-level document out by its viewport
+  `<meta>` (980 CSS px without one); a frame ignores it and takes its box.
+  The wrapper now declares `width=device-width, initial-scale=1` itself.
+  Before, it declared none, so on iOS every guest was laid out 980 CSS px
+  wide and scaled down (2026-09-28, the deck fixture without its `<meta>`).
+  macOS ignores the `<meta>`, as a frame does.
+- **What a direct guest sees differently from an iframe**, and the wrapper
+  would keep:
+  - `window.top === window` and `window.parent === window`. `top` is
+    `[LegacyUnforgeable]`. A guest that tests `top !== self` to decide it is
+    framed decides it is not.
+  - A guest's post to its own window (`window.postMessage`) is taken as a
+    post to `parent`, because the two are one window.
+  - `parent.postMessage(data, origin)` with an origin other than the
+    guest's own is dropped by WebKit, since `parent` is the guest.
+    `'*'` is delivered.
+
+  None of the fixtures (Caltrain's deck, the Extra Heavy feed's pages) do
+  any of these. A consumer that does needs the wrapper back for it, which
+  is one condition in `WebArm.serve`.
+- **The document read.** A local `src` is read once per `src`, off the main
+  thread (`WebViews.update`). It used to be read on the main thread at every
+  update of the row.

@@ -66,6 +66,15 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var suppressLoad = false
     var recovering = false
     var invalidated = false
+    /// The guest is the web view's own document, not a frame in a wrapper
+    /// (see `serve`).
+    var direct = false
+    /// A direct guest navigated itself: its later documents' messages are
+    /// not the app's (the wrapper's `navigated`).
+    var revoked = false
+    /// The origin a direct guest's messages must come from.
+    var expectedOrigin: String?
+    var pageBridge = false
     static let template: WKWebViewConfiguration = {
         let template = WKWebViewConfiguration()
         _ = template.preferences
@@ -95,8 +104,17 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         webView = WKWebView(frame: .zero, configuration: configuration)
         #endif
         super.init()
-        controller.add(self, name: "exact")
         controller.add(self, contentWorld: world, name: "exactAgent")
+        controller.add(self, contentWorld: world, name: "exactFrame")
+        // A direct guest's `parent` is its own window: what it posts to
+        // `parent` arrives as a message from itself. The agent world takes
+        // it before the page's listeners, as an iframe's post never reaches
+        // its own window, and hands it to the app (@ref LLP 1020 D2).
+        controller.addUserScript(WKUserScript(
+            source: "addEventListener('message', e => { if (e.source !== window) return; e.stopImmediatePropagation(); let p = e.data; if (typeof p !== 'string') { try { p = JSON.stringify(p) } catch { return } } if (typeof p === 'string') window.webkit.messageHandlers.exactFrame.postMessage(p) }, true)",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: world))
         controller.addUserScript(WKUserScript(
             source: "if (window.parent === window.top && window !== window.top) window.webkit.messageHandlers.exactAgent.postMessage('ready')",
             injectionTime: .atDocumentStart,
@@ -130,8 +148,9 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guard !invalidated else { return }
         invalidated = true
         webView.stopLoading()
-        controller.removeScriptMessageHandler(forName: "exact")
+        setPageBridge(false)
         controller.removeScriptMessageHandler(forName: "exactAgent", contentWorld: world)
+        controller.removeScriptMessageHandler(forName: "exactFrame", contentWorld: world)
         webView.navigationDelegate = nil
     }
 
@@ -167,13 +186,82 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
     }
 
+    /// One document per row, as a platform web view is used: a local
+    /// document is the web view's own document at the synthetic origin
+    /// (its `sandbox` as a CSP `sandbox` header, which WebKit enforces on
+    /// a top-level document, opaque origin included), and an unsandboxed
+    /// http(s) `src` is loaded as itself. Only a sandboxed remote `src`
+    /// keeps the wrapper and its inner `<iframe>`: WebKit cannot sandbox a
+    /// top-level network load, and approximating it is the fail-open
+    /// class D2 removed (@ref LLP 1020 D2, §10).
     func serve(error: String? = nil) {
         guard !invalidated else { return }
         generation += 1
         guestFrame = nil
         serving = true
-        let request = URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData)
-        webView.loadSimulatedRequest(request, responseHTML: wrapper(error: error))
+        revoked = false
+        let local = error.map(errorDocument) ?? src.flatMap(localDocument)
+        let remote = local == nil ? src.flatMap(remoteSource) : nil
+        let web = remote.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        #if os(iOS)
+        // iOS lays a top-level document out by its viewport `<meta>` (980
+        // CSS px without one); a frame ignores it and takes its box. Only a
+        // document that asks for its box's width is laid out the same
+        // either way, so only such a local document goes direct here.
+        direct = local.map(WebArm.fitsItsBox) ?? (remote == nil)
+        #else
+        // macOS ignores the viewport `<meta>`, as a frame does.
+        direct = local != nil || (web != nil && sandbox == nil) || (local == nil && remote == nil)
+        #endif
+        setPageBridge(!direct)
+        guard direct else {
+            let request = URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData)
+            webView.loadSimulatedRequest(request, responseHTML: wrapper(error: error))
+            return
+        }
+        expectedOrigin = guestOrigin(remote: remote, local: local != nil)
+        if let web, local == nil {
+            webView.load(URLRequest(url: web))
+            return
+        }
+        var headers = ["Content-Type": "text/html; charset=utf-8"]
+        if let sandbox { headers["Content-Security-Policy"] = "sandbox \(sandbox)" }
+        let response = HTTPURLResponse(url: wrapperURL, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+        webView.loadSimulatedRequest(URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData),
+                                     response: response, responseData: Data((local ?? "").utf8))
+    }
+
+    /// Whether a document's viewport `<meta>` asks for the device width at
+    /// scale 1: what a frame of its box gives it.
+    static func fitsItsBox(_ html: String) -> Bool {
+        guard let tag = html.range(of: #"<meta[^>]*name\s*=\s*["']?viewport["']?[^>]*>"#, options: [.regularExpression, .caseInsensitive]),
+              let content = html[tag].range(of: #"content\s*=\s*("[^"]*"|'[^']*')"#, options: [.regularExpression, .caseInsensitive])
+        else { return false }
+        let pairs = html[tag][content].lowercased().filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+            .dropFirst("content=".count).split(whereSeparator: { $0 == "," || $0 == ";" })
+        var width: Substring?, scale: Substring?
+        for pair in pairs {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            guard kv.count == 2 else { continue }
+            if kv[0] == "width" { width = kv[1] } else if kv[0] == "initial-scale" { scale = kv[1] }
+        }
+        return width == "device-width" && (scale == nil || Double(scale!) == 1)
+    }
+
+    /// The wrapper's page-world bridge exists only while a wrapper is
+    /// served: a direct guest is the main frame and must not reach it.
+    func setPageBridge(_ on: Bool) {
+        guard on != pageBridge else { return }
+        pageBridge = on
+        if on { controller.add(self, name: "exact") } else { controller.removeScriptMessageHandler(forName: "exact") }
+    }
+
+    /// An origin as `guestOrigin` spells it.
+    static func spelled(_ o: WKSecurityOrigin) -> String {
+        guard !o.protocol.isEmpty else { return "null" }
+        let host = o.host.contains(":") ? "[\(o.host)]" : o.host
+        let port = o.port == 0 || (o.protocol == "http" && o.port == 80) || (o.protocol == "https" && o.port == 443) ? "" : ":\(o.port)"
+        return "\(o.protocol)://\(host)\(port)"
     }
 
     func wrapper(error: String?) -> String {
@@ -279,6 +367,14 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard !invalidated else { return }
+        if message.name == "exactFrame" {
+            // A direct guest's post to `parent`, from the document `src`
+            // committed and not one it navigated to.
+            guard direct, !revoked, message.frameInfo.isMainFrame, let payload = message.body as? String,
+                  let expectedOrigin, WebArm.spelled(message.frameInfo.securityOrigin) == expectedOrigin else { return }
+            emit(kind: 1, text: payload)
+            return
+        }
         if message.name == "exactAgent" {
             if !message.frameInfo.isMainFrame, guestFrame == nil { guestFrame = message.frameInfo }
             return
@@ -312,6 +408,16 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         guard !invalidated else { decisionHandler(.cancel); return }
+        if direct {
+            // The guest navigates itself, as a frame may; its later
+            // documents are not the committed `src` (@ref LLP 1020 D2).
+            if navigationAction.targetFrame?.isMainFrame == true, !serving {
+                revoked = true
+                guestFrame = nil
+            }
+            decisionHandler(.allow)
+            return
+        }
         guard navigationAction.targetFrame?.isMainFrame == true else {
             // Once the injected guest agent identified the committed child,
             // revoke its message channel at the start of any subsequent
@@ -349,6 +455,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         serving = false
         recovering = false
+        guard direct, !invalidated else { return }
+        // A direct guest's document loaded: the iframe's `load`.
+        emit(kind: 2)
+        if suppressLoad { suppressLoad = false } else { emit(kind: 0) }
     }
 
     func snapshot(token: UInt32) {
@@ -370,20 +480,26 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func evaluate(token: UInt32, script: String) {
+        if direct {
+            guard !serving else { sendReply(token: token, kind: 2, text: "guest frame is not ready"); return }
+            webView.evaluateJavaScript(script, in: nil, in: world) { [weak self] result in self?.evaluated(token: token, result) }
+            return
+        }
         guard let guestFrame else {
             sendReply(token: token, kind: 2, text: "guest frame is not ready")
             return
         }
-        webView.evaluateJavaScript(script, in: guestFrame, in: world) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let value):
-                if let text = value as? String { self.sendReply(token: token, kind: 1, text: text) }
-                else if value is NSNull { self.sendReply(token: token, kind: 1, text: "null") }
-                else { self.sendReply(token: token, kind: 1, text: String(describing: value)) }
-            case .failure(let error):
-                self.sendReply(token: token, kind: 2, text: error.localizedDescription)
-            }
+        webView.evaluateJavaScript(script, in: guestFrame, in: world) { [weak self] result in self?.evaluated(token: token, result) }
+    }
+
+    func evaluated(token: UInt32, _ result: Result<Any, Error>) {
+        switch result {
+        case .success(let value):
+            if let text = value as? String { sendReply(token: token, kind: 1, text: text) }
+            else if value is NSNull { sendReply(token: token, kind: 1, text: "null") }
+            else { sendReply(token: token, kind: 1, text: String(describing: value)) }
+        case .failure(let error):
+            sendReply(token: token, kind: 2, text: error.localizedDescription)
         }
     }
 
