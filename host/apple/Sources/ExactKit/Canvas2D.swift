@@ -104,6 +104,12 @@ final class Canvas2DReplayer {
     var patterns: [UInt32: Canvas2DPattern] = [:]
     var imageSources: [UInt32: String] = [:]
     weak var env: Canvas2DEnv?
+    /// Nothing has painted since the bitmap was made or last cleared whole,
+    /// so `reset` has nothing to clear. A draw that starts with
+    /// `ctx.reset()` (the idiom for a canvas that redraws) otherwise writes
+    /// every pixel of a fresh bitmap once for nothing: a third of a list
+    /// row's canvas replay at 3x (LLP 1056 D10).
+    private var blank = true
 
     init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
         self.lifetime = lifetime; self.generation = generation
@@ -116,8 +122,9 @@ final class Canvas2DReplayer {
         if let c = context {
             c.concatenate(base)
             // The root state: `reset` restores to it, dropping every clip.
+            // A bitmap context Core Graphics allocates starts zeroed, which is
+            // the transparent black a new canvas is: no clear here.
             c.saveGState()
-            c.clear(CGRect(x: 0, y: 0, width: CGFloat(width) / CGFloat(scale), height: CGFloat(height) / CGFloat(scale)))
         }
     }
 
@@ -161,6 +168,11 @@ final class Canvas2DReplayer {
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func step(_ c: CGContext, _ op: Canvas2DOp, _ n: [Double], _ count: Int) {
         switch op {
+        case .fill, .fillPath, .stroke, .strokePath, .fillRect, .strokeRect, .fillText, .strokeText, .drawImage, .putImageData:
+            blank = false
+        default: break
+        }
+        switch op {
         case .save: stack.append(state); c.saveGState()
         case .restore:
             if let s = stack.popLast() { state = s; c.restoreGState() }
@@ -168,7 +180,7 @@ final class Canvas2DReplayer {
             while stack.popLast() != nil { c.restoreGState() }
             c.restoreGState(); c.saveGState()
             state = Canvas2DState(); path = CGMutablePath(); scratch = CGMutablePath()
-            c.clear(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7))
+            if !blank { c.clear(CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7)); blank = true }
         case .setTransform: state.author = CGAffineTransform(a: n[0], b: n[1], c: n[2], d: n[3], tx: n[4], ty: n[5])
         case .fillColor: state.fill = .color(color(n, 0))
         case .fillGradient: state.fill = .gradient(UInt32(n[0]))
