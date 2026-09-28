@@ -17,6 +17,17 @@ final class ChainingScrollView: NSScrollView {
     /// thread follows it (LLP 1002 D4; LLP 1044 F3).
     override class var isCompatibleWithResponsiveScrolling: Bool { true }
 
+    /// Always overlay: a `scroll` node's scrollbars take no layout space
+    /// (LLP 1010: the kernel's `scrollbar_width` is 0). AppKit sets every
+    /// scroll view to the system's preferred style when it posts
+    /// `NSPreferredScrollerStyleDidChangeNotification` — on a Mac with a
+    /// mouse, legacy, whose 15-point scrollers would take a node's clip
+    /// narrower and shorter than the box the kernel laid out.
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = .overlay }
+    }
+
     /// Points per line for a wheel without precise deltas — the browser's
     /// tick.
     static let lineHeight: CGFloat = 40
