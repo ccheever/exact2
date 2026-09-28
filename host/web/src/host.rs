@@ -31,6 +31,8 @@ use fonts::{font_catalog, font_faces, font_names};
 pub mod document;
 #[path = "element.rs"]
 mod element;
+#[path = "template.rs"]
+pub mod template;
 use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;

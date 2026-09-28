@@ -1323,6 +1323,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-web3"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "exact-web",
+ "serde_json",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
