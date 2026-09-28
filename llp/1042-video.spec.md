@@ -262,6 +262,97 @@ Workspace build/test/Clippy were incomplete in filesystem-helper fixture bakes;
 formatting, caps, boot and Apple platform builds pass. Detailed evidence lives
 in the Shop consumer's `.evidence/video-startup-checkpoint.json`.
 
+## 7. Proposed amendments (awaiting Charlie's ruling, 2026-09-28)
+
+A–C are measured and not built; each needs a ruling. §7.4 is built. The Extra Heavy
+feed (`~/bench/xheavy`, heavybench probe) made only of its video row (`video
+… autoplay muted loop playsinline controls=false paused=…`), base origin/main
+`5d177f3f`, "mine" = `perf/video-row` (§7.4), "layer" = the same build
+launched with `allowsPictureInPicturePlayback=false allowsVideoFrameAnalysis=false`
+on the video (A's default), medians of two rounds of `fling` and `ladder` (2026-09-28):
+
+| M1 iPad Pro 12.9" | fps | 24k pt/s | ladder 48k | late/s | CPU ms/s | main ms/s | peak MB |
+|---|---|---|---|---|---|---|---|
+| SwiftUI (AVPlayerLayer, AVPlayerLooper) | 104.7 | 42.4 | 19.1 | 4.3 | 437 | 242 | 34 |
+| base | 96.1 | 12.7 | 13.4 | 6.9 | 846 | 442 | 88 |
+| base, layer | 110.9 | 66.5 | 111 (one run) | 2.6 | 379 | 199 | 57 |
+| mine | 100.1 | 14.7 | 14.6 | 3.9 | 772 | 430 | 98 |
+| mine, layer | 112.8 | 77.4 | 117.0 | 1.9 | 335 | 178 | 56 |
+
+| iPhone 13 Pro Max | fps | 24k pt/s | ladder 48k | late/s | CPU ms/s | main ms/s | peak MB |
+|---|---|---|---|---|---|---|---|
+| SwiftUI | 96.6 | 34.3 | 21.8 | 11.3 | 433 | 238 | 37 |
+| base | 85.0 | 12.0 | 11.0 | 7.3 | 794 | 411 | 73 |
+| base, layer | 107.9 | 59.3 | 53.9 | 4.8 | 420 | 233 | 75 |
+| mine | 101.8 | 40.7 | 19.7 | 6.6 | 635 | 357 | 71 |
+| mine, layer | 119.4 | 119.6 | 113.6 | 0.5 | 353 | 201 | 75 |
+
+The 17-kind feed (one round, iPad): base 103.0 fps at 969 ms/s CPU, mine
+102.2 at 959, mine with the layer 107.7 at 943, SwiftUI 107.7 at 622 (the
+other kinds carry that difference). exact2's peak memory on the video feed
+stays above SwiftUI's (56 against 34 MB on the iPad) on every variant.
+
+### A. No controller for a video without `controls`
+
+§2 makes AVKit the default because PiP and frame analysis default to true,
+and "authors must opt out to use the layer". Proposed: on iOS a video without
+`controls` presents the AVPlayerLayer unless the node sets a controller
+feature explicitly: `allowsPictureInPicturePlayback=true`,
+`allowsVideoFrameAnalysis=true`, `canStartPictureInPictureAutomaticallyFromInline`,
+`entersFullScreenWhenPlaybackBegins` (or, as now, no `playsinline`),
+`exitsFullScreenWhenPlaybackEnds` or `requiresLinearPlayback`. With
+`controls`, nothing changes. Promotion to a controller when a feature is
+turned on later, and "once installed, it remains", stay as written.
+
+Why: Chrome's `<video>` without `controls` draws no UI, and without the
+controls' button (or automatic start, off by default) PiP cannot be reached
+anyway; the unset preferences buy a view controller, an `AVPlayerView` and
+AVKit's interstitial coordinator per row. Profiled (Time Profiler, iPad,
+fling): the controller path spends 374 ms/s of the main thread against the
+layer's 151, 134 of it in `AVPlayerViewController` (68 in `AVPlayerView`'s
+`layoutSubviews` as each row enters the window). Its CoreMedia threads run 129
+ms/s against the layer's 26; 92 ms/s is `fpic_*` sync XPC (AVKit's
+interstitial coordinator asking for the current item) that only the
+controller brings.
+
+What an author loses: on iOS a paused video without `controls` no longer
+offers Live Text or subject lifting on its frame unless it sets
+`allowsVideoFrameAnalysis=true`; Chrome's `<video>` offers neither.
+`state.media.renderer` reads `AVPlayerLayer`. macOS keeps `AVPlayerView`
+(its cost is not measured here).
+
+### B. Chrome pauses an autoplaying muted video off screen
+
+Measured in Chrome 154 (headless and headed, 2026-09-28): a `muted` video
+started by its `autoplay` attribute pauses when scrolled wholly out of the
+viewport (`pause`, `paused` true, the time held) and resumes on return
+(`play`, `playing`). One started or restarted by `play()` — which is what the
+web glue does whenever `paused` is bound — plays on. Native hosts play on in
+both cases, so with `paused` unbound they differ from the oracle. Proposed:
+Apple follows Chrome's rule for an unbound `paused`, through
+`VideoVisibilityHost` at threshold 0; `playbackVisibilityThreshold` stays the
+bound case's policy. Not measured on the feed, which binds `paused`.
+
+### C. Player reuse (LLP 1068 Q5): not proposed
+
+On the layer path the part of a row's video a pool would keep (the
+`AVPlayer`, its layer view, their teardown; LLP 1068 §4.6 keeps the item per
+row) is about 10 ms/s (player creation 3.0, the layer view 4.6, detaching
+both 2.6) of the layer path's 151 ms/s of main thread in the fling, and that
+path already beats SwiftUI's. "One node incarnation owns one player" stands.
+
+### 7.4 Built without a ruling (`perf/video-row`)
+
+Parity fixes and cuts that change nothing an author sees in Chrome: a loop
+is a seek (Chrome's seeking, waiting, seeked, canplay, playing; never pause,
+play or ended), where the player used to pause and play, and an app mirroring
+play/pause into `paused` (apps/video-player) stopped at the first loop;
+`ratechange` only for a playback-rate change, not on every play and pause; a
+setter only for a changed value (volumechange no longer fires on every
+update); only handled events cross the ABI and the 4 Hz timeupdate runs only
+while handled, as the web glue does; one parsed `AVURLAsset` per unchanged
+local file; `src`/`poster` resolved only when they change.
+
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),
 [AVPlayerView](https://developer.apple.com/documentation/avkit/avplayerview).
