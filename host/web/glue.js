@@ -74,6 +74,17 @@ const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name
   if (!rustLoader) throw new Error('Rust module loader is not ready');
   return rustLoader[name](...args);
 }]));
+// A Rust source's entropy and, under the agent, the seed of its repeatable
+// stream (LLP 1069.005 D5, D2b; `exact_data::crypto`). The seed is
+// storage-environment.js's `agentSeed`: a loopback page only; -1 is none.
+const dataImports = {
+  random: (ptr, len) => { crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, ptr, len)); },
+  agent_seed: () => {
+    const url = new URL(location.href), seed = Number(url.searchParams.get('seed') ?? 1);
+    if (!url.searchParams.has('agent') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return -1;
+    return Number.isSafeInteger(seed) && seed >= 0 ? seed : 1;
+  },
+};
 function loadAfterPaint(file, exported) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -1371,7 +1382,7 @@ async function main() {
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
   // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
-  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports }, aborted = e => e?.name === "AbortError";
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;

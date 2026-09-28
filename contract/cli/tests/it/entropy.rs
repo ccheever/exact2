@@ -10,10 +10,14 @@ const SRC: &str = r#"
 component App
   resource id = token() as shape string
   resource session = session() as shape string
+  resource uuid = uuid() as shape string
+  resource digest = digest() as shape number
   view
     column
       text id testId="id"
       text session testId="session"
+      text uuid testId="uuid"
+      text "{digest}" testId="digest"
 "#;
 
 /// `token` draws (as `crypto.randomUUID` does on every executor);
@@ -44,6 +48,12 @@ impl DataSource for Device {
                 store.observe_external_read();
                 Ok(Answer::Now(Value::str("signed out")))
             }
+            // D5: a Rust source's own helpers, marked as TypeScript's are.
+            "uuid" => exact_data::crypto::random_uuid(store).map(|id| Answer::Now(Value::str(&id))),
+            "digest" => {
+                let bytes = exact_data::crypto::digest(exact_data::crypto::Sha::Sha256, b"abc");
+                Ok(Answer::Now(Value::Number(bytes[0] as f64)))
+            }
             other => Err(DataError::UnknownSource(other.into())),
         }
     }
@@ -61,6 +71,10 @@ fn bake_compiles_no_value_that_drew_randomness() {
     };
     assert!(row("id").reader && row("id").initial.len == 0);
     assert!(row("session").reader && row("session").initial.len > 0);
+    // D5: `exact_data::crypto` marks a Rust source's draw the same way; a
+    // digest is pure and compiled.
+    assert!(row("uuid").reader && row("uuid").initial.len == 0);
+    assert!(!row("digest").reader && row("digest").initial.len > 0);
 
     // The device answers it, with its own draw.
     let runner = Runner::boot(

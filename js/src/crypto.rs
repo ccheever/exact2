@@ -7,20 +7,21 @@
 
 use std::ffi::{c_char, c_void, CStr};
 
-use sha2::Digest;
+use exact_data::crypto::Sha;
 
 use crate::{c_string, HostState};
 
 /// A SHA-2 digest of `data`, lowercase hex: the name is the prelude's,
-/// already normalized (`SHA-256`, `SHA-384`, `SHA-512`).
+/// already normalized (`SHA-256`, `SHA-384`, `SHA-512`). The Rust
+/// sources' own (D5), so both languages hash with one implementation.
 fn digest(name: &str, data: &[u8]) -> Result<String, String> {
-    let bytes = match name {
-        "SHA-256" => sha2::Sha256::digest(data).to_vec(),
-        "SHA-384" => sha2::Sha384::digest(data).to_vec(),
-        "SHA-512" => sha2::Sha512::digest(data).to_vec(),
+    let sha = match name {
+        "SHA-256" => Sha::Sha256,
+        "SHA-384" => Sha::Sha384,
+        "SHA-512" => Sha::Sha512,
         other => return Err(format!("NotSupportedError: {other}")),
     };
-    Ok(hex(&bytes))
+    Ok(hex(&exact_data::crypto::digest(sha, data)))
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {

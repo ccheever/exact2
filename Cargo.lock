@@ -457,6 +457,7 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
+ "exact-data",
  "exact-kernel",
  "exact-motion",
  "exact-plan",
@@ -816,7 +817,9 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "getrandom 0.3.4",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

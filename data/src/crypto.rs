@@ -1,7 +1,15 @@
-//! A source's cryptography, the same on every executor (LLP 1069.005).
+//! A source's cryptography, the same on every executor (LLP 1069.005):
+//! what a Rust source calls for what a TypeScript source reaches through
+//! `crypto`, under the same read marking.
 //!
+//! @ref LLP 1069.005 D5 — `digest`, `random_bytes`, `random_uuid`: the
+//! right way is the short way (trusted Rust can still call `getrandom`).
 //! @ref LLP 1069.005 D2b — under the agent, randomness is a repeatable
 //! stream: ChaCha20 (RFC 8439 §2.3) keyed by the launch seed.
+
+use std::sync::{Mutex, OnceLock};
+
+use exact_runner::{DataError, Store};
 
 /// The agent's repeatable random stream (LLP 1069.005 D2b): the ChaCha20
 /// keystream (RFC 8439 §2.3, 20 rounds) under a key that is the launch seed
@@ -108,6 +116,103 @@ impl AgentStream {
     }
 }
 
+/// A SHA-2 size for [`digest`] (LLP 1069.005 D1's three).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sha {
+    /// SHA-256: 32 bytes.
+    Sha256,
+    /// SHA-384: 48 bytes.
+    Sha384,
+    /// SHA-512: 64 bytes.
+    Sha512,
+}
+
+/// The digest of `data`: pure, so no read and allowed anywhere, as
+/// `crypto.subtle.digest` is on every executor (LLP 1069.005 D1, D5).
+pub fn digest(sha: Sha, data: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    match sha {
+        Sha::Sha256 => sha2::Sha256::digest(data).to_vec(),
+        Sha::Sha384 => sha2::Sha384::digest(data).to_vec(),
+        Sha::Sha512 => sha2::Sha512::digest(data).to_vec(),
+    }
+}
+
+/// The most one draw fills, as WebCrypto's `getRandomValues` allows.
+pub const MAX_RANDOM_BYTES: usize = 65_536;
+
+/// Fill `out` with secure random bytes, and mark the answer being made as
+/// having drawn them (LLP 1069.005 D2, D5): a device read, so bake compiles
+/// no value that drew one and the device asks it, as for a TypeScript
+/// source's `crypto.getRandomValues`. The OS's entropy; under the agent the
+/// repeatable `rust` stream (D2b). More than [`MAX_RANDOM_BYTES`] refuses,
+/// with nothing written; an entropy failure clears `out` and refuses.
+pub fn random_bytes(store: &Store, out: &mut [u8]) -> Result<(), DataError> {
+    if out.len() > MAX_RANDOM_BYTES {
+        return Err(DataError::BadArguments(format!(
+            "random_bytes: at most {MAX_RANDOM_BYTES} bytes a draw, not {}",
+            out.len()
+        )));
+    }
+    let agent = AGENT
+        .get_or_init(|| platform::agent_seed().map(|s| Mutex::new(AgentStream::new(s, "rust"))));
+    match agent {
+        Some(stream) => stream.lock().unwrap_or_else(|e| e.into_inner()).fill(out),
+        None => platform::fill(out).map_err(|error| {
+            out.fill(0);
+            DataError::Unavailable(format!("random_bytes: OS randomness unavailable: {error}"))
+        })?,
+    }
+    store.observe_entropy();
+    Ok(())
+}
+
+/// A random UUID v4, as `crypto.randomUUID()` returns: a draw of 16 bytes
+/// by [`random_bytes`], with its read.
+pub fn random_uuid(store: &Store) -> Result<String, DataError> {
+    let mut bytes = [0u8; 16];
+    random_bytes(store, &mut bytes)?;
+    Ok(format_uuid(bytes))
+}
+
+/// The process's `rust` stream under the agent, from its start at the first
+/// draw; `None` outside the agent.
+static AGENT: OnceLock<Option<Mutex<AgentStream>>> = OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+mod platform {
+    pub fn fill(out: &mut [u8]) -> Result<(), String> {
+        getrandom::fill(out).map_err(|e| e.to_string())
+    }
+    pub fn agent_seed() -> Option<u64> {
+        super::AgentStream::agent_seed()
+    }
+}
+
+/// In the page's wasm, entropy and the drive's seed are the page's (the
+/// `exact_data` imports `host/web/glue.js` supplies). A Wasm logic module
+/// (LLP 1029.000) has no such import yet: one that draws is refused at load.
+#[cfg(target_arch = "wasm32")]
+mod platform {
+    #[link(wasm_import_module = "exact_data")]
+    extern "C" {
+        fn random(ptr: *mut u8, len: usize);
+        #[link_name = "agent_seed"]
+        fn page_seed() -> f64;
+    }
+    pub fn fill(out: &mut [u8]) -> Result<(), String> {
+        // SAFETY: the page writes exactly `len` bytes at `ptr`, which is
+        // this owned buffer, and calls nothing back.
+        unsafe { random(out.as_mut_ptr(), out.len()) };
+        Ok(())
+    }
+    pub fn agent_seed() -> Option<u64> {
+        // SAFETY: a pure read of the page's launch facts.
+        let seed = unsafe { page_seed() };
+        (seed >= 0.0).then_some(seed as u64)
+    }
+}
+
 /// A lowercase UUID v4 from 16 bytes: only the version and variant bits
 /// are set, as `crypto.randomUUID()` forms one on every executor.
 pub fn format_uuid(mut bytes: [u8; 16]) -> String {
@@ -172,6 +277,79 @@ mod tests {
     }
 
     const TYPESCRIPT_SEED_1_FIRST_UUID: &str = "deb201fb-035c-4c32-bbbf-3da08991a485";
+
+    #[test]
+    fn digests_are_the_sha2_vectors_and_no_read() {
+        assert_eq!(
+            hex(&digest(Sha::Sha256, b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            hex(&digest(Sha::Sha384, b"abc")),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed\
+             8086072ba1e7cc2358baeca134c825a7"
+        );
+        assert_eq!(
+            hex(&digest(Sha::Sha512, b"")),
+            "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce\
+             47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+        );
+    }
+
+    #[test]
+    fn a_draw_is_a_counted_read_and_the_quota_refuses_unmarked() {
+        let store = Store::new("", []);
+        let (a, b) = (random_uuid(&store).unwrap(), random_uuid(&store).unwrap());
+        assert!(a != b && a.len() == 36 && &a[14..15] == "4", "{a} {b}");
+        assert!(matches!(&a[19..20], "8" | "9" | "a" | "b"));
+        let mut bytes = [0u8; 32];
+        random_bytes(&store, &mut bytes).unwrap();
+        assert_ne!(bytes, [0; 32]);
+        assert_eq!((store.reads(), store.entropy_draws()), (3, 3));
+        let mut too_many = vec![7u8; MAX_RANDOM_BYTES + 1];
+        assert!(matches!(
+            random_bytes(&store, &mut too_many),
+            Err(DataError::BadArguments(_))
+        ));
+        assert!(too_many.iter().all(|&b| b == 7), "nothing written");
+        assert_eq!(store.entropy_draws(), 3, "a refusal draws nothing");
+    }
+
+    /// Two processes under the agent with seed 1 mint the `rust` stream's
+    /// UUID; one outside it does not (D2b). A child process each, since the
+    /// flag is the process's and read once.
+    #[test]
+    fn under_the_agent_two_runs_of_a_rust_source_mint_the_same_uuid() {
+        const NAME: &str =
+            "crypto::tests::under_the_agent_two_runs_of_a_rust_source_mint_the_same_uuid";
+        if std::env::var_os("EXACT_DATA_CRYPTO_CHILD").is_some() {
+            println!("uuid={}", random_uuid(&Store::new("", [])).unwrap());
+            return;
+        }
+        let run = |agent: bool| {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+                .env("EXACT_DATA_CRYPTO_CHILD", "1")
+                .env("EXACT_AGENT_SEED", "1")
+                .env_remove("EXACT_AGENT");
+            if agent {
+                command.env("EXACT_AGENT", "1");
+            }
+            let out = String::from_utf8(command.output().unwrap().stdout).unwrap();
+            // The harness prints the test's name on the same line.
+            out.split("uuid=")
+                .nth(1)
+                .and_then(|rest| rest.get(..36))
+                .unwrap_or_else(|| panic!("no uuid: {out}"))
+                .to_string()
+        };
+        let mut first = [0u8; 16];
+        AgentStream::new(1, "rust").fill(&mut first);
+        assert_eq!(run(true), format_uuid(first));
+        assert_eq!(run(true), format_uuid(first));
+        assert_ne!(run(false), format_uuid(first));
+    }
 
     #[test]
     fn uuid_sets_only_version_and_variant_bits() {
