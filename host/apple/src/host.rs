@@ -429,7 +429,7 @@ impl<D: DataSource> Host<D> {
             batch.router(&change);
         }
         for c in host.runner.take_commands() {
-            batch.command(&c.name, &c.args);
+            batch.command(&c.name, &c.args, c.source);
         }
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
@@ -476,8 +476,9 @@ impl<D: DataSource> Host<D> {
     /// device request, consumed here; the reply names the requesting node,
     /// where the Swift capability arm delivers it (a picker's `change` or
     /// `cancel`, LLP 1069.002 D9). Also the picker's `showPicker` hold and
-    /// `pickedPath`, whose reply adds the file to copy into. `None` for an
-    /// ordinary `tap` or `type`.
+    /// `pickedPath`, whose reply adds the file to copy into. A `share` hold
+    /// delivers nothing but the journal line the runner writes (LLP 1069.003
+    /// D6). `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let picked = exact_runner::agent::field_str(request, "op").as_deref() == Some("pickedPath");
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| {
@@ -487,6 +488,12 @@ impl<D: DataSource> Host<D> {
                 reply
             }
         })
+    }
+
+    /// A `share` the session is about to run (LLP 1069.003): the runner's
+    /// ruling on it ([`exact_runner::share::request`]).
+    pub fn share(&mut self, request: &str) -> String {
+        exact_runner::share::request(&mut self.runner, request)
     }
 
     /// What a reload keeps (`Runner::carry`).
@@ -1187,7 +1194,7 @@ impl<D: DataSource> Host<D> {
             batch.router(&change);
         }
         for c in self.runner.take_commands() {
-            batch.command(&c.name, &c.args);
+            batch.command(&c.name, &c.args, c.source);
         }
         (batch, error.or(layout_error))
     }

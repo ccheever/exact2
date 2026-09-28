@@ -12,6 +12,8 @@ separate screen and Back to notes returns to the editor. ⌘F opens search from
 either screen. Escape clears/closes search or returns from Backups. New note
 clears the search and focuses the title; selecting a saved note focuses its body.
 Drafts remain protected: New note stays disabled until saved or discarded.
+Share… hands the note's title and text to the system share sheet; it shows
+only where the host has one (`exactPage().canShare`, LLP 1069.003).
 
 ```sh
 bun host/web/dev.mjs --app fieldnotes

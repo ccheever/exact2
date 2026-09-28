@@ -407,7 +407,7 @@ public final class ExactSession {
     public private(set) var rustMs = 0.0
     public private(set) var applyMs = 0.0
     /// Commands from the batch being applied, delivered after it (D2).
-    private var pendingCommands: [(String, [Any])] = []
+    private var pendingCommands: [(String, [Any], UInt32?)] = []
     private var applying = false
     var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
@@ -547,7 +547,7 @@ public final class ExactSession {
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
-        presenter.onCommand = { [unowned self] name, args in pendingCommands.append((name, args)) }
+        presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
     }
 
     /// Boot the plan baked into the library (or `EXACT_PLAN`'s file, an
@@ -756,7 +756,7 @@ public final class ExactSession {
             #endif
             let queued = pendingCommands
             pendingCommands = []
-            for (name, args) in queued {
+            for (name, args, source) in queued {
                 if name == "copyText" {
                     guard args.count == 1, let text = args.first as? String else {
                         fputs("exact: copyText requires one string\n", stderr)
@@ -770,6 +770,10 @@ public final class ExactSession {
                         fputs("exact: copyText failed\n", stderr)
                     }
                     #endif
+                    continue
+                }
+                if name == "share" {
+                    app.deliver { [weak self] in self?.share(args, source: source) }
                     continue
                 }
                 if name == "focus" || name == "selectText" {

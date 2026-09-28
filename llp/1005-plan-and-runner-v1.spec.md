@@ -290,6 +290,11 @@ no presenter knows is refused on its stderr. `copyText(text)` writes one string
 to the host clipboard after commit (Apple: LLP 1008 §5; web: LLP 1007 §4).
 It has no return value and neither reads clipboard contents nor changes focus.
 Invalid arguments and unsupported/denied writes are reported by the host.
+`share(title=, text=, url=)` (LLP 1069.003) takes named arguments, lowered
+positionally as `(title, text, url)` with `none` for an absent one; every
+`Command` carries `source`, the view whose event ran the action (`None` for a
+timer or an answer), and the runner's `share::arm` rules for every host:
+refused into the journal, held for the agent, or presented.
 `selectText(html-id)` focuses and selects an editor after commit using the
 host’s native selection API; it accepts one string (LLP 1007 §4, 1008 §5).
 Linux reports this unsupported; it does not emulate a text selection surface.

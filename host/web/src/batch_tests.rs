@@ -223,6 +223,7 @@ fn cases() -> Vec<(&'static str, String)> {
                         Value::Option(None),
                         Value::list(vec![Value::Number(3.0), Value::Unit]),
                     ],
+                    Some(7),
                 )
             }),
         ),
@@ -359,7 +360,7 @@ const GOLDEN: &[(&str, &str)] = &[
     ),
     (
         "command",
-        r#"{"ops":[{"op":"command","name":"copy","args":[1.5,null,true,"t",null,[3,null]]}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"command","name":"copy","args":[1.5,null,true,"t",null,[3,null]],"source":7}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "finish-timers",

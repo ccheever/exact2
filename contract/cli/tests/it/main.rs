@@ -48,6 +48,7 @@ mod routes;
 mod rust_shapes;
 mod shadow_and_case;
 mod shape_cycles;
+mod share;
 mod source_locations;
 mod source_map;
 mod strings;

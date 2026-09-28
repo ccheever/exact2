@@ -342,8 +342,9 @@ impl<D: DataSource> Host<D> {
     }
 
     /// `tap @t` or `type @t` (LLP 1069.007 D4): the agent answers a held
-    /// device request, consumed here. No capability is admitted yet, so no
-    /// arm takes the answer on; `None` for an ordinary `tap` or `type`.
+    /// device request, consumed here. The one capability admitted, `share`, has nothing to
+    /// deliver but the journal line the runner writes (LLP 1069.003 D6);
+    /// `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| reply)
     }

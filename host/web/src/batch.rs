@@ -586,7 +586,7 @@ impl Batch {
 
     /// `{"op":"command","name":…,"args":[…]}` — a capability an action
     /// called (LLP 1005 §3), for the glue to execute after the commit.
-    pub fn command(&mut self, name: &str, args: &[exact_plan::Value]) {
+    pub fn command(&mut self, name: &str, args: &[exact_plan::Value], source: Option<u32>) {
         let mut s = String::from("{\"op\":\"command\",\"name\":");
         quote(name, &mut s);
         s.push_str(",\"args\":[");
@@ -596,7 +596,11 @@ impl Batch {
             }
             value_json(v, &mut s);
         }
-        s.push_str("]}");
+        s.push(']');
+        if let Some(id) = source {
+            s.push_str(&text!(",\"source\":{}", id));
+        }
+        s.push('}');
         self.ops.push(s);
     }
 

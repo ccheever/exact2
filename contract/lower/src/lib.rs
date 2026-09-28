@@ -1157,8 +1157,9 @@ impl<'a> Lowerer<'a> {
                 asm.refresh(r);
             }
             Stmt::Command { name, args, .. } => {
-                for arg in args {
-                    expr::compile(self, asm, arg, scope, locals)?;
+                let args = expr::command_args(name, args);
+                for arg in &args {
+                    expr::compile_or_none(self, asm, *arg, scope, locals)?;
                 }
                 let name = self.b.str(name);
                 asm.command(name, args.len() as u16);

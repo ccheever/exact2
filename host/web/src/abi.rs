@@ -857,6 +857,18 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A `share` the glue is about to run (LLP 1069.003): the runner's
+    /// ruling on it ([`exact_runner::share::request`]).
+    pub fn share(&mut self, len: usize) -> u32 {
+        let request =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = match self.host.as_mut() {
+            Some(h) => exact_runner::share::request(h.runner_mut(), &request),
+            None => exact_runner::agent::error("not booted"),
+        };
+        self.emit(out)
+    }
+
     /// A page line into the runner's journal (`exact_log`).
     pub fn log(&mut self, len: usize) -> u32 {
         let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -1114,6 +1126,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_log(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().log(len as usize))
+        }
+
+        /// A `share` command's data (LLP 1069.003), JSON in the input
+        /// buffer: the output is `{"refused"|"ticket"|"present":…}`.
+        #[no_mangle]
+        pub extern "C" fn exact_share(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().share(len as usize))
         }
     };
 }

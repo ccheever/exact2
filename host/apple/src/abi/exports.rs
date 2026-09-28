@@ -472,5 +472,12 @@ macro_rules! host {
         pub extern "C" fn exact_log(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
+
+        /// A `share` command's data (LLP 1069.003), JSON in the input
+        /// buffer; returns the ruling's length (`refused`, `ticket`, `present`).
+        #[no_mangle]
+        pub extern "C" fn exact_share(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.share(len), |n| n)
+        }
     };
 }

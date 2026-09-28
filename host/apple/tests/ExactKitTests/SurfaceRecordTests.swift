@@ -31,7 +31,7 @@ final class SurfaceRecordTests: XCTestCase {
         let session = try fixture()
         defer { session.destroy() }
         let text = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "text" })
-        session.presenter.onCommand = { [unowned session] _, _ in
+        session.presenter.onCommand = { [unowned session] _, _, _ in
             session.canvases.surfaceRecord("world", "{\"beacons\":7}")
             XCTAssertEqual(text.props["text"], "Count 0")
         }

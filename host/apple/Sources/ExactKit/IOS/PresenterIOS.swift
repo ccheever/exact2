@@ -320,7 +320,7 @@ final class Presenter {
     /// Host intrinsic sizes, several at once under one layout.
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
-    var onCommand: ((String, [Any]) -> Void)?
+    var onCommand: ((String, [Any], UInt32?) -> Void)?
 
     /// One native focus intent, bound to the actual editor across controller
     /// transitions. Replacing a node with the same HTML id cannot inherit it.
@@ -720,7 +720,7 @@ final class Presenter {
             case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
-                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
             case .destroy:
                 if endExit(id) { continue }

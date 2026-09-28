@@ -566,6 +566,6 @@ impl std::error::Error for PlanError {}
 pub fn runner_owned_source(name: &str) -> bool {
     matches!(
         name,
-        "exactDelivery" | "exactViewport" | "exactSurface" | "exactTime"
+        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
     )
 }

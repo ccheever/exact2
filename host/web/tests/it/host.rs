@@ -1270,7 +1270,9 @@ fn a_blur_command_reaches_the_batch_by_name() {
     let dismiss = view_with_test_id_any(&host, "dismiss");
     let batch = host.dispatch(dismiss, Event::Press);
     assert!(
-        batch.contains("{\"op\":\"command\",\"name\":\"blur\",\"args\":[]}"),
+        batch.contains(&format!(
+            "{{\"op\":\"command\",\"name\":\"blur\",\"args\":[],\"source\":{dismiss}}}"
+        )),
         "{batch}"
     );
 }

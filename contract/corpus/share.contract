@@ -1,0 +1,29 @@
+// `share` (LLP 1069.003): a link, text alone, a refused relative URL, and a
+// menu item, beside the `canShare` fact that decides whether to offer it.
+shape Page
+  visibilityState: string
+  onLine: bool
+  canShare: bool
+
+component App
+  resource page = exactPage() as shape Page
+  action shareLink
+    share(title="A post", url="https://example.com/post/1")
+  action shareText
+    share(text="hello from exact2")
+  action shareRelative
+    share(url="/post/1")
+  view
+    column padding=16 gap=8
+      text (page.canShare ? "can share" : "cannot share") testId="can-share"
+      button press=shareLink testId="share-link"
+        text "Share link"
+      button press=shareText testId="share-text"
+        text "Share text"
+      button press=shareRelative testId="share-relative"
+        text "Share a relative URL"
+      button popovertarget="more" testId="more"
+        text "More"
+      column id="more" popover="auto" role="menu"
+        button press=shareLink popovertarget="more" popovertargetaction="hide" testId="menu-share"
+          text "Share"

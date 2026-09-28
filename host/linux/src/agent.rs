@@ -56,6 +56,7 @@ pub fn serve<D: DataSource + Default>(
 
 /// Answer one request.
 pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
+    p.agent = true;
     p.poll_images();
     // A reply that landed since the last operation commits before this one
     // (the other hosts apply it as it lands; here nothing runs between) —

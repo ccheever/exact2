@@ -30,6 +30,10 @@ shape Status
   message: string
   failed: bool
   backupText: string
+shape Page
+  visibilityState: string
+  onLine: bool
+  canShare: bool
 
 component Fieldnotes
   state query = ""
@@ -74,6 +78,8 @@ component Fieldnotes
   derive dirty = title != referenceTitle or body != referenceBody or pinned != referencePinned
   derive busy = pending(saved) or pending(status) or pending(library) or pending(opened)
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
+  // The share sheet, where the host has one (LLP 1069.003 D5).
+  resource page = exactPage() as shape Page
 
   action search(value) writes query
     query = value
@@ -167,6 +173,8 @@ component Fieldnotes
     draftPinned = none
     originalPinned = none
     version = version + 1
+  action shareNote
+    share(title=title, text=body)
   action askDelete writes confirmDelete
     confirmDelete = true
   action cancelDelete writes confirmDelete
@@ -277,6 +285,9 @@ component Fieldnotes
               when dirty
                 button press=discard disabled=busy testId="discard" padding=12
                   text "Discard changes" color="#63766a"
+              when page.canShare and (title != "" or body != "")
+                button press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
+                  text "Share…" color="#31554a"
               when editingId != ""
                 button press=askDelete disabled=busy testId="delete-note" padding=12
                   text "Delete…" color="#a34336"

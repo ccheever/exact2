@@ -312,6 +312,13 @@ final class Runtime {
         let len = exact_agent(rt, n)
         return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
     }
+    /// A share command's ruling (LLP 1069.003): refused, held, or present it.
+    func share(_ request: [String: Any]) -> [String: Any] {
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return ["refused": "unreadable"] }
+        let len = exact_share(rt, write(String(decoding: json, as: UTF8.self)))
+        let data = Data(bytes: exact_out(rt), count: Int(len))
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["refused": "unreadable"]
+    }
     /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.
     func log(_ line: String) {
         _ = exact_log(rt, write(line))

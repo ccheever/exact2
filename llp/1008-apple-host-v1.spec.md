@@ -382,6 +382,11 @@ existing focus event; web uses the element's focus. The command takes one
 string, does not select text, and does not activate the target. macOS and iOS
 handle it inside the session before forwarding external delegate commands.
 
+`share` (LLP 1069.003) is handled in `ExactKit/Share.swift`: the runner rules
+(`exact_share`), then `UIActivityViewController` or `NSSharingServicePicker`
+anchored to the command's `source` view, a menu row's popover invoker, or the
+window's centre; the outcome is a journal line. No activation is required.
+
 `copyText(text)` (2026-09-10, Messages) is also handled inside the session,
 after its committed batch. Exactly one string is required. iOS assigns it to
 `UIPasteboard.general.string`; macOS clears the general pasteboard and writes

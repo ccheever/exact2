@@ -151,6 +151,11 @@ pub fn answer<D: DataSource>(
     }
     match runner.answer_hold(ticket, &reply) {
         Ok(hold) => {
+            // A share has nothing to deliver but its journal line (LLP
+            // 1069.003 D2), so every host's answer is this one.
+            if let ("share", crate::HoldAnswer::Choice(c)) = (hold.capability.as_str(), &reply) {
+                crate::share::answered(runner, c);
+            }
             let mut s = format!("{{\"ticket\":{ticket},\"capability\":");
             quote(&hold.capability, &mut s);
             // The requesting node, for the capability arm that delivers

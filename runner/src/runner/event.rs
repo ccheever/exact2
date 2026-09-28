@@ -770,7 +770,9 @@ impl<D: DataSource> Runner<D> {
             view,
         );
         let was_poisoned = self.poisoned;
+        let outer = self.input_source.replace(view);
         let result = self.dispatch_inner(view, event, &mut what);
+        self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
         result
     }

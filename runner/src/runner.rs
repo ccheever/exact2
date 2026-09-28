@@ -58,6 +58,10 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
+    /// The node whose input ran the action, when a host event did: where a
+    /// command that shows system UI anchors it (LLP 1069.003 D3). `None` for
+    /// a timer, an answer, or anything else no input dispatched.
+    pub source: Option<ViewId>,
 }
 
 /// A timer or collection-feedback commit and the runner clock it happened at.
@@ -358,6 +362,9 @@ pub struct Runner<D: DataSource> {
     journal: std::collections::VecDeque<String>,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// The view whose event is being dispatched, stamped on the commands
+    /// its action issues (LLP 1069.003 D3).
+    input_source: Option<ViewId>,
     journal_start: usize,
     flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
     /// The lists already found conforming to their types, so a live answer
@@ -705,6 +712,7 @@ impl<D: DataSource> Runner<D> {
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
             device_holds: Vec::new(),
+            input_source: None,
             journal_start: 0,
             flow_warned: Default::default(),
             conformed: Default::default(),

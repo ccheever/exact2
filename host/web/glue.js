@@ -794,6 +794,15 @@ function apply(batch) {
             pending.finally(() => inflight.delete(pending));
           }
         }
+        else if (op.name === "share") {
+          // LLP 1069.003: the runner rules (refused, or held for the agent, D6);
+          // else the browser's sheet, started inside the input dispatch while
+          // activation is live (D4). The outcome is a journal line (D2).
+          const [title, text, url] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_share(writeIn(JSON.stringify({ title, text, url, source: op.source, agent: agentMode })))));
+          if (ruling.present && typeof navigator.share !== "function") log("share: refused: unavailable");
+          else if (ruling.present) navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
+            .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
+        }
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }

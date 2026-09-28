@@ -138,6 +138,9 @@ pub struct Presenter<D: DataSource> {
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Driven by the agent (`agent.rs`): a `share` is held, never refused
+    /// (LLP 1069.003 D6).
+    pub(crate) agent: bool,
     /// Boot resolves every initially referenced asset before first pixel.
     /// During that transaction its integrity refusal is returned as a boot
     /// error; later refusals are journaled without retitling a live session.
@@ -404,6 +407,7 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            agent: false,
             booting: true,
             content_registration: region,
             last_region_frame: None,
@@ -438,6 +442,13 @@ impl<D: DataSource> Presenter<D> {
                     _ => None,
                 }),
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
+                // No share sheet here: refused into the journal, or held for
+                // the agent like every host (LLP 1069.003 D6).
+                "share" => {
+                    let share = exact_runner::share::Share::from_args(&c.args);
+                    let runner = self.host.runner_mut();
+                    exact_runner::share::arm(runner, share, c.source, self.agent, false);
+                }
                 // `blur()` drops the focus; `blur(id)` only when that node holds it.
                 "blur" => {
                     let holds = |name: &str| {

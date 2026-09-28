@@ -868,6 +868,51 @@ component App
   view
     Child(comment=post)
 ---
+== type-share-argument
+# `share` takes the Web Share API's names, named (LLP 1069.003 D1).
+component A
+  action go
+    share("https://example.com")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An unknown name.
+component A
+  action go
+    share(link="https://example.com")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A duplicate.
+component A
+  action go
+    share(url="https://a.example", url="https://b.example")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# Neither text nor url.
+component A
+  action go
+    share(title="Journal")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# Each a string.
+component A
+  action go
+    share(text=3)
+  view
+    button press=go
+      text "a"
+---
 == lower-animation-name
 component A
   view

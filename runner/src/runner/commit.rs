@@ -467,7 +467,11 @@ impl<D: DataSource> Runner<D> {
             self.slots[slot as usize] = value;
         }
         for (name, args) in outcome.commands {
-            self.commands.push(Command { name, args });
+            self.commands.push(Command {
+                name,
+                args,
+                source: self.input_source,
+            });
         }
         // An assignment to a mutation's slot tentatively makes it not
         // pending. The pending map is changed only after settlement stands:

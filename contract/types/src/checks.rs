@@ -691,7 +691,56 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
+    "share",
 ];
+
+/// `share(title=, text=, url=)` (LLP 1069.003 D1): the Web Share API's
+/// member names, named only, each a string, at least one of `text` and
+/// `url`. Whether `url` is absolute is the host's to refuse: a value is not
+/// known here.
+fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
+    const NAMES: [&str; 3] = ["title", "text", "url"];
+    let mut seen = BTreeSet::new();
+    for arg in args {
+        let Expr::NamedArg(name, value, at) = arg else {
+            return err(
+                "type-share-argument",
+                "`share` takes named arguments: `share(title=…, text=…, url=…)`",
+                arg.span(),
+            );
+        };
+        if !NAMES.contains(&name.as_str()) {
+            return err(
+                "type-share-argument",
+                format!("`share` has no argument `{name}`; it takes title=, text= and url="),
+                *at,
+            );
+        }
+        if !seen.insert(name.as_str()) {
+            return err(
+                "type-share-argument",
+                format!("`{name}=` is given twice"),
+                *at,
+            );
+        }
+        let t = infer(value, scope, shapes)?;
+        if Ty::String.unify(&t).is_none() {
+            return err(
+                "type-share-argument",
+                format!("`{name}=` is a string, not `{t}`"),
+                value.span(),
+            );
+        }
+    }
+    if !seen.contains("text") && !seen.contains("url") {
+        return err(
+            "type-share-argument",
+            "`share` needs `text=` or `url=`",
+            span,
+        );
+    }
+    Ok(())
+}
 
 /// Check an action body's statements through every branch (LLP 1017 P2).
 /// Check each statement, recording a refusal and moving on to the next.
@@ -768,6 +817,9 @@ fn check_stmt(
                         ),
                     };
                     return err("type-unknown-command", message, *span);
+                }
+                if name == "share" {
+                    return share_args(args, scope, shapes, *span);
                 }
                 for arg in args {
                     infer(arg, scope, shapes)?;

@@ -9,6 +9,41 @@ use contract_types::{Ref, Scope, Ty};
 use exact_plan::asm::Asm;
 use exact_plan::{Opcode, Stdlib};
 
+/// A host command's arguments in the order its hosts read them. `share`'s
+/// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
+/// for an absent one, so the plan's `Command` op stays positional.
+pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+    if name != "share" {
+        return args.iter().map(Some).collect();
+    }
+    ["title", "text", "url"]
+        .iter()
+        .map(|want| {
+            args.iter().find_map(|a| match a {
+                Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// [`compile`] an argument, or push `none` for an absent one.
+pub(crate) fn compile_or_none(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    e: Option<&Expr>,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    match e {
+        Some(e) => compile(l, asm, e, scope, locals),
+        None => {
+            asm.simple(Opcode::None);
+            Ok(Ty::Option(Box::new(Ty::String)))
+        }
+    }
+}
+
 /// Emit `e` onto `asm` in `scope` and return its type. `locals` counts
 /// inline-`match` bindings in force, so nested ones index the VM's locals
 /// stack correctly.

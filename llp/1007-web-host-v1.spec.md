@@ -391,6 +391,11 @@ set so driver settlement can wait for the write. Invalid arguments, an absent
 secure-context clipboard API, and rejected writes are logged as errors; there
 is no fallback that selects text or moves focus. It never reads the clipboard.
 
+`share` (LLP 1069.003) asks the runner first (`exact_share`: refused, or held
+under `?agent`), then calls `navigator.share` synchronously in the dispatch,
+like `copyText`, so a pressed action has activation and a timer's is refused
+`NotAllowedError` by the browser. Its outcome is a journal line.
+
 `selectText("html-id")` uses the same post-batch target and eligibility checks
 as `focus`, then focuses the input/textarea and calls its native `select()`.
 It selects the complete value, including UTF-16 surrogate pairs, and reads no

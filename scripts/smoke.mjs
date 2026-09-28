@@ -1323,6 +1323,30 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   rmSync(tmp, {recursive:true, force:true});
 }
 
+// `share` (LLP 1069.003 D6): under the agent no host shows a sheet; the request is held,
+// answered by ticket, and its outcome is a journal line. A relative URL is refused by name.
+if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-share-')), plan = resolve(tmp, 'share.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/share.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  check(c.status === 0, 'share fixture compiles: ' + c.stderr);
+  if (c.status === 0) {
+    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    try {
+      await f.tap('share-link');
+      const held = (await f.state()).pending?.find((p) => p.device?.capability === 'share');
+      check(held?.device.args.url === 'https://example.com/post/1' && held.device.args.title === 'A post' && held.device.args.anchor === byTestId(await f.tree(), 'share-link')?.id, `share is held for the agent, anchored to the pressed node: ${JSON.stringify(held)}`);
+      const answered = await f.tap(`@${held?.ticket}`, { choice: 'shared' });
+      check(answered.delivery === 'substituted' && answered.answered === 'shared', `tap @N shared is substituted: ${JSON.stringify(answered)}`);
+      await f.tap('share-relative');
+      const lines = (await f.logs()).lines;
+      check(lines.some((l) => /^t=\d+ share: shared$/.test(l)) && lines.some((l) => /^t=\d+ share: refused: url is not an absolute/.test(l)), `the journal has the outcomes: ${lines.filter((l) => /share/.test(l)).join(' | ')}`);
+    } catch (error) {
+      failures.push(`the share fixture stopped: ${error.message}`);
+    } finally { await f.close(); }
+  }
+  rmSync(tmp, {recursive:true, force:true});
+}
+
 // 13. The resolved app's own tests (LLP 1017 P7), when it declares them:
 // its `test` blocks driven through a fresh session by the same operations.
 const appTests = resolve(app.dir, 'app.test.contract');
