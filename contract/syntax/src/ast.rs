@@ -686,6 +686,9 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
             Expr::Str(t, _) if t == "checkbox" => Some("checkbox"),
             Expr::Str(t, _) if t == "file" => Some("file"),
             Expr::Str(t, _) if t == "range" => Some("range"),
+            Expr::Str(t, _) if t == "date" => Some("date"),
+            Expr::Str(t, _) if t == "time" => Some("time"),
+            Expr::Str(t, _) if t == "datetime-local" => Some("datetime-local"),
             _ => None,
         })
 }

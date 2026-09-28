@@ -10,7 +10,7 @@ final class ControlHost: NSObject {
     unowned let presenter: Presenter
     var controls: [UInt32: NSControl] = [:]
     /// Which control each node shows (`ControlKinds`), to remake it when that changes.
-    private var kinds: [UInt32: String] = [:]
+    var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
@@ -114,6 +114,8 @@ final class ControlHost: NSObject {
         // A click at a slider's middle moves its knob there, as a click
         // does; AppKit's own tracking loop would wait for a mouse-up the
         // agent's synthesized click never hands it.
+        // A date field takes the focus, as a click into it does.
+        if let picker = control as? NSDatePicker { return picker.window?.makeFirstResponder(picker) ?? false }
         if let slider = control as? NSSlider {
             _ = typeRange(slider, node, String((slider.minValue + slider.maxValue) / 2))
             return true

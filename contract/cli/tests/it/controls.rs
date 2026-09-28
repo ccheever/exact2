@@ -346,3 +346,61 @@ fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
     .to_string();
     assert!(e.contains("number"), "{e}");
 }
+
+const DUE: &str = r#"component App
+  state due = "2026-10-01"
+  state alarm = "07:00"
+  state at = ""
+  action setDue(value: string) writes due
+    due = value
+  action setAlarm(value: string) writes alarm
+    alarm = value
+  action setAt(value: string) writes at
+    at = value
+  view
+    column
+      input type="date" value=due min="2026-01-01" max="2026-12-31" change=setDue testId="due" aria-label="Due"
+      input type="time" value=alarm change=setAlarm testId="alarm" aria-label="Alarm"
+      input type="datetime-local" value=at change=setAt testId="at" aria-label="At"
+"#;
+
+#[test]
+fn a_date_carries_htmls_value_format_within_min_and_max() {
+    let mut r = boot(DUE);
+    let due = view_of(&r, "due");
+    let node = r.kernel().node(due).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("date"));
+    assert_eq!(node.props.str(PropId::Min), Some("2026-01-01"));
+    r.dispatch(due, Event::Change("2026-11-05".into())).unwrap();
+    let value = |r: &Runner<NoData>, id| {
+        r.kernel()
+            .node(id)
+            .unwrap()
+            .props
+            .str(PropId::Value)
+            .map(str::to_owned)
+    };
+    assert_eq!(value(&r, due).as_deref(), Some("2026-11-05"));
+    for (text, why) in [
+        ("2027-01-01", "after max"),
+        ("2025-06-01", "before min"),
+        ("2026-02-30", "not a date"),
+    ] {
+        match r.dispatch(due, Event::Change(text.into())).unwrap_err() {
+            RunnerError::InvalidValue { reason, .. } => assert!(reason.contains(why), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    // A cleared control reports the empty string, as HTML's does.
+    r.dispatch(due, Event::Change("".into())).unwrap();
+    assert_eq!(value(&r, due).as_deref(), Some(""));
+    let alarm = view_of(&r, "alarm");
+    r.dispatch(alarm, Event::Change("14:30".into())).unwrap();
+    assert!(r.dispatch(alarm, Event::Change("2:30 PM".into())).is_err());
+    let at = view_of(&r, "at");
+    r.dispatch(at, Event::Change("2026-09-27T14:30".into()))
+        .unwrap();
+    assert_eq!(value(&r, at).as_deref(), Some("2026-09-27T14:30"));
+    assert!(r.dispatch(at, Event::Change(true.into())).is_err());
+}

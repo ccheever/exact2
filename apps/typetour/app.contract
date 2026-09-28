@@ -31,6 +31,9 @@ component TypeTour
   state wifi = true
   state bluetooth = true
   state appearance = "system"
+  state today = "2026-09-14"
+  state clock = "09:41"
+  state alarm = "2026-09-15T07:00"
 
   action go(target: string) writes screen, thread
     screen = target
@@ -58,6 +61,13 @@ component TypeTour
     wifi = not wifi
   action setBluetooth(on: bool) writes bluetooth
     bluetooth = on
+  // The platform's date and time pickers (LLP 1069.001 slice 4).
+  action setToday(value: string) writes today
+    today = value
+  action setClock(value: string) writes clock
+    clock = value
+  action setAlarm(value: string) writes alarm
+    alarm = value
   // The platform's pop-up menu chooses the scheme (LLP 1069.001 slice 2).
   action setAppearance(value: string) writes appearance
     appearance = value
@@ -165,6 +175,17 @@ component TypeTour
                 SettingsRow(id="cellular", glyph="C", title="Cellular", value="", last=false, scale=scale, to="settings", press=go)
                 SettingsRow(id="hotspot", glyph="H", title="Personal Hotspot", value="Off", last=false, scale=scale, to="settings", press=go)
                 SettingsRow(id="battery", glyph="94", title="Battery", value="94%", last=true, scale=scale, to="settings", press=go)
+              text "DATE & TIME" font-size=13 color="light-dark(#6e6e73, #98989d)" margin-top=26 margin-bottom=6 margin-left=16
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
+                row width="100%" box-sizing="border-box" align-items="center" gap=12 padding-left=16 padding-right=16 min-height=44 border-bottom-style="solid" border-bottom-width=0.5 border-color="light-dark(#c6c6c8, #38383a)"
+                  text "Date" font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#000000, #ffffff)"
+                  input type="date" value=today change=setToday testId="date" aria-label="Date" accent-color="light-dark(#1c1c1e, #e5e5ea)" flex-shrink=0
+                row width="100%" box-sizing="border-box" align-items="center" gap=12 padding-left=16 padding-right=16 min-height=44 border-bottom-style="solid" border-bottom-width=0.5 border-color="light-dark(#c6c6c8, #38383a)"
+                  text "Time" font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#000000, #ffffff)"
+                  input type="time" value=clock change=setClock testId="time" aria-label="Time" accent-color="light-dark(#1c1c1e, #e5e5ea)" flex-shrink=0
+                row width="100%" box-sizing="border-box" align-items="center" gap=12 padding-left=16 padding-right=16 min-height=44
+                  text "Next Alarm" font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#000000, #ffffff)"
+                  input type="datetime-local" value=alarm change=setAlarm testId="alarm" aria-label="Next Alarm" accent-color="light-dark(#1c1c1e, #e5e5ea)" flex-shrink=0
               column margin-top=22 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
                 SettingsRow(id="general", glyph="G", title="General", value="", last=false, scale=scale, to="settings", press=go)
                 SettingsRow(id="accessibility", glyph="Ac", title="Accessibility", value="", last=false, scale=scale, to="settings", press=go)

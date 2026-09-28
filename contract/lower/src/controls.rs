@@ -189,6 +189,14 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[(PropId::AccessibilityRole, "slider")],
             positional: None,
         },
+        // A date, time or local date and time: no UA margin in Chrome, and
+        // no ARIA role (HTML-AAM maps none).
+        "date" | "time" | "datetime-local" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         _ => t,
     }
 }

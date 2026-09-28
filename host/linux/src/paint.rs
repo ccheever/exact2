@@ -1035,6 +1035,23 @@ impl Painter {
                 let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
+            // @ref LLP 1069.001 D7 — a date control is a field showing its
+            // ISO value, HTML's placeholder form when empty; `type` sets it.
+            NodeType::Control
+                if matches!(
+                    node.props.str(PropId::Type),
+                    Some("date" | "time" | "datetime-local")
+                ) =>
+            {
+                let value = node.props.str(PropId::Value).unwrap_or("");
+                let shown = match (value, node.props.str(PropId::Type)) {
+                    ("", Some("date")) => "yyyy-mm-dd",
+                    ("", Some("time")) => "--:--",
+                    ("", _) => "yyyy-mm-ddT--:--",
+                    (v, _) => v,
+                };
+                self.field_control(node, content, ts, shown, false);
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts)
             }

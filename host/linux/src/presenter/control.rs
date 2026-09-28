@@ -222,22 +222,38 @@ impl<D: DataSource> Presenter<D> {
                 let Some(node) = kernel.node(id) else {
                     continue;
                 };
-                if node.node_type != NodeType::Control
-                    || node.props.str(PropId::Type) != Some("select")
-                {
+                if node.node_type != NodeType::Control {
                     continue;
                 }
+                // A select fits its widest option; a date control its
+                // widest value (D3).
+                let labels: Vec<String> = match node.props.str(PropId::Type) {
+                    Some("select") => kernel
+                        .select_choices(id)
+                        .into_iter()
+                        .map(|c| c.label)
+                        .collect(),
+                    Some("date") => vec!["0000-00-00".into()],
+                    Some("time") => vec!["00:00:00".into()],
+                    Some("datetime-local") => vec!["0000-00-00T00:00".into()],
+                    _ => continue,
+                };
+                let chevron = if node.props.str(PropId::Type) == Some("select") {
+                    30.0
+                } else {
+                    12.0
+                };
                 let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
                 let (mut w, mut h) = (0f32, 0f32);
-                for c in kernel.select_choices(id) {
-                    let p = text.paragraph(&crate::paint::text_spec(&style, &c.label), None);
+                for label in &labels {
+                    let p = text.paragraph(&crate::paint::text_spec(&style, label), None);
                     w = w.max(p.width);
                     h = h.max(p.height);
                 }
                 if h == 0.0 {
                     h = style.font_size * 1.2;
                 }
-                sizes.push((id, ((w + 30.0).ceil(), (h + 6.0).ceil())));
+                sizes.push((id, ((w + chevron).ceil(), (h + 6.0).ceil())));
             }
         }
         for (id, size) in sizes {

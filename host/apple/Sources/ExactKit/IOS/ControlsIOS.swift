@@ -64,7 +64,7 @@ final class ControlHost: NSObject {
     unowned let presenter: Presenter
     var controls: [UInt32: UIControl] = [:]
     /// Which control each node shows (`ControlKinds`), to remake it when that changes.
-    private var kinds: [UInt32: String] = [:]
+    var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.

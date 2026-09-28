@@ -24,6 +24,12 @@ pub enum ControlKind {
     Select,
     /// `input type="range"`.
     Range,
+    /// `input type="date"`: `yyyy-mm-dd`.
+    Date,
+    /// `input type="time"`: `hh:mm`, or with seconds.
+    Time,
+    /// `input type="datetime-local"`: a date, `T`, a time; no zone.
+    DateTimeLocal,
 }
 
 impl ControlKind {
@@ -36,6 +42,9 @@ impl ControlKind {
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
             Some("range") => ControlKind::Range,
+            Some("date") => ControlKind::Date,
+            Some("time") => ControlKind::Time,
+            Some("datetime-local") => ControlKind::DateTimeLocal,
             _ if props.str(PropId::AccessibilityRole) == Some("switch") => ControlKind::Switch,
             _ => ControlKind::Checkbox,
         })
@@ -44,13 +53,87 @@ impl ControlKind {
     /// The content size a host that reports none shows (LLP 1069.001 D3):
     /// Chrome's 13×13 checkbox, Safari's 38×22 desktop switch, and a select
     /// one line of Chrome's 13.33 px control font tall, Chrome's 129×16
-    /// range. A host that knows its control's size reports it.
+    /// range, and the date types one line of it wide enough for their
+    /// value. A host that knows its control's size reports it.
     pub fn default_size(self) -> (f32, f32) {
         match self {
             ControlKind::Checkbox | ControlKind::File => (13.0, 13.0),
             ControlKind::Switch => (38.0, 22.0),
             ControlKind::Select => (64.0, 19.0),
             ControlKind::Range => (129.0, 16.0),
+            ControlKind::Date => (96.0, 19.0),
+            ControlKind::Time => (64.0, 19.0),
+            ControlKind::DateTimeLocal => (160.0, 19.0),
+        }
+    }
+
+    /// Whether `value` is one a date control's kind takes, in HTML's value
+    /// format (a valid date, time or local date and time string): the
+    /// empty string, a cleared control's, included. Other kinds take any.
+    pub fn valid_value(self, value: &str) -> bool {
+        if value.is_empty() {
+            return true;
+        }
+        match self {
+            ControlKind::Date => valid_date(value),
+            ControlKind::Time => valid_time(value),
+            ControlKind::DateTimeLocal => value
+                .split_once('T')
+                .is_some_and(|(d, t)| valid_date(d) && valid_time(t)),
+            _ => true,
+        }
+    }
+}
+
+fn digits(s: &str, n: usize) -> Option<u32> {
+    (s.len() == n && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
+}
+
+/// `yyyy-mm-dd`, the year four or more digits and never 0, the day one the
+/// month has (February's 29th in a leap year).
+fn valid_date(s: &str) -> bool {
+    let mut parts = s.rsplitn(3, '-');
+    let (Some(d), Some(m), Some(y)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let (Some(d), Some(m)) = (digits(d, 2), digits(m, 2)) else {
+        return false;
+    };
+    let Some(y) = (y.len() >= 4)
+        .then(|| digits(y, y.len()))
+        .flatten()
+        .filter(|y| *y > 0)
+    else {
+        return false;
+    };
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&d)
+}
+
+/// `hh:mm`, `hh:mm:ss` or `hh:mm:ss.sss` (one to three fraction digits).
+fn valid_time(s: &str) -> bool {
+    let mut parts = s.splitn(3, ':');
+    let (Some(h), Some(m)) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    let hm = digits(h, 2).is_some_and(|h| h < 24) && digits(m, 2).is_some_and(|m| m < 60);
+    match parts.next() {
+        None => hm,
+        Some(sec) => {
+            let (whole, fraction) = sec.split_once('.').unwrap_or((sec, ""));
+            hm && digits(whole, 2).is_some_and(|s| s < 60)
+                && (fraction.is_empty() && !sec.ends_with('.')
+                    || (1..=3).contains(&fraction.len())
+                        && fraction.bytes().all(|b| b.is_ascii_digit()))
         }
     }
 }
@@ -235,6 +318,35 @@ mod tests {
         ops.push(Op::AttachRoot { id: 1 });
         k.apply(0, 1, &ops).unwrap();
         k
+    }
+
+    #[test]
+    fn date_values_are_htmls_formats() {
+        use ControlKind::*;
+        for (kind, ok) in [
+            (Date, "2026-09-27"),
+            (Date, "2024-02-29"),
+            (Date, ""),
+            (Time, "14:30"),
+            (Time, "14:30:15"),
+            (Time, "14:30:15.5"),
+            (DateTimeLocal, "2026-09-27T14:30"),
+        ] {
+            assert!(kind.valid_value(ok), "{kind:?} {ok}");
+        }
+        for (kind, bad) in [
+            (Date, "2026-13-01"),
+            (Date, "2025-02-29"),
+            (Date, "26-09-27"),
+            (Date, "0000-01-01"),
+            (Time, "24:00"),
+            (Time, "9:30"),
+            (Time, "14:30:15."),
+            (DateTimeLocal, "2026-09-27 14:30"),
+            (DateTimeLocal, "2026-09-27"),
+        ] {
+            assert!(!kind.valid_value(bad), "{kind:?} {bad}");
+        }
     }
 
     #[test]

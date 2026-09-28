@@ -56,6 +56,43 @@ impl<D: DataSource> Runner<D> {
                     exact_kernel::Range::of(node.props).sanitize(number),
                 ))
             }
+            // A date control reports HTML's value format, within its `min`
+            // and `max` (which a picker never passes), or empty when cleared.
+            (
+                Some(kind @ (ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal)),
+                ControlValue::Text(text),
+            ) => {
+                let node = self.kernel.node(view).expect("a control");
+                if !kind.valid_value(text) {
+                    return Err(invalid(format!(
+                        "{text:?} is not a {} value (HTML's format: {})",
+                        node.props.str(exact_kernel::PropId::Type).unwrap_or(""),
+                        match kind {
+                            ControlKind::Date => "2026-09-27",
+                            ControlKind::Time => "14:30",
+                            _ => "2026-09-27T14:30",
+                        }
+                    )));
+                }
+                let bound = |id| {
+                    node.props
+                        .str(id)
+                        .filter(|b| kind.valid_value(b) && !b.is_empty())
+                };
+                if !text.is_empty() {
+                    if let Some(min) =
+                        bound(exact_kernel::PropId::Min).filter(|m| text.as_str() < *m)
+                    {
+                        return Err(invalid(format!("{text:?} is before min {min:?}")));
+                    }
+                    if let Some(max) =
+                        bound(exact_kernel::PropId::Max).filter(|m| text.as_str() > *m)
+                    {
+                        return Err(invalid(format!("{text:?} is after max {max:?}")));
+                    }
+                }
+                Ok(value.value())
+            }
             _ => Err(mismatch()),
         }
     }

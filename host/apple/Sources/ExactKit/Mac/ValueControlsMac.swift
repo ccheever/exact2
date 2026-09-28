@@ -9,6 +9,7 @@ import AppKit
 extension ControlHost {
     func makeValueControl(_ kind: String) -> NSControl {
         if kind == "range" { return makeRange() }
+        if ControlKinds.dates.contains(kind) { return makeDate(kind) }
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         // Each item's own `disabled`, never AppKit's validation.
         popup.autoenablesItems = false
@@ -17,6 +18,7 @@ extension ControlHost {
 
     func configureValue(_ control: NSControl, _ owner: NodeView, accent: NSColor?) {
         if let slider = control as? NSSlider { configureRange(slider, owner); return }
+        if let picker = control as? NSDatePicker { configureDate(picker, owner, accent: accent); return }
         guard let popup = control as? NSPopUpButton else { return }
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
@@ -44,6 +46,7 @@ extension ControlHost {
 
     @objc func valueChanged(_ sender: NSControl) {
         if let slider = sender as? NSSlider { rangeChanged(slider); return }
+        if let picker = sender as? NSDatePicker { dateChanged(picker); return }
         guard let popup = sender as? NSPopUpButton, let value = popup.selectedItem?.representedObject as? String else { return }
         chose(UInt32(sender.tag), value)
     }
@@ -74,6 +77,10 @@ extension ControlHost {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeRange(slider, node, value)
         }
+        if let picker = controls[node.id] as? NSDatePicker {
+            guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
+            return typeDate(picker, node, value)
+        }
         guard let control = controls[node.id], let popup = control as? NSPopUpButton else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
         if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
@@ -86,6 +93,9 @@ extension ControlHost {
     func valueObservation(_ control: NSControl) -> [String: Any]? {
         if let slider = control as? NSSlider {
             return ["view": "NSSlider", "value": slider.doubleValue, "min": slider.minValue, "max": slider.maxValue]
+        }
+        if let picker = control as? NSDatePicker {
+            return ["view": "NSDatePicker", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.dateValue)]
         }
         guard let popup = control as? NSPopUpButton else { return nil }
         let menu = menus[UInt32(popup.tag)]
