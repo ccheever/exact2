@@ -220,7 +220,11 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
                 )
             })
             .collect();
-        let (routes, launch, sig) = (em.uses.rt("routes"), em.uses.rt("launch"), em.uses.rt("sig"));
+        let (routes, launch, sig) = (
+            em.uses.rt("routes"),
+            em.uses.rt("launch"),
+            em.uses.rt("sig"),
+        );
         let _ = write!(
             body,
             "{routes}([{}]);const s_{}={sig}({launch}(location.pathname+location.search));",
@@ -236,13 +240,21 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
         let sig = em.uses.rt("sig");
-        let _ = write!(body, "const s_{i}={sig}({init},{});", serde_json::to_string(&type_code(plan, r.ty)).unwrap());
+        let _ = write!(
+            body,
+            "const s_{i}={sig}({init},{});",
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+        );
     }
     for (i, r) in plan.derives.iter().enumerate() {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
             .map_err(|e| format!("derive {}: {e}", plan.str(r.name)))?;
         let memo = em.uses.rt("memo");
-        let _ = write!(body, "const d_{i}={memo}({f},{});", serde_json::to_string(&type_code(plan, r.ty)).unwrap());
+        let _ = write!(
+            body,
+            "const d_{i}={memo}({f},{});",
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+        );
     }
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
@@ -254,10 +266,15 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         // What it shows while it waits with nothing kept (LLP 1048.003 D6,
         // 1054.000.002): an `else source()` row's value, a declared
         // `else empty(…)`, or the type's zero; a placeholder row has none.
-        let is_placeholder = plan.resources.iter().any(|o| o.placeholder.map(|p| p.0 as usize) == Some(i));
+        let is_placeholder = plan
+            .resources
+            .iter()
+            .any(|o| o.placeholder.map(|p| p.0 as usize) == Some(i));
         let placeholder = match (r.placeholder, plan.bytes(r.placeholder_value)) {
             (Some(p), _) => format!("()=>r_{}()", p.0),
-            (None, b) if !b.is_empty() => value_js(&Value::from_bytes(b).map_err(|e| e.to_string())?),
+            (None, b) if !b.is_empty() => {
+                value_js(&Value::from_bytes(b).map_err(|e| e.to_string())?)
+            }
             _ if is_placeholder => "void 0".into(),
             _ => zero(plan, r.ty),
         };
@@ -302,9 +319,18 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     for (i, r) in plan.actions.iter().enumerate() {
         // An action that touches row slots takes the row in force first.
         let rows = code::touches_rows(plan, plan.code(r.body));
-        let scope = Scope { rows: rows.then(|| "$r".to_string()), ..action.clone() };
-        let mut f = code::function(plan, plan.code(r.body), &scope, r.params.len as usize, &mut em.uses)
-            .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
+        let scope = Scope {
+            rows: rows.then(|| "$r".to_string()),
+            ..action.clone()
+        };
+        let mut f = code::function(
+            plan,
+            plan.code(r.body),
+            &scope,
+            r.params.len as usize,
+            &mut em.uses,
+        )
+        .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
         if rows {
             em.row_actions.insert(i);
             f = f.replacen('(', "($r,", 1).replace("($r,)", "($r)");
@@ -336,7 +362,13 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let _ = write!(
         body,
         "const $state=[[{}],[{}],[{}]];",
-        plan.slots.iter().enumerate().filter(|(_, r)| r.owner.is_none()).map(|(i, _)| format!("s_{i}")).collect::<Vec<_>>().join(","),
+        plan.slots
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.owner.is_none())
+            .map(|(i, _)| format!("s_{i}"))
+            .collect::<Vec<_>>()
+            .join(","),
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
@@ -379,14 +411,32 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     }
     let names = |v: Vec<&str>| serde_json::to_string(&v).unwrap();
     let types = |v: Vec<exact_plan::TypesId>| {
-        format!("[{}]", v.into_iter().map(|t| type_json(plan, t)).collect::<Vec<_>>().join(","))
+        format!(
+            "[{}]",
+            v.into_iter()
+                .map(|t| type_json(plan, t))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
     };
     let names_js = format!(
         "export default[{},{},{}];export const types=[{},{},{}];\n",
-        names(plan.slots.iter().filter(|r| r.owner.is_none()).map(|r| plan.str(r.name)).collect()),
+        names(
+            plan.slots
+                .iter()
+                .filter(|r| r.owner.is_none())
+                .map(|r| plan.str(r.name))
+                .collect()
+        ),
         names(plan.derives.iter().map(|r| plan.str(r.name)).collect()),
         names(plan.resources.iter().map(|r| plan.str(r.name)).collect()),
-        types(plan.slots.iter().filter(|r| r.owner.is_none()).map(|r| r.ty).collect()),
+        types(
+            plan.slots
+                .iter()
+                .filter(|r| r.owner.is_none())
+                .map(|r| r.ty)
+                .collect()
+        ),
         types(plan.derives.iter().map(|r| r.ty).collect()),
         types(plan.resources.iter().map(|r| r.ty).collect())
     );
@@ -396,15 +446,31 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         .sources
         .iter()
         .map(|r| {
-            let params: Vec<String> = r.params.iter().map(|p| type_json(plan, plan.source_params[p.0 as usize].ty)).collect();
-            format!("{}:[[{}],{}]", serde_json::to_string(plan.str(r.name)).unwrap(), params.join(","), type_json(plan, r.ty))
+            let params: Vec<String> = r
+                .params
+                .iter()
+                .map(|p| type_json(plan, plan.source_params[p.0 as usize].ty))
+                .collect();
+            format!(
+                "{}:[[{}],{}]",
+                serde_json::to_string(plan.str(r.name)).unwrap(),
+                params.join(","),
+                type_json(plan, r.ty)
+            )
         })
         .collect();
     // Each route's render and activation policy, for the renderers (LLP 1048.003 D5).
     let pages: Vec<String> = plan
         .routes
         .iter()
-        .map(|r| format!("[\"{}\",\"{}\",{}]", r.render.name(), r.activate.name(), r.notfound as u8))
+        .map(|r| {
+            format!(
+                "[\"{}\",\"{}\",{}]",
+                r.render.name(),
+                r.activate.name(),
+                r.notfound as u8
+            )
+        })
         .collect();
     let names_js = format!(
         "{names_js}export const sourceTypes={{{}}};export const pages=[{}];\n",
@@ -440,10 +506,20 @@ fn build_pages(plan: &Plan) -> String {
     let rows: Vec<String> = plan
         .routes
         .iter()
-        .filter(|r| r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pattern).contains(':'))
+        .filter(|r| {
+            r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pattern).contains(':')
+        })
         .map(|r| {
-            let location = if r.notfound { "/404" } else { plan.str(r.pattern) };
-            format!("{{\"location\":{},\"notfound\":{}}}", serde_json::to_string(location).unwrap(), r.notfound)
+            let location = if r.notfound {
+                "/404"
+            } else {
+                plan.str(r.pattern)
+            };
+            format!(
+                "{{\"location\":{},\"notfound\":{}}}",
+                serde_json::to_string(location).unwrap(),
+                r.notfound
+            )
         })
         .collect();
     format!("[{}]", rows.join(","))
@@ -460,7 +536,11 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
         exact_plan::TypeKind::List => "[]".into(),
         exact_plan::TypeKind::Record => format!(
             "[{}]",
-            t.fields.iter().map(|f| zero(plan, plan.fields[f.0 as usize].ty)).collect::<Vec<_>>().join(",")
+            t.fields
+                .iter()
+                .map(|f| zero(plan, plan.fields[f.0 as usize].ty))
+                .collect::<Vec<_>>()
+                .join(",")
         ),
     }
 }
@@ -474,15 +554,24 @@ fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
         exact_plan::TypeKind::Bool => "\"b\"".into(),
         exact_plan::TypeKind::String => "\"s\"".into(),
         exact_plan::TypeKind::Unit => "\"u\"".into(),
-        exact_plan::TypeKind::Option => format!("[\"?\",{}]", type_json(plan, t.elem.expect("option element"))),
-        exact_plan::TypeKind::List => format!("[\"[\",{}]", type_json(plan, t.elem.expect("list element"))),
+        exact_plan::TypeKind::Option => format!(
+            "[\"?\",{}]",
+            type_json(plan, t.elem.expect("option element"))
+        ),
+        exact_plan::TypeKind::List => {
+            format!("[\"[\",{}]", type_json(plan, t.elem.expect("list element")))
+        }
         exact_plan::TypeKind::Record => format!(
             "{{{}}}",
             t.fields
                 .iter()
                 .map(|f| {
                     let f = &plan.fields[f.0 as usize];
-                    format!("{}:{}", serde_json::to_string(plan.str(f.name)).unwrap(), type_json(plan, f.ty))
+                    format!(
+                        "{}:{}",
+                        serde_json::to_string(plan.str(f.name)).unwrap(),
+                        type_json(plan, f.ty)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(",")
@@ -623,7 +712,10 @@ impl Em<'_> {
                     )),
                     _ => {
                         let f = self.f(b.expr, scope)?;
-                        fields.push(format!("{}:{f}", serde_json::to_string(prop.name()).unwrap()));
+                        fields.push(format!(
+                            "{}:{f}",
+                            serde_json::to_string(prop.name()).unwrap()
+                        ));
                     }
                 }
             }
@@ -862,8 +954,9 @@ impl Em<'_> {
                 let mut own = Vec::new();
                 for (k, slot) in plan.slots.iter().enumerate() {
                     if slot.owner.map(|o| o.0) == Some(r) {
-                        let init = code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
-                            .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
+                        let init =
+                            code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
+                                .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
                         let sig = self.uses.rt("sig");
                         own.push(format!("{k}:{sig}({init})"));
                     }

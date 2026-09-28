@@ -1,6 +1,6 @@
 // Per-request rendering, the two renderers side by side (LLP 1071, 1048.002):
 // a server is started cold, asked for its first page (cold start), then
-// driven at a fixed concurrency with `Cache-Control: no-cache` (every
+// driven at a fixed concurrency with `Cache-Control: no-store` (every
 // request renders); it reports render latency p50/p95, CPU time per page
 // (the server process's user+system time over the pages it rendered),
 // resident memory after warm-up and at the end, and throughput.
@@ -21,7 +21,7 @@ const cpuOf = pid => { const r = spawnSync('ps', ['-o', 'cputime=,rss=', '-p', S
 const t0 = performance.now();
 const child = spawn(command[0], command.slice(1), { stdio: ['ignore', 'ignore', 'inherit'] });
 const url = `http://127.0.0.1:${port}${path}`;
-const get = async () => { const t = performance.now(); const r = await fetch(url, { headers: { 'cache-control': 'no-cache', 'accept-encoding': 'identity' } }); const body = await r.text(); return { ms: performance.now() - t, status: r.status, bytes: body.length }; };
+const get = async () => { const t = performance.now(); const r = await fetch(url, { headers: { 'cache-control': 'no-store', 'accept-encoding': 'identity' } }); const body = await r.text(); return { ms: performance.now() - t, status: r.status, bytes: body.length }; };
 let first;
 for (;;) { try { first = await get(); break; } catch { if (performance.now() - t0 > 60000) throw new Error('the server never answered'); await sleep(5); } }
 const cold = performance.now() - t0;

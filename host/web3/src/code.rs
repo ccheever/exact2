@@ -287,7 +287,11 @@ impl Translator<'_> {
                 Opcode::LoadSlot => {
                     let slot = &self.plan.slots[x.args[0] as usize];
                     if slot.owner.is_some() {
-                        let rows = self.scope.rows.clone().ok_or("a row slot read with no row in force")?;
+                        let rows = self
+                            .scope
+                            .rows
+                            .clone()
+                            .ok_or("a row slot read with no row in force")?;
                         self.push(format!("{rows}[{}]()", x.args[0]))
                     } else {
                         self.push(format!("s_{}()", x.args[0]))
@@ -439,7 +443,11 @@ impl Translator<'_> {
                     self.flush();
                     let w = self.uses.rt("W");
                     let target = if self.plan.slots[x.args[0] as usize].owner.is_some() {
-                        let rows = self.scope.rows.clone().ok_or("a row slot write with no row in force")?;
+                        let rows = self
+                            .scope
+                            .rows
+                            .clone()
+                            .ok_or("a row slot write with no row in force")?;
                         format!("{rows}[{}]", x.args[0])
                     } else {
                         format!("s_{}", x.args[0])
@@ -487,7 +495,10 @@ impl Translator<'_> {
                     if !self.scope.action {
                         return Err("a send outside an action".into());
                     }
-                    let source = self.plan.str(exact_plan::StrId(x.args[1] as u32)).to_string();
+                    let source = self
+                        .plan
+                        .str(exact_plan::StrId(x.args[1] as u32))
+                        .to_string();
                     let args = self.popn(x.args[2] as usize)?;
                     self.flush();
                     let m = self.uses.rt("M");
@@ -499,9 +510,7 @@ impl Translator<'_> {
                     ));
                 }
                 Opcode::PendingMutation => self.push(format!("m_{}.p()", x.args[0])),
-                op @ Opcode::NativeProps => {
-                    return Err(format!("{op:?} is not in the spike"))
-                }
+                op @ Opcode::NativeProps => return Err(format!("{op:?} is not in the spike")),
             }
             i += 1;
         }

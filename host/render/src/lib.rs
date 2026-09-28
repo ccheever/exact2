@@ -106,7 +106,7 @@ pub struct Rendered {
 /// Render `plan` at `location` with a source from `data`, waiting at most
 /// `deadline` for its requests. A source whose reply it cannot shape, or a
 /// projection the HTML parser would undo, is the error.
-pub fn render<D: DataSource>(
+pub fn render<D: DataSource + 'static>(
     plan: &Plan,
     data: impl Fn() -> D,
     viewport: exact_runner::Viewport,
@@ -117,9 +117,31 @@ pub fn render<D: DataSource>(
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
-    let settling = Anonymous::new(data());
-    // The deadline waits for sources, not for the transport to start.
-    let executor = Executor::start(exact_runner::DataSource::grants(&settling));
+    // `EXACT_RENDER_REALMS=warm`: a worker keeps the data source (its module
+    // realm, activated) of a render that settled and renders the next page
+    // with it, instead of building a realm per render (LLP 1048.000 D10's
+    // fresh realm). For anonymous pages only: a realm's module state (its
+    // caches, counters) carries from one render to the next.
+    let warm = std::env::var("EXACT_RENDER_REALMS").as_deref() == Ok("warm");
+    let pooled = warm
+        .then(|| REALMS.with(|p| p.borrow_mut().pop()))
+        .flatten()
+        .and_then(|b| b.downcast::<Anonymous<D>>().ok())
+        .map(|b| *b);
+    let settling = pooled.unwrap_or_else(|| Anonymous::new(data()));
+    // The deadline waits for sources, not for the transport to start. A
+    // worker keeps its executor between renders that settled, so the
+    // transport's connections to an origin are reused (a fresh TLS
+    // connection per render cost RealWorld most of its latency, measured
+    // 2026-09-28); one that hit its deadline, with work in flight, is dropped.
+    let grants = exact_runner::DataSource::grants(&settling).to_string();
+    let executor = EXECUTORS
+        .with(|pool| {
+            let mut pool = pool.borrow_mut();
+            let at = pool.iter().position(|(g, _)| *g == grants)?;
+            Some(pool.swap_remove(at).1)
+        })
+        .unwrap_or_else(|| Executor::start(&grants));
     let until = Instant::now() + deadline;
     let watchdog = Watchdog::arm(settling.interrupt(), until);
     let mut runner = Runner::boot_with_delivery(
@@ -143,9 +165,20 @@ pub fn render<D: DataSource>(
         Err(e) => return Err(e),
     };
     drop(watchdog);
-    // Whatever is still in flight is abandoned with the render.
-    drop(executor);
+    // Whatever is still in flight is abandoned with the render; an executor
+    // with nothing in flight goes back to this worker's pool.
+    if matches!(settled, Settled::Deadline) {
+        drop(executor);
+    } else {
+        executor.forget(|_| false);
+        let _ = executor.drain();
+        EXECUTORS.with(|pool| pool.borrow_mut().push((grants, executor)));
+    }
     let checkpoint = checkpoint(&runner, location);
+    if warm && !matches!(settled, Settled::Deadline) {
+        let used = std::mem::replace(runner.data(), Anonymous::new(data()));
+        REALMS.with(|p| p.borrow_mut().push(Box::new(used)));
+    }
     drop(runner);
     // @ref LLP 1048.000 D6 — the document is the checkpoint's projection,
     // from a runner booted from the page's checkpoint with a fresh source,
@@ -201,6 +234,13 @@ pub fn render<D: DataSource>(
         settled,
         activate: activation,
     })
+}
+
+thread_local! {
+    /// Each render worker's settled executors, by grants.
+    static EXECUTORS: std::cell::RefCell<Vec<(String, Executor)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Each render worker's warm data sources (`EXACT_RENDER_REALMS=warm`).
+    static REALMS: std::cell::RefCell<Vec<Box<dyn std::any::Any>>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The deadline, for a source call still running then (LLP 1048.000 D10):

@@ -121,17 +121,34 @@ pub fn capture_js() -> &'static str {
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let mut html = shell.to_string();
     let lacks = |what: &str| format!("the JavaScript shell has no `{what}`");
-    let lang = rendered.document.lang.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
+    let lang = rendered
+        .document
+        .lang
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;");
     let open = html.find("<html").ok_or_else(|| lacks("<html"))?;
     let end = html[open..].find('>').ok_or_else(|| lacks("<html>"))? + open + 1;
-    html.replace_range(open..end, &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir));
+    html.replace_range(
+        open..end,
+        &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir),
+    );
     let title = html.find("<title>").ok_or_else(|| lacks("<title>"))?;
-    let meta = html[title..].find("<meta name=\"viewport\"").ok_or_else(|| lacks("viewport"))? + title;
+    let meta = html[title..]
+        .find("<meta name=\"viewport\"")
+        .ok_or_else(|| lacks("viewport"))?
+        + title;
     let stop = html[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
-    html.replace_range(title..stop, &format!("{}\n<script>{}</script>\n", rendered.head, capture_js()));
+    html.replace_range(
+        title..stop,
+        &format!("{}\n<script>{}</script>\n", rendered.head, capture_js()),
+    );
     let root = "<div id=\"exact-root\"></div>";
     let at = html.find(root).ok_or_else(|| lacks(root))?;
-    html.replace_range(at..at + root.len(), &format!("<div id=\"exact-root\">{}</div>", rendered.document.root));
+    html.replace_range(
+        at..at + root.len(),
+        &format!("<div id=\"exact-root\">{}</div>", rendered.document.root),
+    );
     let interaction = rendered.activate == exact_plan::ActivatePolicy::Interaction;
     let entry = if interaction { "" } else { JS_ENTRY };
     let at = html.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;

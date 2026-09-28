@@ -110,6 +110,8 @@ if (rust) {
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
 }
+// The plan beside the pages: a render server (either renderer) reads it.
+if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.

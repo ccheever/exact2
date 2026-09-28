@@ -69,12 +69,14 @@ pub struct Server {
 /// Drains a running server (D10): it stops accepting, answers what it has
 /// taken — the renders in flight included — and [`Server::run`] returns.
 #[derive(Clone)]
-pub struct Stopper(Arc<AtomicBool>);
+pub struct Stopper(Arc<AtomicBool>, SocketAddr);
 
 impl Stopper {
-    /// Start draining.
+    /// Start draining: the flag, then a connection that wakes the blocking
+    /// accept to read it.
     pub fn stop(&self) {
         self.0.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect_timeout(&self.1, Duration::from_millis(200));
     }
 }
 
@@ -172,7 +174,7 @@ impl Server {
 
     /// What drains it.
     pub fn stopper(&self) -> Stopper {
-        Stopper(self.stop.clone())
+        Stopper(self.stop.clone(), self.addr())
     }
 
     /// Serve until drained ([`Stopper`]). `data` makes each render's source.
@@ -208,19 +210,21 @@ impl Server {
                 }
             });
         }
-        // Accepting polls, so a drain is noticed within a tick.
-        self.listener.set_nonblocking(true)?;
+        // Accepting blocks; a drain wakes it with a connection of its own
+        // (`Stopper::stop`). It polled with a 10 ms sleep before, which an
+        // idle macOS process's timer coalescing stretched to 60–70 ms before
+        // a request was even accepted (measured, 2026-09-28).
+        self.listener.set_nonblocking(false)?;
         while !self.stop.load(Ordering::SeqCst) {
             let mut stream = match self.listener.accept() {
                 Ok((stream, _)) => stream,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
                 Err(_) => continue,
             };
-            // Headers and body are separate writes: without this, Nagle holds
-            // the body for the client's delayed ACK (~40 ms a page, measured).
+            if self.stop.load(Ordering::SeqCst) {
+                break;
+            }
+            // Headers and body are separate writes: without this, Nagle can
+            // hold the body for the client's delayed ACK.
             let _ = stream.set_nodelay(true);
             // An accepted socket inherits the listener's mode on macOS.
             let _ = stream.set_nonblocking(false);
@@ -395,7 +399,11 @@ fn close(mut stream: TcpStream) {
 }
 
 /// Answer one connection; the worker closes it.
-fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D) -> TcpStream {
+fn handle<D: DataSource + 'static>(
+    mut stream: TcpStream,
+    shared: &Shared,
+    data: fn() -> D,
+) -> TcpStream {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let Ok(request) = read_request(&mut stream) else {
@@ -470,7 +478,11 @@ fn encoded(response: &mut Response, encoding: &'static str, body: Vec<u8>) {
 /// origin's cache), and a page that is gone, failed, or says `noindex` is
 /// left out. A page at its deadline stays: it exists, and asks to be read
 /// again. Renders run `--renders` at a time.
-fn indexed<D: DataSource>(shared: &Shared, data: fn() -> D, locations: Vec<String>) -> Vec<String> {
+fn indexed<D: DataSource + 'static>(
+    shared: &Shared,
+    data: fn() -> D,
+    locations: Vec<String>,
+) -> Vec<String> {
     let keep = |location: &String| {
         let request = Request {
             method: "GET".into(),
@@ -594,7 +606,11 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
     })
 }
 
-fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -> Response {
+fn respond<D: DataSource + 'static>(
+    request: &Request,
+    shared: &Shared,
+    data: fn() -> D,
+) -> Response {
     let path = request
         .target
         .split_once('?')
@@ -763,7 +779,7 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
 
 /// A miss on a kept route: render, keep the page, and send it as the other
 /// kept pages go.
-fn render_kept<D: DataSource>(
+fn render_kept<D: DataSource + 'static>(
     request: &Request,
     policy: Option<RenderPolicy>,
     notfound: bool,
@@ -978,7 +994,7 @@ fn stream_file(path: &Path, kind: &str, request: &Request) -> Option<Response> {
     })
 }
 
-fn document<D: DataSource>(
+fn document<D: DataSource + 'static>(
     request: &Request,
     policy: Option<RenderPolicy>,
     notfound: bool,
@@ -1082,7 +1098,7 @@ fn document<D: DataSource>(
 /// parameterized one's as its `pages=` source lists them now, a route
 /// without one left out — absolute against the configured origin. Without
 /// an origin there is none.
-fn sitemap<D: DataSource>(shared: &Shared, data: fn() -> D) -> Response {
+fn sitemap<D: DataSource + 'static>(shared: &Shared, data: fn() -> D) -> Response {
     let Some(origin) = shared.serve.origin.as_deref() else {
         return Response::text(404, "no origin, no sitemap\n");
     };
