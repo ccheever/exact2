@@ -107,6 +107,8 @@ pub(crate) struct Collection {
     parent: Option<ViewId>,
     /// Whether this list's rows can hold virtualized lists.
     nested: bool,
+    /// The pins inside its rows, as of a [`nest::PinEpoch`] count.
+    inner_pins: std::cell::Cell<Option<(u64, [Option<ViewId>; 2])>>,
     /// Where its inner lists were when their rows left (Q1 as ruled).
     kept: nest::Kept,
     /// `scroll-restoration: manual`: the app keeps this list's position.
@@ -145,7 +147,30 @@ fn advance(n: &mut u64) -> Result<u64, InstanceError> {
         .ok_or_else(|| invalid("collection generation exhausted"))?;
     Ok(*n)
 }
+impl Drop for Collection {
+    fn drop(&mut self) {
+        // A list holding a pin goes: its outer list's cached pins are stale.
+        if self
+            .geometry
+            .as_ref()
+            .is_some_and(|g| g.focus_view.is_some() || g.interaction_view.is_some())
+        {
+            nest::PinEpoch::bump();
+        }
+    }
+}
+
 impl Collection {
+    /// A host report becomes the geometry; a change of its pins moves the
+    /// pin count ([`nest::PinEpoch`]).
+    fn set_geometry(&mut self, g: CollectionFeedback) {
+        let pins = |g: Option<&CollectionFeedback>| g.map(|g| (g.focus_view, g.interaction_view));
+        if pins(self.geometry.as_ref()) != pins(Some(&g)) {
+            nest::PinEpoch::bump();
+        }
+        self.geometry = Some(g);
+    }
+
     pub(super) fn follow_end(&mut self, enabled: bool) {
         self.follow_end = enabled;
     }
@@ -290,6 +315,7 @@ impl Collection {
             pending: false,
             parent: None,
             nested,
+            inner_pins: Default::default(),
             kept: Default::default(),
             manual,
             restored: false,
@@ -968,7 +994,7 @@ impl Collection {
                 )
                 .map_err(index_error)?,
         });
-        self.geometry = Some(CollectionFeedback {
+        self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()
         });
@@ -1111,7 +1137,7 @@ impl Collection {
             return Ok(None);
         }
         u.work.rows_reused += self.mounted.len();
-        self.geometry = Some(CollectionFeedback {
+        self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()
         });
@@ -1134,6 +1160,7 @@ impl Collection {
         if !changed {
             return Ok(false);
         }
+        nest::PinEpoch::bump();
         if categories[0] {
             g.focus_view = None;
         }

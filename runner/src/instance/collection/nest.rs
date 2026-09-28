@@ -162,11 +162,22 @@ impl Collection {
             .geometry
             .as_ref()
             .map_or([None, None], |g| [g.focus_view, g.interaction_view]);
-        if out[0].is_none() || out[1].is_none() {
-            let mut inner = [None, None];
-            for row in &self.mounted {
-                inner_pins(&row.row.roots, &mut inner);
-            }
+        if (out[0].is_none() || out[1].is_none()) && self.nested {
+            // Walking every mounted row's subtree for an inner list's pin
+            // was a fifth of a scrolling list's report; the answer changes
+            // only when some list's pins do (`PinEpoch`).
+            let epoch = PinEpoch::now();
+            let inner = match self.inner_pins.get() {
+                Some((at, inner)) if at == epoch => inner,
+                _ => {
+                    let mut inner = [None, None];
+                    for row in &self.mounted {
+                        inner_pins(&row.row.roots, &mut inner);
+                    }
+                    self.inner_pins.set(Some((epoch, inner)));
+                    inner
+                }
+            };
             out = [out[0].or(inner[0]), out[1].or(inner[1])];
         }
         out
@@ -349,5 +360,21 @@ mod tests {
         assert!(kept.get("r10", "7").is_none());
         kept.retain_rows(|row| row == "new");
         assert_eq!(kept.len(), 1);
+    }
+}
+
+/// A count that moves whenever any list's own pins change or a list
+/// holding one goes: an outer list's cached answer for the pins inside its
+/// rows is good while the count stands. Per thread, as a runner is.
+pub(super) struct PinEpoch;
+thread_local! {
+    static PIN_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+impl PinEpoch {
+    pub(super) fn now() -> u64 {
+        PIN_EPOCH.with(std::cell::Cell::get)
+    }
+    pub(super) fn bump() {
+        PIN_EPOCH.with(|e| e.set(e.get() + 1));
     }
 }
