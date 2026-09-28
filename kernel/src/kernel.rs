@@ -782,6 +782,16 @@ impl Kernel {
         }
     }
 
+    /// Every node whose `id` prop is `id`, oldest first: what a command
+    /// naming an element (`showPicker("attach")`) resolves.
+    pub fn find_by_id(&self, id: &str) -> Vec<NodeKey> {
+        self.selectors
+            .lookup_id(id)
+            .iter()
+            .map(|slot| self.arena.key(*slot))
+            .collect()
+    }
+
     /// Every node carrying `test_id`, in structural tree order.
     pub fn find_by_test_id(&self, test_id: &str) -> Vec<NodeKey> {
         let mut hits = crate::sorted::SlotSet::default();

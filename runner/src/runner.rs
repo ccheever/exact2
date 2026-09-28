@@ -28,6 +28,8 @@ pub use source::{
 mod delivery;
 mod device;
 pub use device::{Hold, HoldAnswer};
+pub mod picker;
+pub use picker::{Picked, PickerRequest, PICKED};
 mod kept;
 mod lines;
 mod lists;
@@ -280,6 +282,8 @@ pub struct Runner<D: DataSource> {
     /// infinite until an answer lands.
     then_due: Vec<f64>,
     next_ticket: u64,
+    /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
+    picked_count: u64,
     /// Second edges waiting for the first action's async targets to settle.
     deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Requests for the host, since the last take.
@@ -668,6 +672,7 @@ impl<D: DataSource> Runner<D> {
             landed: Vec::new(),
             then_due: Vec::new(),
             next_ticket: 1,
+            picked_count: 0,
             forgot: false,
             refused_asks: Vec::new(),
             failed_args: Vec::new(),

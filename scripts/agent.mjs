@@ -1021,7 +1021,18 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     async answer(op, target, value) {
       const ticket = ticketOf(target);
       if (value == null || value === '') throw new Error(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
-      return s.op(op === 'tap' ? { op, ticket, choice: String(value) } : { op, ticket, text: String(value) });
+      if (op === 'tap') return s.op({ op, ticket, choice: String(value) });
+      // A picker's answer is files on this machine (LLP 1069.002 D9): each
+      // made absolute here, where the host copies it from; the browser is
+      // handed the bytes, as a real picker hands it a File.
+      const held = ((await s.op({ op: 'state' })).pending ?? []).find(p => p.ticket === ticket);
+      if (held?.device?.capability !== 'pick') return s.op({ op, ticket, text: String(value) });
+      const paths = String(value).split(/\s+/).filter(Boolean).map(p => resolve(p));
+      const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());
+      if (missing) throw new Error(`type ${target}: no such file ${missing}`);
+      const req = { op, ticket, text: paths.join('\n') };
+      if (host === 'web') req.files = paths.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
+      return s.op(req);
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {

@@ -328,7 +328,7 @@ pub(crate) fn input_control(
         }
     }
     let control = contract_syntax::input_control(tag, attrs);
-    if control.is_none() {
+    if control != Some("checkbox") {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return super::err(
                 "lower-attr-tag",
@@ -337,7 +337,106 @@ pub(crate) fn input_control(
             );
         }
     }
+    if control == Some("file") {
+        file_input(attrs)?;
+    } else if let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "accept" | "multiple" | "capture"))
+    {
+        return super::err(
+            "lower-attr-tag",
+            format!("`{}` belongs to `input type=\"file\"`", a.name),
+            a.span,
+        );
+    }
     Ok(control)
+}
+
+/// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
+/// D1), cited by each refusal.
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no camera.\"";
+
+/// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
+/// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
+/// type or extension the manifest's `file_handlers` declares (checked at
+/// bake, where the manifest is read: `contract::picker`); `capture` is
+/// refused, and so are `*/*` and an empty list.
+fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), super::LowerError> {
+    use contract_syntax::Expr;
+    if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
+        return super::err(
+            "lower-picker-capture",
+            format!("`capture` opens a camera, which is not admitted: {PICKER_ADMISSION}"),
+            a.span,
+        );
+    }
+    let Some(a) = attrs.iter().find(|a| a.name == "accept") else {
+        return super::err(
+            "lower-picker-accept",
+            format!("`input type=\"file\"` needs a literal `accept` (`accept=\"image/*\"`): {PICKER_ADMISSION}"),
+            attrs.iter().find(|a| a.name == "type").map_or_else(Default::default, |a| a.span),
+        );
+    };
+    let Expr::Str(list, _) = &a.value else {
+        return super::err(
+            "lower-picker-accept",
+            format!("`accept` is a literal, so the bake can bound it: {PICKER_ADMISSION}"),
+            a.span,
+        );
+    };
+    let tokens = accept_tokens(list);
+    if tokens.is_empty() {
+        return super::err(
+            "lower-picker-accept",
+            format!("`accept` names no type: {PICKER_ADMISSION}"),
+            a.span,
+        );
+    }
+    for t in tokens {
+        let wild = t
+            .split_once('/')
+            .is_some_and(|(k, s)| s == "*" && k != "image" && k != "video");
+        if t == "*" || t == "*/*" || wild || !(t.contains('/') || t.starts_with('.')) {
+            return super::err(
+                "lower-picker-accept",
+                format!("`accept` may not name `{t}`: {PICKER_ADMISSION}"),
+                a.span,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `accept`'s comma-separated tokens, trimmed and lowercased, as HTML reads them.
+pub fn accept_tokens(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Whether an `accept` token is a media type every app may pick (LLP
+/// 1069.002 D1): `image/*`, `video/*`, or one image or video subtype.
+pub fn media_accept(token: &str) -> bool {
+    token.split_once('/').is_some_and(|(kind, sub)| {
+        matches!(kind, "image" | "video")
+            && !sub.is_empty()
+            && sub
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"*.+-_".contains(&b))
+    })
+}
+
+/// A file input (LLP 1069.002 D1): the kernel's `Control`, a measured leaf
+/// the host presents as its own control (the browser's "Choose File"); no
+/// margins, as Chrome's UA sheet gives `input[type=file]` none.
+pub(crate) fn file_tag() -> Tag {
+    Tag {
+        node_type: NodeType::Control,
+        fixed_styles: &[],
+        fixed_props: &[],
+        positional: None,
+    }
 }
 
 /// A checkbox: the kernel's `Control`, with the margins Chrome's UA sheet
@@ -410,6 +509,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "change" => AttrTarget::Handler("change"),
         "input" => AttrTarget::Handler("input"),
         "checked" => AttrTarget::Prop(p("checked")),
+        // @ref LLP 1069.002 D1, D2 — a file input's types and count, and
+        // HTML's `cancel` when its picker is dismissed.
+        "accept" => AttrTarget::Prop(p("accept")),
+        "multiple" => AttrTarget::Prop(p("multiple")),
+        "cancel" => AttrTarget::Handler("cancel"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),

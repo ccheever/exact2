@@ -7,6 +7,9 @@
   "display": "standalone",
   "theme_color": "#31554a",
   "background_color": "#f6f3eb",
+  "file_handlers": [
+    { "action": "/", "name": "Fieldnotes backup", "accept": { "application/json": [".json"] } }
+  ],
   "app": { "id": "com.exact.fieldnotes", "name": "Fieldnotes" },
   "typescript": { "placement": "worker" },
   "host": {

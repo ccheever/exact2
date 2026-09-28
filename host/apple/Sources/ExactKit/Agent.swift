@@ -129,7 +129,10 @@ public final class Agent {
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             let data = Data(session.agent(json).utf8)
-            Agent.reply(tagged((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]))
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            // A picker's answer is delivered once the library took it (LLP 1069.002 D9).
+            session.picker.answered(answer, request: req)
+            Agent.reply(tagged(answer))
             return
         }
         switch op {

@@ -15,6 +15,16 @@ impl<D: DataSource> Presenter<D> {
         if node.node_type != NodeType::Control {
             return false;
         }
+        // A visible file input's press opens its picker (LLP 1069.002 D1).
+        if node.props.str(PropId::Type) == Some("file") {
+            if node.props.bool(PropId::Disabled) != Some(true) {
+                match node.props.str(PropId::Id).map(str::to_owned) {
+                    Some(name) => self.show_picker(&name),
+                    None => self.host.log("picker: refused: a file input needs an id"),
+                }
+            }
+            return true;
+        }
         if node.props.bool(PropId::Disabled) == Some(true) {
             return true;
         }

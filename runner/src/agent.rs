@@ -31,6 +31,15 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("state") => state(runner),
         Some("tags") => tags(runner),
         Some("holds") => holds(runner),
+        // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
+        // view, `accept` and `multiple`, for the host that presents it.
+        Some("picker") => match field_str(request, "id") {
+            Some(id) => match runner.picker(&id) {
+                Some(p) => p.json(&id, true),
+                None => error(&format!("no file input with id \"{id}\"")),
+            },
+            None => error("picker needs an id"),
+        },
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -99,6 +108,23 @@ pub fn answer<D: DataSource>(
     request: &str,
 ) -> Option<(String, Option<crate::Hold>)> {
     let op = field_str(request, "op")?;
+    // The picker's two writes (LLP 1069.002): under the agent a
+    // `showPicker` is held for the agent (D9), and each picked file is named
+    // under `app:/tmp/picked/` before a host copies it in (D3).
+    if op == "showPicker" {
+        let id = field_str(request, "id").unwrap_or_default();
+        return Some(match runner.hold_picker(&id) {
+            Ok(ticket) => (format!("{{\"ticket\":{ticket}}}"), None),
+            Err(e) => (error(&e), None),
+        });
+    }
+    if op == "pickedPath" {
+        let name = field_str(request, "name").unwrap_or_default();
+        let mut s = String::from("{\"path\":");
+        quote(&runner.picked_path(&name), &mut s);
+        s.push('}');
+        return Some((s, None));
+    }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
     }
@@ -127,6 +153,11 @@ pub fn answer<D: DataSource>(
         Ok(hold) => {
             let mut s = format!("{{\"ticket\":{ticket},\"capability\":");
             quote(&hold.capability, &mut s);
+            // The requesting node, for the capability arm that delivers
+            // the answer there (a picker's `change` or `cancel`).
+            if let Some(node) = hold.node {
+                s.push_str(&format!(",\"node\":{node}"));
+            }
             s.push_str(",\"answered\":");
             match &reply {
                 crate::HoldAnswer::Choice(c) => quote(c, &mut s),

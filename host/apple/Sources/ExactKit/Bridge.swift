@@ -222,6 +222,16 @@ final class Runtime {
         let n = write(on ? "true" : "false")
         return read(exact_dispatch(rt, view, commit ? 24 : 25, n, now))
     }
+    /// A file input's picked files, one tab-separated line each (LLP 1069.002 D3).
+    func picked(_ view: UInt32, _ payload: String, now: Double) -> Batch {
+        let n = write(payload)
+        return read(exact_dispatch(rt, view, 26, n, now))
+    }
+    /// A file input's picker was dismissed: HTML's `cancel` (LLP 1069.002 D2).
+    func pickerCancel(_ view: UInt32, now: Double) -> Batch {
+        let n = write("")
+        return read(exact_dispatch(rt, view, 27, n, now))
+    }
     /// Shared Markdown selection facts; the editor retains its own range.
     func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
         guard let data = json.data(using: .utf8),

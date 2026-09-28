@@ -659,9 +659,18 @@ pub fn is_input_switch(tag: &str, positional: &Expr) -> bool {
     tag == "input" && matches!(positional, Expr::Ident(word, _) if word == "switch")
 }
 
+/// Whether `positional` is the word `multiple` in `input type="file"
+/// multiple`: HTML's boolean attribute (LLP 1069.002 D1), a word like
+/// `switch`, never a name in scope. `multiple=true` says the same.
+pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
+    tag == "input" && matches!(positional, Expr::Ident(word, _) if word == "multiple")
+}
+
 /// The form control an `input` is, by its literal `type` (LLP 1069.001 D1):
-/// `Some("checkbox")` for a checkbox (a switch is one too), `None` for a
-/// text field or any other element. Its `change` and `input` carry a bool.
+/// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
+/// and `input` carry a bool; `Some("file")` for a file input (LLP 1069.002
+/// D1), whose `change` carries a `list<Picked>`; `None` for a text field or
+/// any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
     if tag != "input" {
         return None;
@@ -671,6 +680,7 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
         .find(|a| a.name == "type")
         .and_then(|a| match &a.value {
             Expr::Str(t, _) if t == "checkbox" => Some("checkbox"),
+            Expr::Str(t, _) if t == "file" => Some("file"),
             _ => None,
         })
 }

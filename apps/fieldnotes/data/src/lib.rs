@@ -12,7 +12,7 @@ use serde_json::{json, Value as Json};
 pub const APP: &str = "com.exact.fieldnotes";
 /// The same storage and app revision grants in both language implementations.
 pub const GRANTS: &str =
-    "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nsecret.keep fieldnotes.revision";
+    "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision";
 const CREATE: &str = "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)";
 // One SELECT owns the snapshot. Any valid 4 Mi UTF-16 backup fits in 12 MiB
 // of quoted UTF-8 text; oversized text becomes NULL before crossing the ABI.
@@ -52,6 +52,7 @@ pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
             "saveNote",
             "readBackup",
             "restoreNotes",
+            "importNotes",
             "deleteNote",
         ],
         RUST_SOURCES,

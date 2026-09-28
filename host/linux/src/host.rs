@@ -540,6 +540,9 @@ impl<D: DataSource> Host<D> {
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
         let cache = cache.join("cache");
+        // What `app:/` names for the picker and an image's source (LLP
+        // 1069.002 D4, D7); the last launch's picks go.
+        crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
         self.runner.data().configure_storage(data, cache, temporary)
     }
 

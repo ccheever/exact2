@@ -53,6 +53,7 @@ pub mod image;
 pub mod input;
 pub mod navigation;
 pub mod paint;
+pub mod picker;
 mod placement;
 pub mod presenter;
 pub mod raster;

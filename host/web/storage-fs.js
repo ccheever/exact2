@@ -211,7 +211,22 @@ export function createFileStore(appId) {
     async readFile(path) {
       path = normalizePath(path);
       // IndexedDB already returns an independent structured clone for this read.
-      return run(false, records => file(records, path).contents, path);
+      // A picked file's entry holds the browser's own File (LLP 1069.002 D5).
+      const contents = await run(false, records => file(records, path).contents, path);
+      return contents instanceof Blob ? contents.arrayBuffer() : contents;
+    },
+    // Trusted host only: a picked file's entry, backed by the browser's File
+    // rather than bytes read into memory (LLP 1069.002 D5).
+    putBlob(path, blob) {
+      path = normalizePath(path);
+      requireBelowRoot(path);
+      return run(true, (records, changes) => {
+        directory(records, parentOf(path));
+        const previous = records.get(path);
+        if (previous && previous.kind !== 'file') throw failure('write needs a regular file', 'EISDIR');
+        changes.put({ path, kind: 'file', contents: blob, modifiedMs: now() });
+        if (!previous) changes.touch(parentOf(path));
+      }, [path, parentOf(path)]);
     },
     writeFile(path, data) { return write(path, data, false); },
     atomicWriteFile(path, data) { return write(path, data, false); },
@@ -260,7 +275,7 @@ export function createFileStore(appId) {
       path = normalizePath(path);
       return run(false, records => {
         const value = entry(records, path);
-        return { size: value.kind === 'file' ? value.contents.byteLength : 0,
+        return { size: value.kind === 'file' ? value.contents.byteLength ?? value.contents.size : 0,
           isFile: value.kind === 'file', isDirectory: value.kind === 'directory', modifiedMs: value.modifiedMs };
       }, path);
     },

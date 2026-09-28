@@ -473,10 +473,20 @@ impl<D: DataSource> Host<D> {
     }
 
     /// `tap @t` or `type @t` (LLP 1069.007 D4): the agent answers a held
-    /// device request, consumed here. No capability is admitted yet, so no
-    /// arm takes the answer on; `None` for an ordinary `tap` or `type`.
+    /// device request, consumed here; the reply names the requesting node,
+    /// where the Swift capability arm delivers it (a picker's `change` or
+    /// `cancel`, LLP 1069.002 D9). Also the picker's `showPicker` hold and
+    /// `pickedPath`, whose reply adds the file to copy into. `None` for an
+    /// ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
-        exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| reply)
+        let picked = exact_runner::agent::field_str(request, "op").as_deref() == Some("pickedPath");
+        exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| {
+            if picked {
+                crate::picker::with_files(reply)
+            } else {
+                reply
+            }
+        })
     }
 
     /// What a reload keeps (`Runner::carry`).
@@ -554,6 +564,9 @@ impl<D: DataSource> Host<D> {
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
         let cache = cache.join("cache");
+        // What `app:/` names for the picker and an image's source (LLP
+        // 1069.002 D4, D7); the last launch's picks go.
+        crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
         source.configure_storage(data, cache, temporary)
     }
 

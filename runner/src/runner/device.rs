@@ -107,6 +107,16 @@ impl<D: DataSource> Runner<D> {
                     takes.join(" | ")
                 ));
             }
+            // A picker's files are checked against its input before the
+            // hold is spent (LLP 1069.002 D9), so a refused answer can be
+            // corrected.
+            HoldAnswer::Value(v) if hold.capability == "pick" => {
+                if let Err(e) = self.check_pick(hold.node, v) {
+                    return Err(format!("@{ticket} (pick): {e}"));
+                }
+                let n = super::picker::answer_paths(v).len();
+                format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(

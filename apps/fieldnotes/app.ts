@@ -7,7 +7,7 @@ type Status = Result<'backupNotes'>;
 type Store = Parameters<Answer>[2];
 
 export const appId = 'com.exact.fieldnotes';
-export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nsecret.keep fieldnotes.revision';
+export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision';
 const backupPath = 'app:/data/backups/fieldnotes.json';
 // One app-owned revision survives source/language replacement with the Store.
 function nextRevision(store:Store):number {
@@ -190,6 +190,13 @@ async function service(source:string,args:unknown[],storage:Storage,store:Store)
       const restored=parseBackup(text);
       await withDatabase(storage, db=>db.transaction([{sql:'DELETE FROM notes'},...restored.map(n=>({sql:'INSERT INTO notes (id,title,body,pinned) VALUES (?,?,?,?)',params:[id(n.id),n.title,n.body,n.pinned?1n:0n]}))]));
       notice=`Restored ${restored.length} notes.`;
+    } else if(source==='importNotes') {
+      // A backup file the person picked (LLP 1069.002), copied into app:/tmp/picked/.
+      const path=String(args[0]);if(!path.startsWith('app:/tmp/picked/'))throw new Error('Choose a backup file to import.');
+      text=decode(await storage.fs.readFile(path));
+      const restored=parseBackup(text);
+      await withDatabase(storage, db=>db.transaction([{sql:'DELETE FROM notes'},...restored.map(n=>({sql:'INSERT INTO notes (id,title,body,pinned) VALUES (?,?,?,?)',params:[id(n.id),n.title,n.body,n.pinned?1n:0n]}))]));
+      notice=`Imported ${restored.length} ${restored.length===1?'note':'notes'} from the file.`;
     } else if(source==='deleteNote') {
       await withDatabase(storage,db=>db.execute('DELETE FROM notes WHERE id=?',[id(String(args[0]))]));notice='Note deleted.';
     } else throw new Error('Unknown notebook action.');
@@ -205,6 +212,7 @@ const sources: Sources = {
   backupNotes: (args, store, storage) => serial(() => service('backupNotes', args, storage, store)),
   readBackup: (args, store, storage) => serial(() => service('readBackup', args, storage, store)),
   restoreNotes: (args, store, storage) => serial(() => service('restoreNotes', args, storage, store)),
+  importNotes: (args, store, storage) => serial(() => service('importNotes', args, storage, store)),
   deleteNote: (args, store, storage) => serial(() => service('deleteNote', args, storage, store)),
 };
 export const answer: Answer = (source,args,store,storage) => sources[source](args,store,storage);

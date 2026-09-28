@@ -4,7 +4,8 @@
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
 import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let httpModule;
+let httpModule, pickerModule; // the file picker (LLP 1069.002), loaded on first use
+const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path) }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
 }
@@ -446,7 +447,7 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
-      const v = (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      const v = (name === "src" || name === "poster") && value.startsWith("app:/") ? globalThis.exact.pickedURL?.(value) ?? "" : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
       if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same) el.setAttribute(name, v);
     }
@@ -546,6 +547,8 @@ function attach(el, id, handlers) {
         e.preventDefault(); e.stopPropagation();
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
       });
+    } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
+      on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
     } else if ((kind === "input" || kind === "change") && el.type === "checkbox") {
       // @ref LLP 1069.001 D4 — the platform flips the box at once; the
       // action decides, and a refusal snaps it back to the committed state.
@@ -759,6 +762,12 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "showPicker") { // LLP 1069.002 D2, D9: the element's own picker, inside the press's activation; under the agent, a hold
+          const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");
+          if (agentMode) { const r = ask({ op: "showPicker", id: String(op.args?.[0] ?? "") }); if (r.error) console.warn("exact:", r.error); }
+          else if (!el) log(`picker: refused: no file input with id "${op.args?.[0]}"`);
+          else try { el.showPicker(); } catch (e) { log(`picker: refused: ${e.name}`); const p = picker().then(m => m.cancel(Number(el.dataset.view))); inflight.add(p); p.finally(() => inflight.delete(p)); }
+        }
         else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
@@ -1079,7 +1088,10 @@ function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
     if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
-    if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) return tagged(ask(request)); // a held device request, by ticket (LLP 1069.007 D4)
+    if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) { // a held device request, by ticket (LLP 1069.007 D4)
+      const { files, ...held } = request, r = ask(held); // a picker's answer is delivered once the runner took it (LLP 1069.002 D9)
+      return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
+    }
     switch (request.op) {
       case "state": {
         const st = ask(request);

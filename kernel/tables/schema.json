@@ -1194,6 +1194,18 @@
       "id": 207,
       "name": "primitiveUnits",
       "kind": "str"
+    },
+    {
+      "id": 209,
+      "name": "accept",
+      "kind": "str",
+      "_comment": "@ref LLP 1069.002 D1: HTML's `accept` on `input type=file`, the MIME list as HTML writes it; the bake bounds it to image/video types and the manifest's `file_handlers`."
+    },
+    {
+      "id": 210,
+      "name": "multiple",
+      "kind": "bool",
+      "_comment": "@ref LLP 1069.002 D1: HTML's `multiple` on `input type=file`: the picker may return more than one file."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

@@ -136,6 +136,8 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // `tap @t` / `type @t` answer a held device request before any view is
     // looked up (LLP 1069.007 D4).
     if let Some(reply) = p.host_mut().answer_hold(line) {
+        // A picker's answer is delivered here (LLP 1069.002 D9).
+        p.answer_picker(line, &reply);
         return reply;
     }
     match field_str(line, "op").as_deref() {
@@ -905,7 +907,7 @@ mod tests {
         let t = p
             .host_mut()
             .runner_mut()
-            .hold("pick", Some(picker), args, &[], true);
+            .hold("sample", Some(picker), args, &[], true);
         let state = json(handle(&mut p, r#"{"op":"state"}"#));
         let held = state["pending"]
             .as_array()
@@ -915,7 +917,7 @@ mod tests {
             .cloned()
             .unwrap_or_default();
         assert_eq!(held["name"], "picker", "{state}");
-        assert_eq!(held["device"]["capability"], "pick");
+        assert_eq!(held["device"]["capability"], "sample");
         assert_eq!(held["device"]["args"]["accept"][0], "image/*");
         assert!(
             state["pending"].as_array().unwrap().len() >= 2,
@@ -963,10 +965,10 @@ mod tests {
         assert!(again.contains(&format!("not pending: @{t}")), "{again}");
         let logs = handle(&mut p, r#"{"op":"logs"}"#);
         assert!(
-            logs.contains(&format!("device pick {t} held (agent)")),
+            logs.contains(&format!("device sample {t} held (agent)")),
             "{logs}"
         );
-        assert!(logs.contains(&format!("device pick {t} answered: a value")));
+        assert!(logs.contains(&format!("device sample {t} answered: a value")));
         assert!(
             !logs.contains("cat.jpg"),
             "a typed value is never journalled"
@@ -981,7 +983,7 @@ mod tests {
         let u = p
             .host_mut()
             .runner_mut()
-            .hold("pick", Some(doc), "{}", &[], true);
+            .hold("sample", Some(doc), "{}", &[], true);
         handle(&mut p, &format!(r#"{{"op":"tap","id":{hide}}}"#));
         let state = json(handle(&mut p, r#"{"op":"state"}"#));
         assert!(
@@ -993,7 +995,10 @@ mod tests {
             "the node went, and its hold with it: {state}"
         );
         let logs = handle(&mut p, r#"{"op":"logs"}"#);
-        assert!(logs.contains(&format!("device pick {u} retired")), "{logs}");
+        assert!(
+            logs.contains(&format!("device sample {u} retired")),
+            "{logs}"
+        );
         let late = handle(
             &mut p,
             &format!(r#"{{"op":"tap","ticket":{u},"choice":"cancel"}}"#),
@@ -1032,6 +1037,93 @@ mod tests {
         assert_eq!(offset(&mut p), -480, "still standard time at 09:30Z");
         handle(&mut p, r#"{"op":"clock","to":7200000}"#);
         assert_eq!(offset(&mut p), -420, "daylight time from 10:00Z");
+    }
+
+    /// LLP 1069.002 D9 on Linux: `showPicker` under the agent is a held
+    /// `pick` with its input's summary; settle stops at it; `type @t` with
+    /// a file copies it into `app:/tmp/picked/` and fires `change` with the
+    /// record; a refused answer leaves the hold; `tap @t cancel` fires
+    /// `cancel`.
+    #[test]
+    fn a_picker_is_held_and_answered_by_ticket() {
+        let plan = contract::compile(
+            "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>) writes picked\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled writes cancels\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
+        )
+        .unwrap();
+        let (mut p, _) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+        let dir = std::env::temp_dir().join(format!("exact-picker-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend(64u32.to_be_bytes());
+        png.extend(48u32.to_be_bytes());
+        let fixture = dir.join("cat.png");
+        std::fs::write(&fixture, &png).unwrap();
+        let choose = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id("choose")[0]).unwrap().id
+        };
+        handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        let held = state["pending"][0].clone();
+        assert_eq!(held["name"], "attach", "{state}");
+        assert_eq!(held["device"]["capability"], "pick");
+        assert_eq!(held["device"]["args"]["accept"][0], "image/png");
+        assert_eq!(held["device"]["args"]["multiple"], false);
+        let t = held["ticket"].as_u64().unwrap();
+        let settle = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+        assert_eq!(settle["reason"], "device", "{settle}");
+        assert_eq!(settle["tickets"], serde_json::json!([t]));
+
+        let wrong = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","ticket":{t},"text":"/x/a.jpg"}}"#),
+        );
+        assert!(wrong.contains("not among accept"), "{wrong}");
+        let text = serde_json::Value::from(fixture.to_string_lossy().into_owned());
+        let answered = json(handle(
+            &mut p,
+            &format!(r#"{{"op":"type","ticket":{t},"text":{text}}}"#),
+        ));
+        assert_eq!(answered["delivery"], "substituted", "{answered}");
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        let picked = state["slots"]["picked"].as_str().unwrap().to_owned();
+        assert!(
+            picked.starts_with(&format!(
+                "1 cat.png image/png {} 64 app:/tmp/picked/",
+                png.len()
+            )),
+            "{picked}"
+        );
+        let copied = crate::picker::resolve(picked.rsplit(' ').next().unwrap()).unwrap();
+        assert_eq!(std::fs::read(copied).unwrap(), png);
+        let logs = handle(&mut p, r#"{"op":"logs"}"#);
+        assert!(
+            logs.contains(&format!("device pick {t} answered: 1 item")),
+            "{logs}"
+        );
+        assert!(!logs.contains("cat.png\""), "the value is never journalled");
+
+        handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        let u = state["pending"][0]["ticket"].as_u64().unwrap();
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","ticket":{u},"choice":"cancel"}}"#),
+        );
+        let state = json(handle(&mut p, r#"{"op":"state"}"#));
+        assert_eq!(state["slots"]["cancels"], 1, "{state}");
+        let settle = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+        assert_eq!(settle["settled"], true, "{settle}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -127,6 +127,8 @@ pub enum ControlValue {
     Text(String),
     /// A checkbox's (or switch's) checked state.
     Checked(bool),
+    /// A file input's picked files (LLP 1069.002 D3), in selection order.
+    Files(Vec<super::picker::Picked>),
 }
 
 impl ControlValue {
@@ -135,6 +137,7 @@ impl ControlValue {
         match self {
             Self::Text(text) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
+            Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
     }
 }
@@ -175,6 +178,10 @@ pub enum Event {
     /// A control's value was committed (HTML's `change`): a text field on
     /// blur or Enter, a checkbox as it toggles (LLP 1069.001 D4).
     Change(ControlValue),
+    /// A file input's picker was dismissed with nothing chosen (HTML's
+    /// `cancel`, LLP 1069.002 D2). A node without a `cancel` handler takes
+    /// it as nothing.
+    Cancel,
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -738,6 +745,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Press => "press",
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
+                Event::Cancel => "cancel",
                 Event::Select { .. } => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -779,12 +787,35 @@ impl<D: DataSource> Runner<D> {
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
         // @ref LLP 1069.001 D4 — a checkbox reports a bool, a text field its
         // text; the other is refused by name, never coerced.
+        // @ref LLP 1069.002 D3 — a file input's `change` carries its files,
+        // and only a file input's.
+        let file_input = self.kernel.node(view).is_some_and(|n| {
+            n.node_type == exact_kernel::NodeType::Control
+                && n.props.str(exact_kernel::PropId::Type) == Some("file")
+        });
+        if matches!(event, Event::Cancel) {
+            if !file_input {
+                return Err(RunnerError::InvalidEvent { event: "cancel" });
+            }
+            let has_handler = self
+                .plan
+                .node(node)
+                .handlers
+                .iter()
+                .any(|h| self.plan.handler(h).event == EventKind::Cancel);
+            if !has_handler {
+                what.push_str(" (no handler)");
+                return Ok(CommitReceipt::default());
+            }
+        }
         if let Event::Input(value) | Event::Change(value) = &event {
             let control = self
                 .kernel
                 .node(view)
-                .is_some_and(|n| n.node_type == exact_kernel::NodeType::Control);
-            if control != matches!(value, ControlValue::Checked(_)) {
+                .is_some_and(|n| n.node_type == exact_kernel::NodeType::Control && !file_input);
+            if control != matches!(value, ControlValue::Checked(_))
+                || file_input != matches!(value, ControlValue::Files(_))
+            {
                 return Err(RunnerError::InvalidEvent {
                     event: if matches!(event, Event::Input(_)) {
                         "input"
@@ -799,6 +830,7 @@ impl<D: DataSource> Runner<D> {
             Event::Press => (EventKind::Press, None, "press"),
             Event::Input(value) => (EventKind::Input, Some(value.value()), "input"),
             Event::Change(value) => (EventKind::Change, Some(value.value()), "change"),
+            Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Select {
                 formats,
                 mixed,

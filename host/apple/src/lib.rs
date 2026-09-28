@@ -45,6 +45,7 @@ pub mod host;
 pub mod markup;
 pub mod material;
 pub mod measure;
+pub mod picker;
 pub mod raster;
 mod raster_exports;
 pub mod store;

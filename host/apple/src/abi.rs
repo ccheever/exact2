@@ -850,6 +850,15 @@ impl<D: DataSource> Bridge<D> {
             1 => Event::Change(payload.into()),
             // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and
             // 25 a checkbox's `change` and `input`, the payload `true`/`false`.
+            // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one
+            // picked file per line; 27 its `cancel`.
+            26 => {
+                let Some(files) = exact_runner::Picked::payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid picked files"}"#.into());
+                };
+                Event::Change(exact_runner::ControlValue::Files(files))
+            }
+            27 => Event::Cancel,
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {

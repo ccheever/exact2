@@ -16,6 +16,7 @@ mod logic;
 mod manifest;
 mod map;
 pub mod native;
+pub mod picker;
 mod rust;
 mod sources;
 mod strings;
@@ -328,6 +329,11 @@ fn compile_path_output(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
+    picker::check(&file, Some(&app_root)).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
     if let Some(declared) = surface::arguments(&app_root)? {
         contract_analyze::check_surface_arguments(&file, &declared)
             .map_err(|e| sources.resolve(e.into()))?;
@@ -474,6 +480,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
+    // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
+    picker::check(&file, None).map_err(first)?;
     compile_file_output(&file, asset_root, None, false)
         .map(|(plan, _)| plan)
         .map_err(first)

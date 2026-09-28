@@ -347,7 +347,11 @@ fn refine_params_from_view(
             } => {
                 // A checkbox's `change` and `input` carry whether it is
                 // checked (LLP 1069.001 D4); a text field's, its text.
-                let checkbox = contract_syntax::input_control(tag, attrs).is_some();
+                let control = contract_syntax::input_control(tag, attrs);
+                let checkbox = control == Some("checkbox");
+                // A file input's `change` carries the picked files (LLP
+                // 1069.002 D3); its `cancel`, nothing.
+                let file = control == Some("file");
                 // A bound `type` is lowering's refusal (`lower-input-type`),
                 // not a payload guessed here.
                 let bound_type = tag == "input"
@@ -390,6 +394,7 @@ fn refine_params_from_view(
                             | "error"
                             | "canplay"
                             | "navigate"
+                            | "cancel"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -411,7 +416,9 @@ fn refine_params_from_view(
                             let payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
-                                "input" if checkbox => vec![Ty::Bool],
+                                "change" | "input" if file => {
+                                    vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
+                                }
                                 "change" | "input" | "key" | "message" | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }

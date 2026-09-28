@@ -89,6 +89,11 @@ impl Assets {
     }
 
     pub(super) fn image_input(&self, name: &str) -> Option<ImageInput> {
+        // An `app:/tmp`, `app:/cache` or `app:/data` source is the app's own
+        // file, read by the host (LLP 1069.002 D7): a picked photo's preview.
+        if name.starts_with("app:/") {
+            return crate::picker::resolve(name).map(ImageInput::Path);
+        }
         if !Self::relative(name) {
             return None;
         }

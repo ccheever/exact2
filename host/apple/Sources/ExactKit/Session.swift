@@ -381,6 +381,8 @@ public final class ExactSession {
     let canvases: Canvases
     let webviews: WebViews
     let natives = NativeViews()
+    /// The file picker (LLP 1069.002).
+    lazy var picker = Picker(session: self)
     let frames: Frames
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
@@ -776,6 +778,10 @@ public final class ExactSession {
                 }
                 if name == "blur" {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
+                    continue
+                }
+                if name == "showPicker" {
+                    app.deliver { [weak self] in self?.picker.show(args) }
                     continue
                 }
                 if name == "format" {

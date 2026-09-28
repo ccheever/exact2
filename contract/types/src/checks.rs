@@ -689,6 +689,8 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "openURL",
     "selectText",
     "setScheme",
+    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
+    "showPicker",
 ];
 
 /// Check an action body's statements through every branch (LLP 1017 P2).
@@ -873,6 +875,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     // (LLP 1048.003 D4, LLP 1069.001 D1).
                     if !contract_syntax::is_scroll_document(tag, p)
                         && !contract_syntax::is_input_switch(tag, p)
+                        && !contract_syntax::is_input_multiple(tag, p)
                     {
                         sink.keep(infer(p, scope, shapes));
                     }

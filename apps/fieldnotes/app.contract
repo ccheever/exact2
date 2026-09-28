@@ -45,6 +45,8 @@ component Fieldnotes
   state backups = false
   state importText = ""
   state confirmRestore = false
+  state importPath = ""
+  state importName = ""
   state confirmDelete = false
   mutation saved as shape Saved
   mutation status as shape Status
@@ -138,11 +140,24 @@ component Fieldnotes
     importText = value
   action askRestore writes confirmRestore
     confirmRestore = true
-  action cancelRestore writes confirmRestore
+  action chooseImport
+    showPicker("import-file")
+  action importPicked(files: list<Picked>) writes importPath, importName, confirmRestore
+    importPath = match first(files) { case some(f) => f.path, case none => "" }
+    importName = match first(files) { case some(f) => f.name, case none => "" }
+    confirmRestore = length(files) > 0
+  action cancelRestore writes confirmRestore, importPath, importName
     confirmRestore = false
-  action restore writes status, confirmRestore, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
-    send status = restoreNotes(importText)
+    importPath = ""
+    importName = ""
+  action restore writes status, confirmRestore, importPath, importName, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
+    if importPath != ""
+      send status = importNotes(importPath)
+    else
+      send status = restoreNotes(importText)
     confirmRestore = false
+    importPath = ""
+    importName = ""
     noteId = ""
     savedId = ""
     draftTitle = none
@@ -213,16 +228,20 @@ component Fieldnotes
           when backupText != ""
             textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
           textarea font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+          input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
           when confirmRestore
             row gap=12 align-items="center" flex-wrap="wrap"
-              text "Replace all notes with this backup?" font-size=14
+              text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
               button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="#a34336" border-radius=7
                 text "Replace notes" color="#ffffff"
               button press=cancelRestore testId="cancel-restore" padding=10
                 text "Cancel"
           else
-            button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10 align-self="flex-start"
-              text "Restore backup…" color="#a34336"
+            row gap=10 flex-wrap="wrap"
+              button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
+                text "Restore backup…" color="#a34336"
+              button press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
+                text "Import backup file…" color="#31554a"
       else
         row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
           column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12

@@ -40,6 +40,7 @@ mod control;
 mod delivery;
 mod display_frame;
 mod events;
+mod picker;
 mod svg_hit;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
@@ -452,6 +453,12 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
+                // substitute answers (D9).
+                "showPicker" => match c.args.first() {
+                    Some(exact_plan::Value::Str(id)) => self.show_picker(&id.clone()),
+                    _ => eprintln!("exact: showPicker requires an element id"),
+                },
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

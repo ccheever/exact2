@@ -33,6 +33,14 @@ final class RasterInput: @unchecked Sendable {
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
     static func open(_ name: String, resolver: AssetResolver, cancellation: RasterCancellation = RasterCancellation()) throws -> RasterInput {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
+        // The app's own file (LLP 1069.002 D7): a picked photo's preview.
+        if name.hasPrefix("app:/") {
+            guard let url = AppFiles.url(name) else { throw RasterFailure.decode }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            guard values.isRegularFile == true, let count = values.fileSize,
+                  count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
+            return RasterInput(url: url, encodedBytes: count, temporary: false)
+        }
         if let url = URL(string: name), let scheme = url.scheme {
             guard scheme == "https" || scheme == "http" else { throw RasterFailure.decode }
             let download = try RasterDownload(url: url)

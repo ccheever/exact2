@@ -50,6 +50,9 @@ pub mod instance;
 pub mod page;
 pub mod request;
 pub mod runner;
+/// The picker's helpers a host shares (LLP 1069.002): types by name,
+/// `accept` matching, the HEIC rule, a `type @t` answer's paths.
+pub use runner::picker as picker_support;
 pub mod stdlib;
 pub mod store;
 pub mod surface_record;
@@ -77,8 +80,9 @@ pub use runner::{
     canvas_engine, routing, Advanced, Announce, CanvasEngine, CanvasLink, CanvasList, Carried,
     Checkpoint, Command, ControlValue, DataError, DataSource, DrawReply, DrawRequest, Drawn, Event,
     Geometry, Hold, HoldAnswer, InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall,
-    NativeHandler, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
-    SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    NativeHandler, Picked, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
+    RunnerLinks, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
+    TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};

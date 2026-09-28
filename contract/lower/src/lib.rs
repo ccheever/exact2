@@ -708,6 +708,7 @@ impl<'a> Lowerer<'a> {
                 // type is a text field, `checkbox` a form control.
                 let control = tags::input_control(tag, expanded)?;
                 let t = match control {
+                    Some("file") => tags::file_tag(),
                     Some(_) => tags::control_tag(),
                     None => t,
                 };
@@ -818,7 +819,7 @@ impl<'a> Lowerer<'a> {
                     // @ref LLP 1069.001 D1 — HTML's `switch`: the checkbox is
                     // drawn as a switch, and ARIA hears one either way.
                     [word] if contract_syntax::is_input_switch(tag, word) => {
-                        if control.is_none() {
+                        if control != Some("checkbox") {
                             return err(
                                 "lower-attr-tag",
                                 "`switch` belongs to `input type=\"checkbox\"`",
@@ -829,6 +830,19 @@ impl<'a> Lowerer<'a> {
                             kind: BindingKind::Prop,
                             id: exact_kernel::PropId::AccessibilityRole as u16,
                             expr: self.fixed(false, "switch"),
+                        });
+                        &[][..]
+                    }
+                    // @ref LLP 1069.002 D1 — HTML's `multiple` on a file input.
+                    [word] if contract_syntax::is_input_multiple(tag, word) => {
+                        let owner = "`multiple` belongs to `input type=\"file\"`";
+                        (control == Some("file"))
+                            .then_some(())
+                            .map_or_else(|| err("lower-attr-tag", owner, word.span()), Ok)?;
+                        bindings.push(BindingsRow {
+                            kind: BindingKind::Prop,
+                            id: exact_kernel::PropId::Multiple as u16,
+                            expr: self.b.constant(&Value::Bool(true)),
                         });
                         &[][..]
                     }
