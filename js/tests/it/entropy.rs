@@ -12,7 +12,7 @@ use exact_runner::{Answer, DataSource, Outcome, Response, Runner, Store};
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/entropy.hbc"));
 const APP: &str = "test.entropy";
 /// `crypto`'s shape, the same string the browser realms answer.
-const GLOBALS: &str = "object/function/undefined/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]";
+const GLOBALS: &str = "object/function/function/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]";
 const GRANTS: &str = "net.fetch https://fixture.exact.test\n";
 
 const SRC: &str = r#"

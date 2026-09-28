@@ -29,6 +29,8 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let ec_pair =
+        exact_data::crypto::generate_p256(&exact_runner::Store::new("", []), true).unwrap();
     let result = Command::new("bun")
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
@@ -38,6 +40,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         )
         .env("EXACT_DIGESTS", expected_digests())
         .env("EXACT_AGENT_STREAM", agent_stream())
+        .env("EXACT_EC_JWK", ec_pair.private.to_jwk().unwrap().to_json())
         .current_dir(root)
         .output()
         .unwrap();
@@ -48,6 +51,62 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
     );
+    check_ecdsa(&String::from_utf8_lossy(&result.stdout), &ec_pair);
+}
+
+/// LLP 1069.005 D1b: what Chrome's WebCrypto signed in each placement,
+/// verified here by Rust's P-256 (the reference Hermes is held to as well):
+/// a key Chrome generated exports a JWK Rust imports and verifies under;
+/// Rust's key imported in Chrome signs what Rust verifies; a kept pair
+/// signs after a new realm read it back from IndexedDB.
+fn check_ecdsa(stdout: &str, rust: &exact_data::crypto::EcKeyPair) {
+    use exact_data::crypto::{EcKey, Jwk};
+    let line = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("ECDSA_RESULT "))
+        .expect("the probe reports its ECDSA results");
+    let all: serde_json::Value = serde_json::from_str(line).unwrap();
+    let unhex = |h: &serde_json::Value| -> Vec<u8> {
+        let h = h.as_str().unwrap();
+        (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect()
+    };
+    let key = |v: &serde_json::Value| {
+        EcKey::from_jwk(&Jwk::from_json(&v.to_string()).unwrap(), true).unwrap()
+    };
+    for placement in ["main", "worker"] {
+        let r = &all[placement];
+        let pair = &r["keypair"];
+        assert_eq!(
+            pair["shape"], "private true sign public verify P-256 [object CryptoKey] true",
+            "{placement}"
+        );
+        let public = key(&pair["pub"]);
+        assert_eq!(
+            key(&pair["priv"]).public_key().to_jwk().unwrap(),
+            public.to_jwk().unwrap()
+        );
+        assert!(
+            public.verify(b"proof", &unhex(&pair["signature"])),
+            "{placement}: Chrome's signature"
+        );
+        assert!(
+            rust.public.verify(b"imported", &unhex(&r["imported"])),
+            "{placement}: Rust's key in Chrome"
+        );
+        let kept = key(&r["kept"]["pub"]);
+        assert_eq!(r["kept"]["extractable"], false);
+        assert!(
+            kept.verify(b"kept", &unhex(&r["kept"]["signature"])),
+            "{placement}: kept"
+        );
+        assert!(
+            kept.verify(b"kept", &unhex(&r["later"])),
+            "{placement}: kept across realms"
+        );
+    }
 }
 
 /// The entropy fixture's `digests`, as `js/tests/it/entropy.rs` computes
@@ -174,10 +233,11 @@ if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
   process.exit(0);
 }
-const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage','entropy'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
+const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage','entropy','ecdsa'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 fixtures.digests=process.env.EXACT_DIGESTS;
 fixtures.agentStream=process.env.EXACT_AGENT_STREAM;
+fixtures.ecJwk=process.env.EXACT_EC_JWK;
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
 const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
@@ -295,7 +355,7 @@ try {
       if(later.request?.url!=='https://fixture.exact.test/value'||later.entropy||(await ask('uuidLater',[],response())).entropy!==true)throw new Error(`${placement}: a draw after a fetch`);
       if((await ask('bytes',[4])).value.split(',').length!==4||(await ask('plain')).entropy!==false)throw new Error(`${placement}: bytes or a plain answer`);
       if((await ask('refusals')).value!=='QuotaExceededError/TypeMismatchError/TypeError')throw new Error(`${placement}: refusals`);
-      if((await ask('globals')).value!=='object/function/undefined/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]')throw new Error(`${placement}: crypto's shape`);
+      if((await ask('globals')).value!=='object/function/function/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]')throw new Error(`${placement}: crypto's shape`);
       // D1: digests, the same bytes as Hermes; the rest of `subtle` refuses by name.
       if((await ask('atInit',['digest'])).value!=='ran: function')throw new Error(`${placement}: a digest at initialization`);
       const digested=await ask('digests');
@@ -330,6 +390,36 @@ try {
       if(a===b||a.split(' ')[0]===seeded.split(' ')[0])throw new Error(`${placement}: outside the agent a draw is not the OS's`);
     }
 
+    // LLP 1069.005 D1b: ECDSA P-256 in both placements, the same checks
+    // Hermes meets; the signatures go back to Rust to verify (the harness).
+    const ecIdentity={appId:'test.ecdsa',grants:'secret.keep dpop\n'}, ecdsa={};
+    for(const placement of ['main','worker']){
+      const open=async()=>prepare(await payload(fixtures.ecdsa,ecIdentity),{...ecIdentity,placement});
+      const asker=realm=>(source,args=[],store=[])=>{
+        const started=call({id:realm.id,op:'answer',source,args,store,grants:['dpop']});
+        if(placement==='worker')call({op:'dispatch',id:realm.id,token:started.continuation,store,grants:['dpop']});
+        return checkpoint(started);
+      };
+      const realm=await open(), ask=asker(realm);
+      const init=await ask('initKey');
+      if(!String(init.value).includes('unavailable during module initialization'))throw new Error(`${placement}: a key at initialization ${JSON.stringify(init)}`);
+      const pair=await ask('keypair');
+      if(!pair.entropy||pair.tag!==0)throw new Error(`${placement}: keypair ${JSON.stringify(pair)}`);
+      const imported=await ask('importSign',[fixtures.ecJwk]);
+      const trip=await ask('roundTrip',[JSON.stringify({...JSON.parse(fixtures.ecJwk),d:undefined})]);
+      if(trip.entropy||!trip.value?.startsWith('EC P-256 ')||!trip.value.endsWith(' true'))throw new Error(`${placement}: import and export are pure ${JSON.stringify(trip)}`);
+      const refusals=(await ask('refusals')).value;
+      if(refusals!=='NotSupportedError/NotSupportedError/SyntaxError/InvalidAccessError/NotSupportedError/NotSupportedError/InvalidAccessError/NotSupportedError/NotSupportedError')throw new Error(`${placement}: refusals ${refusals}`);
+      const kept=await ask('keep');
+      const handle=kept.writes?.find(w=>w[0]==='dpop')?.[1];
+      if(!/^exact\.key:/.test(handle??''))throw new Error(`${placement}: keepKey keeps a handle, not a key ${JSON.stringify(kept.writes)}`);
+      realm.dispose();
+      // A new realm over the kept secret: the pair comes back from IndexedDB.
+      const again=await open(), later=await asker(again)('kept',[],[['dpop',handle]]);
+      again.dispose();
+      ecdsa[placement]={keypair:JSON.parse(pair.value),imported:imported.value,kept:JSON.parse(kept.value),later:later.value};
+    }
+    globalThis.ecdsaResult=ecdsa;
     const castleIdentity={appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'};
     const castle=await prepare(await payload(fixtures.castle,castleIdentity),castleIdentity);
     const grants=['castle.session'], loginArgs=['ada','pw'];let store=[];
@@ -697,11 +787,12 @@ try {
       if(canonical(actual)!==canonical(test.expected))throw new Error(`Caltrain parity ${test.source}: ${JSON.stringify({actual,expected:test.expected})}`);
     }
     train.dispose();
-    return {guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
+    return {ecdsa:globalThis.ecdsaResult,guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
   };
   const result=await call('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true});
   assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value.sqliteReload));delete result.result.value.sqliteReload;
+  console.log('ECDSA_RESULT '+JSON.stringify(result.result.value.ecdsa));delete result.result.value.ecdsa;
   assert.deepEqual(result.result.value,{guards:25,caltrain:20,store:true,isolated:true,refusals:true,async:true,storage:true});
   await call('Page.reload');
   const persisted=await call('Runtime.evaluate',{expression:`(async()=>{

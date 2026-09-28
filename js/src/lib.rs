@@ -154,6 +154,9 @@ struct HostState {
     /// Under the agent, the repeatable stream `crypto` draws from instead
     /// of the OS (LLP 1069.005 D2b); this instance's, from its start.
     agent: Option<exact_data::crypto::AgentStream>,
+    /// `CryptoKey` handles (LLP 1069.005 D1b): the keys a source generated,
+    /// imported or read back, by index; never on the JavaScript heap.
+    keys: Vec<exact_data::crypto::EcKey>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the

@@ -2,7 +2,7 @@
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
-import { agentSeed, agentStream, storageKey } from './storage-environment.js';
+import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const realms = new Map();
@@ -146,6 +146,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
     // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
     if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);
+    // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
+    win.__exact_keys = keyStore(storageKey(admitted.appId, location.href), win.indexedDB);
     for (const source of [before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
       if (initializationError) throw new Error(initializationError);

@@ -34,7 +34,83 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     text
 }
 
-/// The bytes door (`__exact_bytes(op, a, arrayBuffer)`). Ops: 1 digest(name).
+/// ECDSA P-256 behind the prelude's `CryptoKey` (LLP 1069.005 D1b), by
+/// handle into `state.keys`: 2 generate(extractable "1"/"0") →
+/// `{"private":h,"public":h}`; 3 sign(handle, data) → `r‖s` as hex; 4
+/// import(`{"jwk":…,"extractable":…}`) → a handle; 5 export(handle) → the
+/// JWK; 6 keep(`{"name","private","public"}`) writes the pair's JWK under the
+/// secret; 7 kept(name) → a pair of handles, or "" when nothing is kept.
+/// Generating and signing mark the answer's read (the store's), as op 8
+/// does; with no store (an in-process query) nothing is marked.
+fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, String> {
+    use exact_data::crypto::{self as c, EcKey, EcKeyPair, Jwk};
+    use exact_runner::{DataError, Store};
+    let message = |e: DataError| match e {
+        DataError::BadArguments(m) | DataError::Unavailable(m) | DataError::UnknownSource(m) => m,
+    };
+    let scratch = Store::new("", []);
+    let store_ptr = state.store;
+    // SAFETY: the store the seam handed this call outlives the call.
+    let store: &Store = match store_ptr {
+        Some(s) => unsafe { &*s },
+        None => &scratch,
+    };
+    let key = |state: &HostState, text: &str| -> Result<EcKey, String> {
+        text.parse::<usize>()
+            .ok()
+            .and_then(|i| state.keys.get(i).cloned())
+            .ok_or_else(|| "InvalidAccessError: not a live CryptoKey".to_string())
+    };
+    let push = |state: &mut HostState, k: EcKey| {
+        state.keys.push(k);
+        state.keys.len() - 1
+    };
+    let pair = |state: &mut HostState, p: EcKeyPair| {
+        let private = push(state, p.private);
+        let public = push(state, p.public);
+        format!("{{\"private\":{private},\"public\":{public}}}")
+    };
+    match op {
+        2 => {
+            let p = c::generate_p256(store, a == "1").map_err(message)?;
+            Ok(pair(state, p))
+        }
+        3 => Ok(hex(
+            &c::sign_es256(store, &key(state, a)?, data).map_err(message)?
+        )),
+        4 => {
+            let v: serde_json::Value = serde_json::from_str(a).map_err(|e| e.to_string())?;
+            let jwk = Jwk::from_json(&v["jwk"].to_string()).map_err(message)?;
+            let k = EcKey::from_jwk(&jwk, v["extractable"].as_bool().unwrap_or(false))
+                .map_err(message)?;
+            Ok(push(state, k).to_string())
+        }
+        5 => Ok(key(state, a)?.to_jwk().map_err(message)?.to_json()),
+        6 => {
+            let v: serde_json::Value = serde_json::from_str(a).map_err(|e| e.to_string())?;
+            let handle = |k: &str| v[k].as_u64().map(|n| n.to_string()).unwrap_or_default();
+            let p = EcKeyPair {
+                private: key(state, &handle("private"))?,
+                public: key(state, &handle("public"))?,
+            };
+            let name = v["name"].as_str().unwrap_or_default();
+            match store_ptr {
+                // SAFETY: as above; the one writer during this call.
+                Some(s) => c::keep_key(unsafe { &mut *s }, name, &p).map_err(message)?,
+                None => return Err("store.keepKey: no store at bake".into()),
+            }
+            Ok(String::new())
+        }
+        7 => match c::kept_key(store, a).map_err(message)? {
+            Some(p) => Ok(pair(state, p)),
+            None => Ok(String::new()),
+        },
+        _ => Err(format!("__exact_bytes: no op {op}")),
+    }
+}
+
+/// The bytes door (`__exact_bytes(op, a, arrayBuffer)`). Ops: 1 digest(name);
+/// 2–7 ECDSA P-256 and kept keys ([`ec`]).
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -47,7 +123,7 @@ pub(crate) unsafe extern "C" fn bytes_door(
     len: usize,
     out: *mut *mut c_char,
 ) -> i32 {
-    let _state = &mut *(ctx as *mut HostState);
+    let state = &mut *(ctx as *mut HostState);
     let a = CStr::from_ptr(a).to_string_lossy();
     let data: &[u8] = if len == 0 {
         &[]
@@ -56,6 +132,7 @@ pub(crate) unsafe extern "C" fn bytes_door(
     };
     let reply = match op {
         1 => digest(&a, data),
+        2..=7 => ec(state, op, &a, data),
         other => Err(format!("__exact_bytes: no op {other}")),
     };
     let (status, text) = match reply {

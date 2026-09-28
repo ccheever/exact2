@@ -299,6 +299,7 @@ fn main() {
         "caltrain",
         "castle",
         "entropy",
+        "ecdsa",
         "inputs",
         "ambient-init",
         "storage",

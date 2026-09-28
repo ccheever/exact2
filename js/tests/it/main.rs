@@ -3,6 +3,7 @@
 
 mod caltrain;
 mod castle;
+mod ecdsa;
 mod entropy;
 mod forget;
 mod inputs;

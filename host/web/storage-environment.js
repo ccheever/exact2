@@ -62,3 +62,31 @@ export function agentStream(seed, label) {
     return bytes;
   };
 }
+
+// @ref LLP 1069.005 D1b — "keep this key" on the web: the CryptoKeyPair
+// itself (its private key non-extractable, so its bytes never reach script)
+// in the realm's IndexedDB, under a handle `secret.keep` holds. `name` is
+// storageKey's: the app's, a drive's scratch store, or null for a drive
+// with none, which keeps its keys in this page's memory only.
+const memoryKeys = new Map();
+export function keyStore(name, indexedDB) {
+  if (name === null || !indexedDB) {
+    return { put: async (handle, pair) => { memoryKeys.set(handle, pair); }, get: async handle => memoryKeys.get(handle) ?? null };
+  }
+  let opened = null;
+  const open = () => opened ??= new Promise((resolve, reject) => {
+    const request = indexedDB.open(`exact.keys:${name}`, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('keys');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => { opened = null; reject(request.error); };
+  });
+  const run = (mode, act) => open().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('keys', mode), request = act(tx.objectStore('keys'));
+    tx.oncomplete = () => resolve(request.result);
+    tx.onerror = tx.onabort = () => reject(tx.error ?? request.error);
+  }));
+  return {
+    put: (handle, pair) => run('readwrite', keys => keys.put({ privateKey: pair.privateKey, publicKey: pair.publicKey }, handle)).then(() => {}),
+    get: handle => run('readonly', keys => keys.get(handle)).then(pair => pair ?? null),
+  };
+}

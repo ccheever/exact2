@@ -9,6 +9,11 @@
 
 use std::sync::{Mutex, OnceLock};
 
+mod ecdsa;
+pub use ecdsa::{
+    base64url, generate_p256, keep_key, kept_key, sign_es256, unbase64url, EcKey, EcKeyPair, Jwk,
+};
+
 use exact_runner::{DataError, Store};
 
 /// The agent's repeatable random stream (LLP 1069.005 D2b): the ChaCha20
@@ -180,7 +185,7 @@ pub fn random_uuid(store: &Store) -> Result<String, DataError> {
 static AGENT: OnceLock<Option<Mutex<AgentStream>>> = OnceLock::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-mod platform {
+pub(crate) mod platform {
     pub fn fill(out: &mut [u8]) -> Result<(), String> {
         getrandom::fill(out).map_err(|e| e.to_string())
     }
@@ -193,7 +198,7 @@ mod platform {
 /// `exact_data` imports `host/web/glue.js` supplies). A Wasm logic module
 /// (LLP 1029.000) has no such import yet: one that draws is refused at load.
 #[cfg(target_arch = "wasm32")]
-mod platform {
+pub(crate) mod platform {
     #[link(wasm_import_module = "exact_data")]
     extern "C" {
         fn random(ptr: *mut u8, len: usize);

@@ -4,7 +4,7 @@
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
 import { createStorage } from './storage.js';
-import { agentStream } from './storage-environment.js';
+import { agentStream, keyStore } from './storage-environment.js';
 
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
@@ -64,6 +64,8 @@ function init(message) {
       postMessage({ op: 'digest', id, bytes });
     });
   }
+  // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
+  self.__exact_keys = keyStore(message.storage, self.indexedDB);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
