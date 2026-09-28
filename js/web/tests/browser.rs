@@ -521,7 +521,7 @@ try {
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
     if(performance.getEntriesByType('resource').some(entry=>/\/storage-(fs|sqlite)\.js$/.test(entry.name)))throw new Error('unused storage adapters downloaded');
     const {createStorage}=await import('/storage.js');
-    const canceled=createStorage(globalThis,storageIdentity,()=>({}),false);
+    const canceled=createStorage(globalThis,storageIdentity,()=>({}),storageIdentity.appId);
     void canceled.capability.fs.writeFile('app:/data/canceled-load',new Uint8Array([1]));
     void canceled.capability.sqlite.open('app:/data/notes.db');
     await Promise.resolve(); // start the first adapter imports, then unload
@@ -851,6 +851,8 @@ try {
     return result.result.value;
   };
   const frames='await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))';
+  // HTML's `change` commits a text field on blur (LLP 1069.001): type, then leave.
+  const type=async text=>{await call('Input.insertText',{text});await evaluate(`document.getElementById('editor').blur()`);};
   const click=async id=>{
     const point=await evaluate(`(()=>{const r=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();return {x:r.x+20,y:r.y+20};})()`);
     await call('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
@@ -881,18 +883,18 @@ try {
     await scroll();
     await click('action');
     await click('editor');
-    await call('Input.insertText',{text:'early'});
+    await type('early');
     await blockedRange();
     assert.deepEqual(await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value})`),{dispatch:[],value:'baked'},'unready app neither dispatches nor edits baked input');
     await evaluate('startup.release()');
     assert.equal(await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};const root=document.getElementById('exact-root');if(root.dataset.${fails?'error':'moduleReady'})return true;}return false;})()`),true,'module release settles readiness');
     if(fails){
       await scroll();
-      await click('action');await click('editor');await call('Input.insertText',{text:'failed'});
+      await click('action');await click('editor');await type('failed');
       await blockedRange();
       assert.deepEqual(await evaluate(`({active:startup.activated,dispatch:startup.dispatch,value:document.getElementById('editor').value})`),{active:false,dispatch:[],value:'baked'},'failed module remains gated without disabling scrolling');
     }else{
-      await click('action');await click('editor');await call('Input.insertText',{text:'ready'});
+      await click('action');await click('editor');await type('ready');
       const active=await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value,disabled:document.getElementById('disabled').disabled})`);
       assert.equal(active.dispatch.some(event=>event.id===2&&event.kind===0),true,'ready button dispatches');
       assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===1),true,'ready input dispatches edits');
@@ -963,7 +965,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const routes=Object.fromEntries(Object.entries(webHostFiles()).map(([name,source])=>['/'+name,source]));
-const app=execFileSync('./node_modules/.bin/rolldown',['apps/fieldnotes/app.ts','--format','iife','--name','fieldnotes'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})+'\nglobalThis.exact={...fieldnotes,abi:1};';
+const app=execFileSync(process.execPath,['./node_modules/.bin/rolldown','apps/fieldnotes/app.ts','--format','iife','--name','fieldnotes'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})+'\nglobalThis.exact={...fieldnotes,abi:1};';
 const server=createServer((req,res)=>{
   res.setHeader('content-type',req.url.endsWith('.wasm')?'application/wasm':routes[req.url]?'text/javascript':'text/html');
   res.end(routes[req.url]?readFileSync(routes[req.url]):'<main id="exact-root"></main>');
@@ -985,7 +987,7 @@ try {
     const {prepare,call,run}=await import('/module-glue.js');
     const {createStorageRequests}=await import('/storage-request.js');
     const encoder=new TextEncoder(),decoder=new TextDecoder();
-    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nsecret.keep fieldnotes.revision'};
+    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision'};
     const script=encoder.encode(app);
     const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
     const receipt=encoder.encode(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256}}));
@@ -1055,8 +1057,10 @@ try {
     const widened=await request('fs.mkdir',{path:'app:/cache/no'},'fs.write app:/');
     check(widened.error?.includes('exceeds'),'scope cannot exceed admitted grants');
     history.replaceState(null,'','/?agent=1');
-    check((await request('fs.readFile',{path})).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');
-    history.replaceState(null,'','/');
+    // A page opened under the agent ('?agent', no scratch store named) gets no
+    // storage; the store is chosen when the service is made, not per request.
+    const agent=createStorageRequests(identity.appId,identity.grants);history.replaceState(null,'','/');
+    check(JSON.parse(decoder.decode(await agent.run(JSON.stringify({version:1,op:'fs.readFile',args:{path}})))).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');agent.dispose();
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
     check((await request('fs.readFile',{path:binary})).base64==='AP8=','file byte representation exact');
