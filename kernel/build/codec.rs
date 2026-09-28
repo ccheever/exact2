@@ -52,6 +52,10 @@ fn parse_codec(s: &str) -> Codec {
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         // @ref LLP 1066 D1
         "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
+        // @ref LLP 1057.002 §6.7 — spike A: drag timelines, CSS scroll-timeline's shape.
+        "drag-timeline" => Codec::CssValue { path: "crate::timeline::DragTimeline", variant: "DragTimeline", error: "BadDragTimeline" },
+        "animation-timeline" => Codec::CssValue { path: "crate::timeline::AnimationTimeline", variant: "AnimationTimeline", error: "BadAnimationTimeline" },
+        "animation-range" => Codec::CssValue { path: "crate::timeline::AnimationRange", variant: "AnimationRange", error: "BadAnimationRange" },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),

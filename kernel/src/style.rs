@@ -857,6 +857,12 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
+    /// `drag-timeline` (LLP 1057.002 §6.7, spike A).
+    DragTimeline(&'a crate::timeline::DragTimeline),
+    /// CSS `animation-timeline` (LLP 1057.002 §6.7, spike A).
+    AnimationTimeline(&'a crate::timeline::AnimationTimeline),
+    /// CSS `animation-range` (LLP 1057.002 §6.7, spike A).
+    AnimationRange(&'a crate::timeline::AnimationRange),
     /// SVG paint (LLP 1055 D2).
     Paint(&'a crate::svg::Paint),
     /// SVG `stroke-dasharray` (LLP 1055 D2).
@@ -913,6 +919,7 @@ impl RowValue<'_> {
             RowValue::DashArray(v) => v.0.iter().all(|n| n.is_finite()),
             RowValue::Transform(v) => v.is_finite(),
             RowValue::TransformOrigin(v) => v.is_finite(),
+            RowValue::AnimationRange(v) => v.0.is_none_or(|[a, b]| a.is_finite() && b.is_finite()),
             RowValue::Paint(_)
             | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
@@ -920,6 +927,8 @@ impl RowValue<'_> {
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
+            | RowValue::DragTimeline(_)
+            | RowValue::AnimationTimeline(_)
             | RowValue::BackgroundImage(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)

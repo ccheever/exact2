@@ -97,6 +97,29 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // as its wrapper, which declares none); here it declares the row,
             // so the module is fetched before the first exit needs it. The
             // rules it names are in the page's stylesheet, as `animation`'s.
+            // @ref LLP 1057.002 §6.7 — spike A. A drag timeline is no CSS
+            // the browser runs: custom properties the page's drag code
+            // (motion-glue.js) reads. A bound consumer's animations are
+            // paused; the drag seeks them.
+            (StyleId::DragTimeline, RowValue::DragTimeline(d)) => {
+                if d.name.is_some() {
+                    push_text!(&mut out, "--exact-drag-timeline:{};", d.css());
+                }
+            }
+            (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
+                if t.0.is_some() {
+                    push_text!(
+                        &mut out,
+                        "--exact-animation-timeline:{};animation-play-state:paused;",
+                        t.css()
+                    );
+                }
+            }
+            (StyleId::AnimationRange, RowValue::AnimationRange(r)) => {
+                if r.0.is_some() {
+                    push_text!(&mut out, "--exact-animation-range:{};", r.css());
+                }
+            }
             (StyleId::ExitAnimation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
                     push_text!(&mut out, "--exact-exit-animation:{};", a.css());
@@ -292,7 +315,10 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
         | RowValue::Transitions(_)
-        | RowValue::Animations(_) => false,
+        | RowValue::Animations(_)
+        | RowValue::DragTimeline(_)
+        | RowValue::AnimationTimeline(_)
+        | RowValue::AnimationRange(_) => false,
         _ => true,
     }
 }
@@ -354,6 +380,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::DragTimeline(d) => out.push_str(&d.css()),
+        RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
+        RowValue::AnimationRange(r) => out.push_str(&r.css()),
         RowValue::Paint(p) => out.push_str(&p.css()),
         RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::Transform(t) => out.push_str(&t.css()),

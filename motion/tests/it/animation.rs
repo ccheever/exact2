@@ -439,3 +439,78 @@ fn colour_samples_match_chrome() {
         }
     }
 }
+
+// LLP 1057.002 §6.7 (spike A): a drag timeline holds its consumer's
+// animation at the source's presented translate — the held value, then the
+// release spring — in the frame that presents it; the clock never moves it.
+#[test]
+fn a_drag_timeline_holds_its_consumer_at_the_drag() {
+    use exact_motion::{
+        HoldEnd, SpringConfig, TimingFunction, Transition, TransitionProperty, Transitions,
+    };
+    const SOURCE: u64 = 9;
+    let mut e = Engine::new();
+    let spring = Transition::new(
+        TransitionProperty::All,
+        0.0,
+        TimingFunction::Spring(SpringConfig::default()),
+    );
+    e.set_transitions(SOURCE, Transitions(vec![spring]))
+        .unwrap();
+    e.observe(Change {
+        node: SOURCE,
+        property: Property::Translate,
+        value: Value::ZERO,
+        velocity: None,
+    })
+    .unwrap();
+    observe(&mut e, Property::Opacity, 1.0);
+    e.set_animations(NODE, &row("fade 1s linear both")).unwrap();
+    e.set_drag_timeline(SOURCE, Some(("--dismiss", false)));
+    e.set_animation_timeline(NODE, Some(("--dismiss", [0.0, 300.0])));
+    assert!(e.quiescent(), "a bound animation keeps no clock busy");
+    assert_eq!(opacity(&mut e), Some(0.0));
+    e.advance(5.0).unwrap();
+    assert_eq!(opacity(&mut e), None, "the clock does not move it");
+    let hold = e
+        .begin_hold(SOURCE, Property::Translate, 5.0, None)
+        .unwrap()
+        .unwrap();
+    e.update_hold(hold.token, 5.1, Value::new(0.0, 150.0))
+        .unwrap();
+    assert_eq!(opacity(&mut e), Some(0.5));
+    e.update_hold(hold.token, 5.2, Value::new(40.0, 450.0))
+        .unwrap();
+    assert_eq!(opacity(&mut e), Some(1.0), "clamped past the range");
+    e.end_hold(
+        hold.token,
+        5.2,
+        HoldEnd::Release {
+            velocity: Value::ZERO,
+        },
+    )
+    .unwrap();
+    let (mut shown, mut moved) = (1.0, 0);
+    for n in 1..=60 {
+        e.advance(5.2 + n as f64 / 60.0).unwrap();
+        let frame = e.frame();
+        let y = e.value(SOURCE, Property::Translate).unwrap().y;
+        let o = frame
+            .iter()
+            .find(|p| p.node == NODE && p.property == Property::Opacity)
+            .map(|p| p.value.x);
+        // A frame repaints the consumer exactly when its clamped value changed.
+        let expected = (y / 300.0).clamp(0.0, 1.0);
+        match o {
+            Some(o) => (shown, moved) = (o, moved + 1),
+            None => assert_eq!(shown, expected, "frame {n}: the consumer stayed at y {y}"),
+        }
+        assert!(
+            (shown - expected).abs() < 1e-9,
+            "frame {n}: {shown} at y {y}"
+        );
+    }
+    assert!(moved > 10, "the spring moved it frame by frame");
+    e.set_animation_timeline(NODE, None);
+    assert!(!e.timeline_bound(NODE));
+}

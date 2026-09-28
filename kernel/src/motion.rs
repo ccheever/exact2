@@ -66,6 +66,10 @@ pub struct MotionSync {
     pub layout: Vec<(u64, Transitions)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
     pub animations: Vec<(u64, Animations)>,
+    /// Each created or touched node's drag timeline rows (LLP 1057.002
+    /// §6.7): the timeline it drives (name, reads `x`) and the one its
+    /// animations follow (name, range).
+    pub timelines: Vec<TimelineRows>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
 }
@@ -91,9 +95,16 @@ impl MotionSync {
         for (node, animations) in &self.animations {
             engine.set_animations(*node, animations)?;
         }
+        for (node, source, binding) in &self.timelines {
+            engine.set_drag_timeline(*node, source.as_ref().map(|(n, x)| (n.as_str(), *x)));
+            engine.set_animation_timeline(*node, binding.as_ref().map(|(n, r)| (n.as_str(), *r)));
+        }
         Ok(())
     }
 }
+
+/// One node's drag timeline rows, as the engine takes them.
+pub type TimelineRows = (u64, Option<(String, bool)>, Option<(String, [f64; 2])>);
 
 /// The animatable rows of one style, as engine values. CSS's own property
 /// vocabulary: `translate` (two lengths), `scale`, `rotate` (degrees),
@@ -665,6 +676,20 @@ impl Kernel {
                 node.style.animation.clone()
             };
             sync.animations.push((id, row));
+            let style = node.style;
+            let source = style
+                .drag_timeline
+                .name
+                .clone()
+                .map(|n| (n, style.drag_timeline.axis == crate::timeline::Axis::X));
+            // `normal` has no length range to map a drag onto: unbound.
+            let binding = style.animation_timeline.0.clone().and_then(|n| {
+                style
+                    .animation_range
+                    .0
+                    .map(|[a, b]| (n, [a as f64, b as f64]))
+            });
+            sync.timelines.push((id, source, binding));
         }
     }
 }

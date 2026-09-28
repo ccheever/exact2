@@ -48,6 +48,12 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
+    /// Invalid `drag-timeline` (LLP 1057.002 §6.7).
+    BadDragTimeline,
+    /// Invalid `animation-timeline` (LLP 1057.002 §6.7).
+    BadAnimationTimeline,
+    /// Invalid `animation-range` (LLP 1057.002 §6.7).
+    BadAnimationRange,
     /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
@@ -436,6 +442,18 @@ pub enum StyleValueError {
     },
     /// Not `none` or one gradient this kernel draws (LLP 1066).
     BadBackgroundImage {
+        style: StyleId,
+    },
+    /// Not `none` or a `<dashed-ident>` with an optional axis.
+    BadDragTimeline {
+        style: StyleId,
+    },
+    /// Not `auto` or a `<dashed-ident>`.
+    BadAnimationTimeline {
+        style: StyleId,
+    },
+    /// Not `normal` or two distinct lengths.
+    BadAnimationRange {
         style: StyleId,
     },
     /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.

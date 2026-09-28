@@ -7,6 +7,12 @@ fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: n
 keyframes rise
   from opacity=0 translate="0px 6px"
 
+// LLP 1057.002 §6.7, spike A: the viewer's backdrop, fading as the photo is
+// dragged down; the drag timeline `--dismiss` seeks it.
+keyframes viewerFade
+  from opacity=1
+  to opacity=0
+
 shape Media
   prefersReducedMotion: bool
 
@@ -320,8 +326,9 @@ component Viewer
             text "2×" font-size=12 color=theme.ink
           button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Center and fit" font-size=12 color=theme.ink
-        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
-          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
+        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
+          box testId="viewer-backdrop" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 box-sizing="border-box" background-color="#172521" animation="viewerFade 1s linear both" animation-timeline="--dismiss" animation-range="0px 300px"
+          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)" drag-timeline="--dismiss y"
             image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
             box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7

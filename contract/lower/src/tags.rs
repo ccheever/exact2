@@ -836,6 +836,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "direction" => styles(&[StyleId::Direction]),
         // @ref LLP 1053 G1 — `auto || <ratio>`.
         "aspect-ratio" => styles(&[StyleId::AspectRatio]),
+        // @ref LLP 1057.002 §6.7 — spike A: drag timelines, CSS scroll-driven animations' shape.
+        "drag-timeline" => styles(&[StyleId::DragTimeline]),
+        "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
+        "animation-range" => styles(&[StyleId::AnimationRange]),
         "display" => styles(&[StyleId::Display]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-self" => styles(&[StyleId::AlignSelf]),
@@ -918,6 +922,9 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
+        "dragTimeline" => "drag-timeline",
+        "animationTimeline" => "animation-timeline",
+        "animationRange" => "animation-range",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",

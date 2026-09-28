@@ -274,7 +274,11 @@ pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSyn
             .0
             .iter()
             .any(|a| a.keyframes.0.iter().any(|f| !f.dark.is_empty()));
+        // A drag timeline's consumer (LLP 1057.002 §6.7) runs on the drag,
+        // not Core Animation's clock: the engine samples it in the frame
+        // (and the hold's reply) that moves its source.
         let sampled = if paired
+            || engine.timeline_bound(*node)
             || n.node_type.is_svg_shape()
                 && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
         {
