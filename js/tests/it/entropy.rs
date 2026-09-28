@@ -220,3 +220,48 @@ fn a_digest_is_pure_on_every_input_and_refuses_the_rest_by_name() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+/// The first UUID of the agent's stream for seed 1 on a TypeScript
+/// executor (`exact_data::crypto`'s pinned vector; the browser realms'
+/// too).
+const SEED_1_UUID: &str = "deb201fb-035c-4c32-bbbf-3da08991a485";
+
+#[test]
+fn under_the_agent_two_runs_draw_the_same_stream_and_outside_it_the_os() {
+    let run = |seed: Option<u64>| {
+        let mut module = module().with_agent_seed(seed);
+        let mut store = Store::new(GRANTS, vec![]);
+        let first = text(module.answer(&mut store, "uuid", &[]).unwrap());
+        let bytes = text(
+            module
+                .answer(&mut store, "bytes", &[Value::Number(20.0)])
+                .unwrap(),
+        );
+        let second = text(module.answer(&mut store, "uuid", &[]).unwrap());
+        // Still a device read: bake behaves the same under the agent.
+        assert_eq!(store.entropy_draws(), 3);
+        (first, bytes, second)
+    };
+    let a = run(Some(1));
+    assert_eq!(a, run(Some(1)), "two agent runs mint the same values");
+    assert_eq!(a.0, SEED_1_UUID);
+    assert!(is_v4(&a.2) && a.2 != a.0);
+    // The bytes are the stream's next, as the Rust stream draws them.
+    let mut stream = exact_data::crypto::AgentStream::new(1, "typescript");
+    let mut expected = [0u8; 36];
+    stream.fill(&mut expected);
+    let expected: Vec<String> = expected[16..].iter().map(u8::to_string).collect();
+    assert_eq!(a.1, expected.join(","));
+    assert_ne!(run(Some(2)).0, a.0, "another seed, another stream");
+    // Outside the agent every draw is the OS's.
+    let (os_a, os_b) = (run(None), run(None));
+    assert!(os_a.0 != os_b.0 && os_a.0 != SEED_1_UUID && is_v4(&os_a.0));
+    // The bake's module never draws the stream, whatever the environment.
+    let mut baked = Module::inspect(HBC.to_vec()).unwrap();
+    baked.bind(&plan());
+    let mut store = Store::new(GRANTS, vec![]);
+    assert_ne!(
+        text(baked.answer(&mut store, "uuid", &[]).unwrap()),
+        SEED_1_UUID
+    );
+}

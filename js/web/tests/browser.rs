@@ -37,6 +37,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
             serde_json::to_string(&caltrain::oracle()).unwrap(),
         )
         .env("EXACT_DIGESTS", expected_digests())
+        .env("EXACT_AGENT_STREAM", agent_stream())
         .current_dir(root)
         .output()
         .unwrap();
@@ -64,6 +65,22 @@ fn expected_digests() -> String {
     lines.push(hex(&sha2::Sha256::digest(b"abc")));
     lines.push(hex(&sha2::Sha256::digest(b"abc")));
     lines.join("\n")
+}
+
+/// What a realm under the agent with seed 1 answers to `uuid`, `bytes(20)`,
+/// `uuid` (LLP 1069.005 D2b): the Rust stream's first 52 bytes, as Hermes
+/// draws them.
+fn agent_stream() -> String {
+    let mut stream = exact_data::crypto::AgentStream::new(1, "typescript");
+    let mut bytes = [0u8; 52];
+    stream.fill(&mut bytes);
+    let middle: Vec<String> = bytes[16..36].iter().map(u8::to_string).collect();
+    format!(
+        "{} {} {}",
+        exact_data::crypto::format_uuid(bytes[..16].try_into().unwrap()),
+        middle.join(","),
+        exact_data::crypto::format_uuid(bytes[36..].try_into().unwrap())
+    )
 }
 
 const PROBE: &str = r#"
@@ -160,6 +177,7 @@ if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
 const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage','entropy'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 fixtures.digests=process.env.EXACT_DIGESTS;
+fixtures.agentStream=process.env.EXACT_AGENT_STREAM;
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
 const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
@@ -285,6 +303,31 @@ try {
       if((await ask('digestRefusals')).value!=='NotSupportedError/NotSupportedError/TypeError/TypeError/NotSupportedError/NotSupportedError')throw new Error(`${placement}: digest refusals`);
       if((await ask('digestLater')).request?.url!=='https://fixture.exact.test/value'||(await ask('digestLater',[],response())).value!=='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')throw new Error(`${placement}: a digest after a fetch`);
       realm.dispose();
+    }
+    // D2b: under the agent (a loopback page with `?agent`) a realm draws the
+    // seed's repeatable stream, the bytes Hermes draws; outside it, the OS's.
+    const pageUrl=location.href;
+    const agentRun=async(query,placement)=>{
+      history.replaceState(null,'',query);
+      try{
+        const realm=await prepare(await payload(fixtures.entropy,entropyIdentity),{...entropyIdentity,placement});
+        const ask=(source,args=[])=>{
+          const started=call({id:realm.id,op:'answer',source,args,store:[],grants:[]});
+          if(placement==='worker')call({op:'dispatch',id:realm.id,token:started.continuation,store:[],grants:[]});
+          return checkpoint(started);
+        };
+        const first=await ask('uuid'), bytes=await ask('bytes',[20]), second=await ask('uuid');
+        if(!first.entropy||!bytes.entropy)throw new Error(`${placement}: an agent draw is still a read`);
+        realm.dispose();
+        return [first.value,bytes.value,second.value].join(' ');
+      } finally {history.replaceState(null,'',pageUrl);}
+    };
+    for(const placement of ['main','worker']){
+      const seeded=await agentRun('/?agent=1&seed=1',placement);
+      if(seeded!==fixtures.agentStream||await agentRun('/?agent=1&seed=1',placement)!==seeded)throw new Error(`${placement}: the agent's stream ${seeded}`);
+      if((await agentRun('/?agent=1&seed=2',placement)).split(' ')[0]===seeded.split(' ')[0])throw new Error(`${placement}: another seed, the same stream`);
+      const [a,b]=[await agentRun('/',placement),await agentRun('/',placement)];
+      if(a===b||a.split(' ')[0]===seeded.split(' ')[0])throw new Error(`${placement}: outside the agent a draw is not the OS's`);
     }
 
     const castleIdentity={appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'};
@@ -678,8 +721,8 @@ try {
   // loopback is no secure context, so neither realm has `crypto.subtle`.
   // SHA-256 is the dev protocol's (here the fixture server's); SHA-384
   // refuses by name; `randomUUID` is formed from `getRandomValues`.
-  await call('Page.navigate',{url:`http://lan.test:${server.address().port}/`});
-  const lanProbe=async(fixture)=>{
+  await call('Page.navigate',{url:`http://lan.test:${server.address().port}/?agent=1&seed=1`});
+  const lanProbe=async(fixture,seeded)=>{
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     if(isSecureContext||globalThis.crypto.subtle)throw new Error('lan.test is a secure context');
     const encode=s=>new TextEncoder().encode(s);
@@ -698,15 +741,17 @@ try {
         for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);
         return result;
       };
-      seen.push(`${placement} ${(await ask('lan')).value} ${/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test((await ask('uuid')).value)}`);
+      // `?agent` on a page that is not loopback draws no repeatable stream.
+      const id=(await ask('uuid')).value;
+      seen.push(`${placement} ${(await ask('lan')).value} ${/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)} ${id!==seeded}`);
       realm.dispose();
     }
     return seen;
   };
-  const lan=await call('Runtime.evaluate',{expression:`(${lanProbe.toString()})(${JSON.stringify(fixtures.entropy)})`,returnByValue:true,awaitPromise:true});
+  const lan=await call('Runtime.evaluate',{expression:`(${lanProbe.toString()})(${JSON.stringify(fixtures.entropy)},${JSON.stringify(fixtures.agentStream.split(" ")[0])})`,returnByValue:true,awaitPromise:true});
   assert.equal(lan.exceptionDetails,undefined,JSON.stringify(lan.exceptionDetails));
   const abc='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
-  assert.deepEqual(lan.result.value,[`main ${abc}/NotSupportedError true`,`worker ${abc}/NotSupportedError true`],'a LAN page digests SHA-256 through the dev protocol');
+  assert.deepEqual(lan.result.value,[`main ${abc}/NotSupportedError true true`,`worker ${abc}/NotSupportedError true true`],'a LAN page digests SHA-256 through the dev protocol and has no agent stream');
   console.log(JSON.stringify({lan:lan.result.value}));
   console.log(JSON.stringify(result.result.value));
   const evaluate=async expression=>{

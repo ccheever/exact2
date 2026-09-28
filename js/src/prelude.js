@@ -12,7 +12,8 @@
   "use strict";
   // (op, a, b) -> string | undefined. Ops: 1 request(ticket, json),
   // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check,
-  // 6 native, 7 pure, 8 the answer drew secure randomness.
+  // 6 native, 7 pure, 8 the answer drew secure randomness, 9/10 canvas text and images,
+  // 11 the agent's repeatable random bytes (hex; undefined outside the agent).
   var host = global.__exact_host;
   delete global.__exact_host;
 
@@ -115,11 +116,25 @@
     host(8, "", "");
     return value;
   }
+  // Under the agent, the host's repeatable stream (D2b): `n` bytes, or
+  // null outside the agent, where the draw is the platform's.
+  function agentBytes(n) {
+    var hex = host(11, "", String(n));
+    return hex === undefined ? null : new Uint8Array(hexBuffer(hex));
+  }
   Crypto.prototype.getRandomValues = function getRandomValues(view) {
-    return draw(this, "crypto.getRandomValues()", function () { return fillRandom(view); });
+    return draw(this, "crypto.getRandomValues()", function () {
+      // The platform's call checks the view and its quota, as it always does.
+      var filled = fillRandom(view), stream = agentBytes(filled.byteLength);
+      if (stream) new Uint8Array(filled.buffer, filled.byteOffset, filled.byteLength).set(stream);
+      return filled;
+    });
   };
   Crypto.prototype.randomUUID = function randomUUID() {
-    return draw(this, "crypto.randomUUID()", platformUuid);
+    return draw(this, "crypto.randomUUID()", function () {
+      var stream = agentBytes(16);
+      return stream ? formatUuid(stream) : platformUuid();
+    });
   };
 
   // Host work an answer waits on that is neither a fetch nor storage (the

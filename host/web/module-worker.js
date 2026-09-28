@@ -4,13 +4,14 @@
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
 import { createStorage } from './storage.js';
+import { agentStream } from './storage-environment.js';
 
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
   channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
   channel.port2.postMessage(null);
 });
-let context = null, storage = null, admitted = null, tail = Promise.resolve();
+let context = null, storage = null, admitted = null, tail = Promise.resolve(), stream = null;
 const pending = new Map();
 // The page's SHA-256 digests in flight, on a LAN dev page (see `init`).
 const digests = new Map();
@@ -34,6 +35,8 @@ self.__exact_host = (op, name, value) => {
   if (op === 5) { context.externalRead = true; return; }
   // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
   if (op === 8) { context.entropy = true; return; }
+  // Under the agent, the realm's repeatable random bytes (LLP 1069.005 D2b).
+  if (op === 11) return stream ? Array.from(stream(Number(value)), b => b.toString(16).padStart(2, '0')).join('') : undefined;
   if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
   context.writes.push([name, op === 3 ? value : null]);
   if (op === 3) context.store.set(name, value); else context.store.delete(name);
@@ -50,6 +53,8 @@ function init(message) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // The page reads the drive's seed; this realm's stream starts here (D2b).
+  if (message.seed !== null && message.seed !== undefined) stream = agentStream(message.seed, 'typescript');
   // A LAN dev page has no `crypto.subtle`: SHA-256 is the dev protocol's,
   // asked of the page (LLP 1069.005 D1).
   if (!self.crypto.subtle && message.pageDigest) {

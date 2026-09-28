@@ -2,8 +2,9 @@
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
-import { storageKey } from './storage-environment.js';
+import { agentSeed, agentStream, storageKey } from './storage-environment.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const realms = new Map();
 const turns = new Map();
 let nextTurn = 1;
@@ -108,6 +109,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
   let context = null, initializationError = null, disposed = false, tail = Promise.resolve();
+  const seed = agentSeed(location.href), stream = seed === null ? null : agentStream(seed, 'typescript');
   let storage;
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
@@ -128,6 +130,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 5) { context.externalRead = true; return; }
     // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
     if (op === 8) { context.entropy = true; return; }
+    // Under the agent, the realm's repeatable random bytes (LLP 1069.005 D2b).
+    if (op === 11) return stream ? hex(stream(Number(value))) : undefined;
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);
@@ -262,7 +266,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
-    storage: storageKey(admitted.appId, location.href), pageDigest: !!globalThis.exact.moduleDigest });
+    storage: storageKey(admitted.appId, location.href), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed(location.href) });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, id, placement: 'worker',
     forget(inFlight) {

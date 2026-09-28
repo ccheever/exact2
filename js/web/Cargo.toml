@@ -14,4 +14,6 @@ sha2 = "0.10"
 [dev-dependencies]
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+# The agent's stream the realms are held to (LLP 1069.005 D2b).
+exact-data = { path = "../../data" }
 serde_json = "1.0"

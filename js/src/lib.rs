@@ -151,6 +151,9 @@ struct HostState {
     /// The canvas a draw in progress draws: its text engine and images
     /// (LLP 1056 D8, D9), for the recorder's `measureText` and `drawImage`.
     canvas: Option<exact_runner::exact_canvas::Env>,
+    /// Under the agent, the repeatable stream `crypto` draws from instead
+    /// of the OS (LLP 1069.005 D2b); this instance's, from its start.
+    agent: Option<exact_data::crypto::AgentStream>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -185,6 +188,9 @@ pub struct Module {
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
     /// engine loads.
     canvas_surfaces: Vec<(String, usize)>,
+    /// The agent's launch seed, when the agent drives this process (LLP
+    /// 1069.005 D2b); a built worker instance takes its template's.
+    agent_seed: Option<u64>,
 }
 
 impl std::fmt::Debug for Module {
@@ -302,6 +308,13 @@ unsafe extern "C" fn host_door(
             Ok(None)
         }
         9 => canvas_measure(state.canvas.as_ref(), &a).map(Some),
+        // Under the agent, `b` bytes of its repeatable stream as hex; else
+        // nothing, and the draw is the OS's (LLP 1069.005 D2b).
+        11 => Ok(state.agent.as_mut().map(|stream| {
+            let mut bytes = vec![0; b.parse::<usize>().unwrap_or(0).min(65_536)];
+            stream.fill(&mut bytes);
+            crypto::hex(&bytes)
+        })),
         10 => Ok(canvas_image(state.canvas.as_ref(), &a)),
         other => Err(format!("__exact_host: no op {other}")),
     };
@@ -477,9 +490,10 @@ enum Step {
 impl Module {
     /// A module, unloaded: `app_id` and `grants` are what the bake wrote
     /// beside the bytecode, cross-checked against the module's own exports
-    /// at [`Module::load`].
+    /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
+    /// draws the agent's repeatable stream (LLP 1069.005 D2b).
     pub fn new(bytecode: Vec<u8>, app_id: impl Into<String>, grants: impl Into<String>) -> Module {
-        Module {
+        let module = Module {
             revision: format!("{:x}", Sha256::digest(&bytecode)),
             bytecode,
             app_id: app_id.into(),
@@ -501,7 +515,19 @@ impl Module {
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
-        }
+            agent_seed: None,
+        };
+        module.with_agent_seed(exact_data::crypto::AgentStream::agent_seed())
+    }
+
+    /// This module with `seed` as the agent's launch seed, or `None` for
+    /// OS entropy whatever the environment says (LLP 1069.005 D2b): what
+    /// [`Module::new`] reads from `EXACT_AGENT` and `EXACT_AGENT_SEED`,
+    /// stated. The stream starts over.
+    pub fn with_agent_seed(mut self, seed: Option<u64>) -> Module {
+        self.agent_seed = seed;
+        self.host.agent = seed.map(|s| exact_data::crypto::AgentStream::new(s, "typescript"));
+        self
     }
 
     /// This module's Canvas 2D roster, as the bake recorded it beside the
@@ -544,10 +570,11 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
         Box::new(move || {
-            let mut module = Module::new(bytecode, app_id, grants);
+            let mut module = Module::new(bytecode, app_id, grants).with_agent_seed(agent_seed);
             // The template's interrupt reaches the instance on its owner, and
             // its native handle finds the instance's long-call handler.
             module.watch = watch;
@@ -615,7 +642,8 @@ impl Module {
     /// its identity/grants. Hosts must use `new`/`loaded` with admitted metadata
     /// instead; discovering a grant does not authorize it on a device.
     pub fn inspect(bytecode: Vec<u8>) -> Result<Module, String> {
-        let mut module = Self::new(bytecode, "", "");
+        // The bake's module never draws the agent's stream (LLP 1069.005 D2b).
+        let mut module = Self::new(bytecode, "", "").with_agent_seed(None);
         let engine = module.load_engine()?;
         module.app_id = engine.string("appId")?;
         module.grants = engine.string("grants")?;
