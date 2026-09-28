@@ -1152,6 +1152,7 @@ impl Collection {
             axis: self.axis,
             parent: self.parent,
             restored: self.restored,
+            seeking: self.target.is_some(),
             revision: self.revision,
             scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
             count: self.index.len(),

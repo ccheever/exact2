@@ -382,6 +382,24 @@ test('a jump whose reply corrects its anchor keeps the correction; one inside a 
   expect(result.nested).toEqual([[1200, 1200], [2000, 1200]]);
   expect(result.top).toBe(2000);
 });
+test('the browser clamping a port to a shorter extent is not a scroll: the painted offset, no travel', async () => {
+  const result = await evaluate(`(() => { const f=(${jumpFixture})(); const tail=f.list.lastElementChild;
+    const max=f.list.scrollHeight-f.list.clientHeight; f.list.scrollTop=max; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+    const before=f.seen.at(-1); tail.style.height='4900px'; const clamped=f.list.scrollTop; f.list.dispatchEvent(new Event('scroll'));
+    f.controller.commit([f.snapshot('2',{pending:true})]); f.frames.splice(0).forEach(fn=>fn());
+    return {max,clamped,before,after:f.seen.at(-1)}; })()`);
+  expect(result.clamped).toBe(result.max - 100);
+  expect(result.after).toEqual({ ...result.before, reported: result.max, shown: result.max - 100 });
+});
+test('a scrollIntoView correction applies across the browser\'s own moves until the reader\'s input', async () => {
+  const result = await evaluate(`(() => { const f=(${jumpFixture})();
+    f.list.scrollTop=300; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+    f.controller.commit([f.snapshot('2',{seeking:true,correction:{scrollSequence:'0',offset:900}})]); const authored=f.list.scrollTop;
+    f.list.dispatchEvent(new WheelEvent('wheel')); f.list.scrollTop=700; f.list.dispatchEvent(new Event('scroll'));
+    f.controller.commit([f.snapshot('3',{seeking:true,correction:{scrollSequence:'0',offset:950}})]);
+    return {authored,taken:f.list.scrollTop}; })()`);
+  expect(result).toEqual({ authored: 900, taken: 700 });
+});
 test('correction consumes once, never overwrites a newer DOM scroll even before its event', async () => {
   const result = await evaluate(`(() => { const f=fixture(); f.controller.commit([f.snapshot()]); f.port.scrollTop=160; f.port.dispatchEvent(new Event('scroll')); f.flush(); const seq=f.reports.at(-1).sequence; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:140}})]); const corrected=f.port.scrollTop; f.port.scrollTop=260; f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:180}})]); const newer=f.port.scrollTop; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:0}})]); return {corrected,newer,old:f.port.scrollTop}; })()`);
   expect(result).toEqual({ corrected: 200, newer: 260, old: 260 });

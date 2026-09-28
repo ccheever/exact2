@@ -32,6 +32,8 @@ export function collectionBytes(facts, fill = {}) {
   return bytes;
 }
 
+// The reader's own hand on a port (LLP 1070.000 §2.5: it cancels a request).
+const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // A list's main axis (LLP 1070 H1): `y` for a block list, `x` for a flex row.
 // Every main-axis read and write goes through one of these.
 const AXES = {
@@ -49,7 +51,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 export function collectionController({ root, views, report, settled=()=>{},
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
-  let frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
+  let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
   // slice of time: every row a report owes (what shows, the pins), then as
@@ -59,9 +61,13 @@ export function collectionController({ root, views, report, settled=()=>{},
   let interval = 1000 / 60, lastFrame = null, deadline = 0;
   const jumps = [];
   const slice = () => Math.min(4, Math.max(1, interval * 0.24));
-  const velocity = s => s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
+  // A `scrollIntoView` under way (LLP 1070.000 §2.5): the port's moves are
+  // its own and the browser's clamps, never travel, until the reader's input.
+  const authored = s => s.seeking && !s.input;
+  const velocity = s => !authored(s) && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
     const A = AXES[s.axis], time = now(), at = s.port[A.offset], t = s.travel;
+    if (s.clampAt === at) { s.travel = { at, time, velocity: 0 }; return; }
     // A step longer than the port is a jump, not travel: nothing to lead.
     if (!t || Math.abs(at - t.at) > s.port[A.client]) { s.travel = { at, time, velocity: 0 }; return; }
     const delta = at - t.at, elapsed = time - t.time;
@@ -142,9 +148,17 @@ export function collectionController({ root, views, report, settled=()=>{},
     if (s.budget > 0) { dirty.add(s); schedule(); }
   }
   function scrollChanged(s) {
-    const at = s.port[AXES[s.axis].offset];
+    const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
-    s.offset = at; s.sequence++;
+    // The browser clamping the port to an extent a row laid out smaller than
+    // its estimate shortened: not a scroll. The runner's coordinates are the
+    // painted frame's, where the port was still where it was (LLP 1070.000).
+    const max = s.port[A.scrollSize] - s.port[A.client];
+    if (at < s.offset && s.offset > max && Math.abs(at - max) <= 1) {
+      s.clamp = { from: s.clamp?.from ?? s.offset, at }; s.offset = s.clampAt = at;
+      return false;
+    }
+    s.clamp = s.clampAt = null; s.offset = at; s.sequence++;
     return true;
   }
   function desired(s) {
@@ -165,7 +179,8 @@ export function collectionController({ root, views, report, settled=()=>{},
       lastFrame = time; deadline = time + slice();
     }
     const attempted = new Set();
-    for (let pass = 0; pass < 4 && (reportsLeft > 0 || only?.jump != null); pass++) {
+    // The agent's settle visits every list each round, not four a frame.
+    for (let pass = 0; pass < (settling ? states.size + 4 : 4) && (reportsLeft > 0 || only?.jump != null); pass++) {
       const releases = [...states.values()].filter(retiring);
       const candidates = [...dirty].filter(s => !attempted.has(s) && (!only || s === only));
       const s = candidates.find(s => releases.includes(s)) ?? candidates[0];
@@ -204,17 +219,19 @@ export function collectionController({ root, views, report, settled=()=>{},
       if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        offset: Math.max(0, g.raw + (s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
         focus_view: pins[0], interaction_view: pins[1], measurements };
       const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
-      const v = jump == null ? velocity(s) : 0;
+      const v = jump == null && !settling ? velocity(s) : 0;
       // While its outer list moves, an inner list builds only what it owes
       // (LLP 1070 F2); its pending reply continues the fill at rest.
       const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
-      const fill = { velocity: v, ancestorMoving: !!outer && velocity(outer) !== 0, limit: jump != null ? 2
+      // The agent's settle ends motion and builds all a report owes at once,
+      // as the native pumps do.
+      const fill = { velocity: v, ancestorMoving: !settling && !!outer && velocity(outer) !== 0, limit: settling ? null : jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
@@ -223,7 +240,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       measuredSizes.clear();
       delivering = true;
       let accepted;
-      const before = new Set(s.rows.map(row => row.view)), at = s.offset, started = now();
+      const before = new Set(s.rows.map(row => row.view)), at = s.offset, started = now(), clamp = s.clamp;
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
       const created = s.rows.filter(row => !before.has(row.view)).length;
       if (created > 0) {
@@ -234,6 +251,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       if (jump != null) { s.jump = null; if (s.offset === at) move(s, jump); }
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
+        if (s.clamp === clamp) s.clamp = null; // reported; one in its own commit is the next report's
         if(!notification){notification=true;queueMicrotask(()=>{notification=false;settled();});}
         if (releases.includes(s)) for (const held of waiting) enqueue(held);
       }
@@ -257,6 +275,7 @@ export function collectionController({ root, views, report, settled=()=>{},
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
     s.port.removeEventListener('scroll', s.scrolled);
     s.el.style.overflowAnchor = s.anchor;
+    for (const name of INPUT) s.port.removeEventListener(name, s.touched);
     states.delete(s.snapshot.view);
     for (const held of waiting) enqueue(held);
   }
@@ -351,7 +370,9 @@ export function collectionController({ root, views, report, settled=()=>{},
           s = { el, port, axis, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
             sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
-          s.scrolled = () => { sample(s); if (scrollChanged(s)) enqueue(s, true); };
+          s.scrolled = () => { const changed = scrollChanged(s); sample(s); if (changed) enqueue(s, true); };
+          s.touched = () => { s.input = true; };
+          for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
             for (const { target } of entries) {
@@ -391,9 +412,13 @@ export function collectionController({ root, views, report, settled=()=>{},
         for (const row of s.rows) rowOwners.set(row.el, s);
         el.style.overflowAnchor = 'none';
         scrollChanged(s); // catches new user scroll before its scroll event runs
+        if (snapshot.seeking && !s.seeking) s.input = false;
+        s.seeking = snapshot.seeking === true;
         const correction = snapshot.correction;
+        // A request's correction is authored: the browser's clamps and
+        // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision
-            && BigInt(correction.scrollSequence) === s.sequence
+            && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
             && Number.isFinite(correction.offset) && correction.offset >= 0) {
           const g = geometry(s), name = AXES[axis].offset;
           // H4: a row list moving under the user's hand is not corrected;
@@ -428,13 +453,14 @@ export function collectionController({ root, views, report, settled=()=>{},
     // frames a real page would have run, so what shows is built and
     // measured when the agent reads it. Bounded, like the native pumps'.
     settle() {
-      for (let round = 0; round < 8; round++) {
+      settling = true;
+      try { for (let round = 0; round < 8; round++) {
         const before = reported;
         reportsLeft = 4 * Math.max(1, states.size);
         for (const s of states.values()) enqueue(s, true);
         if (!delivering) flush(true);
         if (reported === before) break;
-      }
+      } } finally { settling = false; }
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

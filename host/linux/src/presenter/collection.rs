@@ -838,6 +838,7 @@ mod tests {
             axis: exact_runner::ListAxis::Vertical,
             parent: None,
             restored: false,
+            seeking: false,
             revision: 4,
             scroll_sequence: 2,
             count: 0,

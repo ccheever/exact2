@@ -113,6 +113,10 @@ pub struct CollectionSnapshot {
     pub parent: Option<ViewId>,
     /// It started where a kept position said (LLP 1070 §4.2).
     pub restored: bool,
+    /// A `scrollIntoView` is under way (LLP 1070.000): its corrections are
+    /// authored moves, which a host applies whatever it has sampled since,
+    /// until the reader's own input takes the port over.
+    pub seeking: bool,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
     /// Last accepted host sequence.
@@ -277,6 +281,9 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         }
         if c.restored {
             out.push_str("\"restored\":true,");
+        }
+        if c.seeking {
+            out.push_str("\"seeking\":true,");
         }
         write!(out, "\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
