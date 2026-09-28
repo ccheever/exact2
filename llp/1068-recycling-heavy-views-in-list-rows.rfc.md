@@ -809,6 +809,75 @@ its cells only just before they appear.
 
   The iPad's footprint peak rose (64 → 81 MB); not yet explained.
 
+## 6.1 Stage 4 proposal: flat leaf boxes (Draft, 2026-09-28; not built)
+
+**Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about
+200 nodes: 96 wave bars, three SVG rings, two playheads, text) costs 20–30
+ms of main thread to mount. The feed runs at 108 fps against SwiftUI's 118.
+SwiftUI draws the 48 bars, the rings and the triangle as shapes in its
+display list (`~/bench/xheavy/swiftui/Kinds.swift:468–500`). exact2 gives
+every bar a `NodeView` and a layer.
+
+Main-thread cost of the live rows' mounts, ms/s over a fling (Time Profiler,
+2026-09-28, after this lane's cuts):
+
+| Part | ms/s | Scales with |
+|---|---|---|
+| Runner report (`collection_feedback_bytes`: realize ~32%, the kernel's `apply_document` ~40%) | 42.5 | nodes |
+| Host commit (`commit_into`: layout 41%, node create 15%, the SVG scene 12%, motion sync 10%) | 61.5 | nodes |
+| Batch decode (`BatchReader`) | 30 | ops |
+| Core Animation commit: `NodeLayer.display` 21 (`applyBoxLayer` 11), UIKit layout 6, collecting animations 4 | 37 | layers |
+| Pool take and retire (`NodePool`) | 34 | views |
+
+**The shape.** Flattening is the presenter's alone: the runner, the kernel,
+the batch and the agent's tree are unchanged. On Apple a *flat leaf* is a
+node that:
+- has no children, text, image, handlers or `testId`;
+- has no accessibility role or label, and is not focusable;
+- is not in a pinned or editing subtree;
+- has no own animation, transition or `transform`;
+- paints only a solid `background-color`, one `border-radius` and
+  `opacity`: no border, shadow, gradient, filter, backdrop, `overflow` or
+  `clip-path`.
+
+It gets a bare `CALayer`, not a `NodeView`. The layer is inserted into its
+parent view's layer at its tree position among the siblings' view layers,
+framed by the same frame ops, and painted by the same properties
+`applyBoxLayer` sets today: `backgroundColor`, `cornerRadius` and
+`cornerCurve`. So its pixels are the pixels it has now, and Chrome parity
+does not move.
+
+A node that stops qualifying (a prop, style or handler arrives) is
+promoted: it gets its `NodeView` at the same index, and the layer goes.
+Hit testing is unaffected: a flat leaf has no handlers, and a touch on it
+reaches its parent's view, which is where a web event with no handler on the
+leaf bubbles to. Accessibility is unaffected, because the leaf was never an
+element. The agent's `tree` and `layout` come from the runner and are
+unchanged. Its `screenshot` renders layers.
+
+**What it saves, and what it does not.** The per-view parts:
+- the pool's take and retire of about 100 views a row;
+- `NodeView` state;
+- UIKit's layout pass over those views;
+- `applyBoxLayer`'s general path.
+
+The measured upper bound is the last two rows of the table, about 70 ms/s
+of about 370. The layers remain, so Core Animation's per-layer commit
+remains, and the runner, host commit and batch decode (about 135 ms/s)
+scale with nodes and are untouched.
+
+A second step, one `CAShapeLayer` per run of adjacent flat siblings with
+the same colour (the 48 grey bars as one path), would also remove about 90
+layers a row. But a path fill's antialiasing is not a layer's rounded
+corner, so it needs its own parity check against Chrome before it is
+proposed.
+
+**Asked of the coordinator before building:** is ~15–20% of a live row's
+main-thread mount cost worth a second presentation path for boxes? If yes,
+step 1 is `BoxLayerIOS.swift` plus `NodePoolIOS` treating a flat leaf as
+nothing to park, with tests in `NodePoolIOSTests` for promotion, ordering
+among view siblings, and hits.
+
 ## 7. `rules/DEFERRED.md`
 
 Nothing comes off the list: every kind here is already admitted (video
