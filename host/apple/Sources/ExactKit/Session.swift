@@ -550,6 +550,9 @@ public final class ExactSession {
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }
         presenter.onPan = { [unowned self] id, dx, dy in apply(runtime.pan(id, dx: dx, dy: dy, now: now())) }
+        presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
+        presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
+        presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }

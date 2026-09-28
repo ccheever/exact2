@@ -355,6 +355,15 @@ uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double
 /* A recognition threshold exact2 defines itself: 0 the swipe knee, 1 its
  * resistance, 2 the leading edge a swipe yields, 3 the drag slop (LLP 1057.001 §3). */
 double exact_gesture_constant(uint32_t which);
+/* The pan contact's release velocity where the platform measures none (AppKit,
+ * the iOS agent's recognized contact; LLP 1057 §10.6, 1057.001 §3): the engine's
+ * tracker, one per runtime. A sample is the pointer in viewport CSS px at t
+ * seconds (any monotonic origin, e.g. NSEvent.timestamp); nonzero first starts
+ * a contact. Returns 1 taken, 0 refused (non-finite; a first still resets). */
+uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, double t);
+/* The velocity along axis (0 x, 1 y) at t seconds, px/s: 0 with fewer than two
+ * samples in the window, for a non-finite t, another axis, or a dead runtime. */
+double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);

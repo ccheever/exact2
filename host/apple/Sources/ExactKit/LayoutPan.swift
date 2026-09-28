@@ -1,6 +1,9 @@
 // @ref LLP 1043.000 §3 D8 — recognized deltas commit ordinary application state.
 // No motion token, release animation or second geometry owner. Cancellation keeps
 // the last committed position. Coordinates are viewport CSS pixels on every host.
+// @ref LLP 1057 §10.6 — a pan that began ends once with `panrelease(vx, vy)`, after
+// its last delta: UIKit's velocity on iOS, the engine's tracker on AppKit (LLP
+// 1057.001 §3). A cancelled contact releases at rest; one that never began, nothing.
 #if os(macOS)
 import AppKit
 final class MouseLayoutPan {
@@ -34,6 +37,7 @@ final class MouseLayoutPan {
                 if view.handlers.contains("pan") {
                     candidate = view
                     last = presenter!.viewport.convert(event.locationInWindow, from: nil)
+                    presenter!.onPanSample?(true, Double(last.x), Double(last.y), event.timestamp)
                     return true
                 }
                 if view.field != nil || view.textArea != nil || view.handlers.contains("press") { return false }
@@ -47,6 +51,7 @@ final class MouseLayoutPan {
         guard let presenter, presenter.views[view.id] === view,
               view.handlers.contains("pan"), SwipeInput.allows(view) else { cancel(); return false }
         let point = presenter.viewport.convert(event.locationInWindow, from: nil)
+        presenter.onPanSample?(false, Double(point.x), Double(point.y), event.timestamp)
         let dx = point.x - last.x, dy = point.y - last.y
         if !active && max(abs(dx), abs(dy)) <= Gesture.slop { return true }
         active = true; last = point
@@ -59,9 +64,20 @@ final class MouseLayoutPan {
     func up(_ event: NSEvent) -> Bool {
         if candidate != nil { _ = drag(event) }
         let took = active
-        cancel(); return took
+        if took, let view = candidate, let presenter {
+            let (vx, vy) = presenter.panVelocity?(event.timestamp) ?? (0, 0)
+            presenter.panRelease(view.id, vx, vy)
+        }
+        abandon(); return took
     }
-    func cancel() { candidate = nil; active = false }
+    /// Escape, the window resigning key, a node that stops panning or is
+    /// retired: a contact that began and is still shown releases at rest.
+    func cancel() {
+        if active, let view = candidate, let presenter, presenter.views[view.id] === view { presenter.panRelease(view.id, 0, 0) }
+        abandon()
+    }
+    /// Forget the contact without a release (a restart: its node is gone).
+    func abandon() { candidate = nil; active = false }
     func retire(_ id: UInt32) { if candidate?.id == id { cancel() } }
 }
 #elseif os(iOS)
@@ -106,6 +122,8 @@ extension NodeView {
     }
     @objc func layoutPanning(_ gesture: UIPanGestureRecognizer) {
         guard let presenter, presenter.views[id] === self, SwipeInput.allows(self) else {
+            // A contact that began and is cut short while shown releases at rest.
+            if let presenter, presenter.views[id] === self, [.changed, .ended].contains(gesture.state) { presenter.panRelease(id, 0, 0) }
             gesture.isEnabled = false; gesture.isEnabled = true; return
         }
         let p = (gesture as? ContactLayoutPan)?.displacement(in: presenter.viewport) ?? gesture.translation(in: presenter.viewport)
@@ -114,6 +132,14 @@ extension NodeView {
             let dx = p.x - layoutPanOrigin.x, dy = p.y - layoutPanOrigin.y
             layoutPanOrigin = p
             if dx != 0 || dy != 0 { presenter.pan(id, Double(dx), Double(dy)) }
+        }
+        // UIKit measures the release (LLP 1057.001 §3); its action sees
+        // .cancelled or .failed only after .began.
+        if gesture.state == .ended {
+            let v = gesture.velocity(in: presenter.viewport)
+            presenter.panRelease(id, Double(v.x), Double(v.y))
+        } else if [.cancelled, .failed].contains(gesture.state) {
+            presenter.panRelease(id, 0, 0)
         }
     }
 }

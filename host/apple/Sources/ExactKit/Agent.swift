@@ -18,6 +18,8 @@ public final class Agent {
     #if os(iOS)
     // An agent-issued edit awaits its actual editor's native caret reveal.
     weak var pendingTextReveal: TextArea?
+    /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
+    var panContact: AgentPan?
     #endif
     let session: ExactSession
     init(session: ExactSession) {

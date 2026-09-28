@@ -79,6 +79,8 @@ pub struct Bridge<D: DataSource> {
     /// activated source's native slot, so it outlives activations.
     app_module: Option<exact_runner::NativeHandler>,
     app_call: Option<exact_runner::NativeCall>,
+    /// The pan contact's velocity samples (LLP 1057 §10.6; `crate::pan_velocity`).
+    pub(crate) pan: crate::pan_velocity::PanVelocity,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -113,6 +115,7 @@ impl<D: DataSource> Bridge<D> {
             launch: None,
             app_module: None,
             app_call: None,
+            pan: crate::pan_velocity::PanVelocity::new(),
             input: Vec::new(),
             output: Vec::new(),
         }

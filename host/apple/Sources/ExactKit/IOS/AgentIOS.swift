@@ -417,8 +417,10 @@ extension Agent {
 
         // A held contact (LLP 1035.003 D1) needs a touch UIKit does not
         // offer publicly: the iOS carrier says so rather than activating a
-        // node and calling it a finger (D3).
+        // node and calling it a finger (D3) — except on a `pan` node, where
+        // it delivers the recognized pan (`AgentPanIOS.swift`, LLP 1057 §10.6).
         if let phase = req["phase"] as? String {
+            if let reply = recognizedPan(phase, req) { return reply }
             return ["phase": phase, "delivery": "unsupported", "reason": "the iOS carrier synthesizes no touch (LLP 1008 §9); a contact needs the Simulator backend of LLP 1035.003 §3"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],

@@ -25,6 +25,7 @@ macro_rules! host {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
+        $crate::pan_velocity_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
         /// set with `exact_set_measure`, `exact_set_wake`, and

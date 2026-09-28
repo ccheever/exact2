@@ -289,13 +289,17 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
           // events under touch emulation, enabled the first time a contact
           // is used. Chrome recognizes, scrolls and flings from them exactly
           // as it would from a hand; a timed move is delivered as steps on
-          // real time so its velocity is real too.
+          // real time so its velocity is real too. Each event carries the
+          // contact's own timestamp (LLP 1057 §10.6): a lift follows the last
+          // move by one frame, as a finger's does, however long the driver
+          // takes between ops; `tap hold <ms>` is how a pause is said.
           if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
           if (kind === 'down') {
             if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
-            await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }] });
-            contact = { x: px, y: py };
+            const t = Date.now() / 1000;
+            await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }], timestamp: t });
+            contact = { x: px, y: py, t };
             await frame();
             return { contact: id, phase: 'down', at: [px, py], delivery: 'platform' };
           }
@@ -306,15 +310,16 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
             const steps = Math.max(1, Math.round(ms / 16));
             for (let i = 1; i <= steps; i++) {
               const t = i / steps;
-              await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: contact.x + (to.x - contact.x) * t, y: contact.y + (to.y - contact.y) * t }] });
+              contact.t += (ms || 16) / steps / 1000;
+              await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: contact.x + (to.x - contact.x) * t, y: contact.y + (to.y - contact.y) * t }], timestamp: contact.t });
               if (ms) await sleep(ms / steps);
             }
-            contact = to;
+            contact = { ...to, t: contact.t };
             await frame();
             return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
           }
-          if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
-          await call('Input.dispatchTouchEvent', { type: kind === 'up' ? 'touchEnd' : 'touchCancel', touchPoints: [] });
+          if (kind === 'hold') { if (opts.ms) { await sleep(opts.ms); contact.t += opts.ms / 1000; } return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
+          await call('Input.dispatchTouchEvent', { type: kind === 'up' ? 'touchEnd' : 'touchCancel', touchPoints: [], timestamp: contact.t + 0.008 });
           const at = [contact.x, contact.y];
           contact = null;
           await frame();

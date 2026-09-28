@@ -188,6 +188,14 @@ final class Runtime {
     func pan(_ view: UInt32, dx: Double, dy: Double, now: Double) -> Batch {
         read(exact_dispatch(rt, view, 20, write("\(dx),\(dy)"), now))
     }
+    /// A pan that began ended at (vx, vy) viewport px/s (LLP 1057 §10.6).
+    func panRelease(_ view: UInt32, vx: Double, vy: Double, now: Double) -> Batch {
+        read(exact_dispatch(rt, view, 28, write("\(vx),\(vy)"), now))
+    }
+    /// The pan contact's samples, where the platform measures no velocity:
+    /// the engine's tracker (LLP 1057.001 §3), viewport px at `t` seconds.
+    func panSample(first: Bool, x: Double, y: Double, t: Double) { _ = exact_pan_sample(rt, first ? 1 : 0, x, y, t) }
+    func panVelocity(at t: Double) -> (Double, Double) { (exact_pan_velocity(rt, 0, t), exact_pan_velocity(rt, 1, t)) }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))

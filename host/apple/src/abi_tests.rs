@@ -796,6 +796,56 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
 }
 
 #[test]
+fn pan_release_twenty_eight_reaches_the_action_and_refuses_bad_velocity() {
+    let bytes = contract::compile(
+        r#"component App
+  state vx = 0
+  state vy = 0
+  state released = 0
+  action release(x: number, y: number) writes vx, vy, released
+    vx = x
+    vy = y
+    released = released + 1
+  state x = 0
+  action move(dx: number, dy: number) writes x
+    x = x + dx + dy
+  view
+    box testId="pan" pan=move panrelease=release
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("pan")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let slots = |b: &Bridge<StorageModule>| b.host.as_ref().unwrap().carry().slots;
+    let len = bridge.input_write(b"900,-12.5");
+    let n = bridge.dispatch(view, 28, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    let released = vec![
+        ("vx".into(), Value::Number(900.)),
+        ("vy".into(), Value::Number(-12.5)),
+        ("released".into(), Value::Number(1.)),
+        ("x".into(), Value::Number(0.)),
+    ];
+    assert_eq!(slots(&bridge), released);
+    for bad in [&b"NaN,0"[..], b"1,inf", b"12", b""] {
+        let len = bridge.input_write(bad);
+        let n = bridge.dispatch(view, 28, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid pan release velocity"), "{out}");
+        assert_eq!(
+            slots(&bridge),
+            released,
+            "a refused payload changes nothing"
+        );
+    }
+}
+
+#[test]
 fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let bytes = contract::compile(
         r#"component App
@@ -830,7 +880,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [28, 99, u32::MAX] {
+    for kind in [29, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();

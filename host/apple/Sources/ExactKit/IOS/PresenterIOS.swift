@@ -462,6 +462,11 @@ final class Presenter {
     var onSwiperight: ((UInt32) -> Void)?
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
+    /// A pan that began ended (LLP 1057 §10.6); the tracker below measures
+    /// where the platform gives no velocity (LLP 1057.001 §3).
+    var onPanRelease: ((UInt32, Double, Double) -> Void)?
+    var onPanSample: ((Bool, Double, Double, Double) -> Void)?
+    var panVelocity: ((Double) -> (Double, Double))?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var interacting: UInt32 = 0
     var listViews: [UInt32: NodeView] = [:]
@@ -544,6 +549,11 @@ final class Presenter {
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
+    /// Once per pan that began, after its last delta; only to a node that hears it.
+    func panRelease(_ id: UInt32, _ vx: Double, _ vy: Double) {
+        guard views[id]?.handlers.contains("panrelease") == true else { return }
+        send(id) { [self] in onPanRelease?(id, vx, vy) }
+    }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }

@@ -26,6 +26,7 @@
 //!   read into a snapshot before boot, written after each commit.
 //! - [`delivery`] — optional delivery callbacks supplied by a higher adapter;
 //!   the host itself links no update store (LLP 1030 D4).
+//! - [`pan_velocity`] — the pan contact's release velocity (AppKit, the iOS agent).
 //! - [`abi`] — the C exports: the web's buffer discipline over `extern "C"`.
 //!
 //! [`TextMeasurer`]: exact_kernel::TextMeasurer
@@ -45,6 +46,7 @@ pub mod host;
 pub mod markup;
 pub mod material;
 pub mod measure;
+pub mod pan_velocity;
 pub mod picker;
 pub mod raster;
 mod raster_exports;
