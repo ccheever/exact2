@@ -10,6 +10,7 @@ mod holds;
 mod image;
 mod presence;
 mod svg;
+mod timeline;
 mod transform_binding;
 mod transform_contact;
 mod viewport;

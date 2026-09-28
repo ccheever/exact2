@@ -62,6 +62,7 @@ mod svg;
 mod symbols;
 mod tests_decl;
 mod time;
+mod timelines;
 mod transform_binding;
 mod trim;
 mod typescript;

@@ -33,6 +33,7 @@ mod style_dynamic;
 mod svg;
 mod svg_scene;
 mod text_measurement_cache;
+mod timeline;
 mod transform_binding;
 mod video;
 mod wire;

@@ -28,6 +28,30 @@ try {
     el.style.transition = "none";
     el.style[c.property] = css(c.property, c.initial);
     getComputedStyle(el)[c.property];
+    if (c.timeline) {
+      // A drag timeline (LLP 1057.003) has no browser oracle of its own; a
+      // scroll timeline is the same mapping: the animation on `--t`, read at
+      // the scroll offset each sample's position is, a frame after scrolling.
+      const scroller = document.createElement("div");
+      scroller.style.cssText = "overflow:scroll;width:100px;height:100px;scroll-timeline:--t y";
+      const room = document.createElement("div");
+      room.style.height = `${200 + Math.max(c.timeline[1], ...c.steps.map((s) => s.at))}px`;
+      scroller.append(el, room);
+      stage.append(scroller);
+      const sheet = document.head.appendChild(document.createElement("style")).sheet;
+      for (const rule of c.rules) sheet.insertRule(rule, sheet.cssRules.length);
+      // The shorthand resets `animation-timeline`, so it goes first.
+      el.style.animation = c.animation;
+      el.style.animationTimeline = "--t";
+      el.style.animationRange = `${c.timeline[0]}px ${c.timeline[1]}px`;
+      for (const step of c.steps) {
+        scroller.scrollTop = step.at;
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        if (scroller.scrollTop !== step.at) throw new Error(`${c.name}: scrolled to ${scroller.scrollTop}, not ${step.at}`);
+        out.push(`sample ${c.name} ${step.at} ${read(el, c.property).join(" ")}`);
+      }
+      continue;
+    }
     const created = new Map(); // Animation -> seconds it was created at
     // Seek every live animation to t. One CSS cancelled (a transition
     // replaced by a newer one on its property) is idle; pausing it would

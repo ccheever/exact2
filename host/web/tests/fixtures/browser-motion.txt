@@ -1,6 +1,6 @@
 # exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs
-# recorded by host/web/parity.mjs: 2026-09-27, Chrome/153.0.0.0
-# `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within 0.001
+# recorded by host/web/parity.mjs: 2026-09-28, Chrome/154.0.0.0
+# `sample <case> <seconds> <x> <y>` (a `tl-` case: its source's position, px, for seconds); held by host/web/tests/it/parity.rs within 0.001
 sample linear 0.1 0.1 0
 sample linear 0.25 0.25 0
 sample linear 0.5 0.5 0
@@ -178,3 +178,34 @@ sample kf-rotate 1.15 36 0
 sample kf-rotate 2.5 0 0
 sample kf-zero-duration 0 0.5 0
 sample kf-zero-duration 0.5 0.5 0
+sample tl-linear 0 1 0
+sample tl-linear 75 0.75 0
+sample tl-linear 150 0.5 0
+sample tl-linear 225 0.25 0
+sample tl-linear 300 0 0
+sample tl-linear 420 0 0
+sample tl-offset-ease 0 1 0
+sample tl-offset-ease 50 1 0
+sample tl-offset-ease 100 0.906535 0
+sample tl-offset-ease 180 0.509462 0
+sample tl-offset-ease 250 0 0
+sample tl-offset-ease 320 0 0
+sample tl-fill-none 40 0.5 0
+sample tl-fill-none 100 1 0
+sample tl-fill-none 150 0.5 0
+sample tl-fill-none 199 0.01 0
+sample tl-fill-none 260 0.5 0
+sample tl-delay 0 1 0
+sample tl-delay 50 1 0
+sample tl-delay 100 1 0
+sample tl-delay 150 0.5 0
+sample tl-delay 200 0 0
+sample tl-iterations 0 1 0
+sample tl-iterations 50 0.5 0
+sample tl-iterations 100 2.22045e-16 0
+sample tl-iterations 150 0.5 0
+sample tl-iterations 200 1 0
+sample tl-translate 0 0 0
+sample tl-translate 25 15.1255 7.56276
+sample tl-translate 60 31.4056 15.7028
+sample tl-translate 100 40 20

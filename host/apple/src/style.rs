@@ -100,6 +100,10 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             },
             RowValue::Number(n) => num(n as f32),
             RowValue::Transitions(_) => continue, // the engine's, not the presenter's
+            // @ref LLP 1057.003 D2 — drag timelines are the engine's too.
+            RowValue::DragTimeline(_)
+            | RowValue::AnimationTimeline(_)
+            | RowValue::AnimationRange(_) => continue,
             // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
             RowValue::Paint(_)
             | RowValue::DashArray(_)

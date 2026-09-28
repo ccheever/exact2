@@ -245,6 +245,7 @@ export function afterPaintPieces(load, o) {
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
   const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);
+  motion.followTimelines = call('motion', 'followTimelines', false);
   // Every first batch commits the (empty) collection set: a use only with items.
   const commit = call('collections', 'commit'), reconcile = call('collections', 'commit', false);
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };

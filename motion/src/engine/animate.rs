@@ -125,6 +125,7 @@ impl Engine {
                 self.animating.remove(&node);
             }
             self.animations.insert(node, plays);
+            self.seek_bound(node);
         }
         Ok(())
     }

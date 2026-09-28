@@ -568,6 +568,9 @@ impl Lowerer<'_> {
             if matches!(a.name.as_str(), "animation" | "exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
+            if a.name == "animation" && timeline_bound(attrs) {
+                self.check_timeline_rows(&a.value)?;
+            }
             if a.name == "exit-animation" {
                 exit_ends(&a.value)?;
             }
@@ -613,6 +616,63 @@ impl Lowerer<'_> {
             Expr::Ternary(_, yes, no, _) => {
                 self.check_animation_names(tag, yes)?;
                 self.check_animation_names(tag, no)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// A timeline-bound animation animates paint rows only (LLP 1057.003
+    /// Q1): what a compositor applies (opacity and the transform rows) or a
+    /// paint pass repaints (the colours and `box-shadow`, LLP 1062 D2). A
+    /// layout or geometry row would lay the page out in every frame the
+    /// source moves, which v1 does not take. A timeline spans the whole
+    /// animation, so an endless one is refused too: CSS would show its end
+    /// at every position, and the hosts hold its start.
+    fn check_timeline_rows(&self, value: &Expr) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(text, span) => {
+                let Ok(list) = Animations::parse(text) else {
+                    return Ok(());
+                };
+                for a in &list.0 {
+                    if a.iterations.is_infinite() {
+                        return err(
+                            "lower-timeline-endless",
+                            format!(
+                                "`{}` repeats forever, and this `animation` follows an `animation-timeline`: a timeline spans an animation's whole length, so it must end (LLP 1057.003)",
+                                a.name
+                            ),
+                            *span,
+                        );
+                    }
+                    let unpainted = self.keyframes.get(&a.name).and_then(|properties| {
+                        properties.iter().copied().find(|p| {
+                            !matches!(
+                                p,
+                                Property::Opacity
+                                    | Property::Translate
+                                    | Property::Scale
+                                    | Property::Rotate
+                            ) && !Property::PAINT.contains(p)
+                        })
+                    });
+                    if let Some(p) = unpainted {
+                        return err(
+                            "lower-timeline-row",
+                            format!(
+                                "`keyframes {}` animates `{}`, and this `animation` follows an `animation-timeline`: a timeline drives paint rows only (opacity, translate, scale, rotate, the colours, box-shadow), never layout or geometry (LLP 1057.003 Q1)",
+                                a.name,
+                                p.name()
+                            ),
+                            *span,
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                self.check_timeline_rows(yes)?;
+                self.check_timeline_rows(no)
             }
             _ => Ok(()),
         }
@@ -722,6 +782,15 @@ impl Lowerer<'_> {
         });
         Ok(Some(out))
     }
+}
+
+/// Whether a node's animations follow a named timeline: any
+/// `animation-timeline` but a literal `auto`.
+fn timeline_bound(attrs: &[Attr]) -> bool {
+    attrs.iter().any(|a| {
+        a.name == "animation-timeline"
+            && !matches!(&a.value, Expr::Str(v, _) if v.trim().eq_ignore_ascii_case("auto"))
+    })
 }
 
 /// An `exit-animation` must end (LLP 1063 D2): its node is removed when it

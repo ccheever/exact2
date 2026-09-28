@@ -121,20 +121,36 @@ async function browserParity() {
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const render = () => new Promise((done) => {
+  // A page target over the DevTools pipe, not `--dump-dom`: a drag timeline's
+  // oracle is a scroll timeline, which moves only when the page renders
+  // frames, and a dumped page renders none.
+  const { Cdp } = await import('../../scripts/agent.mjs');
+  const render = async () => {
     const profile = mkdtempSync(resolve(tmpdir(), 'exact-parity-'));
-    const child = spawn(chrome, ['--headless=new', '--disable-gpu', `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--timeout=8000', '--dump-dom', `http://127.0.0.1:${port}/`], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    let dom = '';
-    child.stdout.on('data', (d) => { dom += d; });
-    const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 20000);
-    child.on('exit', () => { clearTimeout(timer); try { process.kill(-child.pid, 'SIGKILL'); } catch {} rmSync(profile, { recursive: true, force: true }); done(dom); });
-  });
-  let dom = await render();
-  if (!/data-done="1"/.test(dom)) dom = await render();
+    const child = spawn(chrome, ['--headless=new', '--disable-gpu', `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--remote-debugging-pipe', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    try {
+      const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+      child.on('exit', () => cdp.fail('Chrome closed'));
+      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      await cdp.send('Page.navigate', { url: `http://127.0.0.1:${port}/` }, sessionId);
+      const done = await cdp.send('Runtime.evaluate', {
+        expression: `new Promise((ok) => { const t = setInterval(() => { const o = document.getElementById('out'); if (o?.dataset.done) { clearInterval(t); ok(o.textContent); } }, 50); })`,
+        awaitPromise: true, returnByValue: true,
+      }, sessionId, 60000);
+      return done.result?.value ?? '';
+    } catch (error) {
+      return `error ${error.message}`;
+    } finally {
+      if (child.exitCode === null) { const exit = new Promise((r) => child.once('exit', r)); child.kill(); await exit; }
+      rmSync(profile, { recursive: true, force: true });
+    }
+  };
+  let text = await render();
+  if (!text || /^error /m.test(text)) text = await render();
   server.close();
-  const text = /<pre id="out"[^>]*>([\s\S]*?)<\/pre>/.exec(dom)?.[1];
-  if (!text || /^error /m.test(text)) { console.error('the page did not finish:\n' + (text ?? dom.slice(0, 500))); process.exit(1); }
-  const lines = text.trim().split('\n').map((l) => l.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+  if (!text || /^error /m.test(text)) { console.error('the page did not finish:\n' + text.slice(0, 500)); process.exit(1); }
+  const lines = text.trim().split('\n');
   const browser = lines.find((l) => l.startsWith('browser '))?.slice(8) ?? 'unknown browser';
   const header = run(['header', `${new Date().toISOString().slice(0, 10)}, ${browser}`]).stdout;
   const fixture = resolve(here, 'tests/fixtures/browser-motion.txt');

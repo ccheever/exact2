@@ -78,6 +78,50 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // A press handler or control between the contact and an ancestor's
   // recognizer keeps the contact (rule 3's boundary, as AppKit and Linux do).
   const pressable=(e,el)=>{const inner=e.target.closest('button,a[href],select,[data-exact-on~="press"]');return !!inner&&inner!==el&&el.contains(inner);};
+  // @ref LLP 1057.003 D2 — drag timelines. A node's presented
+  // translate drives the `animation`s of nodes bound to its named timeline:
+  // their CSS animations are paused (css.rs) and seeked here. A held value is
+  // followed where the drag presents it (transform drag's `present`), in the
+  // pointer event; a translate spring, in each animation frame while it runs.
+  // Host code, never app code. That per-frame seek is phase 1's: phase 2
+  // (D3) hands the follower the spring's frames as a `linear()` easing and
+  // removes it.
+  const timelineSources='[style*="--exact-drag-timeline"]';
+  let timelineFrame=0;
+  const kickTimelines=()=>{if(!timelineFrame&&typeof requestAnimationFrame==='function'&&typeof document!=='undefined'&&document.querySelector(timelineSources))
+    timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
+  // Seek every bound consumer; whether a source is still moving on its own.
+  function followTimelines() {
+    const sources=new Map();let moving=false;
+    for(const el of document.querySelectorAll(timelineSources)) {
+      const [name,axis='y']=el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
+      let v=[...held.values()].find(h=>h.el===el&&h.property==='translate'&&local(h))?.value;
+      if(!v) {
+        const t=getComputedStyle(el).translate.trim().split(/\s+/);
+        v=t[0]==='none'?[0,0]:[parseFloat(t[0]),parseFloat(t[1]??'0')];
+        moving||=el.getAnimations().some(a=>a.playState==='running');
+      }
+      sources.set(name,axis==='x'?v[0]:v[1]);
+    }
+    for(const el of document.querySelectorAll('[style*="--exact-animation-timeline"]')) {
+      const name=el.style.getPropertyValue('--exact-animation-timeline').trim();
+      const range=el.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
+      if(range.length!==2||range[1]===range[0])continue;
+      // Without a source the timeline holds its start, as the engine's does.
+      const at=sources.has(name)?sources.get(name):range[0];
+      // Unclamped, and over the delay and active interval together, as a CSS
+      // scroll timeline maps them; an endless animation holds its start
+      // (motion's `seek_timeline`).
+      const p=(at-range[0])/(range[1]-range[0]);
+      for(const a of el.getAnimations()) {
+        const t=a.animationName===undefined?null:a.effect?.getComputedTiming();
+        if(!t)continue;
+        if(a.playState!=='paused')a.pause();
+        a.currentTime=Number.isFinite(t.endTime)?p*t.endTime:Math.max(0,t.delay);
+      }
+    }
+    return moving;
+  }
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     // Browser easing is a CSSTransition; other properties continue undisturbed.
@@ -263,6 +307,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     for(const h of ends??[])api.end(h,[0,0],true);
   }
   const api={
+    // The agent's seek presents sources without a frame; follow at once.
+    followTimelines() { if(typeof document!=='undefined'&&document.querySelector(`${timelineSources},[style*="--exact-animation-timeline"]`))followTimelines(); },
     presentReorder(view,token,value) {
       const h=held.get(key(view,'translate'));if(!local(h)||h.token!==token)return false;
       h.value=value;h.el.style.translate=css('translate',value);return true;
@@ -394,6 +440,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
       animations.set(k,animation);
       animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
+      if(property==='translate')kickTimelines();
     },
     // Authored eligibility can disappear without a dirty Engine frame. Retire
     // only this property, restoring current authoring and other held overlays.
@@ -471,6 +518,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       function present(d,v) {
         d.value=v;d.pair[0].value=v.slice(0,2);d.pair[1].value=[v[2],0];
         for(const h of d.pair)if(local(h))h.el.style.setProperty(cssProperty(h.el,h.property),css(h.property,h.value));
+        if(d.binding.targetEl.style.getPropertyValue('--exact-drag-timeline'))followTimelines();
       }
       function arm(e,extra) {
         const b=transformBindings.get(id);if(!transformLocal(b))return null;

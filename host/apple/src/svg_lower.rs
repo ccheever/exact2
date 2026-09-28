@@ -302,7 +302,10 @@ pub(crate) fn eligibility(
             .any(|a| a.keyframes.0.iter().any(|f| !f.dark.is_empty()));
         let svg = n.node_type.is_svg_element() || n.node_type == NodeType::Svg;
         let boxed = box_motion && props.iter().any(|p| super::svg::BOX_LOWERED.contains(p));
-        let sampled = if paired || (boxed && svg) {
+        // A drag timeline's consumer (LLP 1057.003 D2) runs on the drag,
+        // not Core Animation's clock: the engine samples it in the frame
+        // (and the hold's reply) that moves its source.
+        let sampled = if paired || engine.timeline_bound(*node) || (boxed && svg) {
             true
         } else if boxed {
             !box_eligible(kernel, &n, &props, interactive)

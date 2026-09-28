@@ -160,7 +160,8 @@ const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
-const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => presence.live?.sync());
+// A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
+const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;

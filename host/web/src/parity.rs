@@ -119,6 +119,11 @@ pub struct Case {
     pub initial: Value,
     /// The script, in time order.
     pub steps: Vec<Step>,
+    /// A drag timeline's `animation-range`, in points (LLP 1057.003): the
+    /// animation follows a source's position instead of the clock, and each
+    /// `Sample`'s `at` is that position. The browser's oracle is the same
+    /// animation on a CSS scroll timeline, read at that scroll offset.
+    pub timeline: Option<[f64; 2]>,
 }
 
 fn samples(at: &[f64]) -> Vec<Step> {
@@ -142,6 +147,7 @@ fn single(
         animations: Animations::NONE,
         initial: from,
         steps,
+        timeline: None,
     }
 }
 
@@ -192,8 +198,28 @@ fn keyframes(
         animations: resolved(text),
         initial: underlying,
         steps: samples(at),
+        timeline: None,
     }
 }
+
+/// A keyframe case held at a drag timeline's positions (LLP 1057.003):
+/// `at` are the source's positions, in points, over `range`.
+fn timeline(
+    name: &'static str,
+    property: Property,
+    text: &str,
+    underlying: Value,
+    range: [f64; 2],
+    at: &[f64],
+) -> Case {
+    Case {
+        timeline: Some(range),
+        ..keyframes(name, property, text, underlying, at)
+    }
+}
+
+/// The node a timeline case's source is; the sampled node is 1.
+const SOURCE: u64 = 2;
 
 /// Every case, in fixture order.
 pub fn cases() -> Vec<Case> {
@@ -524,6 +550,63 @@ pub fn cases() -> Vec<Case> {
             &[0.0, 0.5],
         ),
     ]);
+    // Drag timelines (LLP 1057.003): the range maps a position to progress
+    // as a scroll timeline maps its offset, the delay and active interval
+    // share it, and the animation's own timing (easing, fill, iterations,
+    // direction) applies over it. An endless animation is no case: CSS shows
+    // its end, the hosts hold its start, and the compiler refuses a literal
+    // one (`lower-timeline-endless`).
+    let fade = "@keyframes k{from{opacity:1}to{opacity:0}}";
+    out.extend([
+        timeline(
+            "tl-linear",
+            Property::Opacity,
+            &format!("k 1s linear both {fade}"),
+            o(1.0),
+            [0.0, 300.0],
+            &[0.0, 75.0, 150.0, 225.0, 300.0, 420.0],
+        ),
+        timeline(
+            "tl-offset-ease",
+            Property::Opacity,
+            &format!("k 1s ease-in both {fade}"),
+            o(1.0),
+            [50.0, 250.0],
+            &[0.0, 50.0, 100.0, 180.0, 250.0, 320.0],
+        ),
+        timeline(
+            "tl-fill-none",
+            Property::Opacity,
+            &format!("k 1s linear {fade}"),
+            o(0.5),
+            [100.0, 200.0],
+            &[40.0, 100.0, 150.0, 199.0, 260.0],
+        ),
+        timeline(
+            "tl-delay",
+            Property::Opacity,
+            &format!("k 1s linear 1s both {fade}"),
+            o(1.0),
+            [0.0, 200.0],
+            &[0.0, 50.0, 100.0, 150.0, 200.0],
+        ),
+        timeline(
+            "tl-iterations",
+            Property::Opacity,
+            &format!("k 1s linear 2 alternate both {fade}"),
+            o(1.0),
+            [0.0, 200.0],
+            &[0.0, 50.0, 100.0, 150.0, 200.0],
+        ),
+        timeline(
+            "tl-translate",
+            Property::Translate,
+            "k 1s ease-out both @keyframes k{from{translate:0px 0px}to{translate:40px 20px}}",
+            Value::ZERO,
+            [0.0, 100.0],
+            &[0.0, 25.0, 60.0, 100.0],
+        ),
+    ]);
     out
 }
 
@@ -548,12 +631,30 @@ pub fn engine_samples(case: &Case) -> Vec<(f64, Value)> {
     engine
         .set_animations(1, &case.animations)
         .expect("a valid case");
+    if let Some(range) = case.timeline {
+        engine.set_drag_timeline(SOURCE, Some(("--t", false)));
+        engine.set_animation_timeline(1, Some(("--t", range)));
+    }
     let mut out = Vec::new();
     for step in &case.steps {
         match step {
             Step::Set { at, value } => {
                 engine.advance(*at).expect("time moves forward");
                 observe(&mut engine, *value);
+            }
+            Step::Sample { at } if case.timeline.is_some() => {
+                engine
+                    .observe(Change {
+                        node: SOURCE,
+                        property: Property::Translate,
+                        value: Value::new(0.0, *at),
+                        velocity: None,
+                    })
+                    .expect("finite");
+                // A frame seeks the timeline, as a host's frame does.
+                engine.frame();
+                let value = engine.sampled_value(1, case.property);
+                out.push((*at, value.expect("observed")));
             }
             Step::Sample { at } => {
                 engine.advance(*at).expect("time moves forward");
@@ -649,6 +750,9 @@ pub fn cases_json() -> String {
             }
             let _ = write!(s, "\",\"rules\":[\"{}\"]", rules.join("\",\""));
         }
+        if let Some([start, end]) = case.timeline {
+            let _ = write!(s, ",\"timeline\":[{start},{end}]");
+        }
         if let Some((duration, frames)) = spring_frames(case) {
             let _ = write!(s, ",\"duration\":{},\"frames\":[", duration * 1000.0);
             for (k, v) in frames.iter().enumerate() {
@@ -691,7 +795,7 @@ fn sample_units(property: Property, value: Value) -> [f64; 4] {
 /// [`check`] reads this.
 pub fn fixture_header(recorder: &str) -> String {
     format!(
-        "# exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs\n# recorded by host/web/parity.mjs: {recorder}\n# `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within {TOLERANCE}\n"
+        "# exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs\n# recorded by host/web/parity.mjs: {recorder}\n# `sample <case> <seconds> <x> <y>` (a `tl-` case: its source's position, px, for seconds); held by host/web/tests/it/parity.rs within {TOLERANCE}\n"
     )
 }
 

@@ -420,8 +420,80 @@ fn a_pinch_release_adopts_its_scale_within_fit_and_four_times() {
     );
     release(&mut r, 0., 0., 9.);
     close_to(targets(&r), [0., 0., 4.]);
-    release(&mut r, 9999., 9999., 0.5);
+    // Upward: a release far down at Fit would dismiss (the test below).
+    release(&mut r, 9999., -9999., 0.5);
     close_to(targets(&r), [0., 0., 1.]);
     press(&mut r, "viewer-zoom-detail");
     close_to(targets(&r), [0., 0., 2.]);
+}
+
+fn fling(r: &mut Runner<CountedGallery>, y: f64, scale: f64, vy: f64) -> CommitReceipt {
+    event(
+        r,
+        "viewer-handle",
+        Event::TransformRelease {
+            x: 0.,
+            y,
+            scale,
+            vx: 0.,
+            vy,
+            vscale: 0.,
+        },
+    )
+}
+
+/// LLP 1057.003 C1: the backdrop follows the photo's `--dismiss` timeline at
+/// Fit; a release there dismisses when far or fast enough and springs back
+/// otherwise; zoomed, a release pans and the backdrop follows nothing.
+#[test]
+fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_fit() {
+    let mut r = boot();
+    press(&mut r, "open-photo-00000");
+    geometry(&mut r, 800., 400.);
+    let backdrop = |r: &Runner<CountedGallery>| {
+        let style = r
+            .kernel()
+            .node_by_key(key(r, "viewer-backdrop"))
+            .unwrap()
+            .style;
+        (
+            style.animation.0.first().map(|a| a.name.clone()),
+            style.animation_timeline.css(),
+            style.animation_range.css(),
+        )
+    };
+    let bound = |name: Option<&str>| {
+        (
+            name.map(String::from),
+            "--dismiss".to_string(),
+            "0px 300px".to_string(),
+        )
+    };
+    assert_eq!(backdrop(&r), bound(Some("viewerFade")));
+    let source = r
+        .kernel()
+        .node_by_key(key(&r, "viewer-transform"))
+        .unwrap()
+        .style
+        .drag_timeline
+        .css();
+    assert_eq!(source, "--dismiss y");
+    for (y, vy, expected) in [
+        (100., 300., 0.),
+        (-200., -1200., 0.),
+        (121., 0., 900.),
+        (20., 801., 900.),
+    ] {
+        fling(&mut r, y, 1., vy);
+        close_to(targets(&r), [0., expected, 1.]);
+        press(&mut r, "viewer-reset");
+    }
+    press(&mut r, "viewer-zoom-detail");
+    assert_eq!(backdrop(&r), bound(None));
+    let fit = (800f64 / 1448.).min(400. / 1086.);
+    let most = ((1086. * fit * 2. - 400.) / 2f64).max(0.);
+    fling(&mut r, 150., 2., 1200.);
+    close_to(targets(&r), [0., 150f64.min(most), 2.]);
+    press(&mut r, "viewer-zoom-fit");
+    assert_eq!(backdrop(&r), bound(Some("viewerFade")));
 }

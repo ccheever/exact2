@@ -22,6 +22,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
 mod hold;
+mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
 
@@ -261,6 +262,8 @@ pub struct Engine {
     // and the nodes whose own appearance differs from it.
     dark: bool,
     node_dark: BTreeMap<u64, bool>,
+    // Drag timelines (LLP 1057.003): sources and bound consumers.
+    timelines: timeline::Timelines,
 }
 
 impl Engine {
@@ -328,6 +331,7 @@ impl Engine {
         self.animations.remove(&node);
         self.animating.remove(&node);
         self.forced.remove(&node);
+        self.forget_timelines(node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
             self.remove_property(node, property);
@@ -502,6 +506,9 @@ impl Engine {
     /// The values that changed since the last frame, in node order. Taking
     /// them clears the set; a host paints exactly these.
     pub fn frame(&mut self) -> Vec<Presentation> {
+        // A timeline's consumers are held where its source now is, so this
+        // frame carries both (LLP 1057.003 D2).
+        self.seek_timelines();
         let mut dirty: Vec<_> = std::mem::take(&mut self.dirty).into_iter().collect();
         dirty.sort_unstable();
         dirty

@@ -949,6 +949,22 @@ component A
   view
     text "a" exit-animation="leave 1s infinite"
 ---
+== lower-timeline-row
+# A timeline drives paint rows only in v1 (LLP 1057.003 Q1).
+keyframes ring
+  to r=40
+component A
+  view
+    box animation="ring 1s linear both" animation-timeline="--pull" animation-range="0px 100px"
+---
+== lower-timeline-endless
+# A timeline spans an animation's whole length, so it must end (LLP 1057.003).
+keyframes fade
+  to opacity=0
+component A
+  view
+    box animation="fade 1s infinite" animation-timeline="--pull" animation-range="0px 100px"
+---
 == lower-keyframe-property
 keyframes grow
   from width=10
