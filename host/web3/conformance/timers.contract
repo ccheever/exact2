@@ -1,0 +1,18 @@
+// Synthetic conformance plan: a repeating timer and derived countdowns on
+// the driver's clock.
+component Timers
+  state ticks = 0
+  state running = true
+  action tick writes ticks
+    ticks = running ? ticks + 1 : ticks
+  action stop writes running
+    running = not running
+  task beat mount
+    every(1000, tick)
+  view
+    column testId="root" padding=10
+      text `ticks ${ticks}` testId="ticks"
+      text formatCountdownMinutes(3600000, ticks * 1000) testId="countdown"
+      text formatTime(ticks * 60000, 0, "short") testId="time"
+      button press=stop testId="stop"
+        text running ? "stop" : "start"

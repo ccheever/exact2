@@ -1,0 +1,185 @@
+// The exact3 conformance harness: the same plan through the Rust web runner
+// (app.wasm + glue.js) and the JavaScript runner (exact-web3 + rt.js), in the
+// same Chrome, driven by the same agent operations (scripts/agent.mjs's
+// `open`). After every step it compares the runner's typed state, the tree
+// (preorder: depth, type, testId, text, value, label, handlers), layout boxes
+// by testId and a screenshot. `app.test.contract` files run on both.
+// Every failure is reported in one run; the exit code is always 0.
+//
+// usage: bun host/web3/conform.mjs [app …] [--synthetic] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact3-conform] [--steps 10]
+//   apps default to every app with a built wasm dist under --wasm-root
+//   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app>`);
+//   --synthetic adds host/web3/conformance/*.contract, run on the video
+//   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
+//   data sources they may ask; the JS side loads the same Rust module.
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { open } from '../../scripts/agent.mjs';
+import { decodePng, encodePng } from '../../scripts/png.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, '../..');
+const argv = process.argv.slice(2);
+const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
+const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
+const out = resolve(opt('--out', '/tmp/exact3-conform'));
+const maxSteps = Number(opt('--steps', 10));
+const named = argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps'].includes(argv[i - 1]));
+mkdirSync(out, { recursive: true });
+process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
+
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
+function serve(dir) {
+  const server = createServer((req, res) => {
+    const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let f = resolve(dir, '.' + p);
+    try { if (statSync(f).isDirectory()) f = resolve(f, 'index.html'); } catch { f = resolve(dir, 'index.html'); }
+    let body; try { body = readFileSync(f); } catch { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store' }); res.end(body);
+  });
+  return new Promise(ok => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() })));
+}
+
+// ---------------------------------------------------------------- comparisons
+const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', (n.handlers ?? []).join(' ')].join('|'));
+function diffLists(a, b, what) {
+  const out = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) { out.push(`${what} #${i}: wasm «${a[i] ?? '—'}» js «${b[i] ?? '—'}»`); if (out.length >= 4) { out.push(`${what}: … (${a.length} vs ${b.length} entries)`); break; } }
+  return out;
+}
+function diffJSON(a, b, path, out) {
+  if (out.length >= 8) return;
+  if (JSON.stringify(a) === JSON.stringify(b)) return;
+  if (a && b && typeof a === 'object' && typeof b === 'object' && Array.isArray(a) === Array.isArray(b)) {
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJSON(a[k], b[k], `${path}.${k}`, out);
+  } else out.push(`${path}: wasm ${JSON.stringify(a)?.slice(0, 120)} js ${JSON.stringify(b)?.slice(0, 120)}`);
+}
+function boxes(l) { const m = new Map(); for (const n of l.nodes) if (n.testId && !m.has(n.testId)) m.set(n.testId, n); return m; }
+function diffLayout(a, b) {
+  const A = boxes(a), B = boxes(b), out = [];
+  for (const [t, x] of A) {
+    const y = B.get(t);
+    if (!y) { out.push(`layout ${t}: on screen in wasm, not in js`); continue; }
+    const d = Math.max(...['x', 'y', 'w', 'h'].map(k => Math.abs(x[k] - y[k])));
+    if (d > 0.5) out.push(`layout ${t}: wasm ${[x.x, x.y, x.w, x.h].map(Math.round)} js ${[y.x, y.y, y.w, y.h].map(Math.round)}`);
+  }
+  for (const t of B.keys()) if (!A.has(t)) out.push(`layout ${t}: on screen in js, not in wasm`);
+  return out.slice(0, 8);
+}
+function diffPng(a, b, sideBySide, masks = []) {
+  const A = decodePng(readFileSync(a)), B = decodePng(readFileSync(b));
+  let n = 0;
+  const masked = i => { const x = (i / 4) % A.width, y = Math.floor(i / 4 / A.width); return masks.some(m => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h); };
+  for (let i = 0; i < Math.min(A.data.length, B.data.length); i += 4) if (!masked(i) && Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2]) > 24) n++;
+  const share = n / (A.width * A.height);
+  if (share > 0.002) {
+    const W = A.width + B.width + 10, H = Math.max(A.height, B.height), data = new Uint8Array(W * H * 4).fill(255);
+    const put = (img, ox) => { for (let y = 0; y < img.height; y++) data.set(img.data.subarray(y * img.width * 4, (y + 1) * img.width * 4), (y * W + ox) * 4); };
+    put(A, 0); put(B, A.width + 10);
+    writeFileSync(sideBySide, encodePng({ width: W, height: H, data }));
+  }
+  return share;
+}
+const STATE_KEYS = ['slots', 'derives', 'resources'];
+
+// ---------------------------------------------------------------- one target
+async function target(t, report) {
+  const fail = (step, what) => report.failures.push({ target: t.name, step, what });
+  const dir = resolve(out, t.name); mkdirSync(dir, { recursive: true });
+  const build = spawnSync('bun', ['host/web3/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact3-dist', t.name)], { cwd: root, encoding: 'utf8' });
+  report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
+  if (build.status !== 0) return fail('js-build', (build.stderr.match(/^[^\n]*: .*$/m)?.[0] ?? build.stderr).trim().slice(0, 400));
+  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
+  let W, J;
+  try {
+    try { W = await open({ host: 'web', app: t.app, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
+    catch (e) { return fail('wasm-open', e.message.split('\n')[0]); }
+    try { J = await open({ host: 'web', app: t.app, url: js.url }); }
+    catch (e) { return fail('js-open', e.message.split('\n')[0]); }
+    const compare = async step => {
+      let st = 0;
+      const [sw, sj] = await Promise.all([W.state(), J.state().catch(e => ({ error: e.message }))]);
+      if (sj.error) { fail(step, `state: js ${sj.error}`); st++; }
+      else { const o = []; for (const k of STATE_KEYS) diffJSON(sw[k], sj[k], k, o); o.forEach(x => fail(step, 'state ' + x)); st += o.length; }
+      const [tw, tj] = await Promise.all([W.tree(), J.tree()]);
+      const o2 = diffLists(norm(tw), norm(tj), 'tree'); o2.forEach(x => fail(step, x)); st += o2.length;
+      const [lw, lj] = await Promise.all([W.layout(), J.layout()]);
+      const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
+      const slug = step.replace(/[^a-z0-9]+/gi, '-');
+      const [pw, pj] = [resolve(dir, `${slug}-wasm.png`), resolve(dir, `${slug}-js.png`)];
+      await Promise.all([W.screenshot(pw), J.screenshot(pj)]);
+      // A playing video's frames and controls are the browser's clock, not the runner's.
+      const share = diffPng(pw, pj, resolve(dir, `${slug}-side-by-side.png`), lw.nodes.filter(n => n.type === 'Video'));
+      if (share > 0.002) { fail(step, `screenshot: ${(share * 100).toFixed(2)}% of pixels differ (${slug}-side-by-side.png)`); st++; }
+      report.steps.push({ target: t.name, step, differences: st });
+      return tw;
+    };
+    let tree = await compare('boot');
+    const tapped = new Set();
+    for (let i = 0; i < maxSteps; i++) {
+      const next = tree.nodes.find(n => (n.handlers ?? []).includes('press') && n.props?.testId && !tapped.has(n.props.testId));
+      if (!next) break;
+      const id = next.props.testId; tapped.add(id);
+      let ok = true;
+      try { await W.tap(id); } catch (e) { ok = false; report.steps.push({ target: t.name, step: `tap ${id}`, skipped: `wasm: ${e.message.split('\n')[0]}` }); }
+      if (!ok) continue;
+      try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `js: ${e.message.split('\n')[0]}`); continue; }
+      tree = await compare(`tap ${id}`);
+    }
+    await Promise.all([W.clock('+60000'), J.clock('+60000')]);
+    await compare('clock +60000');
+  } catch (e) {
+    fail('drive', e.stack?.split('\n').slice(0, 2).join(' ') ?? String(e));
+  } finally {
+    await W?.close?.(); await J?.close?.(); ws.close(); js.close();
+  }
+  // The app's own tests, on both.
+  const tests = resolve(root, 'apps', t.app, 'app.test.contract');
+  if (!t.contract && existsSync(tests)) {
+    const run = url => { const r = spawnSync('bun', ['scripts/agent.mjs', 'web', '--app', t.app, '--url', url, '--test', tests], { cwd: root, encoding: 'utf8' }); return r.stdout + r.stderr; };
+    const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
+    const [rw, rj] = [run(w2.url), run(j2.url)];
+    w2.close(); j2.close();
+    const lines = s => s.split('\n').filter(l => l.startsWith('test '));
+    const [lw, lj] = [lines(rw), lines(rj)];
+    report.targets[t.name].tests = { wasm: rw.trim().split('\n').at(-1), js: rj.trim().split('\n').at(-1) };
+    diffLists(lw, lj, 'app.test.contract').forEach(x => fail('tests', x));
+  }
+}
+
+// ---------------------------------------------------------------- the run
+const report = { at: new Date().toISOString(), targets: {}, steps: [], failures: [] };
+const apps = named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
+const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
+if (argv.includes('--synthetic')) {
+  const sdir = resolve(here, 'conformance');
+  for (const f of readdirSync(sdir).filter(f => f.endsWith('.contract'))) {
+    const name = 'synthetic-' + basename(f, '.contract'), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
+    const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
+    // Synthetic plans ask Caltrain's sources (stations, nearest, search): its wasm links them.
+    targets.push({ name, app: 'caltrain', wasm: resolve(wasmRoot, 'caltrain'), contract, plan });
+  }
+}
+for (const t of targets) {
+  const before = report.failures.length;
+  process.stderr.write(`${t.name}: `);
+  try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+  process.stderr.write(`${report.failures.length - before} failures\n`);
+}
+writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 1));
+const byTarget = {};
+for (const f of report.failures) (byTarget[f.target] ??= []).push(f);
+const lines = [`# exact3 conformance — ${report.at}`, '', '| target | JS build | steps compared | steps equal | failures | app tests (wasm / js) |', '|---|---|---|---|---|---|'];
+for (const t of targets) {
+  const s = report.steps.filter(x => x.target === t.name && x.differences != null), info = report.targets[t.name] ?? {};
+  lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${info.tests ? `${info.tests.wasm} / ${info.tests.js}` : '—'} |`);
+}
+lines.push('', '## Failures', '');
+for (const [t, fs] of Object.entries(byTarget)) { lines.push(`### ${t}`); for (const f of fs) lines.push(`- **${f.step}** — ${f.what}`); lines.push(''); }
+writeFileSync(resolve(out, 'report.md'), lines.join('\n'));
+console.log(lines.slice(0, targets.length + 4).join('\n'));
+console.log(`\n${report.failures.length} failures across ${targets.length} targets; ${resolve(out, 'report.md')}`);

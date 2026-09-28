@@ -214,29 +214,27 @@ pub fn prop_name(node_type: NodeType, prop: PropId) -> Result<String, String> {
         })
 }
 
-/// How the runtime formats a dynamic style row's value, and its CSS name:
-/// `d` dimension (a number is px), `s` text as written (enums, colours —
-/// the browser parses `#rrggbb[aa]` as the kernel does), `n` a number.
-/// Rows that are not one declaration each are refused, never guessed.
-pub fn style_row(id: u16) -> Result<(String, char), String> {
+/// A dynamic style row's CSS property and the unit a number takes, read
+/// from the web host's own `css_text` for a sample value (`7` → `7px`,
+/// `7deg` or `7`), so the unit rule is css.rs's, not a copy. Text values
+/// (enums, `auto`, `N%`, colours as `#rrggbb[aa]`) are written as the
+/// author wrote them; the browser parses them as the kernel does. Rows that
+/// are not one declaration each are refused, never guessed.
+pub fn style_row(id: u16) -> Result<(String, String), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
-    let kind = match row.codec() {
-        StyleCodec::Dimension => 'd',
-        StyleCodec::Enum
-        | StyleCodec::ColorValue
-        | StyleCodec::Rgba8
-        | StyleCodec::KeywordColor => 's',
-        StyleCodec::F32 | StyleCodec::U8 | StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => {
-            'n'
-        }
-        c => {
-            return Err(format!(
-                "a dynamic `{}` ({c:?}) is not in the spike",
-                row.name()
-            ))
-        }
-    };
-    if matches!(
+    if !matches!(
+        row.codec(),
+        StyleCodec::Dimension
+            | StyleCodec::Enum
+            | StyleCodec::ColorValue
+            | StyleCodec::Rgba8
+            | StyleCodec::KeywordColor
+            | StyleCodec::F32
+            | StyleCodec::U8
+            | StyleCodec::U16
+            | StyleCodec::U32
+            | StyleCodec::I32
+    ) || matches!(
         row,
         StyleId::ShadowOffset
             | StyleId::ShadowRadius
@@ -246,13 +244,30 @@ pub fn style_row(id: u16) -> Result<(String, char), String> {
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
+            | StyleId::BackdropBlur
     ) {
         return Err(format!(
-            "a dynamic `{}` composes with other rows; not in the spike",
-            row.name()
+            "a dynamic `{}` ({:?}) is not one declaration; not in the spike",
+            row.name(),
+            row.codec()
         ));
     }
-    Ok((css_property(row), kind))
+    let sample = |v: exact_kernel::StyleValue| {
+        let mut p = exact_kernel::StyleProps::default();
+        p.set_dynamic(row, &v).ok()?;
+        let (text, _) = exact_web::css::css_text(&p, &[]);
+        let (name, value) = text.trim_end_matches(';').split_once(':')?;
+        Some((name.to_string(), value.to_string()))
+    };
+    if let Some((name, value)) = sample(exact_kernel::StyleValue::Number(7.0)) {
+        if let Some(unit) = value.strip_prefix('7') {
+            return Ok((name, unit.to_string()));
+        }
+    }
+    let name = sample(exact_kernel::StyleValue::Text("#000000".into()))
+        .map(|(n, _)| n)
+        .unwrap_or_else(|| css_property(row));
+    Ok((name, String::new()))
 }
 
 /// `host/web/src/css.rs` `property`: the row's name with `-` for `_`, but

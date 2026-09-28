@@ -19,30 +19,34 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan>] [--out <dir>] [--inline]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline]'); process.exit(2); }
 const appDir = resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact3-dist/${app}`);
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(gen, { recursive: true });
 
-const input = opt('--plan') ?? resolve(appDir, 'app.contract');
+const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contract');
 const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web3', '--', 'js', input, '-o', gen], { cwd: root, stdio: 'inherit' });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 const rust = !!manifest.rust?.module;
 writeFileSync(resolve(gen, 'main.js'), [
-  "import app" + (rust ? ', { sources }' : '') + " from './app.js';",
+  "import app, { sources, wait } from './app.js';",
   "import { data, journal, clock, advance, commit } from './rt.js';",
-  'const state = app();',
+  "const start = () => {",
+  "  const state = app();",
+  "  globalThis.exact = { ready: true, journal, clock, advance, commit, data, state };",
   // The agent adapter, only when the agent drives the page.
-  "globalThis.exact = { ready: true, journal, clock, advance, commit, data, state };",
-  "if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
+  "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
+  "};",
   ...(rust ? [
-    // Rust data: loaded after first pixel, asked synchronously once ready.
-    "requestAnimationFrame(() => setTimeout(() => import('./rust-data.js').then(m => m.install(data, sources))));",
-  ] : []),
+    // Rust data: loaded after first pixel, asked synchronously once ready;
+    // a plan with a resource that has no compiled value waits for it.
+    "const load = () => import('./rust-data.js').then(m => m.install(data, sources));",
+    "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
+  ] : ['start();']),
 ].join('\n'));
 for (const f of ['agent.js', 'rust-data.js']) cpSync(resolve(here, f), resolve(gen, f));
 const bundled = spawnSync('bun', ['build', resolve(gen, 'main.js'), '--minify', '--format=esm', '--splitting', '--outdir', out, '--entry-naming', 'app.js', '--chunk-naming', '[name]-[hash].js'], { cwd: root, stdio: 'inherit' });
@@ -66,10 +70,11 @@ ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out,
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.
+// `--data <dist>` names another wasm build's module (a synthetic plan over an app's sources).
 if (rust && opt('--plan')) {
-  const from = dirname(resolve(opt('--plan')));
+  const from = resolve(opt('--data') ?? dirname(resolve(opt('--plan'))));
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
   cpSync(resolve(from, 'rust/wasm/app.module.wasm'), resolve(out, 'rust/wasm/app.module.wasm'));
-  cpSync(resolve(from, 'app.plan'), resolve(out, 'app.plan'));
+  cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
 }
 console.log(`${out}: built`);

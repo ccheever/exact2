@@ -1,0 +1,69 @@
+// Synthetic conformance plan: keyed rows reordered, inserted and removed;
+// `when`/`else`, `match`, nested regions, and/or, ternaries, row positions.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+component Regions
+  resource loc = defaultLocation() as shape Location
+  resource line = stations(loc) as shape list<Station>
+  resource close = nearest(loc, next) as shape list<Station>
+  state near = false
+  state skip = ""
+  state next = 3
+  derive items = map(filter(near ? close : line, s => s.id != skip), s => s.id)
+  state picked = none
+  state open = true
+  state mode = 0
+  action rotate writes skip
+    skip = match first(items) { case some(h) => h, case none => "" }
+  action push writes next
+    next = next + 1
+  action restore writes near
+    near = not near
+  action pick(id) writes picked
+    picked = some(id)
+  action clear writes picked
+    picked = none
+  action toggle writes open
+    open = not open
+  action cycle writes mode
+    mode = (mode + 1) % 3
+  view
+    column testId="root" padding=12 gap=6
+      row gap=6
+        button press=rotate testId="rotate"
+          text "rotate"
+        button press=push testId="push"
+          text "push"
+        button press=restore testId="restore"
+          text "restore"
+        button press=toggle testId="toggle"
+          text open ? "close" : "open"
+        button press=cycle testId="cycle"
+          text `mode ${mode}`
+        button press=clear testId="clear"
+          text "clear"
+      match picked
+        case some(p)
+          text `picked ${p}` testId="picked"
+        case none
+          text "nothing picked" testId="picked"
+      when open and mode != 2
+        column gap=4 testId="list"
+          each it, i in items key=it
+            button press=pick(it) testId=`row-${it}`
+              row gap=8
+                text `${i}` testId=`index-${it}`
+                text it
+                when picked == some(it) or i == 0
+                  text "★" testId=`star-${it}`
+      else
+        text (mode == 2 ? "mode two hides the list" : "closed") testId="closed"
+      text join(map(items, (x, i) => `${i}:${x}`), " ") testId="joined"

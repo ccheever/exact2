@@ -2,8 +2,10 @@
 // the spike carries them): `exact.agentSettled(request)` answers what
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
-import names from './names.js';
-const TYPES = { BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+import names, { types } from './names.js';
+// A runtime value as the runner's typed JSON: records by field name.
+const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
+const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const ids = new WeakMap(), views = new Map();
   let next = 1;
@@ -14,6 +16,7 @@ export function install(exact) {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
+    else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     if (type(el) === 'Text') props.text = el.textContent;
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
     const n = { id: id(el), type: type(el), depth, props };
@@ -55,7 +58,7 @@ export function install(exact) {
       }
       case 'tags': return tags();
       case 'state': {
-        const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, exact.state[k][i]()])));
+        const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         return { slots, derives, resources, ...tags() };
       }
       case 'prefer': return { page: {} };

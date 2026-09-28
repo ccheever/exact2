@@ -219,13 +219,13 @@ export function P(e, name, f) {
     else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
   });
 }
-/** A dynamic style row: `d` a dimension (a number is px), `n` a number, `s` as written. */
-export function S(e, prop, kind, f) {
+/** A dynamic style row: a number takes the unit css.rs gives the row. */
+export function S(e, prop, unit, f) {
   effect(() => {
     const v = f();
     if (v == null) return e.style.removeProperty(prop);
-    e.style.setProperty(prop, kind === "d" && typeof v === "number" ? v + "px" : String(v));
-    // Invalid at computed-value time: the declaration is unset (LLP 1005 §6).
+    // A value the row refuses is invalid at computed-value time: unset (LLP 1005 §6).
+    e.style.setProperty(prop, typeof v === "number" ? v + unit : String(v));
   });
 }
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
@@ -247,7 +247,9 @@ export function on(e, kind, f) {
   }
 }
 /** The page's `<head>` fields (LLP 1048.003 D1). */
-export function hd(fields) {
+export function hd(p, fields) {
+  // The head's node, as the kernel keeps it: an inert element in the tree.
+  p.append(document.createElement("template"));
   if (fields.headTitle) document.title = fields.headTitle;
   if (fields.headDescription) {
     let m = document.querySelector('meta[name="description"]');

@@ -1,0 +1,20 @@
+// Synthetic conformance plan: dynamic style rows — colours, dimensions in
+// points and percent, auto, enums, numbers — and dynamic props.
+component Styles
+  state on = false
+  state width = 120
+  action flip writes on
+    on = not on
+  action widen writes width
+    width = width + 40
+  view
+    column testId="root" padding=10 gap=8
+      button press=flip testId="flip" aria-label=(on ? "Turn off" : "Turn on")
+        text on ? "on" : "off"
+      button press=widen testId="widen"
+        text "widen"
+      view testId="box" width=width height=(on ? "40%" : 60) background-color=(on ? "#2a9d8f" : "#e76f51") opacity=(on ? 0.5 : 1) border-radius=(on ? 20 : 4)
+      row testId="row" justify-content=(on ? "flex-end" : "flex-start") gap=(on ? 12 : 4)
+        text "left" color=(on ? "#264653" : "#000000") font-size=(on ? 20 : 14)
+        text "right" font-weight=(on ? 700 : 400)
+      view testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
