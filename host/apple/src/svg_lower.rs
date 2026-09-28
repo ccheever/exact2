@@ -135,7 +135,8 @@ fn joined(a: &Track, b: &Track) -> Track {
 }
 
 /// A node's lowered animations for `props`, as CA specs:
-/// `[{"id","k","s","dl","d","n","t":[…],"v":[…],"c":[[…],…],"fill","h"}]`.
+/// `[{"id","k","s","dl","d","n","t":[…],"v":[…],"c":[[…],…],"fill","h"}]`;
+/// `"c"` is empty when every interval is linear.
 /// `underlying(p)` is the property's own value and a factor into CA units:
 /// a dash offset's length over `pathLength`, or a paint's opacity folded
 /// into a colour's alpha. A colour's values are `[r,g,b,a]` bytes.
@@ -229,11 +230,19 @@ fn spec(
             }
         })
         .collect();
-    let curves: Vec<String> = track
-        .curves
-        .iter()
-        .map(|c| format!("[{}]", list(c)))
-        .collect();
+    // Every interval linear (a `steps()` track is ~2n linear keys) says
+    // nothing: Core Animation's keyframes are linear without timing
+    // functions, and a list row's playhead then carries no 4n curve numbers
+    // to build, parse, hash and turn into timing-function objects.
+    let curves: Vec<String> = if track.curves.iter().all(|c| *c == LINEAR) {
+        Vec::new()
+    } else {
+        track
+            .curves
+            .iter()
+            .map(|c| format!("[{}]", list(c)))
+            .collect()
+    };
     let _ = write!(
         s,
         "{{\"id\":\"{}#{index}#{key}\",\"k\":\"{key}\",\"s\":{},\"dl\":{},\"d\":{},\"n\":{},\"t\":[{}],\"v\":[{}],\"c\":[{}],\"fill\":{},\"h\":",

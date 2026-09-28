@@ -93,8 +93,12 @@ enum CssAnimations {
 
     /// A spec's values, hashed: describing them as text was most of a
     /// scene's cost on a list's rows.
+    /// A batch's numbers arrive as `NSNumber`: that case goes first, as a
+    /// class cast, because `as Double` bridges and was most of a list
+    /// row's animation cost.
     static func digest(_ v: Any?, into h: inout Hasher) {
         switch v {
+        case let n as NSNumber: h.combine(n.doubleValue.bitPattern)
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
@@ -117,9 +121,12 @@ enum CssAnimations {
         let a = CAKeyframeAnimation(keyPath: key == "r" ? "path" : key)
         a.keyTimes = times.map { NSNumber(value: $0) }
         a.values = values
-        a.timingFunctions = (spec["c"] as? [Any] ?? []).map { c in
-            let p = nums(c).map(Float.init)
-            return p.count == 4 ? CAMediaTimingFunction(controlPoints: p[0], p[1], p[2], p[3]) : CAMediaTimingFunction(name: .linear)
+        // No curves: every interval is linear, Core Animation's default.
+        if let curves = spec["c"] as? [Any], !curves.isEmpty {
+            a.timingFunctions = curves.map { c in
+                let p = nums(c).map(Float.init)
+                return p.count == 4 ? CAMediaTimingFunction(controlPoints: p[0], p[1], p[2], p[3]) : CAMediaTimingFunction(name: .linear)
+            }
         }
         a.calculationMode = .linear
         a.duration = duration
