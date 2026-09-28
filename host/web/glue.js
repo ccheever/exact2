@@ -1261,9 +1261,10 @@ function startClock() {
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
-  page?.release(applyBatch); applyBatch(batch);
+  let inputOpen; const inputOpened = new Promise(resolve => { inputOpen = resolve; });
+  page?.release(applyBatch, inputOpened); applyBatch(batch); // early presses replay once input is ready
   const ready = () => {
-    setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
+    setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; inputOpen();
     if (pageNative) loadPageNative().then(native => native.drain()).catch(error => log(`native: ${error}`));
   };
   const pending = pieces.pending(); // pieces this tree first uses: input waits for their handlers (LLP 1047 D5)

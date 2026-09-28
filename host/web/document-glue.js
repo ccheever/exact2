@@ -102,7 +102,7 @@ function documentBoot(options) {
     } else if (event.type === "compositionend") {
       composing.delete(event.target);
       // The final input event follows compositionend in the same task.
-      setTimeout(() => { if (!composing.size && releaseAfterComposition) page.release(releaseAfterComposition); }, 0);
+      setTimeout(() => { if (!composing.size && releaseAfterComposition) page.release(...releaseAfterComposition); }, 0);
     }
   };
   const intent = event => {
@@ -142,9 +142,9 @@ function documentBoot(options) {
     get adopting() { return adopting; },
     get restoringFocus() { return restoringFocus; },
     hold(batch) { if (holding) held.push(batch); return holding; },
-    release(apply) {
+    release(apply, inputReady = Promise.resolve()) {
       if (!holding) return;
-      if (composing.size) { releaseAfterComposition = apply; return; }
+      if (composing.size) { releaseAfterComposition = [apply, inputReady]; return; }
       releaseAfterComposition = null;
       holding = false;
       for (const kind of kinds) root.removeEventListener(kind, record, true);
@@ -165,9 +165,12 @@ function documentBoot(options) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
-      // After the caller's readiness, which it finishes synchronously; a task
-      // would wait behind the next frame.
-      queueMicrotask(() => {
+      // Once the caller's input is ready: until then the host holds every
+      // control disabled (input waits for the handlers of the pieces the tree
+      // uses, LLP 1047 D5), and a replay into one would be dropped. The caller
+      // resolves it synchronously at readiness; a task would wait behind the
+      // next frame.
+      inputReady.then(() => {
         for (const edit of edits) {
           const el = views.get(edit.at.id);
           if (matches(el, edit.at) && events.some(event => (event.kind === "input" || event.kind === "change") && event.at.id === edit.at.id)) el.value = edit.value;
