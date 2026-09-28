@@ -51,7 +51,11 @@ async function waitAtMost(operation, ms, onTimeout) {
  * exceptions and console errors arrive over CDP separately and remain logs. */
 export function browserDiagnosticNoise(line) {
   return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
-    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line);
+    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
+    // The browser process checking the renderer's paint-timing report
+    // against itself (two paints in one frame, image before first): its
+    // bookkeeping, not the page's. The page's own errors come over CDP.
+    || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
 }
 
 // ---------------------------------------------------------------- web
@@ -93,7 +97,11 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
     '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
     '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
-    '--no-default-browser-check', 'about:blank',
+    '--no-default-browser-check',
+    // The profile is a throwaway: a mock keychain and a plain password
+    // store keep Chrome from asking the login keychain, which a shell
+    // without keychain access refuses (errSecInteractionNotAllowed).
+    '--use-mock-keychain', '--password-store=basic', 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
     // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
     // A pid is a started child: Bun 1.4.2 can drop the 'spawn' event of the
