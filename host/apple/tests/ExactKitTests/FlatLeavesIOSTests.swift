@@ -121,5 +121,24 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertEqual(row.layer.sublayers?.count ?? 0, before, "the old leaves' layers went, the new ones came")
         XCTAssertEqual(p.flats.observation["flatLeaves"] as? Int, 2)
     }
+    func testAlikeAdjacentLeavesAreOneShapeLayerUntilOneDiffers() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view"]]
+            + bar(2, x: 0) + bar(3, x: 5) + bar(4, x: 10) + bar(5, x: 15, color: [199, 199, 204, 255])
+            + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        let parent = try XCTUnwrap(p.views[1])
+        var shapes = parent.layer.sublayers?.compactMap { $0 as? CAShapeLayer } ?? []
+        XCTAssertEqual(shapes.count, 1, "2, 3 and 4 are one run")
+        XCTAssertEqual(shapes.first?.path?.boundingBoxOfPath, CGRect(x: 0, y: 0, width: 13, height: 20))
+        XCTAssertEqual(parent.layer.sublayers?.count, 2, "the run, and 5 on its own")
+        let last = try XCTUnwrap(parent.layer.sublayers?.last)
+        XCTAssertFalse(last is CAShapeLayer); XCTAssertEqual(last.frame, CGRect(x: 15, y: 0, width: 3, height: 20))
+        // The middle one fades: it stands alone, and the run splits around it.
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 0.5, "y": 0.0, "w": 0.0, "h": 0.0]]))
+        shapes = parent.layer.sublayers?.compactMap { $0 as? CAShapeLayer } ?? []
+        XCTAssertEqual(shapes.count, 0)
+        XCTAssertEqual(parent.layer.sublayers?.count, 4)
+        XCTAssertEqual(parent.layer.sublayers?.map(\.frame.minX), [0, 5, 10, 15], "in tree order")
+    }
 }
 #endif

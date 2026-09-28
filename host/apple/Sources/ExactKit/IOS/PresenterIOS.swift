@@ -765,6 +765,7 @@ final class Presenter {
             default: break
             }
         }
+        flats.flush()
         fitDocument()
         paintCanvas()
         let first = root.subviews.first as? NodeView

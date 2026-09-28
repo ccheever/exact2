@@ -18,6 +18,12 @@ private final class FlatAction: NSObject, CALayerDelegate {
     func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
 }
 
+/// No implicit animations on a run's shape layer.
+private final class FlatRunAction: NSObject, CALayerDelegate {
+    static let shared = FlatRunAction()
+    func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
+}
+
 final class FlatLeaf {
     let id: UInt32
     let layer = CALayer()
@@ -41,6 +47,10 @@ final class FlatLeaves {
     private var order: [UInt32: [UInt32]] = [:]
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
+    /// Parents whose flat leaves are laid into layers when the batch ends.
+    private var dirty = Set<UInt32>()
+    /// Each parent's shape layers, one per run of alike adjacent leaves.
+    private var runs: [UInt32: [CAShapeLayer]] = [:]
 
     /// Layout rows (the kernel's) and rows a childless, textless box never
     /// paints: they do not stop a leaf being flat.
@@ -144,20 +154,23 @@ final class FlatLeaves {
         CATransaction.commit()
         paint(leaf)
     }
+    private func touch(_ leaf: FlatLeaf) { if let p = leaf.parent { dirty.insert(p) } }
     func opacity(_ id: UInt32, _ value: Float) {
         guard let leaf = leaves[id] else { return }
         leaf.opacity = value
-        if leaf.layer.opacity != value { leaf.layer.opacity = value; changed(leaf) }
+        if leaf.layer.opacity != value { leaf.layer.opacity = value; changed(leaf); touch(leaf) }
     }
     func destroy(_ id: UInt32) {
         guard let leaf = leaves.removeValue(forKey: id) else { return }
         changed(leaf)
+        touch(leaf)
         leaf.layer.removeFromSuperlayer()
         if let parent = leaf.parent, var ids = order[parent] {
             ids.removeAll { $0 == id }
             order[parent] = ids.contains(where: { leaves[$0] != nil }) ? ids : nil
         }
         order[id] = nil
+        for run in runs.removeValue(forKey: id) ?? [] { run.removeFromSuperlayer() }
     }
 
     /// A canvas that samples the leaf's parent recaptures it, as it does for
@@ -199,39 +212,96 @@ final class FlatLeaves {
         let hidden = s["display"]?.string == "none"
         if l.isHidden != hidden { l.isHidden = hidden }
         changed(leaf)
+        touch(leaf)
     }
 
-    /// `parent`'s children op placed its views; its flat leaves go in its
-    /// container's layer, each directly above the child before it (a view's
-    /// layer or a leaf's), or below the first view when none is before it.
-    /// Answers the flat leaves that cannot stay flat under this parent.
+    /// `parent`'s children op placed its views: its flat leaves are laid in
+    /// when the batch ends (`flush`). Answers the flat leaves that cannot
+    /// stay flat under this parent.
     func place(_ parent: NodeView, _ ids: [UInt32]) -> [UInt32] {
         let flat = ids.filter { leaves[$0] != nil }
-        guard !flat.isEmpty else { order[parent.id] = nil; return [] }
+        guard !flat.isEmpty else {
+            if order.removeValue(forKey: parent.id) != nil { dirty.insert(parent.id) }
+            return []
+        }
         order[parent.id] = ids
         for id in flat { leaves[id]?.parent = parent.id }
         guard Self.parents.contains(parent.kind), parent.scroll == nil, parent.overlay == nil,
               parent.canvasAbove == nil, parent.surface == nil else { return flat }
-        let container = parent.container.layer
-        for id in flat { leaves[id]?.layer.removeFromSuperlayer() }
+        dirty.insert(parent.id)
+        return []
+    }
+
+    /// What a run shares: one fill, one radius on all four corners (or none),
+    /// shown whole. A leaf that is not alike stands alone.
+    private func runKey(_ leaf: FlatLeaf) -> String? {
+        let s = leaf.style
+        guard leaf.opacity == 1, s["display"]?.string != "none", let c = s["background_color"]?.numbers, c.count == 4, c[3] > 0 else { return nil }
+        let r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { s["border_radius_" + $0]?.number ?? 0 }
+        guard r.allSatisfy({ $0 == r[0] }) else { return nil }
+        return "\(c) \(r[0])"
+    }
+
+    /// Each dirty parent's flat leaves into its container's layer, in tree
+    /// order among its views: a run of two or more alike adjacent leaves as
+    /// one shape layer of their boxes (step 2), any other leaf as its own
+    /// layer, each directly above the child before it, or below the first
+    /// view when none is before it.
+    func flush() {
+        guard !dirty.isEmpty else { return }
+        let parents = dirty
+        dirty.removeAll()
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        var previous: CALayer?
-        for (i, id) in ids.enumerated() {
-            if let leaf = leaves[id] {
+        for parentID in parents {
+            for run in runs.removeValue(forKey: parentID) ?? [] { run.removeFromSuperlayer() }
+            guard let parent = presenter.views[parentID], let ids = order[parentID] else { continue }
+            let container = parent.container.layer
+            for id in ids { leaves[id]?.layer.removeFromSuperlayer() }
+            var made: [CAShapeLayer] = []
+            var previous: CALayer?
+            func put(_ layer: CALayer, at i: Int) {
                 if let previous {
-                    container.insertSublayer(leaf.layer, above: previous)
+                    container.insertSublayer(layer, above: previous)
                 } else if let next = ids[(i + 1)...].lazy.compactMap({ self.presenter.views[$0] }).first(where: { $0.layer.superlayer === container }) {
-                    container.insertSublayer(leaf.layer, below: next.layer)
+                    container.insertSublayer(layer, below: next.layer)
                 } else {
-                    container.addSublayer(leaf.layer)
+                    container.addSublayer(layer)
                 }
-                previous = leaf.layer
-            } else if let view = presenter.views[id], view.layer.superlayer === container {
-                previous = view.layer
+                previous = layer
             }
+            var i = 0
+            while i < ids.count {
+                let id = ids[i]
+                guard let leaf = leaves[id] else {
+                    if let view = presenter.views[id], view.layer.superlayer === container { previous = view.layer }
+                    i += 1; continue
+                }
+                var j = i + 1
+                if let key = runKey(leaf) {
+                    while j < ids.count, let next = leaves[ids[j]], runKey(next) == key { j += 1 }
+                }
+                if j - i >= 2 {
+                    let run = CAShapeLayer()
+                    run.delegate = FlatRunAction.shared
+                    let path = CGMutablePath()
+                    for id in ids[i..<j] {
+                        guard let f = leaves[id]?.frame, f.width > 0, f.height > 0 else { continue }
+                        let r = min(CGFloat(leaf.style["border_radius_top_left"]?.number ?? 0), f.width / 2, f.height / 2)
+                        if r > 0 { path.addRoundedRect(in: f, cornerWidth: r, cornerHeight: r) } else { path.addRect(f) }
+                    }
+                    run.path = path
+                    run.fillColor = leaf.layer.backgroundColor
+                    put(run, at: j - 1)
+                    made.append(run)
+                } else {
+                    put(leaf.layer, at: i)
+                }
+                i = j
+            }
+            if !made.isEmpty { runs[parentID] = made }
+            if let c = parent.canvasAbove { c.needsCapture = true; parent.canvases?.scheduleCapture() }
         }
-        return []
     }
 
     /// `id` needs a view after all: it gets one, with the leaf's style, frame
@@ -241,6 +311,7 @@ final class FlatLeaves {
         guard let leaf = leaves.removeValue(forKey: id) else { return presenter.views[id] }
         promoted += 1
         leaf.layer.removeFromSuperlayer()
+        touch(leaf)
         let view = NodeView(id: id, kind: "view", presenter: presenter)
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: [:], clear: [])
@@ -255,7 +326,8 @@ final class FlatLeaves {
 
     func reset() {
         for leaf in leaves.values { leaf.layer.removeFromSuperlayer() }
-        leaves.removeAll(); order.removeAll()
+        for run in runs.values.joined() { run.removeFromSuperlayer() }
+        leaves.removeAll(); order.removeAll(); runs.removeAll(); dirty.removeAll()
     }
 
     var observation: [String: Any] { ["flatLeaves": leaves.count, "flatMade": made, "flatPromoted": promoted] }
