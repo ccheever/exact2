@@ -596,6 +596,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");
     logic(runner, &mut s);
+    // Each virtualized list's snapshot, nested ones included: its axis, its
+    // count, its offset's extent and its mounted rows (LLP 1070 G3).
+    s.push_str(",\"collections\":");
+    s.push_str(&runner.collections_json());
     s.push_str(",\"canvas\":");
     runner.canvas_state(&mut s);
     s.push('}');

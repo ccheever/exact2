@@ -48,6 +48,8 @@ final class KnobDrag {
     /// the document, and the end is still what they were reading.
     private var shownAtEnd = false
     private weak var scroll: NSScrollView?
+    /// A row list's knob is the horizontal scroller's (LLP 1070 §3.3).
+    var horizontal = false
     private var observers: [NSObjectProtocol] = []
     var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
 
@@ -77,11 +79,21 @@ final class KnobDrag {
     func began() {
         tracking = currentEventType() == .leftMouseDown
         shown = nil
-        shownAtEnd = tracking && (scroll.map { Self.atEnd($0.contentView) } ?? false)
+        shownAtEnd = tracking && (scroll.map { atEnd($0.contentView) } ?? false)
     }
-    private static func atEnd(_ clip: NSClipView) -> Bool {
-        let maximum = max(0, (clip.documentView?.frame.height ?? 0) - clip.bounds.height)
-        return maximum > 0 && clip.bounds.minY >= maximum - 0.5
+    /// The clip's offset and its maximum along the list's axis.
+    private func travel(_ clip: NSClipView) -> (at: CGFloat, maximum: CGFloat) {
+        let document = clip.documentView?.frame.size ?? .zero
+        return horizontal
+            ? (clip.bounds.minX, max(0, document.width - clip.bounds.width))
+            : (clip.bounds.minY, max(0, document.height - clip.bounds.height))
+    }
+    private func atEnd(_ clip: NSClipView) -> Bool {
+        let (at, maximum) = travel(clip)
+        return maximum > 0 && at >= maximum - 0.5
+    }
+    private func point(_ clip: NSClipView, _ along: CGFloat) -> NSPoint {
+        horizontal ? NSPoint(x: along, y: clip.bounds.minY) : NSPoint(x: clip.bounds.minX, y: along)
     }
     /// Whether the clip view's new offset is one the reader sees. During a
     /// knob drag, the mouse-up's own derivation is not, unless it reaches an
@@ -90,21 +102,21 @@ final class KnobDrag {
     /// reader is: after one, a reader at the end is still at the end.
     func admits(_ clip: NSClipView, correcting: Bool = false) -> Bool {
         guard tracking else { return true }
-        let maximum = max(0, (clip.documentView?.frame.height ?? 0) - clip.bounds.height)
-        let edge = clip.bounds.minY <= 0.5 || clip.bounds.minY >= maximum - 0.5
+        let (at, maximum) = travel(clip)
+        let edge = at <= 0.5 || at >= maximum - 0.5
         if currentEventType() == .leftMouseUp, !edge { return false }
         shown = clip.bounds.origin
-        if !correcting { shownAtEnd = Self.atEnd(clip) }
+        if !correcting { shownAtEnd = atEnd(clip) }
         return true
     }
     func ended() {
         guard tracking else { return }
         tracking = false
-        guard let seen = shown, let scroll, let document = scroll.documentView else { return }
+        guard let seen = shown, let scroll else { return }
         shown = nil
         let clip = scroll.contentView
-        let maximum = max(0, document.frame.height - clip.bounds.height)
-        let target = NSPoint(x: clip.bounds.minX, y: shownAtEnd ? maximum : min(maximum, max(0, seen.y)))
+        let maximum = travel(clip).maximum
+        let target = point(clip, shownAtEnd ? maximum : min(maximum, max(0, horizontal ? seen.x : seen.y)))
         guard clip.bounds.origin != target else { return }
         clip.scroll(to: target)
         scroll.reflectScrolledClipView(clip)
@@ -113,40 +125,45 @@ final class KnobDrag {
     /// The knob under the pointer still means the end, so the reader sees the
     /// new end while holding it, and the release has nothing left to move.
     func followEnd() {
-        guard holdsEnd, let scroll, let document = scroll.documentView else { return }
+        guard holdsEnd, let scroll else { return }
         let clip = scroll.contentView
-        let maximum = max(0, document.frame.height - clip.bounds.height)
-        guard clip.bounds.minY != maximum else { return }
-        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: maximum))
+        let (at, maximum) = travel(clip)
+        guard at != maximum else { return }
+        clip.scroll(to: point(clip, maximum))
         scroll.reflectScrolledClipView(clip)
     }
 }
 
 extension CollectionHost {
     /// The contiguous run of mounted rows that reaches into the port, in the
-    /// document's coordinates and full width. Padding before the first item
-    /// or after the last counts as covered. Nil when no run reaches the
-    /// port's top: a gap shows there.
+    /// document's coordinates and across its full cross size. Padding
+    /// before the first item or after the last counts as covered. Nil when
+    /// no run reaches the port's start: a gap shows there. A row list's run
+    /// is along x (LLP 1070 §5.5).
     func preparedCover(_ id: UInt32) -> NSRect? {
         guard let entry = entries[id], let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return nil }
-        let port = scroll.contentView.bounds
+        let horizontal = entry.snapshot.horizontal
+        let lo = { (r: NSRect) in horizontal ? r.minX : r.minY }, hi = { (r: NSRect) in horizontal ? r.maxX : r.maxY }
+        let port = scroll.contentView.bounds, whole = document.bounds
         let frames = entry.snapshot.rows.compactMap { row -> (index: Int, frame: NSRect)? in
             guard let view = presenter?.views[row.view], view.isDescendant(of: document) else { return nil }
             return (row.index, view.superview === document ? view.frame : view.convert(view.bounds, to: document))
-        }.sorted { $0.frame.minY < $1.frame.minY }
+        }.sorted { lo($0.frame) < lo($1.frame) }
         var start = 0
         while start < frames.count {
             var end = start
-            var reached = frames[start].frame.maxY
-            while end + 1 < frames.count, frames[end + 1].frame.minY <= reached + 0.5 {
+            var reached = hi(frames[start].frame)
+            while end + 1 < frames.count, lo(frames[end + 1].frame) <= reached + 0.5 {
                 end += 1
-                reached = max(reached, frames[end].frame.maxY)
+                reached = max(reached, hi(frames[end].frame))
             }
-            let top = frames[start].index == 0 ? document.bounds.minY : frames[start].frame.minY
-            let bottom = frames[end].index == entry.snapshot.count - 1 ? document.bounds.maxY : reached
-            if top <= port.minY + 0.5 && bottom > port.minY {
-                return NSRect(x: document.bounds.minX, y: top, width: document.bounds.width, height: bottom - top)
+            let first = frames[start].index == 0 ? lo(whole) : lo(frames[start].frame)
+            let last = frames[end].index == entry.snapshot.count - 1 ? hi(whole) : reached
+            if first <= lo(port) + 0.5 && last > lo(port) {
+                return horizontal
+                    ? NSRect(x: first, y: whole.minY, width: last - first, height: whole.height)
+                    : NSRect(x: whole.minX, y: first, width: whole.width, height: last - first)
             }
             start = end + 1
         }
@@ -155,22 +172,27 @@ extension CollectionHost {
     /// Whether the mounted rows cover the scrollport: no spacer shows.
     func covers(_ id: UInt32) -> Bool {
         guard let cover = preparedCover(id), let scroll = presenter?.views[id]?.scroll else { return false }
-        let port = scroll.contentView.bounds
-        return cover.maxY >= min(port.maxY, scroll.documentView?.bounds.maxY ?? port.maxY) - 0.5
+        let port = scroll.contentView.bounds, whole = scroll.documentView?.bounds ?? port
+        if entries[id]?.snapshot.horizontal == true {
+            return cover.maxX >= min(port.maxX, whole.maxX) - 0.5
+        }
+        return cover.maxY >= min(port.maxY, whole.maxY) - 0.5
     }
     /// Rows past the cover the port will need once it has travelled `ahead`
-    /// points (negative: toward the start), at the mounted rows' mean height.
+    /// points (negative: toward the start), at the mounted rows' mean size.
     func rowsToCover(_ id: UInt32, ahead: CGFloat) -> UInt32 {
         guard ahead != 0, let entry = entries[id], let scroll = presenter?.views[id]?.scroll,
               let document = scroll.documentView, let cover = preparedCover(id) else { return 0 }
-        let heights = entry.snapshot.rows.compactMap { presenter?.views[$0.view]?.frame.height }
-        guard !heights.isEmpty else { return 0 }
-        let mean = heights.reduce(0, +) / CGFloat(heights.count)
+        let horizontal = entry.snapshot.horizontal
+        let sizes = entry.snapshot.rows.compactMap { presenter?.views[$0.view].map { horizontal ? $0.frame.width : $0.frame.height } }
+        guard !sizes.isEmpty else { return 0 }
+        let mean = sizes.reduce(0, +) / CGFloat(sizes.count)
         guard mean > 0 else { return 0 }
         // Travel ends at the document's edges; the cover reaches them at the ends.
         let port = scroll.contentView.bounds, extent = document.bounds
-        let shortfall = ahead > 0 ? min(extent.maxY, port.maxY + ahead) - cover.maxY
-            : cover.minY - max(extent.minY, port.minY + ahead)
+        let shortfall = horizontal
+            ? (ahead > 0 ? min(extent.maxX, port.maxX + ahead) - cover.maxX : cover.minX - max(extent.minX, port.minX + ahead))
+            : (ahead > 0 ? min(extent.maxY, port.maxY + ahead) - cover.maxY : cover.minY - max(extent.minY, port.minY + ahead))
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
     /// After a batch: each collection's document offers responsive scrolling
@@ -192,8 +214,8 @@ extension CollectionHost {
     /// other lists keep AppKit's.
     func observeKnobDrags() {
         for id in entries.keys {
-            guard let scroll = presenter?.views[id]?.scroll, KnobDrag.of(scroll) == nil else { continue }
-            _ = KnobDrag(scroll)
+            guard let scroll = presenter?.views[id]?.scroll else { continue }
+            (KnobDrag.of(scroll) ?? KnobDrag(scroll)).horizontal = entries[id]?.snapshot.horizontal == true
         }
     }
 
@@ -219,43 +241,71 @@ extension CollectionHost {
         pointer(view)
     }
 
+    /// A list's facts on its own axes (LLP 1070 H1).
     func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               !node.isHiddenOrHasHiddenAncestor else { return nil }
         let bounds = scroll.contentView.bounds
         let content = node.contentBox()
-        let left = content.minX, right = node.bounds.width - content.maxX
-        let available = max(0, bounds.width - left - right)
-        let width = entries[id]?.snapshot.rows.first.flatMap { rowWidth($0.view) }.map { CGFloat($0) } ?? available
-        guard bounds.width.isFinite, bounds.height.isFinite, width.isFinite else { return nil }
+        guard bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        let horizontal = entries[id]?.snapshot.horizontal ?? false
+        let measured = entries[id]?.snapshot.rows.first.flatMap { crossSize($0.view, horizontal: horizontal) }.map { CGFloat($0) }
+        if horizontal {
+            let available = max(0, bounds.height - content.minY - (node.bounds.height - content.maxY))
+            let cross = measured ?? available
+            guard cross.isFinite else { return nil }
+            return CollectionFacts(offset: Double(max(0, bounds.minX - content.minX)),
+                portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
+                cross: Double(cross), measurements: [], focus: nil, interaction: nil)
+        }
+        let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
+        let width = measured ?? available
+        guard width.isFinite else { return nil }
         return CollectionFacts(offset: Double(max(0, bounds.minY - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
             cross: Double(width), measurements: [], focus: nil, interaction: nil)
     }
-    func rowWidth(_ id: UInt32) -> Double? {
-        presenter?.views[id].map { Double($0.bounds.width) }
+    /// A row wrapper's size across the list.
+    func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {
+        presenter?.views[id].map { Double(horizontal ? $0.bounds.height : $0.bounds.width) }
     }
-    func height(_ id: UInt32) -> Double? {
+    /// A row wrapper's size along the list, what the index measures.
+    func size(_ id: UInt32, horizontal: Bool) -> Double? {
         guard let node = presenter?.views[id], !node.isHiddenOrHasHiddenAncestor else { return nil }
-        return Double(node.bounds.height)
+        return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
     func correct(_ id: UInt32, top: Double, extent: Double) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
         let content = node.contentBox()
-        let bottom = node.bounds.height - content.maxY
-        let height = max(scroll.contentView.bounds.height, CGFloat(extent) + content.minY + bottom)
+        let clip = scroll.contentView
+        let horizontal = entries[id]?.snapshot.horizontal ?? false
         // Preserve the measured kernel extent when it already contains more
-        // than the provisional index (a newly measured row can be taller).
-        let size = NSSize(width: document.frame.width, height: max(height, node.content.height))
+        // than the provisional index (a newly measured row can be larger).
+        let size: NSSize
+        if horizontal {
+            let right = node.bounds.width - content.maxX
+            let width = max(clip.bounds.width, CGFloat(extent) + content.minX + right)
+            size = NSSize(width: max(width, node.content.width), height: document.frame.height)
+        } else {
+            let bottom = node.bounds.height - content.maxY
+            let height = max(clip.bounds.height, CGFloat(extent) + content.minY + bottom)
+            size = NSSize(width: document.frame.width, height: max(height, node.content.height))
+        }
         if document.frame.size != size { document.setFrameSize(size) }
-        let maximum = max(0, document.frame.height - scroll.contentView.bounds.height)
         // The anchor stays put, except under a knob held at the end (`KnobDrag`).
-        let y = KnobDrag.of(scroll)?.holdsEnd == true ? maximum : min(maximum, max(0, CGFloat(top) + content.minY))
-        let target = NSPoint(x: scroll.contentView.bounds.minX, y: y)
-        if scroll.contentView.bounds.origin != target {
-            scroll.contentView.scroll(to: target)
-            scroll.reflectScrolledClipView(scroll.contentView)
+        let holdsEnd = KnobDrag.of(scroll)?.holdsEnd == true
+        let target: NSPoint
+        if horizontal {
+            let maximum = max(0, document.frame.width - clip.bounds.width)
+            target = NSPoint(x: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minX)), y: clip.bounds.minY)
+        } else {
+            let maximum = max(0, document.frame.height - clip.bounds.height)
+            target = NSPoint(x: clip.bounds.minX, y: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minY)))
+        }
+        if clip.bounds.origin != target {
+            clip.scroll(to: target)
+            scroll.reflectScrolledClipView(clip)
         }
     }
     func focusedView() -> UInt32? {

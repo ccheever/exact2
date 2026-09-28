@@ -58,14 +58,23 @@ pub(crate) struct ScrollBounds {
     pub max: (f32, f32),
 }
 impl ScrollBounds {
+    /// `collection_max` is a collection's range on its main axis: y for a
+    /// block list, x for a flex (row) one, the runner's rule at creation
+    /// (LLP 1070 H1).
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, collection_max: Option<f32>) -> Self {
         let (width, height) = content_size(node, kernel);
+        let mut max = (
+            (width - node.frame.width).max(0.),
+            (height - node.frame.height).max(0.),
+        );
+        match collection_max {
+            Some(main) if node.style.display == exact_kernel::Display::Flex => max.0 = main,
+            Some(main) => max.1 = main,
+            None => {}
+        }
         Self {
             axes: effective_overflow(node),
-            max: (
-                (width - node.frame.width).max(0.),
-                collection_max.unwrap_or_else(|| (height - node.frame.height).max(0.)),
-            ),
+            max,
         }
     }
     pub(crate) fn clamp(self, offset: (f32, f32)) -> (f32, f32) {

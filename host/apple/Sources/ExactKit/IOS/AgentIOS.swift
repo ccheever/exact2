@@ -560,10 +560,12 @@ extension Agent {
         return "\((hit as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: hit))) covers its middle"
     }
 
-    /// The web's chaining rule (`overscroll-behavior: auto`, LLP 1010): from
-    /// the hit view up, the first scroll container that can move in the
-    /// wheel's dominant direction takes it — what it can of both axes — and
-    /// no other moves. Whole points, bounded.
+    /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,
+    /// measured in its §2): from the hit view up, the first scroll container
+    /// that can take any of the tick's components takes the ones it can, and
+    /// the rest is dropped; none other moves. One that can take none passes
+    /// it on (`overscroll-behavior: auto`), unless the tick's axis is
+    /// `contain` or `none` there, which keeps it. Whole points, bounded.
     static func scroll(from hit: UIView, dx: CGFloat, dy: CGFloat) {
         let dx = min(max(dx.rounded(), -1_000_000), 1_000_000), dy = min(max(dy.rounded(), -1_000_000), 1_000_000)
         var v: UIView? = hit
@@ -580,11 +582,14 @@ extension Agent {
                 let o = sv.contentOffset
                 let takeX = sv.scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
                 let takeY = sv.scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
-                if abs(dy) >= abs(dx) ? takeY : takeX {
+                if takeX || takeY {
                     let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
                     sv.setContentOffset(target, animated: false)
                     return
                 }
+                if let owner = sv.superview as? NodeView,
+                   (dx != 0 && owner.style["overscroll_behavior_x"]?.string ?? "auto" != "auto")
+                    || (dy != 0 && owner.style["overscroll_behavior_y"]?.string ?? "auto" != "auto") { return }
             }
             v = cur.superview
         }

@@ -800,13 +800,15 @@ function apply(batch) {
   refreshSymbols();
   for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
-  const jumps = []; // a collection builds a jump's rows, then moves (LLP 1050.000 §6)
+  // A collection builds a jump's rows, then moves (LLP 1050.000 §6): the
+  // controller knows each list's axis and moves only that one (LLP 1070 §4.2).
+  const jumps = [];
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
     // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
     // once; the agent's clock cannot seek that animation, so under it the scroll lands at once.
     for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
-      if (name === "scrollTop" && lists.has(el)) jumps.push([Number(el.dataset.view), offset]);
+      if ((name === "scrollTop" || name === "scrollLeft") && lists.has(el)) jumps.push([Number(el.dataset.view), offset, name]);
       else if (agentMode && el.style.scrollBehavior === "smooth") el.scrollTo({ [name === "scrollTop" ? "top" : "left"]: offset, behavior: "instant" });
       else el[name] = offset;
     }
@@ -814,7 +816,7 @@ function apply(batch) {
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
-  for (const [view, top] of jumps) collections.jump(view, top);
+  for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
   listSelection?.after();
   syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be

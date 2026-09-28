@@ -44,8 +44,46 @@ class ScrollView: UIScrollView {
                 view = current.superview
             }
             if let owner = superview as? NodeView, !owner.allowsTouchPan(velocity) { return false }
+            if handsOff(velocity) { return false }
         }
         return super.gestureRecognizerShouldBegin(gesture)
+    }
+    /// CSS's scroll chaining at a gesture's start (LLP 1070 G1, Q4 as ruled
+    /// provisionally): under `overscroll-behavior: auto`, a drag that begins
+    /// at this view's edge and pushes outward belongs to the enclosing
+    /// scroller that can take it, as Chrome and Safari chain it, instead of
+    /// UIKit's rubber band here. Only for a known direction, on an axis this
+    /// view actually scrolls; `contain` keeps the band, `none` keeps the
+    /// gesture with no band. Never mid-gesture: UIKit asks once, at begin.
+    func handsOff(_ velocity: CGPoint) -> Bool {
+        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        let horizontal = abs(velocity.x) > abs(velocity.y)
+        let behavior = owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto"
+        if behavior == "none" { bounces = false }
+        guard behavior == "auto" else { return false }
+        let i = adjustedContentInset
+        let (at, low, high, scrolls) = horizontal
+            ? (contentOffset.x, -i.left, contentSize.width + i.right - bounds.width, scrollsX)
+            : (contentOffset.y, -i.top, contentSize.height + i.bottom - bounds.height, scrollsY)
+        guard scrolls, high > low else { return false }
+        // A finger moving toward +x pulls the content toward its start.
+        let toward = horizontal ? velocity.x : velocity.y
+        let atEdge = toward > 0 ? at <= low + 0.5 : at >= high - 0.5
+        guard atEdge else { return false }
+        // Only when an enclosing scroller can take that direction; with none,
+        // the band here is all a finger can have.
+        var up = superview
+        while let current = up {
+            if let outer = current as? ScrollView {
+                let o = outer.adjustedContentInset
+                let (at, low, high, scrolls) = horizontal
+                    ? (outer.contentOffset.x, -o.left, outer.contentSize.width + o.right - outer.bounds.width, outer.scrollsX)
+                    : (outer.contentOffset.y, -o.top, outer.contentSize.height + o.bottom - outer.bounds.height, outer.scrollsY)
+                if scrolls && high > low && (toward > 0 ? at > low + 0.5 : at < high - 0.5) { return true }
+            }
+            up = current.superview
+        }
+        return false
     }
     /// A touch that no node took — nothing focusable, nothing pressable —
     /// ends the editing, as a tap on a page's blank ground blurs the field

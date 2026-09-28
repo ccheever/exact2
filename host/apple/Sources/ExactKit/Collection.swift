@@ -76,6 +76,9 @@ struct CollectionSnapshot {
         let offset: Double
     }
     let view: UInt32
+    /// The main axis (LLP 1070 H1): a row list scrolls on x, and `extent`,
+    /// a correction's offset and every measured size run along it.
+    let horizontal: Bool
     let revision: UInt64
     let sequence: UInt64
     let extent: Double
@@ -104,6 +107,7 @@ struct CollectionSnapshot {
             correction = Correction(sequence: seq, offset: offset)
         }
         self.view = view; self.revision = revision; self.sequence = sequence
+        self.horizontal = (value["axis"] as? String) == "x"
         self.extent = extent; self.rows = rows; self.correction = correction
         self.count = Self.uint(value["count"]).map { Int(clamping: $0) } ?? rows.count
         self.pending = (value["pending"] as? NSNumber)?.boolValue ?? false
@@ -380,10 +384,11 @@ final class CollectionHost {
                     if (focusOwner == id && facts.focus != focus) ||
                        (interactionOwner == id && facts.interaction != interaction) { dirty.insert(id) }
                 }
+                let horizontal = entry.snapshot.horizontal
                 facts.measurements = entry.snapshot.rows.compactMap { row in
-                    guard let height = height(row.view), height.isFinite, height >= 0,
-                          rowWidth(row.view) == facts.cross else { return nil }
-                    return CollectionMeasurement(view: row.view, epoch: row.epoch, size: height)
+                    guard let size = size(row.view, horizontal: horizontal), size.isFinite, size >= 0,
+                          crossSize(row.view, horizontal: horizontal) == facts.cross else { return nil }
+                    return CollectionMeasurement(view: row.view, epoch: row.epoch, size: size)
                 }
                 // A slice builds its limit once; later passes and every
                 // report while moving or owed a continuation only measure

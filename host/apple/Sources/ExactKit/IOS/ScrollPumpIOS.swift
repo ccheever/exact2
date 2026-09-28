@@ -69,11 +69,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     private func sample(_ node: NodeView, now: TimeInterval) {
         guard let scroll = node.scroll else { return }
-        let top = scroll.contentOffset.y
+        // Along the list's own axis (LLP 1070 H3): a row list travels on x.
+        let horizontal = presenter?.collections.entries[node.id]?.snapshot.horizontal == true
+        let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
         var t = travel[node.id] ?? Travel(top: top, time: now)
         let delta = top - t.top, elapsed = now - t.time
         // A step longer than the port is a jump, not travel: nothing to lead.
-        if abs(delta) > scroll.bounds.height {
+        if abs(delta) > (horizontal ? scroll.bounds.width : scroll.bounds.height) {
             travel[node.id] = Travel(top: top, time: now)
             return
         }

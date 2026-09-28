@@ -1033,9 +1033,13 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
-    /// A wheel at a point (the web's sign: a positive `dy` scrolls down),
-    /// LLP 1010 §3: the innermost scroll container under the point that can
-    /// take the dominant axis takes what it can of both; otherwise the page.
+    /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
+    /// A phase-less tick is its own gesture and is not split (LLP 1070 G2,
+    /// Chrome's measured tick): the innermost scroll container under the point
+    /// that can take ANY of its components takes those it can, clamped, and
+    /// the rest is dropped. One that can take none chains to the next scroller
+    /// up, then the page, unless its `overscroll-behavior` is `contain` or
+    /// `none` on an axis the tick moves along: it keeps (drops) the tick.
     pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
         if (dx == 0.0 && dy == 0.0) || !self.display.contains(x, y) {
             return;
@@ -1060,16 +1064,15 @@ impl<D: DataSource> Presenter<D> {
             if ox == Overflow::Scroll || oy == Overflow::Scroll {
                 let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-                let take_x = ox == Overflow::Scroll
-                    && dx != 0.0
-                    && max.0 > 0.0
-                    && ((dx > 0.0 && off.0 < max.0) || (dx < 0.0 && off.0 > 0.0));
-                let take_y = oy == Overflow::Scroll
-                    && dy != 0.0
-                    && max.1 > 0.0
-                    && ((dy > 0.0 && off.1 < max.1) || (dy < 0.0 && off.1 > 0.0));
-                let dominant = if dy.abs() >= dx.abs() { take_y } else { take_x };
-                if dominant {
+                let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
+                    scrolls
+                        && d != 0.0
+                        && max > 0.0
+                        && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
+                };
+                let take_x = takes(ox == Overflow::Scroll, dx, off.0, max.0);
+                let take_y = takes(oy == Overflow::Scroll, dy, off.1, max.1);
+                if take_x || take_y {
                     let nx = if take_x {
                         (off.0 + dx).clamp(0.0, max.0)
                     } else {
@@ -1086,6 +1089,16 @@ impl<D: DataSource> Presenter<D> {
                     if let Some(error) = self.refresh_transform_geometry() {
                         self.host.log(error);
                     }
+                    return;
+                }
+                // At its edge (or with no travel) along every component the
+                // tick has: a contained axis ends the chain here.
+                let contained = |b: exact_kernel::OverscrollBehavior| {
+                    b != exact_kernel::OverscrollBehavior::Auto
+                };
+                if (dx != 0.0 && contained(node.style.overscroll_behavior_x))
+                    || (dy != 0.0 && contained(node.style.overscroll_behavior_y))
+                {
                     return;
                 }
             }

@@ -70,7 +70,7 @@ final class ScrollRoutingTests: XCTestCase {
         let sv = scroller(containY: true)
         XCTAssertEqual(sv.routing(dx: 0, dy: -50, phased: false, in: extent()), .here)
         // Still contained: at its end it stops rather than moving the page.
-        XCTAssertEqual(sv.routing(dx: 0, dy: -50, phased: false, in: extent(at: NSPoint(x: 0, y: 400))), .here)
+        XCTAssertEqual(sv.routing(dx: 0, dy: -50, phased: false, in: extent(at: NSPoint(x: 0, y: 400))), .drop)
     }
 
     /// `contain` forbids passing the rest of a gesture to an ancestor, so a
@@ -118,6 +118,23 @@ final class ScrollRoutingTests: XCTestCase {
     func testATieIsVertical() {
         XCTAssertEqual(scroller(containY: true).routing(dx: -50, dy: -50, phased: true, in: extent()), .appKit)
         XCTAssertEqual(scroller(containX: true).routing(dx: -50, dy: -50, phased: true, in: extent()), .here)
+    }
+
+    /// A phase-less tick is not split (LLP 1070 G2, Chrome's rule, its
+    /// §2): over a strip that scrolls only sideways, a mostly-vertical
+    /// diagonal still scrolls the strip by its x and drops its y, and a
+    /// purely vertical tick chains to the feed.
+    func testAPhaselessTickGoesToTheDeepestScrollerThatCanTakeAnyOfIt() {
+        let strip = scroller()
+        strip.scrollsY = false
+        let sideways = ChainingScrollView.Extent(maxX: 400, maxY: 0, origin: .zero)
+        XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: false, in: sideways), .here)
+        XCTAssertEqual(strip.routing(dx: 0, dy: -120, phased: false, in: sideways), .chain)
+        // At its end the strip takes no more x: the tick chains.
+        let end = ChainingScrollView.Extent(maxX: 400, maxY: 0, origin: NSPoint(x: 400, y: 0))
+        XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: false, in: end), .chain)
+        // A gesture still goes by its dominant axis (latching is LLP 1070 G1).
+        XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: true, in: sideways), .chain)
     }
 
     /// The readers' panes, as they are declared: `overflow-x: hidden` with

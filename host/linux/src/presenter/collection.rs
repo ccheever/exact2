@@ -2,7 +2,7 @@
 //! the runner owns membership, estimates and anchors. No recursive frame/layout.
 use super::*;
 use exact_kernel::{Dimension, Kernel, NodeKey};
-use exact_runner::{CollectionFeedback, CollectionSnapshot, RowMeasurement};
+use exact_runner::{CollectionFeedback, CollectionSnapshot, ListAxis, RowMeasurement};
 use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
@@ -53,10 +53,27 @@ impl Cursor {
         }
         self.key = Some(key);
     }
-    fn model_top(&mut self, key: NodeKey, top: f32, displayed: bool, offset: &mut (f32, f32)) {
-        self.model_offset(key, (offset.0, top), displayed, offset);
-        if let Some(pending) = &mut self.model_scroll {
-            pending.left = None;
+    /// A model position on the list's main axis. A vertical list leaves x to
+    /// the reader; a horizontal one keeps its current (or pending) y.
+    fn model_main(
+        &mut self,
+        key: NodeKey,
+        axis: ListAxis,
+        main: f32,
+        displayed: bool,
+        offset: &mut (f32, f32),
+    ) {
+        match axis {
+            ListAxis::Vertical => {
+                self.model_offset(key, (offset.0, main), displayed, offset);
+                if let Some(pending) = &mut self.model_scroll {
+                    pending.left = None;
+                }
+            }
+            ListAxis::Horizontal => {
+                let top = self.model_scroll.map_or(offset.1, |p| p.top);
+                self.model_offset(key, (main, top), displayed, offset);
+            }
         }
     }
     fn model_offset(
@@ -150,12 +167,38 @@ impl State {
     }
 }
 
+/// A collection's port facts along its axis (LLP 1070 H1): `main` is the
+/// inner height of a vertical list and the inner width of a horizontal one;
+/// `origin` is the main-axis padding before the content; `max` the offset's
+/// range on the main axis.
 struct Geometry {
+    axis: ListAxis,
     width: f64,
     height: f64,
-    row_width: f64,
-    padding_top: f64,
-    max_top: f32,
+    cross: f64,
+    origin: f64,
+    max: f32,
+}
+impl Geometry {
+    fn main(&self) -> f64 {
+        match self.axis {
+            ListAxis::Vertical => self.height,
+            ListAxis::Horizontal => self.width,
+        }
+    }
+    fn port_cross(&self) -> f64 {
+        match self.axis {
+            ListAxis::Vertical => self.width,
+            ListAxis::Horizontal => self.height,
+        }
+    }
+}
+/// The main-axis component of a scroll offset.
+fn main_of(axis: ListAxis, offset: (f32, f32)) -> f32 {
+    match axis {
+        ListAxis::Vertical => offset.1,
+        ListAxis::Horizontal => offset.0,
+    }
 }
 fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
     match value.resolve(&kernel.env()) {
@@ -193,29 +236,54 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
     // padding at large offsets, invalidating valid anchor corrections.
     let basis = containing_width(kernel, snapshot.view, viewport);
     let pad = |d| length(kernel, d, basis);
-    let padding_top = pad(node.style.padding_top);
-    // A 100%-width wrapper reports the actual width Taffy offered the row,
-    // including its real containing block's percentage-padding resolution.
-    let row_width = snapshot
+    let s = node.style;
+    let axis = snapshot.axis;
+    // Main-axis padding before and after the content, the cross-axis padding
+    // pair, and the inner port along each axis.
+    let (origin, end, cross_pad, main, port_cross) = match axis {
+        ListAxis::Vertical => (
+            pad(s.padding_top),
+            pad(s.padding_bottom),
+            pad(s.padding_left) + pad(s.padding_right),
+            height,
+            width,
+        ),
+        ListAxis::Horizontal => (
+            pad(s.padding_left),
+            pad(s.padding_right),
+            pad(s.padding_top) + pad(s.padding_bottom),
+            width,
+            height,
+        ),
+    };
+    // A wrapper stretched across reports the actual cross size Taffy offered
+    // the row, including its real containing block's percentage padding.
+    let cross = snapshot
         .rows
         .first()
         .and_then(|r| kernel.node(r.view))
         .map_or_else(
-            || (width - pad(node.style.padding_left) - pad(node.style.padding_right)).max(0.),
-            |wrapper| wrapper.frame.width as f64,
+            || (port_cross - cross_pad).max(0.),
+            |wrapper| match axis {
+                ListAxis::Vertical => wrapper.frame.width as f64,
+                ListAxis::Horizontal => wrapper.frame.height as f64,
+            },
         );
-    (width > 0. && height > 0. && row_width > 0.).then_some(Geometry {
+    let content = content_size(&node, kernel);
+    let (content, frame) = match axis {
+        ListAxis::Vertical => (content.1, node.frame.height),
+        ListAxis::Horizontal => (content.0, node.frame.width),
+    };
+    (width > 0. && height > 0. && cross > 0.).then_some(Geometry {
+        axis,
         width,
         height,
-        row_width,
-        padding_top,
+        cross,
+        origin,
         // Native layout may omit the trailing border from content_size. The
         // scroll range must still reach the index's end through the inner port.
-        max_top: (content_size(&node, kernel).1 - node.frame.height)
-            .max(
-                (snapshot.total_extent + padding_top + pad(node.style.padding_bottom) - height)
-                    as f32,
-            )
+        max: (content - frame)
+            .max((snapshot.total_extent + origin + end - main) as f32)
             .max(0.),
     })
 }
@@ -469,7 +537,8 @@ impl<D: DataSource> Presenter<D> {
         // Nonzero vertical inset authoring is outside the measured-row policy.
         // Do not admit a handbuilt plan that bypassed the compiler's rejection.
         let basis = containing_width(self.host.kernel(), node.id, self.viewport.0 as f64);
-        g.padding_top == 0.
+        g.axis == ListAxis::Vertical
+            && g.origin == 0.
             && length(self.host.kernel(), node.style.padding_bottom, basis) == 0.
             && self
                 .collection
@@ -479,7 +548,7 @@ impl<D: DataSource> Presenter<D> {
             && facts.scroll_top == self.scroll_of(node.id).1 as f64
             && facts.port_width == g.width
             && facts.port_height == g.height
-            && facts.row_width == g.row_width
+            && facts.row_width == g.cross
     }
 
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
@@ -488,7 +557,7 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .filter_map(|snapshot| {
                 geometry(self.host.kernel(), snapshot, self.viewport.0 as f64)
-                    .map(|g| (snapshot.view, g.max_top))
+                    .map(|g| (snapshot.view, g.max))
             })
             .collect()
     }
@@ -621,59 +690,72 @@ impl<D: DataSource> Presenter<D> {
             let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
                 continue;
             };
-            cursor.geometry((g.width, g.height, g.row_width, g.padding_top));
-            // Match the browser's post-layout scrollTop prop write. Consume
-            // each changed request once; an unchanged binding never owns the
-            // reader's offset. Advance the sequence so old anchor corrections
-            // cannot override an explicit Latest/jump request.
+            cursor.geometry((g.width, g.height, g.cross, g.origin));
+            // Match the browser's post-layout scrollTop (scrollLeft on a
+            // horizontal list) prop write. Consume each changed request once;
+            // an unchanged binding never owns the reader's offset. Advance the
+            // sequence so old anchor corrections cannot override an explicit
+            // Latest/jump request. The target is feedback before it paints,
+            // so its rows are built before the port moves.
+            let axis = g.axis;
+            let (prop, requested_was) = match axis {
+                ListAxis::Vertical => (PropId::ScrollTop, &mut cursor.requested_top),
+                ListAxis::Horizontal => (PropId::ScrollLeft, &mut cursor.requested_left),
+            };
             let requested = self
                 .host
                 .kernel()
                 .node(view)
                 .and_then(|node| {
                     node.props
-                        .get(exact_kernel::PropId::ScrollTop)
+                        .get(prop)
                         .and_then(exact_kernel::PropValue::as_float)
                 })
-                .filter(|top| top.is_finite());
-            if requested != cursor.requested_top {
-                cursor.requested_top = requested;
-                if let Some(top) = requested {
+                .filter(|main| main.is_finite());
+            if requested != *requested_was {
+                *requested_was = requested;
+                if let Some(main) = requested {
                     cursor.advance();
-                    cursor.model_top(
+                    cursor.model_main(
                         key,
-                        top.clamp(0., g.max_top as f64) as f32,
+                        axis,
+                        main.clamp(0., g.max as f64) as f32,
                         self.display.attached(),
                         self.scroll.entry(view).or_default(),
                     );
                     self.dirty = true;
                 }
             }
-            if let Some(top) = cursor.correction(snapshot) {
-                cursor.model_top(
+            if let Some(main) = cursor.correction(snapshot) {
+                cursor.model_main(
                     key,
-                    ((top + g.padding_top) as f32).clamp(0., g.max_top),
+                    axis,
+                    ((main + g.origin) as f32).clamp(0., g.max),
                     self.display.attached(),
                     self.scroll.entry(view).or_default(),
                 );
                 self.dirty = true;
             }
-            let feedback_top = if let Some(pending) = cursor.model_scroll.as_mut() {
-                let top = pending.top.clamp(0., g.max_top);
-                self.dirty |= top != pending.top;
-                pending.top = top;
-                top
+            let feedback_main = if let Some(pending) = cursor.model_scroll.as_mut() {
+                let slot = match axis {
+                    ListAxis::Vertical => &mut pending.top,
+                    ListAxis::Horizontal => pending.left.get_or_insert(0.),
+                };
+                let main = slot.clamp(0., g.max);
+                self.dirty |= main != *slot;
+                *slot = main;
+                main
             } else {
-                self.scroll.get(&view).map_or(0., |off| off.1)
+                self.scroll.get(&view).map_or(0., |off| main_of(axis, *off))
             };
             let feedback = CollectionFeedback {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                offset: (feedback_top as f64 - g.padding_top).max(0.),
-                port_cross: g.width,
-                port_main: g.height,
-                cross: g.row_width,
+                offset: (feedback_main as f64 - g.origin).max(0.),
+                port_main: g.main(),
+                port_cross: g.port_cross(),
+                cross: g.cross,
                 measurements: snapshot
                     .rows
                     .iter()
@@ -684,7 +766,10 @@ impl<D: DataSource> Presenter<D> {
                             .map(|node| RowMeasurement {
                                 view: row.view,
                                 epoch: row.epoch,
-                                size: node.frame.height as f64,
+                                size: match axis {
+                                    ListAxis::Vertical => node.frame.height,
+                                    ListAxis::Horizontal => node.frame.width,
+                                } as f64,
                             })
                     })
                     .collect(),
@@ -830,7 +915,7 @@ mod tests {
         assert!(error.is_none());
         let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
         assert_eq!(facts.width, 100.);
-        assert_eq!(facts.row_width, 60.);
-        assert_eq!(facts.padding_top, 0.);
+        assert_eq!(facts.cross, 60.);
+        assert_eq!(facts.origin, 0.);
     }
 }

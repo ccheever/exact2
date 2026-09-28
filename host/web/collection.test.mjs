@@ -1199,3 +1199,92 @@ test('destroy cancels owned animations without querying styles on retiring rows'
   })()`);
   expect(result).toBe('idle');
 });
+// LLP 1070 stage 3: a row list (a flex row, overflow-x) on its own port, or its
+// vertical twin, with a hand-held clock. Reports decode offset, the port's
+// main and cross, the rows' cross, and the scrollport's offset when reported.
+function axisFixture(axis) {
+  const root = document.getElementById('root'), x = axis === 'x';
+  const wrapper = `display:flex;flex-direction:column;flex:0 0 auto;min-height:0;box-sizing:border-box`;
+  root.innerHTML = x
+    ? `<div data-view="1" style="display:flex;flex-direction:row;width:300px;height:120px;overflow-x:auto;overflow-y:hidden;padding:6px 0;border:2px solid"><div data-view="2" style="${wrapper}"><div style="width:100px"></div></div><div data-view="4" style="${wrapper}"><div style="width:150.5px"></div></div><div style="width:5000px;flex:none;align-self:stretch"></div></div>`
+    : `<div data-view="1" style="width:300px;height:120px;overflow-y:auto;overflow-x:hidden;border:2px solid"><div data-view="2" style="height:100px"></div><div data-view="4" style="height:150.5px"></div><div style="height:5000px"></div></div>`;
+  const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
+  const list = views.get(1), frames = [], seen = [], wires = [], name = x ? 'scrollLeft' : 'scrollTop';
+  globalThis.clock = 1000;
+  const controller = createController({ root, views, now: () => globalThis.clock, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
+    report(bytes) {
+      const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), rows = [];
+      for (let n = 0; n < d.getUint32(80, true); n++) rows.push(d.getFloat64(96 + n * 20, true));
+      wires.push(Array.from(bytes));
+      seen.push({ offset: d.getFloat64(24, true), main: d.getFloat64(32, true), portCross: d.getFloat64(40, true), cross: d.getFloat64(48, true),
+        sequence: String(d.getBigUint64(16, true)), rows, shown: list[name] });
+      return globalThis.af.onReport?.(seen.at(-1));
+    } });
+  const snapshot = (revision, extra = {}) => ({ view: 1, axis, revision, scrollSequence: '0', totalExtent: 5250.5, count: 100,
+    rows: [{ view: 2, root: 2, index: 0, start: 0, size: 128, epoch: '1' }, { view: 4, root: 4, index: 1, start: 100, size: 128, epoch: '1' }], correction: null, ...extra });
+  const flush = () => frames.splice(0).forEach(fn => fn());
+  const scroll = at => { globalThis.clock += 16; list[name] = at; list.dispatchEvent(new Event('scroll')); flush(); return seen.at(-1); };
+  controller.commit([snapshot('1')]);
+  globalThis.af = { controller, list, frames, seen, wires, snapshot, flush, scroll, name };
+  return af;
+}
+test('a row list reports scrollLeft, the port width and height, its rows\' height and wrapper widths', async () => {
+  const result = await evaluate(`(() => { const f=(${axisFixture})('x'); f.scroll(40);
+    const l=f.list; return {seen:f.seen,wire:f.wires.at(-1),w:l.clientWidth,h:l.clientHeight,
+      wrapper:f.list.children[0].getBoundingClientRect().height,overflowAnchor:l.style.overflowAnchor}; })()`);
+  expect(result.seen).toHaveLength(1);
+  const r = result.seen[0];
+  expect(r).toEqual({ offset: 40, main: result.w, portCross: result.h, cross: result.h - 12, sequence: '1', rows: [100, 150.5], shown: 40 });
+  expect(r.cross).toBe(result.wrapper);
+  expect(result.overflowAnchor).toBe('none');
+  expect(result.wire).toEqual([...collectionBytes({ view: 1, revision: '1', scroll_sequence: '1', offset: 40, port_main: result.w,
+    port_cross: result.h, cross: result.h - 12, focus_view: null, interaction_view: null,
+    measurements: [{ view: 2, epoch: '1', size: 100 }, { view: 4, epoch: '1', size: 150.5 }] }, { limit: 1 })]);
+});
+test('a correction on x moves scrollLeft; not while the strip moves, and a column list keeps correcting', async () => {
+  const run = axis => evaluate(`(() => { const f=(${axisFixture})('${axis}'), l=f.list, n=f.name;
+    const correct=(revision,offset)=>{ f.controller.commit([f.snapshot(revision,{scrollSequence:f.seen.at(-1).sequence,correction:{scrollSequence:f.seen.at(-1).sequence,offset}})]); return l[n]; };
+    f.scroll(40); globalThis.clock+=500; f.scroll(45); globalThis.clock+=500; const still=correct('2',90);
+    f.scroll(200); f.scroll(220); const moving=correct('3',300); const next=f.scroll(240);
+    globalThis.clock+=200; const idle=correct('4',250);
+    return {still,moving,next:[next.offset,next.shown],idle}; })()`);
+  expect(await run('x')).toEqual({ still: 90, moving: 220, next: [240, 240], idle: 250 });
+  expect(await run('y')).toEqual({ still: 90, moving: 300, next: [240, 240], idle: 250 });
+});
+test('an authored scrollLeft on a row list builds, then moves; the other axis is a plain assignment', async () => {
+  const x = await evaluate(`(() => { const f=(${axisFixture})('x'); f.controller.jump(1, 1000, 'scrollLeft');
+    const jumped={seen:f.seen.map(s=>[s.offset,s.shown]),at:f.list.scrollLeft};
+    f.controller.jump(1, 30, 'scrollTop'); return {jumped,reports:f.seen.length,top:f.list.scrollTop,left:f.list.scrollLeft}; })()`);
+  expect(x).toEqual({ jumped: { seen: [[1000, 0]], at: 1000 }, reports: 1, top: 0, left: 1000 });
+  const y = await evaluate(`(() => { const f=(${axisFixture})('y'); f.controller.jump(1, 500);
+    f.controller.jump(1, 30, 'scrollLeft'); return {seen:f.seen.map(s=>[s.offset,s.shown]),top:f.list.scrollTop}; })()`);
+  expect(y).toEqual({ seen: [[500, 0]], top: 500 });
+});
+// §2's oracle, the Chrome behaviour the web host relies on for row lists.
+function chromePage() {
+  const root = document.getElementById('root');
+  const cards = n => Array.from({ length: n }, () => `<div class="card" style="flex:none;width:80px;margin-right:8px;background:#ccc"></div>`).join('');
+  root.innerHTML = `<div id="outer" style="width:500px;height:400px;overflow:auto"><div style="height:200px"></div><div id="strip" style="display:flex;width:400px;height:120px;overflow-x:auto;overflow-y:hidden">${cards(30)}</div><div style="height:3000px"></div></div>`;
+  return { outer: document.getElementById('outer'), strip: document.getElementById('strip') };
+}
+const frames = n => `new Promise(r=>{let k=${n};const f=()=>--k?requestAnimationFrame(f):r();requestAnimationFrame(f);})`;
+async function wheel(deltaX, deltaY) {
+  const at = await evaluate(`(() => { const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  await protocol('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY });
+  await evaluate(`new Promise(r=>setTimeout(r,400)).then(()=>${frames(3)})`);
+  return evaluate(`({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft})`);
+}
+test('Chrome: a phase-less tick over a row-only scroller goes by its components, never split', async () => {
+  await evaluate(`(${chromePage})(), true`);
+  expect(await wheel(0, 120)).toEqual({ outer: 120, strip: 0 });
+  await evaluate(`(${chromePage})(), true`);
+  expect(await wheel(60, 100)).toEqual({ outer: 0, strip: 60 });
+});
+test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inserted scroller resets to 0', async () => {
+  const result = await evaluate(`(async () => { const {outer,strip}=(${chromePage})();
+    strip.scrollLeft=1000; await ${frames(2)}; strip.children[0].style.width='380px'; await ${frames(2)}; const inline=strip.scrollLeft;
+    outer.scrollTop=1000; await ${frames(2)}; outer.firstElementChild.style.height='500px'; await ${frames(2)}; const block=outer.scrollTop;
+    strip.scrollLeft=350; await ${frames(2)}; const parent=strip.parentNode, next=strip.nextSibling; strip.remove(); parent.insertBefore(strip,next);
+    await ${frames(2)}; return {inline,block,reinserted:strip.scrollLeft}; })()`);
+  expect(result).toEqual({ inline: 1000, block: 1300, reinserted: 0 });
+});

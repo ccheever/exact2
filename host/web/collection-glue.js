@@ -32,6 +32,15 @@ export function collectionBytes(facts, fill = {}) {
   return bytes;
 }
 
+// A list's main axis (LLP 1070 H1): `y` for a block list, `x` for a flex row.
+// Every main-axis read and write goes through one of these.
+const AXES = {
+  y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', crossPads: ['paddingLeft', 'paddingRight'] },
+  x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', crossPads: ['paddingTop', 'paddingBottom'] },
+};
+
 export function applyCollectionFeedback(batch, applyBatch) {
   applyBatch(batch);
   return batch.accepted === true;
@@ -52,14 +61,14 @@ export function collectionController({ root, views, report, settled=()=>{},
   const slice = () => Math.min(4, Math.max(1, interval * 0.24));
   const velocity = s => s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
-    const time = now(), top = s.port.scrollTop, t = s.travel;
+    const A = AXES[s.axis], time = now(), at = s.port[A.offset], t = s.travel;
     // A step longer than the port is a jump, not travel: nothing to lead.
-    if (!t || Math.abs(top - t.top) > s.port.clientHeight) { s.travel = { top, time, velocity: 0 }; return; }
-    const delta = top - t.top, elapsed = time - t.time;
+    if (!t || Math.abs(at - t.at) > s.port[A.client]) { s.travel = { at, time, velocity: 0 }; return; }
+    const delta = at - t.at, elapsed = time - t.time;
     if (delta === 0 || elapsed <= 0) return;
     const speed = delta * 1000 / Math.max(elapsed, interval / 2);
     t.velocity = elapsed > 150 || speed * t.velocity <= 0 ? speed : t.velocity * 0.5 + speed * 0.5;
-    t.top = top; t.time = time;
+    t.at = at; t.time = time;
   }
   function fits(s, remaining) {
     if (remaining <= 0) return 0;
@@ -67,14 +76,15 @@ export function collectionController({ root, views, report, settled=()=>{},
     return Math.max(0, Math.min(s.lastRows * 2, Math.floor(remaining * 0.9 / s.perRow)));
   }
   // Rows past the mounted run the port needs once it travels `ahead` px,
-  // at the mounted rows' mean height, from rects this pass already read.
+  // at the mounted rows' mean size, from rects this pass already read.
   function rowsToCover(s, rects, g, ahead) {
     if (!ahead || !rects.length) return 0;
-    const count = s.snapshot.count, rows = s.rows.map((row, i) => ({ index: row.index, top: rects[i].top, bottom: rects[i].bottom }))
+    const A = AXES[s.axis], count = s.snapshot.count;
+    const rows = s.rows.map((row, i) => ({ index: row.index, top: rects[i][A.start], bottom: rects[i][A.end] }))
       .sort((a, b) => a.top - b.top);
     const mean = rows.reduce((n, r) => n + r.bottom - r.top, 0) / rows.length;
     if (!(mean > 0)) return 0;
-    const top = viewport(s.port).top, bottom = top + g.height;
+    const top = viewport(s.port, A).start, bottom = top + g.portMain;
     let shortfall;
     if (ahead > 0) {
       if (rows.at(-1).index === count - 1) return 0;
@@ -91,23 +101,27 @@ export function collectionController({ root, views, report, settled=()=>{},
   }
   const number = text => Number.parseFloat(text) || 0;
   const size = el => { const r = el.getBoundingClientRect(); return `${r.width},${r.height}`; };
-  const portOf = el => {
+  const portOf = (el, axis) => {
     for (let p = el; p && p !== doc.body; p = p.parentElement) {
-      if (/^(auto|scroll|hidden)$/.test(getComputedStyle(p).overflowY)) return p;
+      if (/^(auto|scroll|hidden)$/.test(getComputedStyle(p)[AXES[axis].overflow])) return p;
     }
     return doc.scrollingElement;
   };
-  const viewport = port => port === doc.scrollingElement
-    ? { top: 0, width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight }
-    : { top: port.getBoundingClientRect().top + port.clientTop, width: port.clientWidth, height: port.clientHeight };
+  // The port's start edge (viewport px) and its size on each axis.
+  const viewport = (port, A) => port === doc.scrollingElement
+    ? { start: 0, main: doc.documentElement[A.client], cross: doc.documentElement[A.crossClient] }
+    : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
+  // `raw`: the port's start edge from the list's content origin; `cross`: the
+  // rows' available cross size, after the list's cross-axis padding.
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
-    const css = getComputedStyle(s.el), port = viewport(s.port);
-    const origin = s.el.getBoundingClientRect().top + s.el.clientTop + number(css.paddingTop)
-      - (s.el === s.port ? s.port.scrollTop : 0);
-    return { raw: port.top - origin, width: port.width, height: port.height,
-      rowWidth: s.el.clientWidth - number(css.paddingLeft) - number(css.paddingRight) };
+    const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A);
+    const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
+      - (s.el === s.port ? s.port[A.offset] : 0);
+    return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]) };
   }
+  const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
     let owner;
     for (let at = element; at && at !== root; at = at.parentElement) {
@@ -128,9 +142,9 @@ export function collectionController({ root, views, report, settled=()=>{},
     if (s.budget > 0) { dirty.add(s); schedule(); }
   }
   function scrollChanged(s) {
-    const top = s.port.scrollTop;
-    if (top === s.scrollTop) return false;
-    s.scrollTop = top; s.sequence++;
+    const at = s.port[AXES[s.axis].offset];
+    if (at === s.offset) return false;
+    s.offset = at; s.sequence++;
     return true;
   }
   function desired(s) {
@@ -166,30 +180,31 @@ export function collectionController({ root, views, report, settled=()=>{},
       let g = s.valid ? geometry(s) : null;
       let measurements = [];
       const measuredSizes = new Map(), rects = [], jump = s.jump;
-      const visible = g && g.height > 0 && g.rowWidth > 0
+      const A = AXES[s.axis];
+      const visible = g && g.portMain > 0 && g.cross > 0
         && s.rows.every(row => row.el.isConnected && row.el.getClientRects().length);
       if (visible) {
         measurements = s.rows.map(row => {
           const rect = row.el.getBoundingClientRect();
           rects.push(rect);
           measuredSizes.set(row.el, `${rect.width},${rect.height}`);
-          return { view: row.view, epoch: row.epoch, size: rect.height };
+          return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, width: old.port_cross, height: old.port_main, rowWidth: old.cross };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
       // is assigned, so its rows exist before any frame shows it.
       if (jump != null) {
-        g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port.scrollHeight - s.port.clientHeight)) - s.port.scrollTop };
+        g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port[A.scrollSize] - s.port[A.client])) - s.port[A.offset] };
         s.sequence++;
       }
-      const dimensions = `${g.width},${g.height},${g.rowWidth}`;
+      const dimensions = dimensionsOf(g);
       if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw), port_main: g.height, port_cross: g.width, cross: g.rowWidth,
+        offset: Math.max(0, g.raw), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
         focus_view: pins[0], interaction_view: pins[1], measurements };
       const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
@@ -205,7 +220,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       measuredSizes.clear();
       delivering = true;
       let accepted;
-      const before = new Set(s.rows.map(row => row.view)), top = s.scrollTop, started = now();
+      const before = new Set(s.rows.map(row => row.view)), at = s.offset, started = now();
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
       const created = s.rows.filter(row => !before.has(row.view)).length;
       if (created > 0) {
@@ -213,7 +228,7 @@ export function collectionController({ root, views, report, settled=()=>{},
         s.perRow = Math.max(cost, (s.perRow ?? cost) * 0.75 + cost * 0.25); s.lastRows = created;
       }
       // An anchor correction in the reply already moved the port there.
-      if (jump != null) { s.jump = null; if (s.scrollTop === top) move(s, jump); }
+      if (jump != null) { s.jump = null; if (s.offset === at) move(s, jump); }
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
         if(!notification){notification=true;queueMicrotask(()=>{notification=false;settled();});}
@@ -221,17 +236,18 @@ export function collectionController({ root, views, report, settled=()=>{},
       }
     }
     schedule();
-    if (!delivering) for (const [s, top] of jumps.splice(0)) jumpTo(s, top);
+    if (!delivering) for (const [s, at] of jumps.splice(0)) jumpTo(s, at);
   }
-  function move(s, top) {
-    s.port.scrollTop = top; s.scrollTop = s.port.scrollTop; s.travel = null;
+  function move(s, at) {
+    const name = AXES[s.axis].offset;
+    s.port[name] = at; s.offset = s.port[name]; s.travel = null;
   }
-  function jumpTo(s, top) {
+  function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
-    if (delivering) { jumps.push([s, top]); return; }
-    s.jump = top; enqueue(s, true); flush(true, s);
+    if (delivering) { jumps.push([s, at]); return; }
+    s.jump = at; enqueue(s, true); flush(true, s);
     // Not reportable (hidden, partial): move now; its rows follow a frame later.
-    if (s.jump != null) { s.jump = null; move(s, top); scrollChanged(s); enqueue(s, true); }
+    if (s.jump != null) { s.jump = null; move(s, at); scrollChanged(s); enqueue(s, true); }
   }
   function detach(s) {
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
@@ -275,15 +291,15 @@ export function collectionController({ root, views, report, settled=()=>{},
     reporting() { return delivering; },
     reorderContact(element,pointer) { pointerDown({target:element,pointerId:pointer}); },
     reorderMapping(view,y) {
-      const s=states.get(view); if(!s?.valid||portOf(s.el)!==s.port)return null;
+      const s=states.get(view); if(!s?.valid||s.axis!=='y'||portOf(s.el,s.axis)!==s.port)return null;
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
-      const g=geometry(s),f=s.lastFacts,p=viewport(s.port);
-      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.width||f.port_main!==g.height
-        ||f.cross!==g.rowWidth||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
+      const g=geometry(s),f=s.lastFacts,p=viewport(s.port,AXES.y);
+      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
+        ||f.cross!==g.cross||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
       return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
-        portWidth:g.width,portHeight:g.height,rowWidth:g.rowWidth,totalExtent:s.snapshot.totalExtent,
-        contentY:y-p.top+g.raw,raw:g.raw,port:s.port,portTop:p.top};
+        portWidth:g.portCross,portHeight:g.portMain,rowWidth:g.cross,totalExtent:s.snapshot.totalExtent,
+        contentY:y-p.start+g.raw,raw:g.raw,port:s.port,portTop:p.start};
     },
     retainInteraction(element, pointer) {
       if (interaction?.lease || interaction?.pointer !== pointer) return null;
@@ -306,8 +322,8 @@ export function collectionController({ root, views, report, settled=()=>{},
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
         ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(0,g.raw)
-        ||old.port_cross!==g.width||old.port_main!==g.height||old.cross!==g.rowWidth
-        ||s.port.scrollTop!==s.scrollTop) return null;
+        ||old.port_cross!==g.portCross||old.port_main!==g.portMain||old.cross!==g.cross
+        ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
       const bytes=collectionBytes(facts);reportsLeft--;delivering=true;let accepted;
       try { accepted=report(bytes)!==false; } finally { delivering=false; }
@@ -324,13 +340,13 @@ export function collectionController({ root, views, report, settled=()=>{},
       for (const snapshot of snapshots) {
         const el = views.get(snapshot.view);
         if (!el?.isConnected) continue;
-        const port = portOf(el);
+        const axis = snapshot.axis === 'x' ? 'x' : 'y', port = portOf(el, axis);
         let s = states.get(snapshot.view);
-        if (s && (s.el !== el || s.port !== port)) { detach(s); s = null; }
+        if (s && (s.el !== el || s.port !== port || s.axis !== axis)) { detach(s); s = null; }
         if (s && BigInt(snapshot.revision) < BigInt(s.snapshot.revision)) continue;
         if (!s) {
-          s = { el, port, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
-            sequence: BigInt(snapshot.scrollSequence), scrollTop: port.scrollTop,
+          s = { el, port, axis, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
+            sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           s.scrolled = () => { sample(s); if (scrollChanged(s)) enqueue(s, true); };
           s.observer = new ResizeObserver(entries => {
@@ -376,12 +392,16 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (correction && s.corrected !== snapshot.revision
             && BigInt(correction.scrollSequence) === s.sequence
             && Number.isFinite(correction.offset) && correction.offset >= 0) {
-          const g = geometry(s);
-          if (g && (s.dimensions === null || s.dimensions === `${g.width},${g.height},${g.rowWidth}`)) {
+          const g = geometry(s), name = AXES[axis].offset;
+          // H4: a row list moving under the user's hand is not corrected;
+          // its next report carries the uncorrected offset and the runner
+          // re-anchors from that. Vertical lists correct as before.
+          const moving = axis === 'x' && velocity(s) !== 0;
+          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
-            port.scrollTop += correction.offset - g.raw;
-            s.scrollTop = port.scrollTop; // consume the programmatic scroll echo
+            port[name] += correction.offset - g.raw;
+            s.offset = port[name]; // consume the programmatic scroll echo
           }
         }
         observe(s);
@@ -390,12 +410,14 @@ export function collectionController({ root, views, report, settled=()=>{},
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
     },
-    // An authored `scrollTop` on a collection (glue.js): its rows are built
-    // at the target, then the port moves, in this task (LLP 1050.000 §6).
-    jump(view, top) {
+    // An authored offset on a collection (glue.js): on the list's own axis
+    // (`scrollTop` for y, `scrollLeft` for x) its rows are built at the
+    // target, then the port moves, in this task (LLP 1050.000 §6); the other
+    // axis is a plain assignment.
+    jump(view, at, name = 'scrollTop') {
       const s = states.get(view);
-      if (s && s.port === s.el) jumpTo(s, top);
-      else { const el = views.get(view); if (el) el.scrollTop = top; }
+      if (s && s.port === s.el && AXES[s.axis].offset === name) jumpTo(s, at);
+      else { const el = views.get(view); if (el) el[name] = at; }
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

@@ -782,3 +782,228 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
     assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());
 }
+
+// LLP 1070 stage 3: a `display="flex"` list scrolls on x. Cards are 90 wide
+// with a 4 margin (the wrapper encloses it: 94), estimated at 100.
+fn strip(list_attrs: &str, card: &str) -> String {
+    format!(
+        r#"component App
+  state jump = 0
+  action far writes jump
+    jump = jump + 50000
+  resource rows = rows() as shape list<number>
+  view
+    column width="100%"
+      button press=far testId="far"
+        text "Far"
+      list {list_attrs} display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" testId="strip"
+        each x in rows key=x
+          box testId=`c-${{x}}` width=90 height=80 margin-right=4 {card}
+"#
+    )
+}
+fn strip_port(p: &Presenter<Rows>) -> exact_runner::CollectionSnapshot {
+    p.host.collections().remove(0)
+}
+/// The mounted rows reach across the port along x, from its content origin.
+fn covers(p: &Presenter<Rows>, c: &exact_runner::CollectionSnapshot) {
+    let left = p.scroll_of(c.view).0 as f64;
+    let first = c.rows.first().unwrap();
+    let last = c.rows.last().unwrap();
+    assert!(first.start <= left, "{} > {left}", first.start);
+    assert!(last.start + last.size >= left + 400., "{c:?}");
+}
+
+#[test]
+fn horizontal_collection_measures_widths_and_feeds_its_x_geometry() {
+    let mut p = boot_source(&strip("virtualized=true estimated-item-width=100", ""));
+    settle(&mut p);
+    let c = strip_port(&p);
+    assert_eq!(c.axis, exact_runner::ListAxis::Horizontal);
+    assert!(c.rows.len() < 30, "O(window): {}", c.rows.len());
+    assert!(c.rows.iter().all(|r| r.measured));
+    for row in &c.rows {
+        let wrapper = p.host.kernel().node(row.view).unwrap().frame;
+        assert_eq!(row.size, 94., "the wrapper's border-box width");
+        assert_eq!(wrapper.width, 94.);
+        assert_eq!(wrapper.height, 104., "cross: the port less its y padding");
+    }
+    assert_eq!(
+        p.collection_scroll_limits()[&c.view] as f64,
+        c.total_extent - 400.
+    );
+    covers(&p, &c);
+    // A horizontal tick moves x only, and the window follows it.
+    p.wheel(c.view, 5_000., 0.).unwrap();
+    settle(&mut p);
+    let c = strip_port(&p);
+    // Cards left of the port measured at 94 for 100 estimated: Q3 (a)
+    // anchors those first measurements, whole cards of 6 each.
+    let (x, y) = p.scroll_of(c.view);
+    assert!(y == 0. && x <= 5_000. && (5_000. - x) % 6. == 0., "{x}");
+    assert!(c.rows.iter().all(|r| r.measured) && c.rows.len() < 30);
+    covers(&p, &c);
+    // Bounded after traversals both ways.
+    for n in 0..20 {
+        let dx = if n % 2 == 0 { 3_000. } else { -2_000. };
+        p.wheel(c.view, dx, 0.).unwrap();
+        settle(&mut p);
+    }
+    let c = strip_port(&p);
+    assert!(c.rows.len() < 30, "{}", c.rows.len());
+    covers(&p, &c);
+    // The index's end is reachable through the x range the region clamps.
+    p.wheel(c.view, 1e9, 0.).unwrap();
+    settle(&mut p);
+    let c = strip_port(&p);
+    assert_eq!(c.rows.last().unwrap().index, 24_999);
+    assert_eq!(p.scroll_of(c.view).0 as f64, c.total_extent - 400.);
+}
+
+#[test]
+fn horizontal_first_measurements_correct_x_and_scroll_left_builds_before_it_moves() {
+    let mut p = boot_source(&strip(
+        "virtualized=true estimated-item-width=100 scrollLeft=jump",
+        "",
+    ));
+    settle(&mut p);
+    let far = named(&p, "far");
+    let view = strip_port(&p).view;
+    p.tap(far).unwrap();
+    // One pump: the request is feedback before any paint moves the port, so
+    // the rows at the target are built when it first shows.
+    assert!(p.pump(p.host.now()).is_none());
+    let c = strip_port(&p);
+    let left = p.scroll_of(view).0 as f64;
+    assert!(c
+        .rows
+        .iter()
+        .any(|r| r.start <= left && r.start + r.size > left));
+    settle(&mut p);
+    let c = strip_port(&p);
+    covers(&p, &c);
+    let left = p.scroll_of(view).0;
+    // Cards left of the target were estimated at 100 and measured at 94:
+    // Q3 (a) anchors each first measurement, so x moved by whole cards' 6.
+    assert_ne!(left, 50_000.);
+    assert_eq!((50_000. - left) % 6., 0., "{left}");
+    // What shows at the port's left edge is the card the request reached.
+    let first = c
+        .rows
+        .iter()
+        .find(|r| r.start + r.size > left as f64)
+        .unwrap();
+    assert_eq!(first.index, 500, "50,000 / 100 estimated");
+    assert_eq!(p.scroll_of(view).1, 0.);
+}
+
+#[test]
+fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
+    let boxes = |attrs: &str, left: f32| {
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0"));
+        settle(&mut p);
+        let view = named(&p, "strip");
+        p.wheel(view, left, 0.).unwrap();
+        settle(&mut p);
+        assert_eq!(p.scroll_of(view).0, left);
+        (0..200)
+            .filter_map(|n| {
+                let key = *p.host.kernel().find_by_test_id(&format!("c-{n}")).first()?;
+                let id = p.host.kernel().node_by_key(key)?.id;
+                let b = p.box_of(id)?;
+                (b.rect.0 + b.rect.2 > 0. && b.rect.0 < 400.).then_some((n, b.rect))
+            })
+            .collect::<Vec<_>>()
+    };
+    let eager = boxes("", 3_000.);
+    let virtualized = boxes("virtualized=true estimated-item-width=94", 3_000.);
+    assert!(eager.len() > 3);
+    assert_eq!(virtualized, eager);
+}
+
+fn nested(strip_attrs: &str) -> Presenter<Rows> {
+    boot_source(&format!(
+        r#"component App
+  resource rows = rows() as shape list<number>
+  view
+    scroll testId="outer" width=400 height=300 overflow-x="hidden"
+      box height=200
+      list virtualized=true estimated-item-width=94 display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" {strip_attrs} testId="strip"
+        each x in rows key=x
+          box width=90 height=80 margin-right=4
+      box height=2000
+"#
+    ))
+}
+
+#[test]
+fn a_phaseless_wheel_goes_to_the_scroller_that_takes_any_component() {
+    let mut p = nested("");
+    settle(&mut p);
+    let (outer, strip) = (named(&p, "outer"), named(&p, "strip"));
+    // Vertical over a horizontal-only strip: the outer takes it.
+    p.wheel(strip, 0., 120.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 120.))
+    );
+    // Diagonal, y-dominant: the strip takes x; y is dropped, not split.
+    p.wheel(strip, 60., 100.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((60., 0.), (0., 120.))
+    );
+    // A strip at its left edge cannot take -x: the tick chains to the outer.
+    p.wheel(strip, -600., 50.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 120.))
+    );
+    p.wheel(strip, -60., 50.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 170.))
+    );
+    // Axis-aligned x over the outer (which has no x) goes to the page.
+    p.wheel(outer, 0., -500.).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(outer), (0., 0.));
+}
+
+#[test]
+fn overscroll_contain_keeps_a_tick_at_the_edge() {
+    let mut p = nested(r#"overscroll-behavior="contain""#);
+    settle(&mut p);
+    let (outer, strip) = (named(&p, "outer"), named(&p, "strip"));
+    // The strip cannot take y, and contains it: nothing moves.
+    p.wheel(strip, 0., 120.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 0.))
+    );
+    // At its left edge, -x is kept too.
+    p.wheel(strip, -60., 0.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 0.))
+    );
+    // Contained on x only: a vertical tick chains again.
+    let mut p = nested(r#"overscroll-behavior-x="none""#);
+    settle(&mut p);
+    let (outer, strip) = (named(&p, "outer"), named(&p, "strip"));
+    p.wheel(strip, 0., 120.).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(outer), (0., 120.));
+    p.wheel(strip, -60., 0.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        (p.scroll_of(strip), p.scroll_of(outer)),
+        ((0., 0.), (0., 120.))
+    );
+}

@@ -84,7 +84,19 @@ final class ChainingScrollView: NSScrollView {
         if dx == 0 && dy == 0 {
             return (containX || containY) && phased ? .appKit : .drop
         }
-        // The dominant axis decides who owns the event: a gesture is one thing.
+        // A wheel with no phases is its own gesture and is not split (LLP
+        // 1070 G2, Chrome's rule, measured in its §2): the deepest scroller
+        // that can take any of its components takes the ones it can, and
+        // the rest is dropped; one that can take none chains, unless the
+        // tick's axis is contained here.
+        if !phased {
+            if take(dx, scrolls: scrollsX, limit: extent.maxX, at: extent.origin.x)
+                || take(dy, scrolls: scrollsY, limit: extent.maxY, at: extent.origin.y) {
+                return .here
+            }
+            return (dx != 0 && containX) || (dy != 0 && containY) ? .drop : .chain
+        }
+        // The dominant axis decides who owns a gesture: a gesture is one thing.
         let vertical = abs(dy) >= abs(dx)
         let room = vertical ? (scrollsY && extent.maxY > 0) : (scrollsX && extent.maxX > 0)
         // A contained axis never hands a gesture to an ancestor. Contained

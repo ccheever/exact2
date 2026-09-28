@@ -319,18 +319,21 @@ final class Presenter {
         for (id, list) in listViews where only == nil || only == id {
             guard let scroll = list.scroll else { continue }
             let port = scroll.contentView.bounds
-            var travel = listTravel[id] ?? ListTravel(top: port.minY, time: now)
-            let delta = port.minY - travel.top, elapsed = now - travel.time
+            // Along the list's own axis (LLP 1070 H3): a row list travels on x.
+            let horizontal = collections.entries[id]?.snapshot.horizontal == true
+            let at = horizontal ? port.minX : port.minY
+            var travel = listTravel[id] ?? ListTravel(top: at, time: now)
+            let delta = at - travel.top, elapsed = now - travel.time
             // A step longer than the port is a jump, not travel: nothing to lead.
-            if abs(delta) > port.height {
-                listTravel[id] = ListTravel(top: port.minY, time: now)
+            if abs(delta) > (horizontal ? port.width : port.height) {
+                listTravel[id] = ListTravel(top: at, time: now)
                 continue
             }
             if delta != 0, elapsed > 0 {
                 let speed = Double(delta) / max(elapsed, refreshInterval / 2)
                 travel.velocity = elapsed > 0.15 || speed * travel.velocity <= 0
                     ? speed : travel.velocity * 0.5 + speed * 0.5
-                travel.top = port.minY; travel.time = now
+                travel.top = at; travel.time = now
             }
             listTravel[id] = travel
         }

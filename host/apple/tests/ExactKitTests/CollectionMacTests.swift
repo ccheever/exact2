@@ -47,7 +47,7 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(facts.portMain, Double(clip.bounds.height))
         XCTAssertEqual(facts.cross, 280)
         XCTAssertNotEqual(facts.portMain, Double(p.viewportSize.height))
-        XCTAssertEqual(p.collections.height(2), 72)
+        XCTAssertEqual(p.collections.size(2, horizontal: false), 72)
         var feedback: [Data] = []
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
@@ -175,6 +175,46 @@ final class CollectionMacTests: XCTestCase {
         }
         p.collections.pointer(3); drain()
         XCTAssertEqual(interactions.last, 3, "a press inside a row still pins it")
+    }
+
+    /// A row list (LLP 1070 H1): the snapshot says `x`, and every fact the
+    /// host reports runs along it: the offset is the clip's x, the port's
+    /// main size its width, the cross the wrapper's height, and a row's
+    /// measured size its width. The cover and a correction are along x too.
+    func testARowListReportsAlongX() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.collections.reset() }
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        var strip = snapshot()
+        strip["axis"] = "x"
+        strip["rows"] = [["view": 2, "root": 3, "epoch": 7, "index": 0]]
+        p.apply(batch([
+            ["op": "collections", "items": [strip]],
+            ["op": "create", "id": 1, "kind": "list"],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "style", "id": 1, "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_top": 8.0, "padding_bottom": 8.0]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
+        ]))
+        let list = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(p.collections.owns(1))
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        clip.scroll(to: NSPoint(x: 120, y: 0))
+        let facts = try XCTUnwrap(p.collections.geometry(1))
+        XCTAssertEqual(facts.offset, 120)
+        XCTAssertEqual(facts.portMain, Double(clip.bounds.width))
+        XCTAssertEqual(facts.portCross, Double(clip.bounds.height))
+        XCTAssertEqual(facts.cross, 116)
+        XCTAssertEqual(p.collections.size(2, horizontal: true), 150)
+        p.collections.correct(1, top: 300, extent: 3000)
+        XCTAssertEqual(clip.bounds.minX, 300, "a correction moves x")
+        XCTAssertEqual(clip.bounds.minY, 0)
     }
 
     func testKnobReleaseKeepsTheOffsetTheReaderSaw() throws {
