@@ -297,11 +297,23 @@ grow one capability at a time.
 runner, still makes every document, at build or per request. First pixels
 stay HTML, so "App JS executed before first pixel: none" holds.
 
-**Activation, first form (the spike's).** The policy stays `idle` or first
-input, with replay (`1048.000:247-250`). The runtime runs the route's
-components against the checkpoint, claiming existing nodes by `data-s`
-instead of creating them. A mismatch renders fresh once, as today. The
-difference is ~20 KB to fetch instead of ~330.
+**Activation, first form (the spike's).** An undeclared route is `eager`:
+the served head carries `<link rel=modulepreload>` for the entry and any
+chunk it imports statically, so the ~20 KB runtime downloads while the
+document streams; the capture script imports it at the page's first paint
+entry, once the document is parsed, so no module script runs before first
+pixel. `activate=idle` keeps 1048.000's policy (idle after `load` and first
+paint, `1048.000:247-250`); `activate=interaction` fetches nothing before the
+first press or edit. On every policy a press before activation starts the
+import and replays once. The runtime runs the route's components against the
+checkpoint, claiming existing nodes by `data-s` instead of creating them. A
+mismatch renders fresh once, as today. The difference is ~20 KB to fetch
+instead of ~330. On the RealWorld bench (mobile profile, median of 5,
+same-session controls): runtime up with no input at 656 ms against React
+SSR's 960; a page-2 press at load answered 404 ms after it against React
+SSR's 420 (it was 732 under `interaction`); FCP 368 against 388; 28.3 KB of
+code before interactive (realworld-bench `bench/results/eager.md`;
+exact3-web-spike `010eb365`).
 
 **Every served page becomes a conformance fixture.** Adoption succeeds only if
 the JavaScript runner's canonical document equals the Rust renderer's.
