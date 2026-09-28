@@ -257,7 +257,7 @@ function fixture(agentMode = true) {
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
-      exact_plan_fonts: () => '{}', exact_boot: () => '{"ops":[],"timers":true}',
+      exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
     focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
@@ -275,7 +275,7 @@ function fixture(agentMode = true) {
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
-    preferences: () => '{}',
+    preferences: () => '{}', localAssetURL: source => source,
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
@@ -687,7 +687,7 @@ async function startupFixture(rustOnly = false) {
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
     document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [] } },
-    moduleCall() {}, rustImports: {}, readOut: value => value,
+    moduleCall() {}, rustImports: {}, dataImports: {}, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
