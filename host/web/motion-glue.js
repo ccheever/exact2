@@ -43,6 +43,47 @@ export function motionBytes(facts) {
   d.setBigUint64(16,serial,true); d.setFloat64(24,x,true); d.setFloat64(32,y,true); d.setFloat64(40,now,true);
   return bytes;
 }
+// @ref LLP 1057.003 D3 — a consumer's animation while its timeline's source
+// plays a release spring. `p` is the timeline's progress at each of the
+// spring's evenly spaced frames; the answer is a `linear()` easing of the
+// animation's directed progress (Web Animations 1 §4.8) over the spring's
+// duration, for a copy of its keyframes. The frames interpolate linearly, so
+// with a point wherever the local time crosses the delay, an iteration or
+// the end it is exact between frames too. `undefined` for an endless
+// animation, which holds its start; `null` where no easing can say it: a
+// fill that leaves the animation out of effect where the spring goes.
+export function timelineEasing(timing,p) {
+  const {delay=0,duration,iterations=1,iterationStart=0,direction='normal',fill='none',endTime}=timing;
+  if(!Number.isFinite(endTime))return undefined;
+  if(!(duration>0)||!Number.isFinite(iterations)||iterations>1000||p.length<2)return null;
+  const active=duration*iterations,before=Math.max(Math.min(delay,endTime),0),after=Math.max(Math.min(delay+active,endTime),0);
+  const L=p.map(v=>v*endTime),lo=Math.min(...L),hi=Math.max(...L);
+  if(!L.every(Number.isFinite)||lo<before&&fill!=='backwards'&&fill!=='both'||hi>=after&&fill!=='forwards'&&fill!=='both')return null;
+  const q=t=>{
+    const phase=t<before?-1:t>=after?1:0;
+    const at=phase<0?Math.max(t-delay,0):phase>0?Math.max(Math.min(t-delay,active),0):t-delay;
+    const overall=at/duration+iterationStart;
+    let simple=overall%1;
+    if(simple===0&&phase>=0&&at===active&&iterations!==0)simple=1;
+    const odd=(simple===1?Math.floor(overall)-1:Math.floor(overall))%2!==0;
+    return direction==='reverse'||direction==='alternate'&&odd||direction==='alternate-reverse'&&!odd?1-simple:simple;
+  };
+  const breaks=[before,after];
+  for(let k=Math.floor(iterationStart)+1;k<iterationStart+iterations;k++)breaks.push(delay+(k-iterationStart)*duration);
+  // Each segment's ends are limits from inside it, so a jump that falls on
+  // a frame (an iteration's wrap) is two points at one input.
+  const n=L.length-1,points=[],e=1e-7;
+  const push=(x,y)=>{const last=points.at(-1);if(!last||last[0]!==x||Math.abs(last[1]-y)>1e-9)points.push([x,y]);};
+  for(let i=0;i<n;i++) {
+    const a=L[i],b=L[i+1],s=Math.sign(b-a),x0=i/n,x1=(i+1)/n;
+    push(x0,q(a+e*s));
+    for(const t of breaks.filter(t=>(t-a)*(t-b)<0).sort((u,v)=>(u-v)*s)) {
+      const x=x0+(t-a)/(b-a)*(x1-x0);push(x,q(t-e*s));push(x,q(t+e*s));
+    }
+    push(x1,q(b-e*s));
+  }
+  return `linear(${points.map(([x,y])=>`${+y.toPrecision(12)} ${+(x*100).toPrecision(12)}%`).join(', ')})`;
+}
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{},ready=()=>true}) {
   const properties=['translate','scale','rotate','opacity','height'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
@@ -82,11 +123,15 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // translate drives the `animation`s of nodes bound to its named timeline:
   // their CSS animations are paused (css.rs) and seeked here. A held value is
   // followed where the drag presents it (transform drag's `present`), in the
-  // pointer event; a translate spring, in each animation frame while it runs.
-  // Host code, never app code. That per-frame seek is phase 1's: phase 2
-  // (D3) hands the follower the spring's frames as a `linear()` easing and
-  // removes it.
+  // pointer event. A translate spring hands each consumer its frames
+  // (`follow`, D3), so the browser plays both and nothing here runs per
+  // frame; only a consumer that easing can't express is sought in each
+  // animation frame while the spring runs (`kickTimelines`).
   const timelineSources='[style*="--exact-drag-timeline"]';
+  const timelineName=el=>el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
+  // The source a consumer's name resolves to: the last declared in the
+  // document (names are global until `timeline-scope`, D4).
+  const timelineSource=(consumer,name)=>[...document.querySelectorAll(timelineSources)].filter(el=>timelineName(el)[0]===name).pop()??null;
   let timelineFrame=0;
   const kickTimelines=()=>{if(!timelineFrame&&typeof requestAnimationFrame==='function'&&typeof document!=='undefined'&&document.querySelector(timelineSources))
     timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
@@ -122,8 +167,50 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     }
     return moving;
   }
+  // @ref LLP 1057.003 D3 — a source's release spring, `op`, for its
+  // consumers: each CSS animation's keyframes, copied and played over the
+  // spring's delay and duration with the easing its progress gives
+  // (`timelineEasing`). They start with the spring, so the agent's clock
+  // seeks them with it; a grab or a new spring cancels them
+  // (`cancelProperty`), and when they end the paused animations take over
+  // where the source rests.
+  const followers=new Map();
+  // A source a CSS transition moves (an eased release, not a spring) is
+  // sought in each frame while it runs: its easing is the browser's, not
+  // frames this glue holds.
+  if(typeof document?.addEventListener==='function')document.addEventListener('transitionrun',e=>{if(e.propertyName==='translate'&&e.target.style?.getPropertyValue('--exact-drag-timeline'))kickTimelines();});
+  function follow(id,el,op) {
+    const [name,axis='y']=timelineName(el);
+    if(!name||op.values.length<2)return;
+    const at=op.values.map(v=>axis==='x'?v[0]:v[1]),made=[];let seek=false;
+    for(const c of document.querySelectorAll('[style*="--exact-animation-timeline"]')) {
+      if(c.style.getPropertyValue('--exact-animation-timeline').trim()!==name||timelineSource(c,name)!==el)continue;
+      const [a,b]=c.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
+      if(!Number.isFinite(a)||!Number.isFinite(b)||a===b)continue;
+      for(const animation of c.getAnimations()) {
+        if(animation.animationName===undefined||animation.effect?.target!==c)continue;
+        const easing=timelineEasing(animation.effect.getComputedTiming(),at.map(v=>(v-a)/(b-a)));
+        if(easing===undefined)continue;
+        const keyframes=animation.effect.getKeyframes().map(({computedOffset,...k})=>k);
+        // Added to the paused animation it stands in for, it would count twice.
+        if(easing===null||animation.effect.composite!=='replace'||keyframes.some(k=>k.composite==='add'||k.composite==='accumulate')){seek=true;continue;}
+        made.push(c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'}));
+      }
+    }
+    if(made.length) {
+      followers.set(id,made);
+      made[0].finished.then(()=>{if(followers.get(id)!==made)return;followers.delete(id);followTimelines();for(const f of made)f.cancel();},()=>{});
+    }
+    if(seek)kickTimelines();
+  }
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
+    if(property==='translate'&&followers.has(id)) {
+      for(const f of followers.get(id))f.cancel();
+      followers.delete(id);
+      // A grab holds the source where it was caught: its consumers too.
+      if(el)followTimelines();
+    }
     // Browser easing is a CSSTransition; other properties continue undisturbed.
     for(const animation of el?.getAnimations()??[]) {
       if(animation.effect?.target===el && animation.transitionProperty===cssProperty(el,property)) animation.cancel();
@@ -440,7 +527,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
       animations.set(k,animation);
       animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
-      if(property==='translate')kickTimelines();
+      if(property==='translate'&&el.style.getPropertyValue('--exact-drag-timeline'))follow(id,el,op);
     },
     // Authored eligibility can disappear without a dirty Engine frame. Retire
     // only this property, restoring current authoring and other held overlays.
@@ -467,6 +554,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const b of [...transformBindings.values()])detachTransform(b);
       geometryDirty.clear();if(geometryFrame!==null)cancelAnimationFrame(geometryFrame);geometryFrame=null;
       for(const animation of animations.values()) animation.cancel(); animations.clear();
+      for(const made of followers.values())for(const f of made)f.cancel(); followers.clear();
       const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
     // Pan and pinch on the photo pair (LLP 1057.001 §4): up to two pointers,
