@@ -1,4 +1,11 @@
 import { test } from 'bun:test';
+// These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
+// omits rustup's bin directory still finds it there; without cargo, say so.
+const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
+if (!(process.env.PATH ?? '').split(':').includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}:${cargoBin}`;
+if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
+// The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
+delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
