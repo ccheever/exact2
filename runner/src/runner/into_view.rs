@@ -40,9 +40,14 @@ impl<D: DataSource> Runner<D> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
         }
+        let Some(lists) = self.links.lists else {
+            let why = "this artifact doesn't link lists".to_string();
+            self.record_into_view(&request, Some(IntoViewStatus::Refused(why)));
+            return Ok(CommitReceipt::default());
+        };
         let mut status = None;
         let receipt = self.update_tree(false, |tree, u| {
-            status = Some(tree.scroll_into_view(u, &request)?);
+            status = Some((lists.into_view)(tree, u, &request)?);
             Ok(())
         })?;
         self.record_into_view(&request, status);
@@ -94,7 +99,7 @@ impl<D: DataSource> Runner<D> {
     /// `state.scrollIntoView`: each list's latest request, then refusals.
     pub fn into_view_json(&self) -> String {
         let mut out = match (self.links.lists, &self.tree) {
-            (Some(_), Some(tree)) => tree.into_view_json(),
+            (Some(lists), Some(tree)) => (lists.into_view_json)(tree),
             _ => "[]".to_string(),
         };
         out.pop();

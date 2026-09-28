@@ -50,7 +50,19 @@ pub struct ListLinks {
     ) -> Result<(), InstanceError>,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
+    /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
+    pub(crate) into_view: IntoViewLink,
+    /// `state.scrollIntoView`: each list's latest request.
+    pub(crate) into_view_json: fn(&Tree) -> String,
+    /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
+    pub(crate) kept_json: fn(&Tree) -> String,
 }
+
+type IntoViewLink = fn(
+    &mut Tree,
+    &mut Update<'_>,
+    &collection::IntoView,
+) -> Result<collection::IntoViewStatus, InstanceError>;
 
 type CreateList = fn(
     &mut Update<'_>,
@@ -66,6 +78,9 @@ pub static LISTS: ListLinks = ListLinks {
     update: collection::update_collection,
     typography: collection::invalidate_typography,
     collections_json: collection::collections_json,
+    into_view: Tree::scroll_into_view,
+    into_view_json: Tree::into_view_json,
+    kept_json: Tree::kept_positions_json,
 };
 
 /// A list engine's state where the plan has no way to reach it: admission

@@ -38,7 +38,7 @@ impl<D: DataSource> Runner<D> {
     /// Every outer list's kept inner positions (LLP 1070 §4.2), for `state`.
     pub fn kept_positions_json(&self) -> String {
         match (self.links.lists, &self.tree) {
-            (Some(_), Some(tree)) => tree.kept_positions_json(),
+            (Some(lists), Some(tree)) => (lists.kept_json)(tree),
             _ => "[]".to_string(),
         }
     }

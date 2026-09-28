@@ -1,5 +1,6 @@
 //! Logical text and key lookups over virtualized lists. LLP 1010 §6.
 use super::*;
+use crate::instance::collection::IntoViewStatus;
 
 /// A text position that survives retirement of a list row's native views.
 #[derive(Debug, Clone, Copy)]
@@ -42,11 +43,15 @@ impl<D: DataSource> Runner<D> {
     /// the host restarts it — never a half-applied frame.
     pub(super) fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
         let requests = std::mem::take(&mut self.into_view);
+        let into_view = self.links.lists.map(|lists| lists.into_view);
         let mut statuses = Vec::new();
         let receipt = self.update_tree(true, |tree, u| {
             tree.update(u)?;
             for request in &requests {
-                statuses.push(tree.scroll_into_view(u, request)?);
+                statuses.push(match into_view {
+                    Some(into_view) => into_view(tree, u, request)?,
+                    None => IntoViewStatus::Refused("this artifact doesn't link lists".into()),
+                });
             }
             Ok(())
         })?;
