@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Default)]
 pub struct PaintMotion {
     owners: PaintOwners,
+    /// Before-change targets until a transition actually needs a slot.
+    pending: BTreeMap<u64, Vec<(Property, Value)>>,
     /// `None` until the first report, which corrects boot without motion.
     dark: Option<bool>,
     /// Each owner's `currentcolor` sides at its last sync.
@@ -22,6 +24,10 @@ impl PaintMotion {
     /// Whether the node owns this paint property.
     pub fn owns(&self, node: u64, property: Property) -> bool {
         self.owners.owns(node, property)
+            && !self
+                .pending
+                .get(&node)
+                .is_some_and(|targets| targets.iter().any(|(p, _)| *p == property))
     }
 
     /// The appearance a view's colours resolve by, else the session's.
@@ -44,6 +50,7 @@ impl PaintMotion {
             let node = motion_node(*key);
             self.views.remove(&node);
             self.current.remove(&node);
+            self.pending.remove(&node);
         }
         let (views, session) = (&self.views, self.dark.unwrap_or(false));
         let sync = kernel.paint_sync(
@@ -51,7 +58,7 @@ impl PaintMotion {
             |key| views.get(&motion_node(key)).copied().unwrap_or(session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine)
+        self.apply(kernel, sync, engine, false)
     }
 
     /// Adopt the tree at boot, after its ordinary motion rows.
@@ -67,34 +74,82 @@ impl PaintMotion {
             |key| views.get(&motion_node(key)).copied().unwrap_or(session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine);
+        self.apply(kernel, sync, engine, false);
     }
 
     fn apply(
         &mut self,
         kernel: &Kernel,
-        sync: MotionSync,
+        mut sync: MotionSync,
         engine: &mut Engine,
+        snap: bool,
     ) -> Vec<(u64, Property)> {
         // A side that stays `currentcolor` has no transition of its own:
         // its computed value is still the keyword. A change to or from an
         // explicit colour moves under its row.
-        let mut nodes: Vec<u64> = sync.changes.iter().map(|c| c.node).collect();
-        nodes.dedup();
-        for node in nodes {
+        let changes = std::mem::take(&mut sync.changes);
+        for changes in changes.chunk_by(|a, b| a.node == b.node) {
+            let node = changes[0].node;
             let now = kernel.current_color_sides(node_key(node));
             let was = self.current.remove(&node).unwrap_or_default();
-            for side in now.iter().filter(|s| was.contains(s)) {
-                if !engine.is_active(node, *side) {
-                    engine.remove_property(node, *side);
+            let style = kernel.node_by_key(node_key(node)).unwrap().style;
+            let animated: Vec<_> = style
+                .animation
+                .properties()
+                .into_iter()
+                .chain(style.exit_animation.properties())
+                .collect();
+            let pending = self
+                .pending
+                .entry(node)
+                .or_insert_with(|| Vec::with_capacity(changes.len()));
+            for change in changes {
+                let property = change.property;
+                let before = pending.iter().position(|(p, _)| *p == property);
+                let owned = engine.target(node, property).is_some();
+                let follows = now.contains(&property)
+                    && was.contains(&property)
+                    && !engine.is_active(node, property);
+                let changed = before.is_some_and(|i| pending[i].1 != change.value);
+                if owned || animated.contains(&property) || (changed && !snap && !follows) {
+                    if snap || follows {
+                        engine.remove_property(node, property);
+                    } else if !owned {
+                        if let Some(i) = before {
+                            // Seed the before-change value, then let the ordinary
+                            // observe below start the first curve from it.
+                            let seeded = engine.observe(exact_motion::Change {
+                                value: pending[i].1,
+                                ..*change
+                            });
+                            debug_assert!(seeded.is_ok(), "a computed paint target is valid");
+                        }
+                    }
+                    if let Some(i) = before {
+                        pending.swap_remove(i);
+                    }
+                    sync.changes.push(*change);
+                } else if let Some(i) = before {
+                    pending[i].1 = change.value;
+                } else {
+                    pending.push((property, change.value));
                 }
+            }
+            if pending.is_empty() {
+                self.pending.remove(&node);
             }
             if !now.is_empty() {
                 self.current.insert(node, now);
             }
         }
-        for (node, _) in &sync.retired {
+        for (node, property) in &sync.retired {
             self.current.remove(node);
+            if let Some(pending) = self.pending.get_mut(node) {
+                pending.retain(|(p, _)| p != property);
+                if pending.is_empty() {
+                    self.pending.remove(node);
+                }
+            }
         }
         let applied = sync.apply(engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
@@ -144,12 +199,7 @@ impl PaintMotion {
             |key| views.get(&motion_node(key)).copied().unwrap_or(dark),
             &mut self.owners,
         );
-        if first {
-            for c in &sync.changes {
-                engine.remove_property(c.node, c.property);
-            }
-        }
-        Some(self.apply(kernel, sync, engine))
+        Some(self.apply(kernel, sync, engine, first))
     }
 
     /// Report one view's appearance. Its first differing report corrects
@@ -175,12 +225,7 @@ impl PaintMotion {
             None => self.views.remove(&node),
         };
         let sync = kernel.paint_adopt([key], dark, &mut self.owners);
-        if first {
-            for c in &sync.changes {
-                engine.remove_property(c.node, c.property);
-            }
-        }
-        let retired = self.apply(kernel, sync, engine);
+        let retired = self.apply(kernel, sync, engine, first);
         // Dropping a slot drops its dirt; playing keyframes must be marked
         // after the rows so the host presents their corrected colours.
         engine.set_node_dark(node, own, first);

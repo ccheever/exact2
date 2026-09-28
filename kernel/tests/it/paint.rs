@@ -31,6 +31,81 @@ fn rgba(r: u8, g: u8, b: u8, a: f64) -> Value {
     Value::rgba(unit(r), unit(g), unit(b), a)
 }
 
+#[test]
+fn a_thousand_transition_all_rows_adopt_only_the_paint_that_changes() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![Op::CreateView {
+        id: 1,
+        node_type: NodeType::View,
+    }];
+    for id in 2..1002 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::SetStyle {
+            id,
+            patch: patch(&[
+                (StyleId::BackgroundColor, "#ffffff"),
+                (StyleId::Transition, "all 1s linear"),
+            ]),
+        });
+    }
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: (2..1002).collect(),
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.adopt(&k, receipt.created.iter().copied(), &mut engine);
+    for id in 2..1002 {
+        let node = motion_node(k.node(id).unwrap().key);
+        for property in Property::PAINT {
+            assert_eq!(engine.target(node, property), None, "{id}: {property:?}");
+            assert!(!paint.owns(node, property));
+        }
+    }
+    let change = |k: &mut Kernel, paint: &mut PaintMotion, engine: &mut Engine, color| {
+        let receipt = k
+            .apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: patch(&[(StyleId::BackgroundColor, color)]),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+        paint.sync(k, &receipt, engine);
+    };
+    let node = motion_node(k.node(2).unwrap().key);
+    change(&mut k, &mut paint, &mut engine, "#ffffff");
+    assert_eq!(engine.target(node, Property::BackgroundColor), None);
+    change(&mut k, &mut paint, &mut engine, "#000000");
+    assert!(paint.owns(node, Property::BackgroundColor));
+    assert_eq!(
+        engine.value(node, Property::BackgroundColor),
+        Some(rgba(255, 255, 255, 1.0))
+    );
+    engine.advance(0.5).unwrap();
+    assert_eq!(
+        paint.shown(&engine, node, Property::BackgroundColor),
+        Some(Value::rgba(0.5, 0.5, 0.5, 1.0))
+    );
+    assert_eq!(engine.target(node, Property::Color), None);
+    change(&mut k, &mut paint, &mut engine, "#ffffff");
+    assert_eq!(
+        engine.value(node, Property::BackgroundColor),
+        Some(Value::rgba(0.5, 0.5, 0.5, 1.0))
+    );
+    engine.advance(1.0).unwrap();
+    assert_eq!(paint.shown(&engine, node, Property::BackgroundColor), None);
+}
+
 /// A root (1) with a painted child (2) and a plain one (3).
 fn tree() -> (Kernel, exact_kernel::CommitReceipt) {
     let mut k = Kernel::with_monospace();
@@ -92,7 +167,8 @@ fn native_appearance_reports_snap_first_then_transition_per_view() {
     assert!(engine.quiescent(), "boot is corrected without motion");
     assert_eq!(
         engine.target(node, Property::BackgroundColor),
-        Some(rgba(0, 0, 0, 1.0))
+        None,
+        "boot's corrected target waits for an actual change"
     );
     paint
         .set_view_scheme(&k, &mut engine, key, false, 0.0)
@@ -107,7 +183,8 @@ fn native_appearance_reports_snap_first_then_transition_per_view() {
     );
     assert_eq!(
         engine.target(node, Property::BackgroundColor),
-        Some(rgba(255, 255, 255, 1.0))
+        None,
+        "the view still has its corrected light target, without a slot"
     );
     paint
         .set_view_scheme(&k, &mut engine, key, true, 0.0)
@@ -169,11 +246,70 @@ fn a_destroyed_paint_owner_cannot_pass_appearance_to_a_reused_slot() {
     assert!(!paint.owns(motion_node(key), Property::BackgroundColor));
     assert_eq!(
         engine.target(motion_node(fresh), Property::BackgroundColor),
-        Some(rgba(255, 255, 255, 1.0))
+        None
     );
     assert!(paint
         .set_view_scheme(&k, &mut engine, key, true, 0.0)
         .is_none());
+    let receipt = k
+        .apply(
+            0,
+            3,
+            &[Op::SetStyle {
+                id: 2,
+                patch: patch(&[(StyleId::BackgroundColor, "#000000")]),
+            }],
+        )
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.sync(&k, &receipt, &mut engine);
+    assert_eq!(
+        engine.value(motion_node(fresh), Property::BackgroundColor),
+        Some(rgba(255, 255, 255, 1.0))
+    );
+}
+
+#[test]
+fn retiring_a_pending_target_forgets_its_before_change_value() {
+    let (mut k, receipt) = tree();
+    let node = motion_node(k.node(2).unwrap().key);
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.sync(&k, &receipt, &mut engine);
+    for (transition, color) in [
+        ("none", "#ff0000"),
+        ("all 1s linear", "#ff0000"),
+        ("all 1s linear", "#0000ff"),
+    ] {
+        let receipt = k
+            .apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: patch(&[
+                        (StyleId::Transition, transition),
+                        (StyleId::BackgroundColor, color),
+                    ]),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(&mut engine).unwrap();
+        paint.sync(&k, &receipt, &mut engine);
+        if color == "#ff0000" {
+            assert_eq!(engine.target(node, Property::BackgroundColor), None);
+        }
+    }
+    assert_eq!(
+        engine.value(node, Property::BackgroundColor),
+        Some(rgba(255, 0, 0, 1.0))
+    );
+    engine.advance(0.5).unwrap();
+    assert_eq!(
+        paint.shown(&engine, node, Property::BackgroundColor),
+        Some(Value::rgba(0.5, 0.0, 0.5, 1.0))
+    );
 }
 
 #[test]

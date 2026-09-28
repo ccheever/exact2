@@ -53,17 +53,21 @@ to or from an explicit colour moves under its row (red to `currentcolor` with
 interpolating straight RGB (disagrees with every browser whenever alpha
 changes); eight-component values carrying both appearances (see D4).
 
-**D2 — Only a node that names paint owns it.** `Kernel::paint_sync(receipt,
-dark, owners)` adopts, for each created or touched node, the paint properties its
-`transition` starts a curve for or its `animation` or `exit-animation`
-animates, with their *computed* targets: `light-dark()` resolved (`dark` is
+**D2 — Paint transitions adopt on the first target change.**
+`Kernel::paint_sync(receipt, dark, owners)` reports each created or touched
+node's named paint targets, computed with `light-dark()` resolved (`dark` is
 one appearance or one per node, `Appearance`), `currentcolor` borders as the
-computed `color`, `color` inherited. An exit's colours are owned while the
-node lives, so the engine has the value its exit keyframes play over (LLP
-1063). Everything else stays the style row the
-presenter already paints, so a list of 1,000 coloured rows costs the engine
-nothing. `PaintOwners` (the host's) records what was adopted, so a row that
-stops naming paint retires exactly that. The web never calls it.
+computed `color`, and `color` inherited. `PaintMotion` keeps transition-only
+targets as before-change values until one actually changes, then seeds the
+engine with its previous value before observing the new target. Declaration,
+including `transition: all`, allocates no engine paint slot; a pending target
+still costs storage. A first appearance report corrects that stored value
+without starting motion. `animation` and `exit-animation` properties are
+adopted immediately: an exit needs its underlying colour while the node lives
+(LLP 1063). Retirement and destruction discard pending values as well as
+owned slots. A list without named paint costs neither. `PaintOwners` records
+the named properties for retirement and appearance resync; `PaintMotion::owns`
+excludes pending ones. The web never calls it. Measured below, 2026-09-27.
 
 **D3 — A spring on paint is its curve from rest.** A spring drives the
 compositor rows as physics (velocity carries across an interruption; the web
@@ -85,7 +89,7 @@ transition (recorded: `getAnimations()` holds one, 50% is `rgb(128,128,128)`).
 Native hosts resolve before the engine hears a target, so the host must know the
 appearance: Apple's presenter reports it (`exact_scheme`, from the ExactView's
 trait change and after every boot); Linux's is the app's `setScheme`. A change
-re-targets every owner (`paint_resync`) and the engine transitions under each
+re-targets every tracked target (`paint_resync`) and the engine transitions under each
 node's row. The first Apple report only corrects boot's light guess, without
 motion. A view whose own appearance differs from the session's (a sheet with
 an override) is found as a restyle carrying presented paint reaches it and reported after the batch
@@ -206,6 +210,64 @@ each w, i in words key=w
   0.13 ms median (p95 0.21); a 354×308 pt, 14-line paragraph 0.57 ms median
   (p95 1.09, max 1.29). Main-thread `ensure` 5 µs median (max 65 µs). A box
   colour is layer properties only. Not measured on a device.
+
+## Measured: 1,000 `transition: all` rows (2026-09-27)
+
+Astra, M5 Pro, macOS 27.0 (26A428), Chrome 154.0.8037.58; baseline `9068ef6d`.
+The cited heavybench/cryptobench directories were absent: the available
+`~/bench/exact-listbench` MessageRow was expanded to 1,000 mounted rows (12,308
+nodes), without virtualization/images. Only each row's `all 1s linear` differs.
+Both rebuilt `svg-gallery` hosts run the private plans through `scripts/agent.mjs`
+at 420×900: a common 40×40 indicator transitions white → black for 1 s, then all
+rows change white → `#1d4ed8` (plain rows snap). Three fresh-process rounds,
+none/all, all/none, none/all; tables give medians of the run p50s/p95s.
+
+Every run and timed host phase checks `sysctl -n vm.loadavg`, polling every 30 s
+while the 1-minute load exceeds 4. Admitted loads: native probe 3.90 before,
+3.65 after; host phases 3.27–4.00 before, 3.29–3.70 after. RSS (`ps`) is measured
+after `clock 0` and after both changes settle: app PID on macOS, the isolated
+Chrome's renderer descendants including spares on web. This is RSS, not device
+footprint. Chrome samples 60 rAF intervals with CSS animations playing (one
+indicator; 0/1,000 row animations). Native samples 60 awaited `clock` increments
+of 1/60 s: **Rust + Swift + IPC virtual-frame round trips, not display-link FPS**.
+The optimized `apple-dev` Rust probe boots the same plan with MonospaceMeasurer,
+counts `Engine::target`s and times 59 `Host::tick`s, excluding Swift/raster/IPC.
+Full method, all individual loads and runs are in the
+[ticket](../issues/20260927-transition-all-list-cost.md#measurement-and-change);
+private artifacts are in the worktree's ignored `target/transition-all/`.
+
+| Pass | Host | Rows | RSS at rest / after changes (MiB) | Indicator p50 / p95 (ms) | All-row change p50 / p95 (ms) |
+|---|---|---|---:|---:|---:|
+| Before | macos | none | 329.266 / 369.125 | 19.549 / 21.481 | 7.032 / 8.162 |
+| Before | macos | all | 333.219 / 374.672 | 19.851 / 22.988 | 43.909 / 49.459 |
+| Before | web | none | 813.688 / 848.203 | 16.700 / 16.800 | 16.700 / 16.700 |
+| Before | web | all | 812.266 / 861.328 | 16.700 / 16.800 | 16.700 / 16.800 |
+| After | macos | none | 329.906 / 368.422 | 18.144 / 19.397 | 6.306 / 6.675 |
+| After | macos | all | 329.359 / 372.469 | 18.653 / 21.759 | 39.594 / 43.340 |
+| After | web | none | 813.469 / 847.938 | 16.700 / 16.700 | 16.700 / 16.800 |
+| After | web | all | 812.750 / 861.906 | 16.700 / 16.800 | 16.700 / 16.700 |
+
+| Pass | Rows | Paint / total engine slots at boot | Indicator p50 / p95 (µs) | All-row change p50 / p95 (µs) |
+|---|---|---:|---:|---:|
+| Before | none | 1 / 49233 | 1.000 / 1.208 | 0.167 / 0.209 |
+| Before | all | 9001 / 58233 | 1.875 / 2.000 | 1570.042 / 1673.167 |
+| After | none | 0 / 49232 | 1.000 / 1.250 | 0.167 / 0.250 |
+| After | all | 0 / 49232 | 1.750 / 2.042 | 1610.042 / 1744.166 |
+
+
+The 9,000 idle slots were real memory: a settled slot plus its key is now 56 B,
+not the ticket's earlier 104 B, before capacity/bookkeeping. Lazy adoption keeps
+exact before-change values in smaller per-node vectors. Median paired macOS RSS
+surcharge: 3.281 → 1.422 MiB (pairs before 3.281, 4.516, 0.938; after 2.406,
+1.422, -0.797). RSS spread precludes an exact allocation-size claim. No idle-frame
+or active-paint CPU speedup is claimed: Rust moving-paint p50 rises 1.570 → 1.610 ms
+(+0.040 ms, 2.5%; three runs do not isolate this from noise). Mean batch bytes/frame
+stay 191 for the indicator,
+78 for plain rows and 301,755 for `all`. Chrome uses zero native paint slots and
+stays at 16.7 ms p50 throughout. These are neither iOS-device nor virtualized-list
+results. The first-transition/idle-slot regression fails before and passes after;
+retirement, reversal, appearance and generation reuse pass. Required checks pass
+(1,771 tests, 0 failed, 8 ignored); Apple paint 13/13 and Linux paint 5/5.
 
 ## Known gaps
 
