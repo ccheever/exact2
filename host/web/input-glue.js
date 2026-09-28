@@ -1,5 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, agentMode = false }) {
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -128,11 +128,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (state === "claimed") { contact = null; return true; }
         contact.deferred = false; el.setPointerCapture(e.pointerId); return false;
       };
-      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
-      on("pointerup", e => { if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; } contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active; contact=null; });
-      on("pointercancel", () => { cancelAnimationFrame(frame); frame=0; contact=null; });
+      // @ref LLP 1057 §10.6 — a pan that began ends with one `panrelease`:
+      // the engine's tracker over the contact's samples, at each event's own
+      // timestamp (motion-glue's `pan`); a cancelled contact releases at rest.
+      const sample = (e, first = false) => velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, first);
+      const released = (payload) => { if (el.exactHandlers?.includes("panrelease") && live()) dispatchRelease(id, payload); };
+      const cancel = () => { cancelAnimationFrame(frame); frame=0; const began = contact?.active; contact=null; if (began) released("0,0"); };
+      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; sample(e); contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
+      on("pointerup", e => {
+        if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; }
+        sample(e); contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active;
+        const began = contact?.active; contact=null;
+        if (began) { const [vx, vy] = velocity.velocity?.(id, e.timeStamp) ?? [0, 0]; released(`${vx},${vy}`); }
+      });
+      on("pointercancel", cancel);
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
-      on("lostpointercapture", e => { if (e.target !== el) return; cancelAnimationFrame(frame); frame=0; contact=null; });
+      on("lostpointercapture", e => { if (e.target === el) cancel(); });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
       return e => {
         // Only the click right after a pan is suppressed; a drag makes none.
@@ -144,6 +155,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         const deferred = contacts().get(e.pointerId) === "pending";
         e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId);
         contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred};
+        velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, true);
       };
     },
   };

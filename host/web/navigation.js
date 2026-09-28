@@ -243,6 +243,8 @@ export function afterPaintPieces(load, o) {
   };
   const motion = { style(id, text) { if (live) return live.motion.style(id, text); const el = o.views.get(id); if (el) el.style.cssText = text; }, keyframes };
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
+  // A pan's release velocity (LLP 1057 §10.6): only once motion is here.
+  motion.pan = { sample: (...a) => live?.motion.panSample(...a), velocity: (...a) => live?.motion.panVelocity(...a) };
   const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);
   motion.followTimelines = call('motion', 'followTimelines', false);

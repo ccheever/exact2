@@ -33,7 +33,7 @@ export function motionBytes(facts) {
     for(let i=0;i<6;i++)d.setFloat64(64+i*8,facts.values[i],true);
     d.setFloat64(112,now,true);return bytes;
   }
-  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action','release-measured','gesture','track'];
+  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action','release-measured','gesture','track','pan-sample','pan-velocity'];
   const properties=['translate','scale','rotate','opacity','height'];
   const code=operations.indexOf(op), prop=properties.indexOf(property);
   if(code<0||prop<0) throw Error('invalid motion operation');
@@ -529,6 +529,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // The action may delete the held node. That makes this a harmless no-op.
       api.end(h,velocity,cancel); return true;
     },
+    // @ref LLP 1057 §10.6 — a pan's pointer samples, at each event's own
+    // timestamp, and its release velocity from the engine's tracker.
+    panSample(id,x,y,t,first) { request({op:'pan-sample',view:id,token:first?1:0,x,y,now:t}); },
+    panVelocity(id,t) { const r=request({op:'pan-velocity',view:id,now:t}); return [r.vx??0,r.vy??0]; },
     // Only live gestures/holds are visited, never all mounted swipe handlers.
     // Cancel may synchronously apply another batch; retire once before reentry.
     commit() {

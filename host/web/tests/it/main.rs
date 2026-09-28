@@ -14,6 +14,7 @@ mod host;
 mod lists;
 mod navigation;
 mod page;
+mod pan_release;
 mod parity;
 mod presence;
 mod request;

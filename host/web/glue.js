@@ -1471,7 +1471,8 @@ async function main() {
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
-        dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
+        dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
+        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan });
     }).catch(console.error);
     try {
       const module = await (prepared ?? realm());

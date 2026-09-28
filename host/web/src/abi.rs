@@ -38,6 +38,8 @@ pub struct Bridge<D: DataSource> {
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
+    /// A `pan` contact's samples, for its release velocity (LLP 1057 §10.6).
+    pan: crate::pan_velocity::PanVelocity,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -52,6 +54,7 @@ impl<D: DataSource> Bridge<D> {
             checkpoint: None,
             preferences: exact_runner::Preferences::NONE,
             links: crate::HostLinks::CORE,
+            pan: crate::pan_velocity::PanVelocity::new(),
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -756,6 +759,17 @@ impl<D: DataSource> Bridge<D> {
                 return Ok(format!(
                     "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge},\"slop\":{slop}}}"
                 ));
+            }
+            // A pan's pointer sample (token 1 begins the contact) and its
+            // release velocity (LLP 1057 §10.6), at the event's own ms.
+            if op == 13 {
+                let first = serial == 1;
+                let ok = self.pan.sample(view, first, value.x, value.y, now);
+                return Ok(format!("{{\"accepted\":{ok}}}"));
+            }
+            if op == 14 {
+                let (vx, vy) = self.pan.release(view, now);
+                return Ok(format!("{{\"vx\":{vx},\"vy\":{vy}}}"));
             }
             let host = self.host.as_mut().ok_or("not booted")?;
             if op == 8 || op == 9 {

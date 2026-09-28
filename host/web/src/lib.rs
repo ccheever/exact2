@@ -47,6 +47,7 @@ pub mod dev;
 pub mod host;
 pub mod link;
 pub mod motion;
+mod pan_velocity;
 pub mod parity;
 #[cfg(test)]
 mod textflow_tests;
