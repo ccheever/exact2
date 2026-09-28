@@ -404,7 +404,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let pages: Vec<String> = plan
         .routes
         .iter()
-        .map(|r| format!("[\"{}\",\"{}\"]", r.render.name(), r.activate.name()))
+        .map(|r| format!("[\"{}\",\"{}\",{}]", r.render.name(), r.activate.name(), r.notfound as u8))
         .collect();
     let names_js = format!(
         "{names_js}export const sourceTypes={{{}}};export const pages=[{}];\n",

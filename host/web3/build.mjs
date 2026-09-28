@@ -72,7 +72,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
   '  const route = routeAt(location.pathname + location.search), [render, activate] = pages[route] ?? ["build", "idle"];',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: activate === "interaction" ? "interaction" : "idle", render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: activate === "interaction" ? "interaction" : "idle", policy: render, notfound: !!pages[route]?.[2], render: performance.now() - t0 };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));

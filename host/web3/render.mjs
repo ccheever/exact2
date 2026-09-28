@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import vm from 'node:vm';
+import { brotliCompressSync, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
 
 const DEADLINE = 3000;
@@ -46,7 +47,7 @@ export function renderer(dist) {
       .replace(/<title>[\s\S]*?<meta name="viewport"[^>]*>\n/, () => `${head}\n<script>${capture}</script>\n`)
       .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${out.root}</div>`)
       .replace('<script type="module" src="./app.js"></script>', () => `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${out.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>\n${interaction ? '' : '<script type="module" src="./app.js"></script>'}`);
-    return { html, status: out.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location };
+    return { html, status: out.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: out.policy };
   };
 }
 
@@ -59,14 +60,35 @@ if (import.meta.main) {
   const opt = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1]; };
   if (args.includes('--serve')) {
     const port = Number(opt('--port', 8830));
+    // A `cached` route's page is kept at the origin for its public lifetime
+    // (60 s, 64 locations), as the Rust render server keeps it (serve.rs).
+    const cache = new Map(), files = new Map();
+    // Brotli when the browser takes it, as the Rust render server sends: a
+    // page as it is sent (quality 5), a dist file once (quality 11).
+    const send = (req, body, type, status, cacheControl, q = 5) => {
+      const h = { 'content-type': type, 'cache-control': cacheControl, vary: 'Accept-Encoding' };
+      if (/\bbr\b/.test(req.headers.get('accept-encoding') ?? '') && /html|javascript|css|json|wasm|svg/.test(type)) { body = brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: q } }); h['content-encoding'] = 'br'; }
+      return new Response(body, { status, headers: h });
+    };
     Bun.serve({ port, hostname: '127.0.0.1', async fetch(req) {
       const url = new URL(req.url);
       const file = resolve(dist, '.' + decodeURIComponent(url.pathname));
-      if (file.startsWith(dist + '/') && !file.includes('/.gen/') && existsSync(file) && extname(file)) return new Response(Bun.file(file), { headers: { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' } });
+      if (file.startsWith(dist + '/') && !file.includes('/.gen/') && existsSync(file) && extname(file)) {
+        const type = TYPES[extname(file)] ?? 'application/octet-stream';
+        if (/\bbr\b/.test(req.headers.get('accept-encoding') ?? '') && /html|javascript|css|json|wasm|svg/.test(type)) {
+          let br = files.get(file); if (!br) files.set(file, br = brotliCompressSync(readFileSync(file), { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }));
+          return new Response(br, { headers: { 'content-type': type, 'content-encoding': 'br', 'cache-control': 'no-cache', vary: 'Accept-Encoding' } });
+        }
+        return new Response(Bun.file(file), { headers: { 'content-type': type, 'cache-control': 'no-cache' } });
+      }
       const t = performance.now();
-      const page = await render(url.pathname + url.search);
-      console.log(`${page.location} ${page.status} ${(performance.now() - t).toFixed(1)} ms ${page.html.length} B`);
-      return new Response(page.html, { status: page.status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+      const key = url.pathname + url.search, hit = cache.get(key);
+      const revalidate = /no-cache|no-store|max-age=0/.test(req.headers.get('cache-control') ?? '');
+      if (hit && hit.until > Date.now() && !revalidate) return send(req, hit.html, 'text/html; charset=utf-8', hit.status, 'public, max-age=0, s-maxage=60');
+      const page = await render(key);
+      if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
+      console.log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}`);
+      return send(req, page.html, 'text/html; charset=utf-8', page.status, page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
     } });
     console.log(`serving ${dist} with pages rendered by the JavaScript runtime on ${port}`);
   } else if (args.includes('--build')) {
