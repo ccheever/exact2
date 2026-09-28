@@ -59,7 +59,13 @@ struct CollectionTurnBudget {
         passes += 1; busy = true
         return true
     }
-    mutating func end() { busy = false }
+    /// A pass that sent no report (an unchanged list, visited because a
+    /// batch dirtied every list) is given back: with nested lists most
+    /// visits are those, and they would spend the pass a slice needs.
+    mutating func end(reported: Bool = true) {
+        busy = false
+        if !reported && passes > 0 { passes -= 1 }
+    }
     mutating func nextTurn() { passes = 0 }
 }
 
@@ -149,6 +155,10 @@ final class CollectionHost {
         var cursor = CollectionCursor()
         var lastFacts: CollectionFacts?
         var lastSequence: UInt64?
+        /// The limit the last report carried: a slice that may build more
+        /// reports again with the same facts (a rescue just reported them,
+        /// building only what shows).
+        var lastLimit: UInt32?
         var port: [Double]?
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
@@ -285,6 +295,7 @@ final class CollectionHost {
             // What shows is owed by estimated heights; two more rows cover
             // a port the estimates overstate (a jump into unmeasured rows).
             if motion != nil { sliceLimits[view] = 2 }
+            lastVisited = view &- 1
             flush()
             sliceLimits[view] = nil
             if motion != nil { rescued?() }
@@ -301,6 +312,8 @@ final class CollectionHost {
         budget.nextTurn()
         dirty.insert(view)
         sliceLimits[view] = limit
+        // The slice's own list first: the round-robin would visit it last.
+        lastVisited = view &- 1
         flush()
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
@@ -363,6 +376,9 @@ final class CollectionHost {
         guard batchDepth == 0, let onFeedback, !dirty.isEmpty else { return }
         // Reserve the continuation before calling Rust: its batch can reenter us.
         schedule()
+        // Each list once per flush, at most, without a report (bounded
+        // even if a visit re-dirties its list).
+        var free = entries.count
         while !dirty.isEmpty {
             guard budget.begin() else { return }
             #if os(iOS)
@@ -387,6 +403,7 @@ final class CollectionHost {
             dirty.remove(id)
             // Cached geometry permits a hidden previous owner to release its
             // pin. Measurements below still come only from visible live rows.
+            var reported = false
             if let entry = entries[id], var facts = geometry(id) ?? entry.lastFacts {
                 facts.focus = focusOwner == id ? focus : nil
                 facts.interaction = interactionOwner == id ? interaction : nil
@@ -410,10 +427,13 @@ final class CollectionHost {
                 let velocity = motion?(id)
                 let limit: UInt32? = sliceLimits.removeValue(forKey: id)
                     ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
+                let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? (entry.lastLimit != nil)
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
-                    || (entry.snapshot.pending && limit != 0) {
+                    || (entry.snapshot.pending && limit != 0) || further {
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
+                    entry.lastLimit = limit
+                    reported = true
                     // While its outer list moves, an inner list builds only
                     // what it owes (LLP 1070 F2); its pending report
                     // continues once the outer list rests.
@@ -422,7 +442,8 @@ final class CollectionHost {
                         velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving))
                 }
             }
-            budget.end()
+            free -= reported ? 0 : 1
+            budget.end(reported: reported || free < 0)
         }
     }
     private func schedule() {

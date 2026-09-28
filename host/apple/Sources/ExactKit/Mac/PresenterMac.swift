@@ -307,7 +307,7 @@ final class Presenter {
     }
     private var listFillCosts: [UInt32: ListFillCost] = [:]
     private struct ListTravel {
-        var top: CGFloat, time: TimeInterval, velocity: Double = 0
+        var top: CGFloat, time: TimeInterval, velocity: Double = 0, step: Double = 0
     }
     private var listTravel: [UInt32: ListTravel] = [:]
     func listVelocity(_ id: UInt32) -> Double {
@@ -325,9 +325,12 @@ final class Presenter {
             let at = horizontal ? port.minX : port.minY
             var travel = listTravel[id] ?? ListTravel(top: at, time: now)
             let delta = at - travel.top, elapsed = now - travel.time
-            // A step longer than the port is a jump, not travel: nothing to lead.
-            if abs(delta) > (horizontal ? port.width : port.height) {
-                listTravel[id] = ListTravel(top: at, time: now)
+            // A step longer than the port that the travel so far doesn't
+            // predict is a jump, not travel (as ScrollPumpIOS.sample).
+            let length = horizontal ? port.width : port.height
+            let predicted = CGFloat((travel.velocity != 0 ? travel.velocity : travel.step) * max(elapsed, 0))
+            if abs(delta) > length && abs(delta - predicted) > length {
+                listTravel[id] = ListTravel(top: at, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0)
                 continue
             }
             if delta != 0, elapsed > 0 {

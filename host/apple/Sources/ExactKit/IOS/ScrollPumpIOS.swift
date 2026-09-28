@@ -47,7 +47,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// Travel (points/s) past which images decode one at a time.
     static let fastTravel = 20_000.0
 
-    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0 }
+    /// `step`: the speed of a step taken for a jump, which the next step
+    /// confirms as travel when it repeats it.
+    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0, step = 0.0 }
     private struct FillCost {
         var perRow: TimeInterval?
         var lastRows = 1
@@ -74,9 +76,14 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
         var t = travel[node.id] ?? Travel(top: top, time: now)
         let delta = top - t.top, elapsed = now - t.time
-        // A step longer than the port is a jump, not travel: nothing to lead.
-        if abs(delta) > (horizontal ? scroll.bounds.width : scroll.bounds.height) {
-            travel[node.id] = Travel(top: top, time: now)
+        // A step longer than the port that the travel so far doesn't predict
+        // is a jump, not travel: nothing to lead. A fast fling moves more
+        // than a small port each frame (an inner strip at 96k pt/s): the
+        // step after a jump that repeats it is travel, which the fill leads.
+        let port = horizontal ? scroll.bounds.width : scroll.bounds.height
+        let predicted = CGFloat((t.velocity != 0 ? t.velocity : t.step) * max(elapsed, 0))
+        if abs(delta) > port && abs(delta - predicted) > port {
+            travel[node.id] = Travel(top: top, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0)
             return
         }
         if delta != 0, elapsed > 0 {
@@ -117,11 +124,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func requestFill() { scheduleAfterScroll(); start() }
     /// Build each owed collection's rows for this slice: as many as its
     /// measured per-row cost fits, at least one, and at least what the next
-    /// two frames of travel uncover — so the scroll callback that follows
-    /// finds its rows built instead of building them itself. A turn that
-    /// has already spent half its frame before the slice builds nothing
-    /// while the next frame's travel is covered: its rows wait for the next
-    /// slice, which builds them, rather than making this frame late.
+    /// three frames of travel uncover — so the scroll callback that follows
+    /// finds its rows built instead of building them itself. The slice runs
+    /// after its frame's update, so its rows first show a frame later than
+    /// the travel it answers. A turn that has already spent half its frame
+    /// before the slice builds nothing while the next two frames' travel is
+    /// covered: its rows wait for the next slice rather than making this
+    /// frame late.
     @discardableResult
     private func fillCollections(deadline: TimeInterval) -> Int {
         guard let p = presenter else { return 0 }
@@ -131,8 +140,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         for id in p.collections.fillPending.sorted() {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
-            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
-            if spent && p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval)) == 0 {
+            // What this slice builds commits with the next frame, after
+            // that frame's offset: the frames it serves are the two after.
+            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 3))
+            if spent && p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2)) == 0 {
                 fillDeferred = true; continue
             }
             let created = p.collections.fillSlice(id, limit: max(1, fits, needed))
