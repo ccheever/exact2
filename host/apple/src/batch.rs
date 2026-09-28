@@ -506,7 +506,13 @@ impl Batch {
         error: Option<&str>,
     ) -> String {
         let timers = timer_due_ms.is_some();
-        let mut s = String::from("{\"ops\":[");
+        // One allocation for the ops, which a list row's mount makes by the
+        // hundred: growing the string as it went copied it a dozen times.
+        let ops: usize = self.ops.iter().map(|op| op.len() + 1).sum();
+        let mut s = String::with_capacity(
+            ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
+        );
+        s.push_str("{\"ops\":[");
         for (i, op) in self.ops.iter().enumerate() {
             if i != 0 {
                 s.push(',');
