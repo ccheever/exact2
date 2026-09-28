@@ -163,15 +163,15 @@ component InteractionGallery
                 column gap=6
                   text "Places to pause." font-size=32 font-weight=600 color=theme.ink
                   text "Six studies in light, texture and distance. Open a photograph to look a little closer." font-size=14 color=theme.muted
+                row flex-wrap="wrap" gap=18 align-items="flex-start"
+                  each photo in rows key=photo.id
+                    PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
                 column gap=8 testId="swipe-list"
                   text "Swipe a study aside to reveal what it keeps." font-size=12 color=theme.muted
                   SwipeRow(n=1)
                   SwipeRow(n=2)
                   SwipeRow(n=3)
                   SwipeRow(n=4)
-                row flex-wrap="wrap" gap=18 align-items="flex-start"
-                  each photo in rows key=photo.id
-                    PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
                 when gallery.total == 0
                   text "A clean slate. Add a study or reset your collection." font-size=18 color=theme.muted
         when gallery.mode == "reorder"
