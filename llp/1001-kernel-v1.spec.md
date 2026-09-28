@@ -338,6 +338,38 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   instead (`issues/20260927-tab-bar-height-to-layout.md`); until that lands,
   this overflow is the deviation.
 
+**Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
+D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a
+timeline on a scroller (`scroll-timeline`) or on a box's visibility
+(`view-timeline`), and has none a gesture drives. This row takes `none |
+<dashed-ident> [x | y]?` and names a timeline whose position is the node's
+presented `translate` on the axis (`y` if unsaid): the held value while a drag
+holds it, then the spring the drag hands off to. The reason: a follower, such
+as a backdrop fading with a dismiss drag, must be a function of its source as
+presented, in the frame the source moves, with no app code per frame, and no
+CSS timeline has a drag as its source (LLP 1057.002 §6.10).
+- **The consumer's rows are CSS's**, `animation-timeline` (bit 151) and
+  `animation-range` (bit 152), in a subset: `auto | <dashed-ident>`, and
+  `normal | <length> <length>`. A drag has no scroll range for `cover`,
+  `contain` or percentages to name. `normal` leaves the node on the clock.
+- **The mapping is a scroll timeline's.** The range spans the animation's
+  delay and active interval together, unclamped, so its fill decides outside
+  the range. The parity fixture holds this to Chrome's CSS scroll timelines
+  (`host/web/tests/fixtures/browser-motion.txt`, the `tl-` cases).
+- **Paint rows only (Q1).** The compiler refuses a bound animation whose
+  keyframes animate a layout or geometry row (`lower-timeline-row`). An SVG
+  element takes no timeline yet.
+- **An endless animation is refused** (`lower-timeline-endless`). CSS gives
+  it no duration on a progress-based timeline and shows its end; a computed
+  one that reaches a host holds its start.
+- **Names are global** until `timeline-scope` (D4, phase 3).
+- **Without a source, the start.** A timeline whose source is absent holds
+  its consumer at the range start. CSS would leave the animation without
+  effect.
+- **The web lowers no timeline.** The consumer's CSS animation is paused and
+  seeked where the drag writes its held value, and once per frame while a
+  release spring runs; phase 2 (D3) removes that per-frame seek.
+
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:
