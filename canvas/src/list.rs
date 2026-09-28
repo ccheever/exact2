@@ -19,6 +19,8 @@
 //! renumbered: a new one takes the next free number and bumps [`VERSION`]
 //! only when an existing record changes meaning.
 
+use exact_num::{Fixed, Shortest};
+
 /// The first four bytes, `EC2D` read as a little-endian u32.
 pub const MAGIC: u32 = u32::from_le_bytes(*b"EC2D");
 /// The format's version.
@@ -342,7 +344,7 @@ pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
             Err(Malformed(format!(
                 "{} names object {} before it was created",
                 r.op.name(),
-                r.at(at)
+                Shortest(r.at(at))
             )))
         };
         match r.op {
@@ -354,11 +356,18 @@ pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
             }
             Op::Pattern if !known(r.at(1), ids) => return unknown(1),
             Op::Pattern if r.at(2) > 3.0 => {
-                return Err(Malformed(format!("Pattern repetition {}", r.at(2))))
+                return Err(Malformed(format!(
+                    "Pattern repetition {}",
+                    Shortest(r.at(2))
+                )))
             }
             Op::Pattern => ids.push(r.at(0) as u32),
             Op::ImageSmoothing if r.at(0) > 1.0 || r.at(1) > 2.0 => {
-                return Err(Malformed(format!("ImageSmoothing {} {}", r.at(0), r.at(1))))
+                return Err(Malformed(format!(
+                    "ImageSmoothing {} {}",
+                    Shortest(r.at(0)),
+                    Shortest(r.at(1))
+                )))
             }
             Op::DrawImage if !known(r.at(0), ids) => return unknown(0),
             Op::FillGradient
@@ -386,12 +395,12 @@ pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
                 return Err(Malformed(format!("PutImageData with {} operands", r.len())))
             }
             Op::Composite if r.at(0) as usize >= crate::COMPOSITE.len() => {
-                return Err(Malformed(format!("composite {}", r.at(0))))
+                return Err(Malformed(format!("composite {}", Shortest(r.at(0)))))
             }
             Op::LineCap | Op::LineJoin | Op::Fill | Op::Clip | Op::FillPath | Op::ClipPath
                 if r.at(0) > 2.0 =>
             {
-                return Err(Malformed(format!("{} {}", r.op.name(), r.at(0))))
+                return Err(Malformed(format!("{} {}", r.op.name(), Shortest(r.at(0)))))
             }
             _ => {}
         }
@@ -449,7 +458,7 @@ pub fn describe(bytes: &[u8], max_lines: usize, max_bytes: usize) -> Vec<String>
 }
 
 fn trim(v: f64) -> String {
-    let s = format!("{:.3}", v);
+    let s = Fixed(v, 3).to_string();
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s == "-0" {
         "0".into()

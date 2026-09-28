@@ -765,8 +765,10 @@ if (long) {
 // table with it; they read through exact-num (std's bits), 12.2–13.0 KiB. Then
 // wasm-opt's `--low-memory-unused` (host/web/build.mjs), 0.7–1.0 KiB; then
 // `text-transform` linked by use (a select's option labels had pulled its
-// Unicode case tables into every core), 3.3–6.1 KiB.
-const WEB_CORE_KIB = { realworld: 295, 'video-player': 240, caltrain: 306 };
+// Unicode case tables into every core), 3.3–6.1 KiB; then Canvas 2D's list
+// checks print their numbers through exact-num, and core's Grisu and Dragon
+// leave Caltrain's, 5.0 KiB.
+const WEB_CORE_KIB = { realworld: 295, 'video-player': 240, caltrain: 301 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
