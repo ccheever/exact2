@@ -942,7 +942,14 @@ if (caltrainFixture) {
       // origin (LLP 1035.002 D4), not all pixels outside the viewport as a title bar.
       const top = host === 'ios' ? Math.round(l.screen.y * scale) : image.height - Math.round(l.viewport.h * scale);
       const region = crop(image, Math.round(sky.x * scale), top + Math.round(sky.y * scale), Math.round(sky.w * scale), Math.round(sky.h * scale));
-      const reference = resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.png`);
+      // The picture depends on the screen: a 1x display (a Mac on a plain
+      // monitor) and an iPad's wider canvas are other pictures, not worse
+      // ones. The plain name is the reference at its own size; another
+      // size has its own, named by its pixels.
+      const plainRef = resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.png`);
+      const plainSize = existsSync(plainRef) ? decodePng(readFileSync(plainRef)) : null;
+      const reference = !plainSize || (plainSize.width === region.width && plainSize.height === region.height) ? plainRef
+        : resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.${region.width}x${region.height}.png`);
       if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
       else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: bun scripts/smoke.mjs ${host} --record-canvas`);
       else {
