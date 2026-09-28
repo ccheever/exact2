@@ -1,0 +1,322 @@
+// Spark — a swipe deck, written as a web page writes one: a stack of
+// absolutely positioned cards whose `translate` and `rotate` follow the
+// finger, and CSS transitions that carry them home or off the screen.
+//
+// Nothing is measured back from layout. The card's width is a formula over
+// `exactViewport()`'s width, the same one its `width` row uses, so the throw
+// threshold and the off-screen distance are computed from what the layout
+// was told, never from what it produced.
+//
+// A thrown card is not removed at once: the deck renders the card before
+// the top one too (`pos == -1`), parked off-screen in the direction it went.
+// That is what lets a throw and an undo both be one commit — the same keyed
+// node changes its `translate`, and its transition animates the change —
+// with no timer to take the card away afterwards.
+
+routes nav
+  tab home "/"
+
+shape Viewport
+  width: number
+  height: number
+
+// One person, fields in the order the data crate writes them.
+shape Profile
+  id: string
+  n: number
+  name: string
+  age: number
+  job: string
+  distance: string
+  bio: string
+  likesYou: bool
+  photos: list<string>
+  interests: list<string>
+
+// A decision is 1 (nope), 2 (like) or 3 (super like). The deck's history is
+// a stack of them in base 4, the latest in the lowest digit, so an undo can
+// pop one and a parked card knows which way it left.
+fn lastOf(stack: number): number = stack - floor(stack / 4) * 4
+fn unit(v: number): number = min(max(v, 0), 1)
+fn magnitude(v: number): number = max(v, 0 - v)
+
+// What a release decides, from where the card is and how fast it was going:
+// up past the threshold (and more up than sideways) is a super like, then
+// right is a like, left a nope, and anything else springs back (0).
+fn verdict(x: number, y: number, vx: number, vy: number, at: number): number = (0 - y > magnitude(x) and (0 - y > at or vy < -800)) ? 3 : ((x > at or vx > 800) ? 2 : ((x < 0 - at or vx < -800) ? 1 : 0))
+
+// A card's travel: the top one's release rides a spring home (or back in,
+// after an undo); a thrown card flies out on an ease-out curve.
+fn cardTransition(pos: number, dragging: bool): string = (pos == -1 or not dragging) ? (pos == 0 ? "translate spring(260, 22, 1), rotate spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
+
+// The palette: the brand's pink, the page and its two inks. The verdict
+// colours (nope red, like green, super-like blue, undo gold) are written
+// where each is used, on its button and its stamp.
+style Brand
+  color="#fd297b"
+
+style Ink
+  color="#21262e"
+
+style Muted
+  color="#7c8591"
+
+style Page
+  background-color="#f4f5f7"
+  color="#21262e"
+
+component Spark
+  resource profiles = profiles() as shape list<Profile>
+  resource viewport = exactViewport() as shape Viewport
+
+  // The top card's index, and where the finger has moved it.
+  state index = 0
+  state x = 0
+  state y = 0
+  // True from a drag's first movement to its release: transitions are off
+  // while the finger holds the card and on for the commit that lets go.
+  state dragging = false
+  // The top card's photo, and the thrown card's (kept while it flies).
+  state photo = 0
+  state flungPhoto = 0
+  state flungY = 0
+  state stack = 0
+  state likes = 0
+  // The profile a like matched, or -1.
+  state matched = -1
+
+  derive count = length(profiles)
+  derive cardWidth = min(viewport.width - 24, 420)
+  derive throwAt = cardWidth * 0.3
+  derive offX = viewport.width / 2 + cardWidth
+  derive offY = viewport.height
+  derive lastDir = lastOf(stack)
+  // The parked card, the top, the next and the one after it (hidden until
+  // it moves up), each keyed by id so a card keeps its node as it rises.
+  derive deck = filter(profiles, (p, i) => i >= index - 1 and i <= index + 2)
+  derive topLikesYou = length(filter(profiles, (p, i) => i == index and p.likesYou)) > 0
+  // How far the top card is towards a decision, 0 to 1: the next card grows
+  // with it, so it is already full size when the top one leaves.
+  derive progress = unit(max(magnitude(x), 0 - y) / throwAt)
+
+  action drag(dx: number, dy: number) writes x, y, dragging
+    if index < count
+      x = x + dx
+      y = y + dy
+      dragging = true
+
+  // Every way a card leaves: a release (`panrelease` appends its velocity to
+  // `forced` = 0) or a button (`forced` names the decision, velocity 0).
+  action settle(forced: number, vx: number, vy: number) writes index, x, y, dragging, photo, flungPhoto, flungY, stack, likes, matched
+    dragging = false
+    if index < count
+      if forced == 0 and verdict(x, y, vx, vy, throwAt) == 0
+        x = 0
+        y = 0
+      else
+        stack = stack * 4 + (forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced)
+        likes = likes + ((forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced) >= 2 ? 1 : 0)
+        matched = ((forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced) >= 2 and topLikesYou) ? index : -1
+        flungY = y
+        flungPhoto = photo
+        photo = 0
+        index = index + 1
+        x = 0
+        y = 0
+
+  // The last decision, taken back: its card, parked off-screen, becomes the
+  // top again, and its transition brings it back in.
+  action undo writes index, stack, likes, matched, x, y, photo, dragging
+    if index > 0
+      likes = likes - (lastDir >= 2 ? 1 : 0)
+      stack = floor(stack / 4)
+      index = index - 1
+      matched = -1
+      x = 0
+      y = 0
+      photo = 0
+      dragging = false
+
+  action restart writes index, stack, likes, matched, x, y, photo, dragging
+    index = 0
+    stack = 0
+    likes = 0
+    matched = -1
+    x = 0
+    y = 0
+    photo = 0
+    dragging = false
+
+  action keepSwiping writes matched
+    matched = -1
+
+  action nextPhoto(total: number) writes photo
+    photo = min(photo + 1, total - 1)
+  action prevPhoto writes photo
+    photo = max(photo - 1, 0)
+
+  view
+    // Full bleed, as an iPhone draws a web app with `viewport-fit=cover`:
+    // the page's colour reaches under the status bar and home indicator,
+    // and the content keeps inside the safe areas.
+    main testId="spark" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" class=Page font-family="system-ui" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+      Header(likes=likes)
+      column testId="stage" flex=1 min-height=0 position="relative"
+        when index >= count
+          EmptyDeck(restart=restart)
+        each p in deck key=p.id
+          Card(p=p, pos=(p.n - index), x=x, y=y, dragging=dragging, photo=(p.n == index ? photo : (p.n == index - 1 ? flungPhoto : 0)), cardWidth=cardWidth, progress=progress, lastDir=lastDir, offX=offX, offY=offY, flungY=flungY, drag=drag, settle=settle, nextPhoto=nextPhoto, prevPhoto=prevPhoto)
+      row testId="actions" flex-shrink=0 justify-content="center" align-items="center" gap=18 padding-top=10 padding-bottom=18
+        RoundButton(testId="btn-undo", label="Undo", size=48, glyph=24, color="#f5b83d", path="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z", off=(index == 0), press=undo)
+        RoundButton(testId="btn-nope", label="Nope", size=64, glyph=32, color="#ff4458", path="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z", off=(index >= count), press=settle(1, 0, 0))
+        RoundButton(testId="btn-super", label="Super like", size=48, glyph=24, color="#2ea8ff", path="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z", off=(index >= count), press=settle(3, 0, 0))
+        RoundButton(testId="btn-like", label="Like", size=64, glyph=32, color="#1fd18a", path="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", off=(index >= count), press=settle(2, 0, 0))
+      each p in filter(profiles, (q, i) => i == matched) key=p.id
+        MatchOverlay(p=p, keepSwiping=keepSwiping)
+      head description="Swipe right to like, left to pass."
+
+// The wordmark and the like counter.
+component Header
+  props
+    likes: number
+  view
+    row testId="header" flex-shrink=0 height=52 padding-left=18 padding-right=18 align-items="center" justify-content="space-between"
+      row align-items="center" gap=4
+        svg width=28 height=28 viewBox="0 0 24 24"
+          defs
+            linearGradient id="brand-flame" x1=0 y1=0 x2=1 y2=1
+              stop offset=0 stop-color="#fd297b"
+              stop offset=1 stop-color="#ff7854"
+          path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="url(#brand-flame)"
+        text "spark" testId="wordmark" font-size=28 font-weight=800 letter-spacing=-1 class=Brand
+      row testId="like-counter" align-items="center" gap=6 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=999 background-color="#ffffff" box-shadow="0 2px 8px rgba(0, 0, 0, 0.08)"
+        svg width=16 height=16 viewBox="0 0 24 24"
+          path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="#fd297b"
+        text `${likes}` testId="like-count" font-size=15 font-weight=700 class=Ink font-variant-numeric="tabular-nums"
+
+// One card of the deck. `pos` is its place relative to the top: -1 parked
+// off-screen where it was thrown, 0 the top, 1 the next (peeking under it),
+// 2 hidden behind that. Every card carries the same handlers; only the top
+// one is ever under a finger.
+component Card
+  props
+    p: Profile
+    pos: number
+    x: number
+    y: number
+    dragging: bool
+    photo: number
+    cardWidth: number
+    progress: number
+    lastDir: number
+    offX: number
+    offY: number
+    flungY: number
+    drag: action
+    settle: action
+    nextPhoto: action
+    prevPhoto: action
+  derive tx = pos == 0 ? x : (pos == -1 ? (lastDir == 1 ? 0 - offX : (lastDir == 2 ? offX : 0)) : 0)
+  derive ty = pos == 0 ? y : (pos == -1 ? (lastDir == 3 ? 0 - offY : flungY) : (pos == 1 ? 14 * (1 - progress) : 14))
+  derive stampAt = cardWidth * 0.25
+  derive shown = match first(filter(p.photos, (u, i) => i == photo)) { case some(u) => u, case none => "" }
+  view
+    column testId=(pos == 0 ? "card-top" : `card-${p.id}`) aria-label=`${p.name}, ${p.age}` position="absolute" top=8 bottom=8 left=`calc(50% - ${cardWidth / 2}px)` width=cardWidth z-index=(pos == -1 ? 3 : (pos == 0 ? 2 : 1)) display="flex" flex-direction="column" overflow="hidden" border-radius=18 background-color="#2b2f36" box-shadow="0 10px 28px rgba(20, 24, 31, 0.18)" translate=`${tx}px ${ty}px` rotate=(tx * 0.06) scale=(pos <= 0 ? 1 : (pos == 1 ? 0.94 + 0.06 * progress : 0.94)) opacity=(pos == 2 ? 0 : 1) transition=cardTransition(pos, dragging)
+      image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="#2b2f36"
+      column position="absolute" left=0 right=0 bottom=0 height="60%" background-image="linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.9))"
+      row position="absolute" top=8 left=10 right=10 gap=4 testId=(pos == 0 ? "photo-pips" : `pips-${p.id}`)
+        each u in p.photos key=u
+          column flex=1 height=4 border-radius=2 background-color="#ffffff" opacity=(shown == u ? 1 : 0.4)
+      Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="#1fd18a", tilt=-16, shown=(pos == 0 ? unit(x / stampAt) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
+      Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="#ff4458", tilt=16, shown=(pos == 0 ? unit((0 - x) / stampAt) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
+      Stamp(testId=(pos == 0 ? "stamp-super" : `super-${p.id}`), label="SUPER LIKE", color="#2ea8ff", tilt=-8, shown=(pos == 0 ? unit((0 - y) / stampAt) : (pos == -1 and lastDir == 3 ? 1 : 0)), dragging=dragging, top=150, left=(cardWidth / 2 - 100))
+      // The photo's halves page through the photos on a tap and drag the card
+      // otherwise: `pan` and `press` on one node (LLP 1057.001 §1 rule 4), not
+      // a press inside a panning card, which would keep the contact (rule 3).
+      row flex=1 min-height=0
+        column testId=(pos == 0 ? "photo-left" : `left-${p.id}`) aria-label="Previous photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=prevPhoto
+        column testId=(pos == 0 ? "photo-right" : `right-${p.id}`) aria-label="Next photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=nextPhoto(length(p.photos))
+      column testId=(pos == 0 ? "card-info" : `info-${p.id}`) flex-shrink=0 padding-left=18 padding-right=18 padding-bottom=18 padding-top=8 gap=6 touch-action="none" pan=drag panrelease=settle(0)
+        row align-items="baseline" gap=10
+          text p.name testId=(pos == 0 ? "top-name" : `name-${p.id}`) font-size=32 font-weight=800 color="#ffffff" letter-spacing=-0.5
+          text `${p.age}` font-size=26 font-weight=400 color="#ffffff"
+        Detail(path="M10 2h4a2 2 0 0 1 2 2v2h4a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4V4a2 2 0 0 1 2-2zm4 4V4h-4v2h4z", label=p.job)
+        Detail(path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z", label=p.distance)
+        text p.bio font-size=15 line-height=1.35 color="rgba(255, 255, 255, 0.92)" line-clamp=2 text-overflow="ellipsis" overflow="hidden"
+        row flex-wrap="wrap" gap=6 padding-top=4
+          each tag in p.interests key=tag
+            text tag font-size=13 font-weight=600 color="#ffffff" padding-left=10 padding-right=10 padding-top=5 padding-bottom=5 border-radius=999 background-color="rgba(255, 255, 255, 0.18)" border-width=1 border-style="solid" border-color="rgba(255, 255, 255, 0.35)"
+
+// A line of the card's details: a small glyph and its text.
+component Detail
+  props
+    path: string
+    label: string
+  view
+    row align-items="center" gap=6
+      svg width=15 height=15 viewBox="0 0 24 24" flex-shrink=0
+        path d=path fill="rgba(255, 255, 255, 0.85)"
+      text label font-size=15 color="rgba(255, 255, 255, 0.92)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+
+// LIKE, NOPE and SUPER LIKE: a rubber stamp that fades in with the drag.
+component Stamp
+  props
+    testId: string
+    label: string
+    color: string
+    tilt: number
+    shown: number
+    dragging: bool
+    top: number
+    left: number
+  view
+    text label testId=testId position="absolute" top=top left=left width=(label == "SUPER LIKE" ? 200 : 138) box-sizing="border-box" text-align="center" font-size=(label == "SUPER LIKE" ? 30 : 38) font-weight=900 letter-spacing=2 color=color padding-top=2 padding-bottom=2 border-width=4 border-style="solid" border-color=color border-radius=10 rotate=tilt opacity=shown pointer-events="none" transition=(dragging ? "none" : "opacity 180ms ease-out")
+
+// A round white button with a coloured glyph.
+component RoundButton
+  props
+    testId: string
+    label: string
+    size: number
+    glyph: number
+    color: string
+    path: string
+    off: bool
+    press: action
+  view
+    button testId=testId aria-label=label press=press disabled=off press-scale=0.9 width=size height=size flex-shrink=0 border-radius=999 border-width=0 padding=0 display="flex" align-items="center" justify-content="center" background-color="#ffffff" box-shadow="0 6px 18px rgba(20, 24, 31, 0.12)" opacity=(off ? 0.45 : 1) transition="opacity 200ms ease-out"
+      svg width=glyph height=glyph viewBox="0 0 24 24"
+        path d=path fill=color
+
+// The end of the deck.
+component EmptyDeck
+  props
+    restart: action
+  view
+    column testId="empty-deck" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" gap=14 padding=32
+      svg width=64 height=64 viewBox="0 0 24 24"
+        path d="M12 1.5C13 6 19.5 8.5 19.5 14.5C19.5 19 16 22.5 12 22.5C8 22.5 4.5 19 4.5 14.5C4.5 11.5 6 9.5 8 8.5C8 10.5 8.5 12 9.5 12.5C9.5 8 10.5 4 12 1.5Z" fill="#ffd0dc"
+      text "You've seen everyone nearby" font-size=20 font-weight=700 class=Ink text-align="center"
+      text "Check back later, or start over from the top of the deck." font-size=15 class=Muted text-align="center" max-width=260
+      button testId="start-over" press=restart press-scale=0.96 padding-left=28 padding-right=28 padding-top=13 padding-bottom=13 border-width=0 border-radius=999 background-image="linear-gradient(90deg, #fd297b, #ff655b)" box-shadow="0 6px 16px rgba(253, 41, 123, 0.3)"
+        text "Start over" font-size=16 font-weight=700 color="#ffffff"
+
+keyframes pop
+  from opacity=0 scale=0.85
+
+keyframes fade
+  from opacity=0
+
+// "It's a match!", over everything, until "Keep swiping".
+component MatchOverlay
+  props
+    p: Profile
+    keepSwiping: action
+  view
+    column testId="match-overlay" role="dialog" aria-label="It's a match" position="absolute" top=0 left=0 right=0 bottom=0 z-index=10 align-items="center" justify-content="center" gap=22 padding=32 background-image="linear-gradient(160deg, rgba(253, 41, 123, 0.94), rgba(255, 101, 91, 0.94) 55%, rgba(255, 138, 61, 0.94))" animation="fade 220ms ease-out both"
+      column align-items="center" gap=22 animation="pop 420ms cubic-bezier(.2, .9, .3, 1.2) both"
+        text "It's a match!" testId="match-title" font-size=44 font-weight=900 font-style="italic" letter-spacing=-1 color="#ffffff" text-align="center"
+        text `You and ${p.name} like each other.` font-size=17 color="#ffffff" text-align="center"
+        image (match first(p.photos) { case some(u) => u, case none => "" }) aria-label=`Photo of ${p.name}` width=168 height=168 border-radius=999 object-fit="cover" border-width=5 border-style="solid" border-color="#ffffff" box-shadow="0 12px 30px rgba(0, 0, 0, 0.25)" testId="match-photo"
+        button testId="keep-swiping" press=keepSwiping press-scale=0.96 padding-left=36 padding-right=36 padding-top=14 padding-bottom=14 border-radius=999 border-width=2 border-style="solid" border-color="#ffffff" background-color="rgba(255, 255, 255, 0.12)"
+          text "Keep swiping" font-size=17 font-weight=700 color="#ffffff"

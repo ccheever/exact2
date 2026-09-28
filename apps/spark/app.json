@@ -1,0 +1,48 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Spark",
+  "short_name": "Spark",
+  "id": "com.ccheever.spark",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#fd297b",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.ccheever.spark",
+    "name": "Spark"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 800,
+        "minWidth": 340,
+        "minHeight": 600
+      }
+    },
+    "linux": {},
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

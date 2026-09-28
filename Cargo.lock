@@ -3491,6 +3491,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "spark-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "spark-data",
+]
+
+[[package]]
+name = "spark-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "spark-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "spark-data",
+]
+
+[[package]]
+name = "spark-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "spark-data",
+]
+
+[[package]]
 name = "sparkline-apple"
 version = "0.1.0"
 dependencies = [

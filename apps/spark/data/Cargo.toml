@@ -1,0 +1,15 @@
+[package]
+name = "spark-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Spark's data source: the deck of profiles"
+publish = false
+
+[lib]
+name = "spark_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
