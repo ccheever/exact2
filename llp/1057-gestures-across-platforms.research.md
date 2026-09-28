@@ -794,7 +794,8 @@ and the rows, so it's a rule, not a composition. Proposed:
 - **Phase 2, each with a named consumer:**
   - `cursor`;
   - accessibility custom actions (WCAG 2.5.1/2.5.7 parity);
-  - `panrelease` velocity;
+  - `panrelease` velocity (built 2026-09-28 with Spark as its consumer;
+    LLP 1057.001 §6);
   - `longpress`;
   - web and AppKit `refresh` (llp/1054 X2), where the web answer is probably
     none, since browsers own document overscroll.

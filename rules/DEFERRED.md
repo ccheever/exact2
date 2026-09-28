@@ -332,6 +332,14 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   model.** Recognition, hit-testing, and scroll-vs-pan arbitration are the
   platform's (`touch-action`, `UIGestureRecognizer`); owning them is the
   permanent bug annuity LLP 0559 F1 describes. Scroll always wins.
+  **Expanded (Charlie, 2026-09-28: approved `panrelease`, with Spark as the
+  consumer LLP 1057 asked for):** `panrelease=action`, fired once when a `pan`
+  that began ends, with its release velocity (vx, vy) in pan's units per
+  second: the platform's where it measures one (UIKit), `VelocityTracker`'s
+  elsewhere; a cancelled contact releases at (0, 0) (LLP 1057.001 §6).
+  Unblocks throwing what a `pan` drags by state, a card flung off a stack
+  (`apps/spark`, admitted with it). Take: none: this is 1057 phase 2's item
+  with its consumer. Still no phases, pointer ids or per-frame callbacks.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
