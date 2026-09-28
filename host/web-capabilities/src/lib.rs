@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod auth;
 pub mod backdrop;
 pub mod canvas_colors;
 pub mod collections;
@@ -47,5 +48,6 @@ pub const ALL: exact_web::Linked = linked!(
     inspection,
     canvas_colors,
     materials,
-    backdrop
+    backdrop,
+    auth
 );

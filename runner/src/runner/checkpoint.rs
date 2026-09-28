@@ -56,6 +56,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             launch,
         )
+        .map(Runner::linking_every_device)
     }
 
     /// [`Runner::boot_checkpoint`], with what the host links (LLP 1047 D3).

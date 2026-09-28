@@ -14,6 +14,14 @@ use exact_runner::{DataSource, RequestOut};
 impl<D: DataSource> Host<D> {
     /// Hand an `exact-auth:` request to the page, kept until it asks.
     pub(super) fn emit_auth(&mut self, r: RequestOut, batch: &mut Batch) {
+        // An artifact that doesn't link auth grants none (its app declares
+        // no `auth.session`): the session is refused, as the grant check
+        // would refuse it (LLP 1069.006 D1).
+        if self.auth_word.is_none() {
+            let why =
+                "openAuthSession is not linked into this artifact: the app grants no auth.session";
+            return auth::settle(&mut self.runner, r.ticket, 403, why);
+        }
         batch.auth(r.ticket);
         self.auth_out.retain(|o| self.runner.holds(o.ticket));
         self.auth_out.push(r);
@@ -26,6 +34,14 @@ impl<D: DataSource> Host<D> {
     /// `{"op":"done","ticket","url"}` or `{…,"status","message"}` →
     /// `{"settled":true}`.
     pub fn auth(&mut self, json: &str) -> String {
+        match self.auth_word {
+            Some(word) => word(self, json),
+            None => exact_runner::agent::error("openAuthSession is not linked into this artifact"),
+        }
+    }
+
+    /// [`Host::auth`], when the artifact links auth.
+    pub(crate) fn auth_linked(&mut self, json: &str) -> String {
         use exact_runner::agent::{field_bool, field_num, field_str, quote};
         let ticket = field_num(json, "ticket").unwrap_or(0.0) as u64;
         match field_str(json, "op").as_deref() {

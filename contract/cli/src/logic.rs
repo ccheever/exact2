@@ -86,6 +86,17 @@ fn names_wide_colors() -> bool {
     scan(&data)
 }
 
+/// Whether the bake's grant ceiling (every source's grants, LLP 1027.001)
+/// names `capability`: a device capability its sources may use (LLP 1069),
+/// linked by that grant, since no plan row says so.
+fn grants(inputs: &serde_json::Value, capability: &str) -> bool {
+    inputs["grantCeiling"].as_str().is_some_and(|ceiling| {
+        ceiling
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some(capability))
+    })
+}
+
 /// The web entry's `EXACT_LINKED` (LLP 1047 D3): the capabilities `plan`
 /// uses, each registered from `exact-web-capabilities`, so the linker drops
 /// the rest. A development build links every capability (D7): the dev loop
@@ -117,6 +128,7 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
         .map(|c| c.name())
         .chain(["inspection"])
         .chain((all || names_wide_colors()).then_some("canvas_colors"))
+        .chain((all || grants(inputs, "auth.session")).then_some("auth"))
         .collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
     entry.push_str(&format!("/// Whether a running page can take a new data module (LLP 1029.000).\nconst EXACT_REPLACEMENT: bool = {replacement};\n"));

@@ -41,6 +41,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             launch,
         )
+        .map(Runner::linking_every_device)
     }
 
     /// Boot with complete host delivery facts before any resource settles.
@@ -67,6 +68,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             launch,
         )
+        .map(Runner::linking_every_device)
     }
 
     /// [`Runner::boot_with_delivery`], with what the host links (LLP 1047 D3).

@@ -28,7 +28,9 @@ pub use source::{
 };
 mod delivery;
 mod device;
+mod device_links;
 pub use device::{Hold, HoldAnswer};
+pub use device_links::{AuthLinks, DeviceLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
 mod kept;
@@ -390,6 +392,8 @@ pub struct Runner<D: DataSource> {
     device_holds: Vec<device::Hold>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
+    /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
+    device_links: DeviceLinks<D>,
     /// The view whose event is being dispatched, stamped on the commands
     /// its action issues (LLP 1069.003 D3).
     input_source: Option<ViewId>,
@@ -465,6 +469,12 @@ pub const MAX_CLOCK_MS: f64 = 9_007_199_254_740_991.0;
 pub const TIMER_FIRE_LIMIT: usize = 4096;
 
 impl<D: DataSource> Runner<D> {
+    /// This runner, linking every device capability: the plain boots'.
+    pub(crate) fn linking_every_device(mut self) -> Self {
+        self.device_links = DeviceLinks::ALL;
+        self
+    }
+
     /// Boot: refuse a plan built against another kernel schema, evaluate
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
@@ -486,6 +496,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             launch,
         )
+        .map(Runner::linking_every_device)
     }
 
     /// Boot a new plan with the state of an old runner (a dev reload that
@@ -513,6 +524,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             launch,
         )
+        .map(Runner::linking_every_device)
     }
 
     /// Everything a reload keeps.
@@ -750,6 +762,7 @@ impl<D: DataSource> Runner<D> {
             journal: std::collections::VecDeque::new(),
             device_holds: Vec::new(),
             auth: Default::default(),
+            device_links: DeviceLinks::CORE,
             input_source: None,
             journal_start: 0,
             flow_warned: Default::default(),

@@ -179,7 +179,11 @@ impl<D: DataSource> Runner<D> {
             // An auth callback is checked as a host checks a completion
             // (LLP 1069.006 D3, D7), before the hold is spent.
             HoldAnswer::Value(v) if hold.capability == "auth" => {
-                if let Err(e) = crate::auth::check_answer(self, ticket, v) {
+                let checked = self.device_links.auth.map_or(
+                    Err("openAuthSession is not linked into this artifact".into()),
+                    |auth| (auth.check_answer)(self, ticket, v),
+                );
+                if let Err(e) = checked {
                     return Err(format!("@{ticket} (auth): {e}"));
                 }
                 "answered: a callback".to_owned()

@@ -133,6 +133,10 @@ pub struct HostLinks<D: DataSource> {
     pub drag: Option<DragHooks<D>>,
     /// The agent API's reads (LLP 1012): `exact_runner::agent::handle`.
     pub inspect: Option<fn(&Runner<D>, &str) -> String>,
+    /// The runner's device capabilities (LLP 1069, linked by use).
+    pub device: exact_runner::DeviceLinks<D>,
+    /// The page's word on an auth session (LLP 1069.006 D4): `auth.rs`.
+    pub auth: Option<fn(&mut Host<D>, &str) -> String>,
 }
 
 impl<D: DataSource> Clone for HostLinks<D> {
@@ -148,12 +152,16 @@ impl<D: DataSource> HostLinks<D> {
     pub const ALL: HostLinks<D> = HostLinks {
         drag: Some(DragHooks::LINKED),
         inspect: Some(exact_runner::agent::handle::<D>),
+        device: exact_runner::DeviceLinks::ALL,
+        auth: Some(Host::<D>::auth_linked),
     };
 
     /// The core alone.
     pub const CORE: HostLinks<D> = HostLinks {
         drag: None,
         inspect: None,
+        device: exact_runner::DeviceLinks::CORE,
+        auth: None,
     };
 
     /// What `linked` names.
@@ -166,6 +174,18 @@ impl<D: DataSource> HostLinks<D> {
             },
             inspect: if linked.inspection {
                 Some(exact_runner::agent::handle::<D>)
+            } else {
+                None
+            },
+            device: exact_runner::DeviceLinks {
+                auth: if linked.auth {
+                    Some(exact_runner::AuthLinks::LINKED)
+                } else {
+                    None
+                },
+            },
+            auth: if linked.auth {
+                Some(Host::<D>::auth_linked)
             } else {
                 None
             },
@@ -274,6 +294,8 @@ pub struct Host<D: DataSource> {
     drag: Option<DragHooks<D>>,
     /// The agent API's reads, when the artifact links inspection.
     inspect: Option<fn(&Runner<D>, &str) -> String>,
+    /// The page's word on an auth session, when the artifact links auth.
+    auth_word: Option<fn(&mut Host<D>, &str) -> String>,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -425,6 +447,8 @@ impl<D: DataSource> Host<D> {
         mut batch: Batch,
         computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
+        let mut runner = runner;
+        runner.set_device_links(links.device);
         let font_names = font_names(runner.plan());
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
@@ -441,6 +465,7 @@ impl<D: DataSource> Host<D> {
             reorder_drags: reorder_drag::ReorderDrags::new()?,
             drag: links.drag,
             inspect: links.inspect,
+            auth_word: links.auth,
             now_ms: 0.0,
             font_names,
             font_catalog,

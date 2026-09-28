@@ -51,6 +51,9 @@ pub struct Linked {
     pub materials: Option<Materials>,
     /// `backdrop-filter`'s grammar (LLP 1053.000 D1): linked at [`link`].
     pub backdrop: Option<fn()>,
+    /// `openAuthSession` (LLP 1069.006): linked when the app grants
+    /// `auth.session`; [`crate::HostLinks::of`] reads it.
+    pub auth: bool,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -72,6 +75,7 @@ impl Linked {
         canvas_colors: None,
         materials: None,
         backdrop: None,
+        auth: false,
     };
 
     /// The capabilities registered here.
