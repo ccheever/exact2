@@ -12,9 +12,8 @@ final class SurfaceRecordTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let source = "shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `Count ${hud.beacons}`\n"
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let compiler = Process()
-        compiler.executableURL = root.appendingPathComponent("target/debug/contract")
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"], "build.mjs --test builds the Contract compiler and names it"))
         compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
         try compiler.run(); compiler.waitUntilExit()
         XCTAssertEqual(compiler.terminationStatus, 0)

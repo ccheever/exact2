@@ -84,9 +84,8 @@ final class SessionClockTimerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let source = "shape Preferences\n  prefersReducedMotion: bool\n  prefersReducedTransparency: bool\ncomponent App\n  resource prefs = exactViewport() as shape Preferences\n  view\n    column\n      text (prefs.prefersReducedMotion ? \"reduce motion\" : \"allow motion\")\n      text (prefs.prefersReducedTransparency ? \"reduce transparency\" : \"allow transparency\")\n"
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let compiler = Process()
-        compiler.executableURL = root.appendingPathComponent("target/debug/contract")
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"], "build.mjs --test builds the Contract compiler and names it"))
         compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
         try compiler.run(); compiler.waitUntilExit()
         XCTAssertEqual(compiler.terminationStatus, 0)

@@ -1279,6 +1279,10 @@ function test(args) {
     const libDir = ios ? resolve(app.target, iosTarget, 'release') : resolve(app.target, 'release');
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
     if (!ios) {
+      // Tests that compile their own Contract source run this compiler, built
+      // here as `cargo build` would, never assumed from an earlier build.
+      run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
+      env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
       runApple('swift', ['test', '--scratch-path', resolve(paths.namespace, 'tests')], {
         cwd: pkg, stdio: 'inherit', env: { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' },
       });
