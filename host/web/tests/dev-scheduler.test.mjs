@@ -12,11 +12,10 @@ const source = readFileSync(process.env.E2B_DEV_SOURCE || new URL('../dev.mjs', 
 test('static watcher follows immediate creation, in-place edits, and directory replacement', async () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-static-edits-'));
   const assets=join(dir,'assets'),outside=join(dir,'outside'),changes=[];
-  const watcher=watchStaticTrees(dir,[[assets,'assets']],change=>changes.push(change));
-  const until=async predicate=>{
-    for(let i=0;i<100;i++){if(predicate())return;await new Promise(r=>setTimeout(r,20));}
-    assert.ok(predicate(),`static edit was not observed: ${predicate}`);
-  };
+  let notify=()=>{};
+  const watcher=watchStaticTrees(dir,[[assets,'assets']],change=>{changes.push(change);notify();});
+  // Wait on the watcher's own reports, not a wall clock: the test's timeout is the hang bound.
+  const until=async predicate=>{while(!predicate())await new Promise(r=>{notify=r;});};
   const tree=()=>changes.some(c=>c.tree&&c.root===assets&&c.name==='assets');
   const leaf=name=>changes.some(c=>!c.tree&&c.relative===name&&c.name===`assets/${name}`);
   try {
@@ -46,7 +45,7 @@ test('static watcher follows immediate creation, in-place edits, and directory r
     writeFileSync(join(assets,'again.txt'),'after');
     await new Promise(r=>setTimeout(r,250));assert.deepEqual(changes,[]);
   } finally {watcher.close();rmSync(dir,{recursive:true,force:true});}
-});
+},30_000); // a hang bound; every wait above is on the watcher's reports
 test('dev edits clear only their own errors while unrelated failures stay visible', async () => {
   let stream, overlay, envelope, plan, seq=0, swapErrors=[];
   const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -55,6 +54,7 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     EventSource:class {constructor(){stream=this;}},
     document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};},querySelector(){return null;}},
     navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),
+    localStorage:{getItem:()=>'1',setItem(){}}, // the "Open in native" link was put away; the overlay is all this page shows
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),
     exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>true,
       gpu:{swap:async()=>({ms:0,errors:swapErrors})}},
@@ -308,19 +308,18 @@ test('declared source files report in-place edits after inclusion and replacemen
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
-      const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
+      let built=()=>{};const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();built();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+      return {changed,builds,build:()=>new Promise(r=>{built=r;}),add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
         has:path=>watched.has(path),close(){clearTimeout(timer);for(const record of watched.values())record.close();}};
     `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,watchFile,unwatchFile);
     const edit=async(path,text,atomic=false)=>{
-      const count=api.builds.length;
+      const count=api.builds.length,build=api.build();
       if(text===null)unlinkSync(path);
       else if(atomic){const temp=path+'.new';writeFileSync(temp,text);renameSync(temp,path);}
       else writeFileSync(path,text);
-      const deadline=Date.now()+1500;
-      while(api.builds.length===count&&Date.now()<deadline)await Bun.sleep(10);
+      await build; // the build the save requests; the test's timeout is the hang bound
       assert.deepEqual(api.builds[count],[path],`save was not observed: ${path}`);
       await Bun.sleep(1000);
       assert.equal(api.builds.length,count+1,'one save requests one build');
@@ -339,4 +338,4 @@ test('declared source files report in-place edits after inclusion and replacemen
     assert.deepEqual([...api.changed],[],'output and unrelated files do not rebuild');
     assert.equal(api.builds.length,count,'ignored edits do not build');
   } finally {api?.close();rmSync(dir,{recursive:true,force:true});}
-},15_000);
+},60_000); // a hang bound: six one-second quiet windows plus waits on the builds themselves
