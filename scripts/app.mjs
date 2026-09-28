@@ -28,6 +28,7 @@ import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { filesystem } from './filesystem.mjs';
+import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 
@@ -354,6 +355,7 @@ export function resolveApp(nameOrCrate) {
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
   assertOwnTarget(target, manifest.game ? dir : workspace);
+  startSweep(target);
   let packages;
   const prepare = (refresh = false, options) => {
     if (manifest.game && (refresh || !packages)) {
