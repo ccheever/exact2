@@ -12,6 +12,7 @@ mod list_layout;
 mod live_tick;
 mod now_screen;
 mod reorder_codec;
+mod replay;
 mod router;
 mod transform_binding;
 mod uses;
