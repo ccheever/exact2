@@ -436,7 +436,12 @@ fn an_iframe_is_the_element_with_html_props_and_handlers() {
         create.contains("\"handlers\":[\"load\",\"message\"]"),
         "{create}"
     );
-    assert!(create.contains("width:300px;height:150px;"), "{create}");
+    // A real <iframe>: the browser gives it its 300×150 default object size.
+    let css = &create[..create.find("\"handlers\"").unwrap()];
+    assert!(
+        !css.contains("width:") && !css.contains("height:"),
+        "{create}"
+    );
 }
 
 #[test]

@@ -527,9 +527,17 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     assert_eq!(node.node_type, NodeType::WebView);
     assert_eq!(node.props.str(PropId::Src), Some("/deck/index.html"));
     assert_eq!(node.props.str(PropId::Sandbox), Some("allow-scripts"));
-    assert_eq!(node.style.width, Dimension::Points(300.0));
-    assert_eq!(node.style.height, Dimension::Points(150.0));
+    // 300×150 is the default object size, not authored rows (LLP 1001 §1):
+    // a stretching column widens the iframe and leaves it 150 tall, as
+    // Chrome lays out an <iframe> in a flex column.
+    assert_eq!(node.style.width, Dimension::Auto);
+    assert_eq!(node.style.height, Dimension::Auto);
     let id = node.id;
+    let root = r.roots()[0];
+    let viewport = exact_kernel::Offer::definite(800.0, 600.0);
+    r.kernel_mut().compute_layout(root, viewport).unwrap();
+    let frame = r.kernel().node(id).unwrap().frame;
+    assert_eq!((frame.width, frame.height), (800.0, 150.0));
     assert_eq!(r.handlers_of(id), vec![EventKind::Load, EventKind::Message]);
     r.dispatch(id, Event::Load).unwrap();
     r.dispatch(id, Event::Message("deck-ready".into())).unwrap();

@@ -134,8 +134,8 @@ HTML name, and HTML's name for embedded browsing content is `iframe` —
 refuses (`rules` §The web is the standard). Naming it `iframe` also names
 the contract: the parity oracle for every host is a bare `<iframe>` in the
 dev-loop browser, definitionally. A bare `iframe` is 300×150 — the web's
-replaced-element default, the same rule `canvas` got — sized only by its
-style rows, content never influencing layout, nothing about the guest
+default object size for a replaced element, with no natural ratio (LLP 1001
+§1) — sized only by that and its style rows, content never influencing layout, nothing about the guest
 visible to the kernel (exact1's 0433 §8 test — "what must the kernel know
 that is webview-specific? Nothing" — still holds and still decides).
 `NodeType::WebView` joins the schema beside `Canvas`; the existing

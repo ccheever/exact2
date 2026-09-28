@@ -25,6 +25,7 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
             css.push_str("position:relative;");
         }
         css.push_str("isolation:isolate;");
+        canvas_css(node, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -71,6 +72,49 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
         material_css(&mut css, name);
     }
     css
+}
+
+/// A canvas's `div` sized as a `<canvas>` is: a replaced element whose
+/// natural size is 300×150, ratio 2:1, and whose children never size it.
+/// `contain: size` keeps the children out and `contain-intrinsic-size`
+/// stands in for the natural size (none when a height is given, so the
+/// width comes through the ratio); `justify-self: start` keeps an auto width
+/// at that size in block flow, where a `div` would stretch; the natural
+/// ratio holds under `aspect-ratio: auto`; an automatic minimum height is
+/// its content's, as a replaced box's is, unless a height row bounds it; an
+/// absolutely positioned one is its natural size whatever its insets. Chrome
+/// sizes it as a `<canvas>` everywhere but a flex row's automatic minimum
+/// width, which would need the parent's direction (LLP 1001 §1).
+fn canvas_css(node: &NodeRef<'_>, css: &mut String) {
+    use exact_kernel::{Dimension, PositionType};
+    let style = &node.style;
+    let given = |id: StyleId, value: Dimension| style.mask.has(id) && value != Dimension::Auto;
+    let (width, height) = (
+        given(StyleId::Width, style.width),
+        given(StyleId::Height, style.height),
+    );
+    css.push_str("contain:size;justify-self:start;");
+    if !height {
+        css.push_str("contain-intrinsic-size:300px 150px;");
+    }
+    if style.aspect_ratio.defers_to_natural() {
+        css.push_str("aspect-ratio:auto 2/1;");
+    }
+    if !given(StyleId::MinHeight, style.min_height) {
+        css.push_str(if height || given(StyleId::MaxHeight, style.max_height) {
+            "min-height:0;"
+        } else {
+            "min-height:min-content;"
+        });
+    }
+    if style.position_type == PositionType::Absolute {
+        if !width {
+            css.push_str("width:fit-content;");
+        }
+        if !height {
+            css.push_str("height:fit-content;");
+        }
+    }
 }
 
 /// `backgroundMaterial` on the web (LLP 1053.000 D4): the schema's stated

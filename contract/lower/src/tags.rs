@@ -140,17 +140,19 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // A bare <canvas> is 300×150 on the web; so is a bare `canvas` here.
+        // A bare <canvas> is 300×150 on the web: its natural size, which the
+        // kernel gives it (a replaced element, not authored rows).
         "canvas" => Tag {
             node_type: NodeType::Canvas,
-            fixed_styles: &[(StyleId::Width, "300"), (StyleId::Height, "150")],
+            fixed_styles: &[],
             fixed_props: &[],
             positional: None,
         },
-        // @ref LLP 1020 D1 — a bare <iframe> is a 300×150 replaced element.
+        // @ref LLP 1020 D1 — a bare <iframe> is a 300×150 replaced element:
+        // the default object size, which the kernel gives it.
         "iframe" => Tag {
             node_type: NodeType::WebView,
-            fixed_styles: &[(StyleId::Width, "300"), (StyleId::Height, "150")],
+            fixed_styles: &[],
             fixed_props: &[],
             positional: Some(PropId::Src),
         },

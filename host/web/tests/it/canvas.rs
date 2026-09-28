@@ -43,9 +43,11 @@ fn a_canvas_is_a_canvas_element_with_the_webs_default_size() {
     let at = batch
         .find(&format!("\"id\":{bare},\"tag\":\"canvas\""))
         .unwrap();
-    let create = &batch[at..at + 200];
+    let create = &batch[at..at + 400];
+    // Its `div` sizes as a <canvas>: the natural 300×150 and 2:1, not rows.
+    assert!(!create.contains("width:300px"), "{create}");
     assert!(
-        create.contains("width:300px;height:150px;"),
+        create.contains("contain:size;justify-self:start;contain-intrinsic-size:300px 150px;aspect-ratio:auto 2/1;min-height:min-content;"),
         "a bare canvas is 300×150, as on the web: {create}"
     );
     let map = view(&host, "map");

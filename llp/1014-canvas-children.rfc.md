@@ -25,8 +25,9 @@ the work. Five decisions; everything else is the spec's.
 **D1 — A `Canvas` holds children, laid out in its box; they never size it.**
 `NodeType::can_hold_children` gains `Canvas`; the lowering's refusal lifts with
 it (no corpus entry names `canvas`; the corpus gains an accepting case). The
-canvas is still sized by its rows — 300×150 by tag default, `width`/`height`
-from the author — and its content never influences that (LLP 1009 D3 holds).
+canvas is still sized as a replaced element — its natural 300×150 and ratio
+2:1 unless `width`/`height`/`aspect-ratio` from the author say otherwise (LLP
+1001 §1) — and its content never influences that (LLP 1009 D3 holds).
 The children get the web's `layoutsubtree` semantics — blockified, static
 positioning, the canvas as containing block — which the kernel gives for free
 because a `Canvas` is `display: block` like any node and Taffy lays out what it
