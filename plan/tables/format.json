@@ -1066,6 +1066,12 @@
       "returns": "bool"
     },
     {
+      "name": "trim",
+      "params": ["string"],
+      "returns": "string",
+      "_comment": "@ref LLP 1054.000.005 D1: JavaScript's String.prototype.trim — ECMA-262 WhiteSpace and LineTerminator, not Rust's White_Space."
+    },
+    {
       "name": "first",
       "params": ["any"],
       "returns": "any",

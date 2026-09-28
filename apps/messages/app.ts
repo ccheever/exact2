@@ -401,7 +401,7 @@ const sources: Sources = {
         selection:(ids.has(p.id)?selectionIds.filter(id=>id!==p.id):p.id?[...selectionIds,p.id]:selectionIds).join('|')};
     }),targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+recoverable.get(p.id)!.rows.length,0)};
   },
-  recipients: ([ids,query,body,_revision,cursor])=>{
+  recipients: ([ids,query,_revision,cursor])=>{
     const selected=selectedPeople(ids),selectionIds=selected.map(p=>p.id),selectedIds=new Set(selectionIds),text=query.trim(),folded=text.toLowerCase();
     const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===folded) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
@@ -413,7 +413,7 @@ const sources: Sources = {
     return {...page,selected:selected.map(p=>({id:p.id,name:p.name,without:selectionIds.filter(id=>id!==p.id).join('|')})),
       people:page.people.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
       last:selected[selected.length-1]?.id || '',withoutLast:selectionIds.slice(0,-1).join('|'),
-      target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending) && !!body.trim()};
+      target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending)};
   },
   conversationDraft: ([id,_revision])=>({thread:id,...(drafts.get(id)||{draft:'',reply:''})}),
   conversation: ([id,_revision,replying,selection,cursor])=>conversation(id,replying,selection,cursor),

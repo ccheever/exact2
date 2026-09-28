@@ -680,7 +680,7 @@ mod tests {
         let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
-        let recipients = |m: &mut Module, ids: &str, body: &str| {
+        let recipients = |m: &mut Module, ids: &str| {
             call(
                 m,
                 &plan,
@@ -688,7 +688,6 @@ mod tests {
                 vec![
                     Value::str(ids),
                     Value::str(""),
-                    Value::str(body),
                     Value::Number(0.),
                     Value::str(""),
                 ],
@@ -732,7 +731,7 @@ mod tests {
         };
         let initial = inbox(&mut module);
         let maya = thread(&mut module, "maya");
-        let selection = recipients(&mut module, "|maya|alex|maya|unknown", "Hello both");
+        let selection = recipients(&mut module, "|maya|alex|maya|unknown");
         assert_eq!(selection["selected"].as_array().unwrap().len(), 2);
         assert_eq!(selection["selected"][0]["without"], "alex");
         assert_eq!(selection["target"], "group:alex|maya");
@@ -743,19 +742,15 @@ mod tests {
             .iter()
             .all(|p| p["id"] != "maya" && p["id"] != "alex" && p["id"] != "weekend"));
         assert_eq!(
-            recipients(&mut module, "alex|maya", "Hello")["target"],
+            recipients(&mut module, "alex|maya")["target"],
             selection["target"]
         );
-        assert_eq!(recipients(&mut module, "maya", "Hello")["target"], "maya");
+        assert_eq!(recipients(&mut module, "maya")["target"], "maya");
         assert_eq!(
-            recipients(&mut module, "maya|jules|alex", "Hello")["target"],
+            recipients(&mut module, "maya|jules|alex")["target"],
             "weekend"
         );
-        assert_eq!(recipients(&mut module, "", "Hello")["canSend"], false);
-        assert_eq!(
-            recipients(&mut module, "maya|alex", " \n ")["canSend"],
-            false
-        );
+        assert_eq!(recipients(&mut module, "")["canSend"], false);
         assert_eq!(inbox(&mut module), initial);
         send(&mut module, "group:alex|maya", " \n ");
         assert_eq!(inbox(&mut module), initial);
@@ -792,7 +787,7 @@ mod tests {
         let replied = thread(&mut module, "group:alex|maya");
         assert_eq!(replied["messages"][1]["senderName"], "Alex Rivera");
         assert_eq!(replied["messages"][1]["showSender"], true);
-        let same = recipients(&mut module, "maya|alex", "Again");
+        let same = recipients(&mut module, "maya|alex");
         send(&mut module, same["target"].as_str().unwrap(), "Again");
         assert_eq!(
             thread(&mut module, "group:alex|maya")["messages"]
@@ -915,7 +910,6 @@ mod tests {
             vec![
                 Value::str(""),
                 Value::str("Maya"),
-                Value::str(""),
                 Value::Number(0.),
                 Value::str(""),
             ],
@@ -968,7 +962,6 @@ mod tests {
                 vec![
                     Value::str(""),
                     Value::str(query),
-                    Value::str("Hello"),
                     Value::Number(0.),
                     Value::str(""),
                 ],
@@ -1061,7 +1054,7 @@ mod tests {
         let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
-        let recipients = |m: &mut Module, ids: &str, query: &str, body: &str| {
+        let recipients = |m: &mut Module, ids: &str, query: &str| {
             call(
                 m,
                 &plan,
@@ -1069,7 +1062,6 @@ mod tests {
                 vec![
                     Value::str(ids),
                     Value::str(query),
-                    Value::str(body),
                     Value::Number(0.),
                     Value::str(""),
                 ],
@@ -1112,36 +1104,30 @@ mod tests {
             )
         };
         let initial = inbox(&mut module);
-        assert_eq!(
-            recipients(&mut module, "", "4155550101", "Hello")["target"],
-            "maya"
-        );
-        let phone = recipients(&mut module, "", "(415) 555-0199", "Hello");
+        assert_eq!(recipients(&mut module, "", "4155550101")["target"], "maya");
+        let phone = recipients(&mut module, "", "(415) 555-0199");
         let phone_id = phone["target"].as_str().unwrap();
         assert_eq!(phone["canSend"], true);
         assert_eq!(phone["people"][0]["name"], "+1 (415) 555-0199");
         for variant in ["4155550199", "+1 415 555 0199", "1-415-555-0199"] {
-            assert_eq!(
-                recipients(&mut module, "", variant, "Hello")["target"],
-                phone_id
-            );
+            assert_eq!(recipients(&mut module, "", variant)["target"], phone_id);
         }
         assert_eq!(
-            recipients(&mut module, "", "+44 20 7123 4567", "Hello")["people"][0]["name"],
+            recipients(&mut module, "", "+44 20 7123 4567")["people"][0]["name"],
             "+442071234567"
         );
-        let duplicate = recipients(&mut module, phone_id, "+14155550199", "Hello");
+        let duplicate = recipients(&mut module, phone_id, "+14155550199");
         assert_eq!(duplicate["resolved"], phone_id);
         assert!(duplicate["people"].as_array().unwrap().is_empty());
-        let email = recipients(&mut module, "", " Chat.Example@Example.com ", "Hello");
+        let email = recipients(&mut module, "", " Chat.Example@Example.com ");
         let email_id = email["target"].as_str().unwrap();
         assert_eq!(email["people"][0]["name"], "chat.example@example.com");
         assert_eq!(
-            recipients(&mut module, "", "chat.example@example.com", "Hello")["target"],
+            recipients(&mut module, "", "chat.example@example.com")["target"],
             email_id
         );
         assert_eq!(
-            recipients(&mut module, "maya", "Maya Chen", "Hello")["resolved"],
+            recipients(&mut module, "maya", "Maya Chen")["resolved"],
             "maya"
         );
         for invalid in [
@@ -1152,24 +1138,15 @@ mod tests {
             "++14155550199",
             "maya|alex",
         ] {
-            let unresolved = recipients(&mut module, "maya", invalid, "Keep my draft");
+            let unresolved = recipients(&mut module, "maya", invalid);
             assert_eq!(unresolved["canSend"], false, "{invalid}");
             assert_eq!(unresolved["resolved"], "");
             assert_eq!(unresolved["selected"][0]["id"], "maya");
         }
-        assert_eq!(
-            recipients(&mut module, "", "chat.example@example.com", " ")["canSend"],
-            false
-        );
         assert_eq!(inbox(&mut module), initial);
         send(&mut module, email_id, " ");
         assert_eq!(inbox(&mut module), initial);
-        let group = recipients(
-            &mut module,
-            "maya",
-            "chat.example@example.com",
-            "Hello both",
-        );
+        let group = recipients(&mut module, "maya", "chat.example@example.com");
         let group_id = group["target"].as_str().unwrap();
         assert_eq!(group["canSend"], true);
         send(&mut module, group_id, "Hello both");
@@ -1178,7 +1155,7 @@ mod tests {
         assert_eq!(sent["messages"][0]["body"], "Hello both");
         assert_eq!(inbox(&mut module)["people"].as_array().unwrap().len(), 7);
         assert_eq!(
-            recipients(&mut module, &format!("{email_id}|maya"), "", "Again")["target"],
+            recipients(&mut module, &format!("{email_id}|maya"), "")["target"],
             group_id
         );
         call(

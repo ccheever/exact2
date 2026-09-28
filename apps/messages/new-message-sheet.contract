@@ -25,6 +25,7 @@ component NewMessageSheet
     writeNew: action
     clearRecipientSelection: action
     sendNewMessage: action
+  derive sendable = contacts.canSend and trim(newDraft) != ""
   view
     column navigationKey=routeKey
       navigationPresentation="modal"
@@ -245,7 +246,7 @@ component NewMessageSheet
                 border-width=0
               button press=sendNewMessage
                 retainFocus=true
-                disabled=(not contacts.canSend)
+                disabled=(not sendable)
                 testId="send-new-message"
                 aria-label="Send message"
                 width=38
@@ -253,14 +254,14 @@ component NewMessageSheet
                 box-sizing="border-box"
                 padding-left=(newDraft == "" ? 10: 0)
                 border-radius=14
-                background-color=(newDraft == "" ? "#00000000": (contacts.canSend ? "light-dark(#007aff, #0a84ff)": "light-dark(#e9e9eb, #3a3a3c)"))
+                background-color=(newDraft == "" ? "#00000000": (sendable ? "light-dark(#007aff, #0a84ff)": "light-dark(#e9e9eb, #3a3a3c)"))
                 display="flex" flex-direction="row"
                 align-items="center"
                 justify-content="center"
                 when newDraft != ""
                   image "symbol:send" font-size=17
                     font-weight=700
-                    tint-color=(contacts.canSend ? "#ffffff": "light-dark(#b4b4b7, #8e8e93)")
+                    tint-color=(sendable ? "#ffffff": "light-dark(#b4b4b7, #8e8e93)")
                 else
                   image "symbol:microphone" font-size=17
                     font-weight=400

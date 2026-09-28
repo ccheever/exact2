@@ -91,6 +91,17 @@ fn call_value(
             }
         }
         Stdlib::Contains => Value::Bool(args.first()?.as_str()?.contains(args.get(1)?.as_str()?)),
+        Stdlib::Trim => match args.first()? {
+            Value::Str(s) => {
+                let trimmed = s.trim_matches(is_js_space);
+                if trimmed.len() == s.len() {
+                    Value::Str(Rc::clone(s))
+                } else {
+                    Value::str(trimmed)
+                }
+            }
+            _ => return None,
+        },
         Stdlib::Now => Value::Number(now_ms),
         Stdlib::FormatClockTime => Value::str(&format_clock_time(num(0)?)),
         Stdlib::FormatCountdownMinutes => {
@@ -280,6 +291,26 @@ pub fn assembled(build: impl FnOnce(&mut String)) -> Value {
     })
 }
 
+/// ECMA-262's WhiteSpace and LineTerminator: what `String.prototype.trim`
+/// strips. Not Rust's `White_Space`, which adds U+0085 and drops U+FEFF.
+/// @ref LLP 1054.000.005 D1
+fn is_js_space(c: char) -> bool {
+    matches!(
+        c,
+        '\u{9}'..='\u{d}'
+            | ' '
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200a}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+            | '\u{feff}'
+    )
+}
+
 /// `h:mm AM` from milliseconds since the Unix epoch, UTC.
 pub fn format_clock_time(ms: f64) -> String {
     let seconds = (ms / 1000.0).floor() as i64;
@@ -381,5 +412,41 @@ mod tests {
                 "{text}"
             );
         }
+    }
+    #[test]
+    fn trim_strips_what_javascript_strips() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let trim = |text: &str| call(Stdlib::Trim, &[Value::str(text)], 0.0, &plan, None);
+        // Every code point `(c + "x").trim() === "x"` holds for, from Bun.
+        let js = "\u{9}\u{a}\u{b}\u{c}\u{d}\u{20}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
+        assert_eq!(js.chars().count(), 25);
+        for c in js.chars() {
+            assert_eq!(
+                trim(&format!("{c}x{c}")),
+                Ok(Value::str("x")),
+                "{:x}",
+                c as u32
+            );
+        }
+        assert_eq!(trim(js), Ok(Value::str("")));
+        for (text, expected) in [
+            ("", ""),
+            (" a b ", "a b"),
+            ("\u{85}x\u{85}", "\u{85}x\u{85}"),
+            ("\u{200b}x\u{180e}", "\u{200b}x\u{180e}"),
+            ("\u{feff}😀\u{3000}", "😀"),
+        ] {
+            assert_eq!(trim(text), Ok(Value::str(expected)), "{text:?}");
+        }
+        // Nothing to strip: the same string, not a copy.
+        let s: Rc<str> = Rc::from("kept");
+        let Ok(Value::Str(out)) =
+            call(Stdlib::Trim, &[Value::Str(Rc::clone(&s))], 0.0, &plan, None)
+        else {
+            panic!("trim answers a string");
+        };
+        assert!(Rc::ptr_eq(&s, &out));
     }
 }

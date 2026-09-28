@@ -99,7 +99,7 @@ component Messages
   resource inbox = inbox(query, revision, inboxCursor) as shape Inbox
   resource syncStatus = syncState(revision) as shape string
   resource deletedInbox = recentlyDeleted(deletedSelection, revision, now(), deletedCursor) as shape DeletedInbox
-  resource contacts = recipients(recipient, recipientQuery, newDraft, revision, recipientCursor) as shape Recipients
+  resource contacts = recipients(recipient, recipientQuery, revision, recipientCursor) as shape Recipients
   resource savedComposer = conversationDraft(chatThread, revision) as shape ComposerDraft
   resource chat = conversation(chatThread, revision, replying, selection, cursor) as shape Conversation
 
@@ -454,7 +454,7 @@ component Messages
   action sendNewMessage writes change, nav, draftText, draftThread, replyRoot, replyThread, newDraft, timestampOffset, cursor
     cursor = ""
     timestampOffset = 0
-    if contacts.canSend
+    if contacts.canSend and trim(newDraft) != ""
       if chatThread != "" and chatThread != contacts.target and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
         send change = saveDraft(chatThread, draft, replying)
       send change = sendMessage(contacts.target, newDraft, "", ticks, now())

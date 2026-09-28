@@ -60,6 +60,7 @@ mod symbols;
 mod tests_decl;
 mod time;
 mod transform_binding;
+mod trim;
 mod typescript;
 mod r#use;
 mod viewport;

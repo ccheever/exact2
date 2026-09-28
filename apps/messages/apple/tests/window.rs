@@ -1309,12 +1309,7 @@ fn contact_pages_keep_selection_drafts_and_reset_only_when_the_query_changes() {
             ("inbox", vec![Value::str(""), Value::Number(0.)]),
             (
                 "recipients",
-                vec![
-                    Value::str(""),
-                    Value::str(""),
-                    Value::str("Body"),
-                    Value::Number(0.),
-                ],
+                vec![Value::str(""), Value::str(""), Value::Number(0.)],
             ),
         ] {
             args.push(Value::str(cursor));
