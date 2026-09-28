@@ -320,17 +320,20 @@ private final class VideoArm: NSObject {
         }
     }
     #if os(iOS)
-    /// Inline video without any requested AVKit interaction uses the native
-    /// player layer. Enabling a controller feature promotes the same player;
-    /// an existing controller remains its owner until this node is destroyed.
+    /// A video without `controls` uses the native player layer, as Chrome's
+    /// `<video>` without controls draws no UI (LLP 1042 §7 A): PiP and frame
+    /// analysis select AVKit only when set by name, since without controls or
+    /// automatic start PiP cannot be reached. Enabling a controller feature
+    /// promotes the same player; an existing controller remains its owner
+    /// until this node is destroyed.
     private func configurePresentation() {
         guard props["src"] != nil || presentation != nil else { return }
         let needsController = bool("controls")
-            || (!bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true))
+            || (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
             || bool("canStartPictureInPictureAutomaticallyFromInline")
             || bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
             || bool("exitsFullScreenWhenPlaybackEnds") || bool("requiresLinearPlayback")
-            || bool("allowsVideoFrameAnalysis", true)
+            || props["allowsVideoFrameAnalysis"] == "true"
         if controller == nil && needsController {
             let native = AVPlayerViewController()
             native.player = player
