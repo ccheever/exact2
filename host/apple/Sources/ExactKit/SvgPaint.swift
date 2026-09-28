@@ -111,12 +111,53 @@ enum SvgPaint {
     private static func cgCap(_ c: CAShapeLayerLineCap) -> CGLineCap { c == .round ? .round : c == .square ? .square : .butt }
     private static func cgJoin(_ j: CAShapeLayerLineJoin) -> CGLineJoin { j == .round ? .round : j == .bevel ? .bevel : .miter }
 
+    /// Gradient rasters by what they draw: the stops' resolved colours, the
+    /// geometry and the pixel size. Rows that show the same file at the same
+    /// size and scale share one raster, as a browser shares one decoded
+    /// image, so a list pays Core Graphics' shading once per distinct
+    /// gradient rather than once per row (about 85 ms/s of an Extra Heavy
+    /// SVG fling on the iPad). Bounded by bytes; `NSCache` also drops it
+    /// under memory pressure.
+    private static let rasters: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.totalCostLimit = 16 << 20
+        return cache
+    }()
+
     /// A layer covering `rect` (user units) with the gradient drawn in it.
     private static func gradient(_ g: [String: Any], rect: CGRect, scale: CGFloat, dark: Bool, color: (Any?, Bool) -> CGColor?) -> CALayer? {
         let rect = rect.integral.insetBy(dx: -1, dy: -1)
         let w = Int((rect.width * scale).rounded(.up)), h = Int((rect.height * scale).rounded(.up))
-        guard w > 0, h > 0, w * h <= 16_777_216,
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
+        guard w > 0, h > 0, w * h <= 16_777_216 else { return nil }
+        let t = numbers(g["t"])
+        let stops: [(CGFloat, CGColor)] = (g["st"] as? [Any] ?? []).compactMap { s in
+            guard let s = s as? [Any], s.count == 2, let c = color(s[1], dark) else { return nil }
+            return (CGFloat((s[0] as? NSNumber)?.doubleValue ?? 0), c)
+        }
+        guard stops.count >= 2 else { return nil }
+        let spread = Int(numbers([g["sp"] ?? 0]).first ?? 0)
+        let lg = numbers(g["lg"]), rg = numbers(g["rg"])
+        var key = "\(w)x\(h) \(rect.minX),\(rect.minY),\(rect.width),\(rect.height) s\(spread) t\(t) l\(lg) r\(rg)"
+        for (o, c) in stops { key += " \(o):\(c.colorSpace?.name.map { $0 as String } ?? "")\(c.components ?? [])" }
+        let image: CGImage
+        if let hit = rasters.object(forKey: key as NSString) {
+            image = hit
+        } else {
+            guard let drawn = draw(rect: rect, w: w, h: h, t: t, stops: stops, spread: spread, lg: lg, rg: rg) else { return nil }
+            rasters.setObject(drawn, forKey: key as NSString, cost: w * h * 4)
+            image = drawn
+        }
+        let layer = quiet(CALayer())
+        layer.contents = image
+        layer.anchorPoint = .zero
+        layer.bounds = rect
+        layer.position = rect.origin
+        return layer
+    }
+
+    private static func draw(rect: CGRect, w: Int, h: Int, t: [Double], stops: [(CGFloat, CGColor)], spread: Int, lg: [Double], rg: [Double]) -> CGImage? {
+        var stops = stops
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         // Top-left origin, points to pixels, the rect's origin at zero,
@@ -124,22 +165,15 @@ enum SvgPaint {
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         ctx.scaleBy(x: CGFloat(w) / rect.width, y: CGFloat(h) / rect.height)
         ctx.translateBy(x: -rect.minX, y: -rect.minY)
-        let t = numbers(g["t"])
         let m = t.count == 6 ? CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5]) : .identity
         ctx.concatenate(m)
-        var stops: [(CGFloat, CGColor)] = (g["st"] as? [Any] ?? []).compactMap { s in
-            guard let s = s as? [Any], s.count == 2, let c = color(s[1], dark) else { return nil }
-            return (CGFloat((s[0] as? NSNumber)?.doubleValue ?? 0), c)
-        }
-        guard stops.count >= 2 else { return nil }
         // The rect's corners in gradient space: how far `reflect` and
         // `repeat` must reach.
         let inverse = m.inverted()
         let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
                        CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)].map { $0.applying(inverse) }
-        let spread = Int(numbers([g["sp"] ?? 0]).first ?? 0)
         let pad: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-        if let lg = Optional(numbers(g["lg"])), lg.count == 4 {
+        if lg.count == 4 {
             var p1 = CGPoint(x: lg[0], y: lg[1]), p2 = CGPoint(x: lg[2], y: lg[3])
             let d = CGPoint(x: p2.x - p1.x, y: p2.y - p1.y), len2 = d.x * d.x + d.y * d.y
             if spread != 0, len2 > 0 {
@@ -150,7 +184,7 @@ enum SvgPaint {
             }
             guard let grad = make(stops, space) else { return nil }
             ctx.drawLinearGradient(grad, start: p1, end: p2, options: pad)
-        } else if let rg = Optional(numbers(g["rg"])), rg.count == 6 {
+        } else if rg.count == 6 {
             let c = CGPoint(x: rg[0], y: rg[1]), f = CGPoint(x: rg[3], y: rg[4])
             var r = CGFloat(rg[2])
             let fr = CGFloat(rg[5])
@@ -165,13 +199,7 @@ enum SvgPaint {
             guard let grad = make(stops, space) else { return nil }
             ctx.drawRadialGradient(grad, startCenter: f, startRadius: fr, endCenter: c, endRadius: r, options: pad)
         } else { return nil }
-        guard let image = ctx.makeImage() else { return nil }
-        let layer = quiet(CALayer())
-        layer.contents = image
-        layer.anchorPoint = .zero
-        layer.bounds = rect
-        layer.position = rect.origin
-        return layer
+        return ctx.makeImage()
     }
 
     /// The stops over periods `from..<to` of the gradient vector, in one
