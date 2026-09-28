@@ -74,15 +74,16 @@ pub use instance::collection::{
 pub use instance::{ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
 pub use request::{
-    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request,
-    RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES, NATIVE_URL,
+    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement, Reply,
+    Request, RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,
+    NATIVE_URL,
 };
 pub use runner::{
     canvas_engine, routing, Advanced, Announce, CanvasEngine, CanvasLink, CanvasList, Carried,
     Checkpoint, Command, ControlValue, DataError, DataSource, DrawReply, DrawRequest, Drawn, Event,
     Geometry, Hold, HoldAnswer, InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall,
     NativeHandler, Picked, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
-    RunnerLinks, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
+    RunnerLinks, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
     TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};

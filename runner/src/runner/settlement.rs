@@ -544,7 +544,7 @@ impl<D: DataSource> Runner<D> {
                                 Answer::Now(v) => {
                                     // A re-read shows the source's answer and
                                     // leaves a request in flight to land.
-                                    if pending_res[i] && !reread {
+                                    if (pending_res[i] || self.streaming(i)) && !reread {
                                         // Newer arguments answered now: the older
                                         // request's reply is no longer wanted.
                                         effects[i] = RequestEffect::Answered;

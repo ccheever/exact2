@@ -659,6 +659,7 @@ impl<D: DataSource> Runner<D> {
             args,
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
+            stream: request.stream.then(StreamCount::default),
         });
         self.requests.push(RequestOut {
             ticket,
@@ -672,7 +673,8 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn sync_pending_flags(&mut self) {
         self.pending_res = vec![false; self.plan.resources.len()];
         self.pending_mut = vec![false; self.plan.mutations.len()];
-        for p in &self.pending {
+        // A stream is pending until its first message (LLP 1016.000 D1).
+        for p in self.pending.iter().filter(|p| p.in_flight()) {
             match p.target {
                 Target::Resource(i) => self.pending_res[i] = true,
                 Target::Mutation(m) => self.pending_mut[m] = true,
@@ -748,8 +750,37 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether any request is in flight (the agent's `settle` waits on it).
+    /// An open stream counts only until its first message (LLP 1016.000
+    /// D5): after that it is open, not in flight, or `settle` never ends.
     pub fn has_pending(&self) -> bool {
-        !self.pending.is_empty()
+        self.pending.iter().any(PendingReq::in_flight)
+    }
+
+    /// The requests in flight, as `has_pending` counts them: the agent's
+    /// `state.pending`.
+    pub fn in_flight(&self) -> Vec<(String, u64)> {
+        self.pending
+            .iter()
+            .filter(|p| p.in_flight())
+            .map(|p| (self.target_name(p.target), p.ticket))
+            .collect()
+    }
+
+    /// Every open stream: its resource, ticket, and counts (the agent's
+    /// `state.streams`, LLP 1016.000 D5).
+    pub fn streams(&self) -> Vec<(String, u64, StreamCount)> {
+        self.pending
+            .iter()
+            .filter_map(|p| Some((self.target_name(p.target), p.ticket, p.stream?)))
+            .collect()
+    }
+
+    /// Whether resource `i` has a stream open that has delivered: it is not
+    /// pending, but a newer answer must still let its ticket go.
+    pub(super) fn streaming(&self, i: usize) -> bool {
+        self.pending
+            .iter()
+            .any(|p| p.target == Target::Resource(i) && !p.in_flight())
     }
 
     /// Whether request `ticket` is still wanted. A host asks after each
@@ -774,6 +805,9 @@ impl<D: DataSource> Runner<D> {
             self.log(super::lines::dropped(ticket, &summary));
             return Ok(None);
         };
+        if let (Some(_), Outcome::Message(_)) = (self.pending[pos].stream, &outcome) {
+            return self.message(pos, outcome, &summary);
+        }
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
@@ -799,6 +833,37 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
+    /// One message of the open stream at `pos` (LLP 1016.000 D1): parsed
+    /// like a single reply and committed as its own settlement, with the
+    /// ticket kept open. A message the source cannot take ends the stream,
+    /// as a failed reply ends a request.
+    fn message(
+        &mut self,
+        pos: usize,
+        outcome: Outcome,
+        summary: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(true);
+        let p = &mut self.pending[pos];
+        if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
+            count.messages += 1;
+            count.coalesced += u64::from(m.coalesced);
+        }
+        let p = p.clone();
+        self.sync_pending_flags();
+        let (ticket, target) = (p.ticket, p.target);
+        let what = super::lines::fulfilling(ticket, &self.target_name(target), summary);
+        let result = self.fulfill_inner(p, outcome);
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        if result.is_err() && self.holds(ticket) {
+            return self.release_failed(ticket, target);
+        }
+        result.map(Some)
+    }
+
     pub(super) fn fulfill_inner(
         &mut self,
         p: PendingReq,
@@ -808,6 +873,7 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::Poisoned);
         }
         let name = self.target_name(p.target);
+        let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
         let ty = match p.target {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
@@ -831,6 +897,16 @@ impl<D: DataSource> Runner<D> {
             error,
         })? {
             Answer::Now(value) => value,
+            Answer::Later(_) if message => {
+                // A message commits as its own settlement; one more round
+                // would replace the stream's ticket (LLP 1016.000 D1).
+                return Err(RunnerError::Data {
+                    resource: name,
+                    error: DataError::Unavailable(
+                        "a stream's message must answer now, not ask again".into(),
+                    ),
+                });
+            }
             Answer::Later(request) => {
                 // One more round (LLP 1027 D1a): the target keeps its value,
                 // a new ticket goes out for the same arguments, and this

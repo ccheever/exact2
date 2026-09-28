@@ -234,6 +234,25 @@ struct PendingReq {
     /// The request itself when a re-ask may keep it: a resource's plain
     /// HTTP request (LLP 1054.000.000 D3).
     keepable: Option<Request>,
+    /// An answer that keeps coming (LLP 1016.000): what it has delivered.
+    stream: Option<StreamCount>,
+}
+
+/// An open stream's messages so far, and those the host coalesced away
+/// (LLP 1016.000 D4, D5). One message landed ends its `pending`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StreamCount {
+    /// Messages delivered to the runner.
+    pub messages: u64,
+    /// Messages the host dropped for a newer one before delivery.
+    pub coalesced: u64,
+}
+
+impl PendingReq {
+    /// In flight: every request, and a stream until its first message.
+    fn in_flight(&self) -> bool {
+        self.stream.is_none_or(|s| s.messages == 0)
+    }
 }
 
 struct Timer {
@@ -1245,3 +1264,5 @@ impl<D: DataSource> Runner<D> {
             .map_err(|error| RunnerError::Data { resource, error })
     }
 }
+#[cfg(test)]
+mod stream_tests;

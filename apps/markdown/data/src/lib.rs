@@ -341,9 +341,13 @@ impl DataSource for Markdown {
                 FailureKind::Unsupported => "this surface cannot open local files".to_string(),
                 _ => message,
             }),
-            (None, Outcome::Response(_) | Outcome::Storage(_) | Outcome::Surface(_)) => {
-                Err(format!("{asked} was not read"))
-            }
+            (
+                None,
+                Outcome::Response(_)
+                | Outcome::Storage(_)
+                | Outcome::Surface(_)
+                | Outcome::Message(_),
+            ) => Err(format!("{asked} was not read")),
         };
         Ok(Answer::Now(self.opened(&asked, result)))
     }

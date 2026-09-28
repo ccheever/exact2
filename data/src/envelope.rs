@@ -146,6 +146,7 @@ fn request_json(request: &Request) -> Json {
         "url": request.url,
         "headers": request.headers,
         "body": base64(&request.body),
+        "stream": request.stream,
     })
 }
 
@@ -188,6 +189,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         url: text("url").unwrap_or_default(),
         headers,
         body: json["body"].as_str().and_then(unbase64).unwrap_or_default(),
+        stream: json["stream"].as_bool().unwrap_or(false),
     })
 }
 

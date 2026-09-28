@@ -432,6 +432,7 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         url: field("url").ok_or("no url")?,
         headers,
         body: field("body").unwrap_or_default().into_bytes(),
+        stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
     })
 }
 
@@ -453,6 +454,9 @@ fn outcome_to_json(outcome: &Outcome) -> Json {
         }),
         Outcome::Failed { kind, message } => json!({
             "failed": { "kind": format!("{kind:?}"), "message": message }
+        }),
+        Outcome::Message(m) => json!({
+            "message": { "event": m.event, "id": m.id, "data": m.data, "coalesced": m.coalesced }
         }),
     }
 }

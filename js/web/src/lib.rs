@@ -231,6 +231,11 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
+                        Outcome::Message(_) => {
+                            return Err(unavailable(
+                                "a stream message supplied to JavaScript checkpoint",
+                            ))
+                        }
                         Outcome::Failed { message, .. } => return Err(unavailable(message)),
                     }
                 } else {
@@ -256,6 +261,15 @@ impl Module {
                             object([
                                 ("kind", format!("{kind:?}").into()),
                                 ("message", message.into()),
+                            ]),
+                        )]),
+                        Outcome::Message(m) => object([(
+                            "message",
+                            object([
+                                ("event", m.event.into()),
+                                ("id", m.id.into()),
+                                ("data", m.data.into()),
+                                ("coalesced", m.coalesced.into()),
                             ]),
                         )]),
                     };

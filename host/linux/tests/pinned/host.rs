@@ -589,6 +589,7 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
                 Outcome::Failed { message, .. } => message.clone(),
                 Outcome::Storage(_) => panic!("HTTP request received a storage result"),
                 Outcome::Surface(_) => panic!("HTTP request received a surface result"),
+                Outcome::Message(_) => panic!("HTTP request received a stream message"),
             };
             let name = if text.contains("ada") {
                 "ada".to_string()

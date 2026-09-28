@@ -2,7 +2,8 @@
 //! Only explicitly independent HTTP leaves the ordered lane. Each worker has
 //! its own bindings and transport, so held data cannot consume control leases.
 use exact_runner::{
-    FailureKind, HttpScheduling, Outcome, Reply, Request, RequestOut, Response, Work as OwnedWork,
+    FailureKind, HttpScheduling, Message, Outcome, Reply, Request, RequestOut, Response,
+    Work as OwnedWork,
 };
 use ibex2::stdlib::abort::AbortController;
 use std::collections::VecDeque;
@@ -49,6 +50,9 @@ struct Completed {
     ticket: u64,
     outcome: Outcome,
     bytes: usize,
+    /// One message of a stream that is still open (LLP 1016.000): its
+    /// reservation stays with the running stream until the stream ends.
+    message: bool,
 }
 #[derive(Default)]
 struct State {
@@ -100,11 +104,25 @@ impl Core {
             ready: Condvar::new(),
             abort: AbortController::new(),
         });
-        let reserved = LIVE_WORKERS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n + WORKERS <= MAX_WORKERS).then_some(n + WORKERS)
-            })
-            .is_ok();
+        let reserve = || {
+            LIVE_WORKERS
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                    (n + WORKERS <= MAX_WORKERS).then_some(n + WORKERS)
+                })
+                .is_ok()
+        };
+        #[cfg_attr(not(test), allow(unused_mut))]
+        let mut reserved = reserve();
+        // Every test in the binary shares the process's bound, one core per
+        // test thread: a test waits for a slot rather than being refused.
+        #[cfg(test)]
+        for _ in 0..5000 {
+            if reserved {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            reserved = reserve();
+        }
         let mut core = Self {
             shared,
             disabled: !reserved,
@@ -221,8 +239,10 @@ impl Core {
             state.ordered.pop_front();
         }
         state.next = 1 - lane;
-        state.counts[lane] -= 1;
-        state.bytes[lane] -= done.bytes;
+        if !done.message {
+            state.counts[lane] -= 1;
+            state.bytes[lane] -= done.bytes;
+        }
         // An ordered job may be waiting for these bytes.
         self.shared.ready.notify_all();
         if has_ready(&state) {
@@ -261,8 +281,12 @@ impl Core {
                     if held(done.ticket) {
                         return true;
                     }
-                    *counts -= 1;
-                    *bytes -= done.bytes;
+                    // A forgotten stream's message: the stream itself
+                    // releases the reservation when its reader ends.
+                    if !done.message {
+                        *counts -= 1;
+                        *bytes -= done.bytes;
+                    }
                     false
                 });
             }
@@ -408,10 +432,55 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         ticket,
         outcome,
         bytes,
+        message: false,
     });
     if has_ready(&state) {
         wake(&mut state);
     }
+}
+
+/// One message of the open stream `ticket`, false once nobody wants more
+/// (forgotten, retired, ended). The newest undelivered message per ticket is
+/// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
+/// data coalesces, and a log sees the gap and re-asks from its cursor.
+fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
+    let mut state = shared.state.lock().unwrap();
+    if state.retired {
+        return false;
+    }
+    let Some(lane) = state
+        .running
+        .iter()
+        .find(|run| run.ticket == ticket && !run.forgotten)
+        .map(|run| run.lane)
+    else {
+        return false;
+    };
+    let waiting = state.completed[lane]
+        .iter_mut()
+        .find(|done| done.ticket == ticket && done.message);
+    match waiting {
+        Some(done) => {
+            if let Outcome::Message(older) = &done.outcome {
+                message.coalesced = message
+                    .coalesced
+                    .saturating_add(older.coalesced)
+                    .saturating_add(1);
+            }
+            done.outcome = Outcome::Message(message);
+        }
+        None => state.completed[lane].push_back(Completed {
+            ticket,
+            outcome: Outcome::Message(message),
+            // Charged to the running stream: its ceiling covers one message.
+            bytes: 0,
+            message: true,
+        }),
+    }
+    if has_ready(&state) {
+        wake(&mut state);
+    }
+    true
 }
 
 /// A continuation a worker hands to the module's owner instead of running,
@@ -444,6 +513,14 @@ fn wake(state: &mut State) {
 
 /// The lane, the charge at admission and the ceiling a job may retain.
 fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str> {
+    if request.stream
+        && (request.http == HttpScheduling::Ordered
+            || request.storage.is_some()
+            || request.continuation.is_some()
+            || request.is_native())
+    {
+        return Err("a stream is independent HTTP (LLP 1016.000)");
+    }
     let (lane, body) = match request.http {
         HttpScheduling::Ordered => (0, MAX_BODY),
         HttpScheduling::Independent { max_response_bytes } => {
@@ -556,6 +633,7 @@ fn worker(
             let abort = abort.clone();
             shared.abort.signal().register(move || abort.abort())
         };
+        let stream = request.stream;
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let scoped = request.grants.as_deref().map(|scope| {
                 exact_data::storage::scope(&grants, Some(scope))
@@ -565,20 +643,32 @@ fn worker(
                     })
                     .map(|g| ibex2::host::Host::new().endow(g))
             });
-            match scoped {
-                Some(Err(message)) => failed(FailureKind::Refused, message),
-                Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort),
-                None => execute(
-                    bindings.as_ref().ok_or(unbound.as_str()),
-                    request,
-                    forced,
-                    work,
-                    &abort,
-                ),
+            let bound = match scoped {
+                Some(Err(message)) => return Err(failed(FailureKind::Refused, message)),
+                Some(Ok(ref scoped)) => Ok(scoped),
+                None => bindings.as_ref().ok_or(unbound.as_str()),
+            };
+            if stream {
+                // Opened here, where the transport lives; read on its own
+                // thread, so an open stream holds no I/O worker (LLP 1067 D3).
+                return open(bound, request, forced, &abort).map(Ok);
             }
+            Ok(Err(execute(bound, request, forced, work, &abort)))
         }))
-        .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
-        complete(&shared, ticket, outcome);
+        .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "native work panicked")));
+        match outcome {
+            Ok(Ok((response, limit))) => {
+                let (reader, abort) = (shared.clone(), abort.clone());
+                let read = move || read_events(&reader, ticket, response, limit, abort);
+                if let Err(e) = std::thread::Builder::new()
+                    .name(format!("exact-stream-{ticket}"))
+                    .spawn(read)
+                {
+                    complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
+                }
+            }
+            Ok(Err(outcome)) | Err(outcome) => complete(&shared, ticket, outcome),
+        }
     }
 }
 
@@ -611,6 +701,11 @@ fn retained(outcome: &Outcome) -> usize {
                     .sum::<usize>(),
             ),
         Outcome::Storage(b) => b.capacity(),
+        Outcome::Message(m) => m
+            .data
+            .capacity()
+            .saturating_add(m.event.capacity())
+            .saturating_add(m.id.capacity()),
         Outcome::Surface(exact_runner::SurfaceOutcome::Captured(b)) => b.capacity(),
         Outcome::Surface(exact_runner::SurfaceOutcome::Restored) => 0,
         Outcome::Failed { message, .. } => message.capacity(),
@@ -648,6 +743,29 @@ fn execute(
         Ok(b) => b,
         Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
+    let limit = match request.http {
+        HttpScheduling::Ordered => MAX_BODY,
+        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
+    };
+    let mut req = fetch_request(request, forced);
+    req.max_body = Some(limit);
+    let result = b
+        .fetch
+        .stream(req, &abort.signal())
+        .and_then(check_headers)
+        .and_then(|r| r.collect());
+    match result {
+        Ok(r) => Outcome::Response(Response {
+            status: r.status,
+            headers: r.headers.entries().to_vec(),
+            body: r.body,
+        }),
+        Err(e) => fetch_failure(e, abort),
+    }
+}
+
+/// The transport's request for a runner's.
+fn fetch_request(request: Request, forced: bool) -> ibex2::stdlib::fetch::Request {
     let mut req = ibex2::stdlib::fetch::Request::get(&request.url);
     req.method = request.method;
     for (k, v) in &request.headers {
@@ -659,41 +777,41 @@ fn execute(
     if !request.body.is_empty() {
         req.body = Some(request.body);
     }
-    req.max_body = Some(match request.http {
-        HttpScheduling::Ordered => MAX_BODY,
-        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
+    req
+}
+
+fn check_headers(
+    r: ibex2::stdlib::fetch::StreamingResponse,
+) -> Result<ibex2::stdlib::fetch::StreamingResponse, ibex2::boundary::HostError> {
+    let headers = r.headers.entries();
+    let bytes = headers.iter().try_fold(0usize, |n, (k, v)| {
+        n.checked_add(k.len())?.checked_add(v.len())
     });
-    let result = b.fetch.stream(req, &abort.signal()).and_then(|r| {
-        let headers = r.headers.entries();
-        let bytes = headers.iter().try_fold(0usize, |n, (k, v)| {
-            n.checked_add(k.len())?.checked_add(v.len())
-        });
-        if bytes.is_none_or(|n| n > MAX_HEADERS) || headers.len() > 1024 {
-            return Err(ibex2::boundary::HostError::Failed(
-                "HTTP headers exceed limit".into(),
-            ));
-        }
-        r.collect()
-    });
-    match result {
-        Ok(r) => Outcome::Response(Response {
-            status: r.status,
-            headers: r.headers.entries().to_vec(),
-            body: r.body,
-        }),
-        Err(_) if abort.signal().aborted() => {
-            failed(FailureKind::Aborted, "native request aborted")
-        }
-        Err(ibex2::boundary::HostError::Denied { capability }) => failed(
+    if bytes.is_none_or(|n| n > MAX_HEADERS) || headers.len() > 1024 {
+        return Err(ibex2::boundary::HostError::Failed(
+            "HTTP headers exceed limit".into(),
+        ));
+    }
+    Ok(r)
+}
+
+fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outcome {
+    match e {
+        _ if abort.signal().aborted() => failed(FailureKind::Aborted, "native request aborted"),
+        ibex2::boundary::HostError::Denied { capability } => failed(
             FailureKind::Refused,
             format!("outside the app's grants ({capability})"),
         ),
-        Err(e) => failed(
+        e => failed(
             FailureKind::Network,
             e.to_string().chars().take(2048).collect::<String>(),
         ),
     }
 }
+
+#[path = "executor_stream.rs"]
+mod stream;
+use stream::{open, read_events};
 
 #[cfg(test)]
 #[path = "executor_tests.rs"]

@@ -37,6 +37,25 @@ pub enum Answer {
     Later(Request),
 }
 
+impl Answer {
+    /// A stream (LLP 1016.000 D1): the host opens `request` and delivers
+    /// each message it carries to the same ticket, and every message is
+    /// parsed and commits as its own settlement. A stream is never on the
+    /// ordered lane (it would hold everything behind it), so answering one is
+    /// the explicit promise independent HTTP needs; a request still ordered
+    /// takes a 1 MiB per-message ceiling. A `Later` whose request says
+    /// `stream` is the same answer: forwarding sources carry it unchanged.
+    pub fn stream(mut request: Request) -> Answer {
+        request.stream = true;
+        if request.http == HttpScheduling::Ordered {
+            request.http = HttpScheduling::Independent {
+                max_response_bytes: 1 << 20,
+            };
+        }
+        Answer::Later(request)
+    }
+}
+
 impl From<Value> for Answer {
     fn from(v: Value) -> Self {
         Answer::Now(v)
@@ -81,6 +100,10 @@ pub struct Request {
     pub headers: Vec<(String, String)>,
     /// The body bytes (empty for a `GET`).
     pub body: Vec<u8>,
+    /// An answer that keeps coming (LLP 1016.000): the host delivers each
+    /// message as an [`Outcome::Message`], and anything else ends it.
+    /// Set by [`Answer::stream`].
+    pub stream: bool,
 }
 
 /// The URL of a long native call (`native.later` in TypeScript): not HTTP.
@@ -105,6 +128,7 @@ impl Request {
             url: NATIVE_URL.into(),
             headers: Vec::new(),
             body,
+            stream: false,
         }
     }
 
@@ -136,6 +160,7 @@ impl Request {
             url: url.into(),
             headers: Vec::new(),
             body: Vec::new(),
+            stream: false,
         }
     }
 
@@ -151,6 +176,7 @@ impl Request {
             url: url.into(),
             headers: vec![("content-type".into(), "application/json".into())],
             body: json.as_bytes().to_vec(),
+            stream: false,
         }
     }
 
@@ -289,6 +315,22 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
+/// One message of an answer that keeps coming: a server-sent event.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Message {
+    /// The event's type (`event:`); empty is `message`.
+    pub event: String,
+    /// The last event id (`id:`), the cursor a re-ask sends back as
+    /// `Last-Event-ID` (LLP 1016.000 D6); empty when the stream set none.
+    pub id: String,
+    /// The event's data (`data:` lines joined by newlines).
+    pub data: String,
+    /// Messages the host dropped for this one because the runner had not
+    /// taken them yet (LLP 1016.000 D4: display data coalesces to the
+    /// newest). Non-zero is a gap a log re-asks across from its cursor.
+    pub coalesced: u32,
+}
+
 /// A request's outcome: a response (any status), or no response at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -298,6 +340,9 @@ pub enum Outcome {
     Surface(SurfaceOutcome),
     /// The server answered.
     Response(Response),
+    /// One message of a stream (LLP 1016.000 D1): the stream stays open.
+    /// Every other outcome delivered to a stream's ticket ends it.
+    Message(Message),
     /// Nothing came back: the executor says why.
     Failed {
         /// The kind.
@@ -314,6 +359,10 @@ impl Outcome {
     pub fn summary(&self) -> String {
         match self {
             Outcome::Response(r) => text!("HTTP {}, {} bytes", r.status, r.body.len()),
+            Outcome::Message(m) if m.coalesced > 0 => {
+                text!("message, {} bytes, {} coalesced", m.data.len(), m.coalesced)
+            }
+            Outcome::Message(m) => text!("message, {} bytes", m.data.len()),
             Outcome::Failed { kind, message } => {
                 let cut = message
                     .char_indices()
@@ -383,19 +432,46 @@ impl Placement {
 /// The reply to host work that finishes on another owner (LLP 1027.002 D3):
 /// `send` once, when the outcome exists. Dropped unsent — the owner died
 /// mid-turn, or never took the job — it reports `Aborted`, so the ticket
-/// still ends and a queue behind it can move.
-pub struct Reply(Option<Box<dyn FnOnce(Outcome) + Send>>);
+/// still ends and a queue behind it can move. A stream's reply
+/// ([`Reply::stream`]) takes any number of `message`s before its `send`.
+pub struct Reply(Option<Deliver>);
+
+enum Deliver {
+    Once(Box<dyn FnOnce(Outcome) + Send>),
+    Many(Box<dyn FnMut(Outcome) + Send>),
+}
 
 impl Reply {
     /// A reply that delivers through `deliver`, once.
     pub fn new(deliver: impl FnOnce(Outcome) + Send + 'static) -> Reply {
-        Reply(Some(Box::new(deliver)))
+        Reply(Some(Deliver::Once(Box::new(deliver))))
     }
 
-    /// Deliver the outcome.
+    /// A stream's reply (LLP 1016.000 D1): each `message` goes through
+    /// `deliver` and leaves it open; `send`, or a drop, ends it.
+    pub fn stream(deliver: impl FnMut(Outcome) + Send + 'static) -> Reply {
+        Reply(Some(Deliver::Many(Box::new(deliver))))
+    }
+
+    /// Deliver one message. The reply stays open unless it answers once
+    /// ([`Reply::new`]): then the message is its one answer.
+    pub fn message(&mut self, message: Message) {
+        match self.0.take() {
+            Some(Deliver::Many(mut deliver)) => {
+                deliver(Outcome::Message(message));
+                self.0 = Some(Deliver::Many(deliver));
+            }
+            Some(Deliver::Once(deliver)) => deliver(Outcome::Message(message)),
+            None => {}
+        }
+    }
+
+    /// Deliver the outcome; for a stream, the last one.
     pub fn send(mut self, outcome: Outcome) {
-        if let Some(deliver) = self.0.take() {
-            deliver(outcome);
+        match self.0.take() {
+            Some(Deliver::Once(deliver)) => deliver(outcome),
+            Some(Deliver::Many(mut deliver)) => deliver(outcome),
+            None => {}
         }
     }
 }
@@ -403,10 +479,14 @@ impl Reply {
 impl Drop for Reply {
     fn drop(&mut self) {
         if let Some(deliver) = self.0.take() {
-            deliver(Outcome::Failed {
+            let aborted = Outcome::Failed {
                 kind: FailureKind::Aborted,
                 message: "the owner ended without a reply".into(),
-            });
+            };
+            match deliver {
+                Deliver::Once(deliver) => deliver(aborted),
+                Deliver::Many(mut deliver) => deliver(aborted),
+            }
         }
     }
 }
@@ -496,6 +576,92 @@ mod summary_tests {
             };
             assert_eq!(outcome.summary(), format!("{}: no", name.to_lowercase()));
         }
+    }
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    type Seen = Arc<Mutex<Vec<String>>>;
+
+    fn recorder() -> (Seen, impl FnMut(Outcome) + Send + 'static) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let into = seen.clone();
+        (seen, move |o: Outcome| {
+            into.lock().unwrap().push(o.summary())
+        })
+    }
+
+    #[test]
+    fn a_stream_reply_sends_many_then_ends_once() {
+        let (seen, deliver) = recorder();
+        let mut reply = Reply::stream(deliver);
+        for data in ["a", "bb"] {
+            reply.message(Message {
+                data: data.into(),
+                ..Message::default()
+            });
+        }
+        reply.send(Outcome::Failed {
+            kind: FailureKind::Network,
+            message: "closed".into(),
+        });
+        assert_eq!(
+            *seen.lock().unwrap(),
+            ["message, 1 bytes", "message, 2 bytes", "network: closed"]
+        );
+    }
+
+    #[test]
+    fn a_stream_reply_dropped_without_an_end_aborts_once() {
+        let (seen, deliver) = recorder();
+        let mut reply = Reply::stream(deliver);
+        reply.message(Message::default());
+        drop(reply);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                "message, 0 bytes",
+                "aborted: the owner ended without a reply"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_message_on_a_single_reply_is_its_one_answer() {
+        let (seen, deliver) = recorder();
+        let mut reply = Reply::new(deliver);
+        reply.message(Message::default());
+        reply.message(Message::default());
+        drop(reply);
+        assert_eq!(*seen.lock().unwrap(), ["message, 0 bytes"]);
+    }
+
+    #[test]
+    fn a_stream_answer_is_independent_and_marked() {
+        let Answer::Later(request) = Answer::stream(Request::get("https://example.test/e")) else {
+            panic!("a stream is a request")
+        };
+        assert!(request.stream);
+        assert_eq!(
+            request.http,
+            HttpScheduling::Independent {
+                max_response_bytes: 1 << 20
+            }
+        );
+        let Answer::Later(kept) =
+            Answer::stream(Request::get("https://example.test/e").independent_http(4096))
+        else {
+            panic!("a stream is a request")
+        };
+        assert_eq!(
+            kept.http,
+            HttpScheduling::Independent {
+                max_response_bytes: 4096
+            }
+        );
     }
 }
 

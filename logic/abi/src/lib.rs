@@ -123,6 +123,14 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
             pairs(w, &r.headers);
             bytes(w, &r.body);
         }
+        // One message of a stream (LLP 1016.000); additive, as tag 6 was.
+        Outcome::Message(m) => {
+            w.u8(8);
+            w.string(&m.event);
+            w.string(&m.id);
+            w.string(&m.data);
+            w.u32(m.coalesced);
+        }
         Outcome::Failed { kind, message } => {
             w.u8(match kind {
                 FailureKind::Network => 1,
@@ -153,6 +161,14 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
     }
     if tag == 7 {
         return Ok(Outcome::Surface(SurfaceOutcome::Restored));
+    }
+    if tag == 8 {
+        return Ok(Outcome::Message(exact_runner::Message {
+            event: r.string().map_err(error)?,
+            id: r.string().map_err(error)?,
+            data: r.string().map_err(error)?,
+            coalesced: r.u32().map_err(error)?,
+        }));
     }
     let kind = match tag {
         1 => FailureKind::Network,
@@ -222,10 +238,11 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
         {
             // Additive HTTP result kind. Older hosts reject tag 6 before
             // executing effects; it must never silently decode as ordered.
+            // A stream (tag 9) is always independent (LLP 1016.000).
             match r.http {
                 HttpScheduling::Ordered => w.u8(1),
                 HttpScheduling::Independent { max_response_bytes } => {
-                    w.u8(6);
+                    w.u8(if r.stream { 9 } else { 6 });
                     w.u32(max_response_bytes);
                 }
             }
@@ -263,8 +280,9 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
     let tag = r.u8().map_err(error)?;
     Ok(match tag {
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
-        1 | 6 => Ok(Answer::Later(Request {
-            http: if tag == 6 {
+        1 | 6 | 9 => Ok(Answer::Later(Request {
+            stream: tag == 9,
+            http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {
                     return Err("invalid independent HTTP response limit".into());

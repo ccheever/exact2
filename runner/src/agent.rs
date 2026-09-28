@@ -679,7 +679,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
     }
     s.push_str("},\"pending\":[");
-    for (i, (name, ticket)) in runner.pending().iter().enumerate() {
+    let in_flight = runner.in_flight();
+    for (i, (name, ticket)) in in_flight.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
@@ -689,7 +690,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     }
     // Held device requests, after the network's (LLP 1069.007 D3): each
     // with its capability and that capability's inspection summary.
-    let network = runner.pending().len();
+    let network = in_flight.len();
     for (i, hold) in runner.device_holds().iter().enumerate() {
         if i > 0 || network > 0 {
             s.push(',');
@@ -709,6 +710,21 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             s.push_str("{}");
         }
         s.push_str("}}");
+    }
+    // Open streams (LLP 1016.000 D5): pending until their first message,
+    // then listed here with what they delivered and what coalesced.
+    s.push_str("],\"streams\":[");
+    for (i, (name, ticket, count)) in runner.streams().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(name, &mut s);
+        let _ = write!(
+            s,
+            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}}}",
+            count.messages, count.coalesced
+        );
     }
     // The store's names, never its values (LLP 1018 D5).
     s.push_str("],\"store\":[");

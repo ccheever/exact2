@@ -60,6 +60,7 @@ impl DataSource for Fixture {
     ) -> Result<Answer, DataError> {
         store.observe_external_read();
         match outcome {
+            Outcome::Message(_) => unreachable!("no stream in this fixture"),
             Outcome::Response(r) => Ok(Answer::Now(Value::Number(r.status.into()))),
             Outcome::Storage(bytes) => Ok(Answer::Now(Value::list(
                 bytes
