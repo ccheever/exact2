@@ -30,8 +30,11 @@ export function install(exact) {
     return out;
   };
   const tags = () => ({ clock: exact.clock.now, epoch: 1 });
-  exact.views = views;
+  // The browser runs CSS animations; under the agent they follow its clock:
+  // each held at the driver's time, seeked on every read.
+  const seek = () => { for (const a of document.getAnimations()) { a.pause(); a.currentTime = exact.clock.now; } };
   exact.agentSettled = async (req) => {
+    seek();
     switch (req.op) {
       case 'tree': {
         let nodes = all();
