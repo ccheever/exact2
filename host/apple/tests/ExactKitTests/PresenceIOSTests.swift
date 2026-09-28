@@ -21,8 +21,9 @@ final class PresenceIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view"],
-            ["op": "create", "id": 3, "kind": "view"],
-            ["op": "create", "id": 4, "kind": "view"],
+            // Named, so they are views and not flat leaves (LLP 1068 §6.1).
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "inner"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["testId": "sibling"]],
             ["op": "children", "id": 1, "ids": [2, 4]],
             ["op": "children", "id": 2, "ids": [3]],
             ["op": "roots", "ids": [1]],

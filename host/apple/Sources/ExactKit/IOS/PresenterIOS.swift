@@ -43,6 +43,7 @@ final class Presenter {
     lazy var pool = NodePool(self)
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
+    lazy var flats = FlatLeaves(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
@@ -285,6 +286,7 @@ final class Presenter {
         swipeActions.reset()
         pool.reset()
         leaves.reset()
+        flats.reset()
         modals.reset()
         navigation.reset()
         session?.canvases.reset()
@@ -592,6 +594,7 @@ final class Presenter {
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
+        if !applying { flats.begin(batch) }
         pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
@@ -647,6 +650,7 @@ final class Presenter {
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
+                    for n in [binding.id, binding.target, binding.clip].compactMap({ $0 }) where flats.isFlat(n) { flats.promote(n) }
                     if binding.target == nil {
                         if transformBindings[binding.id]?.handleKey == binding.handleKey
                             && transformBindings[binding.id]?.runtime == binding.runtime {
@@ -663,6 +667,7 @@ final class Presenter {
                 }
             case .heightDrag:
                 if let binding = HeightDragBinding(op.payload) {
+                    for n in [binding.id, binding.target].compactMap({ $0 }) where flats.isFlat(n) { flats.promote(n) }
                     if binding.target == nil {
                         if heightBindings[binding.id]?.handleKey == binding.handleKey {
                             heightBindings.removeValue(forKey: binding.id)
@@ -671,6 +676,8 @@ final class Presenter {
                     views[binding.id]?.updateHeightDragGesture()
                 }
             case .create:
+                // An inert leaf box is a layer in its parent's (LLP 1068 §6.1).
+                if flats.create(op) { continue }
                 let reused = pool.take(id)
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
@@ -686,10 +693,12 @@ final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
+                if flats.isFlat(id) { if op.props.isEmpty { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
+                if flats.isFlat(id), flats.style(id, op.style) { continue }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"]
                 v.applyStyle(op.style)
@@ -704,32 +713,23 @@ final class Presenter {
                     session?.noteAppearance(v)
                 }
             case .children:
+                if flats.isFlat(id) { if op.ids.isEmpty { continue }; flats.promote(id) }
                 guard let parent = views[id] else { continue }
-                let want = op.ids.compactMap { views[UInt32($0)] }
-                let container = parent.container
-                let wanted = Set(want.map(ObjectIdentifier.init))
-                var current = container.subviews
-                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
-                    if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
-                }
-                // In order, below anything else in the container (a scroll
-                // view's indicators): inserting a subview at an index moves
-                // it when it is already there. One already there stays.
-                let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
-                current = container.subviews
-                for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
-                    container.insertSubview(child, at: i)
-                    current = container.subviews
-                }
+                placeChildren(parent, op.ids)
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
             case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
-            case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
+            case .animations:
+                if flats.isFlat(id) { flats.promote(id) }
+                svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
-            case .exit: beginExit(id)
+            case .exit:
+                if flats.isFlat(id) { flats.promote(id) }
+                beginExit(id)
             case .destroy:
+                if flats.isFlat(id) { flats.destroy(id); continue }
                 if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.
                 if let view = views[id], pool.retire(view) { continue }
@@ -741,9 +741,17 @@ final class Presenter {
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
             case .frame, .content:
+                if flats.isFlat(id) {
+                    if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
+                    continue
+                }
                 if kind == .frame { pool.framed(id) }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
+                if flats.isFlat(id) {
+                    if op.property == "opacity" { flats.opacity(id, Float(op.x)); continue }
+                    flats.promote(id)
+                }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
@@ -806,6 +814,28 @@ final class Presenter {
         chrome.forget(id)
         scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
         return views.removeValue(forKey: id)
+    }
+
+    /// `parent`'s children, in order: its views as subviews of its container,
+    /// then its flat leaves' layers among them (LLP 1068 §6.1).
+    func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
+        let want = ids.compactMap { views[$0] }
+        let container = parent.container
+        let wanted = Set(want.map(ObjectIdentifier.init))
+        var current = container.subviews
+        for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
+            if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
+        }
+        // In order, below anything else in the container (a scroll
+        // view's indicators): inserting a subview at an index moves
+        // it when it is already there. One already there stays.
+        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
+        current = container.subviews
+        for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+            container.insertSubview(child, at: i)
+            current = container.subviews
+        }
+        for id in flats.place(parent, ids) { flats.promote(id) }
     }
 
     /// The views a batch touched and every view above them, as the batch

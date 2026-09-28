@@ -265,12 +265,16 @@ final class NodePool {
         guard let batch else { return nil }
         var kind: [UInt32: String] = [:], children: [UInt32: [UInt32]] = [:], parent: [UInt32: UInt32] = [:]
         var image: [UInt32: String] = [:]
+        var flat = Set<UInt32>()
         for op in batch.ops where op.op == .create {
+            // A flat leaf is a layer, not a view: no part of a row's shape
+            // (LLP 1068 §6.1), as a parked row's subviews do not hold it.
+            if presenter.flats.batchFlat.contains(op.id) { flat.insert(op.id); continue }
             kind[op.id] = op.kind
             if op.kind == "image" { image[op.id] = op.props["imageSource"] ?? "" }
         }
         for op in batch.ops where op.op == .children {
-            let ids = op.ids.map { UInt32($0) }
+            let ids = op.ids.map { UInt32($0) }.filter { !flat.contains($0) }
             if kind[op.id] != nil { children[op.id] = ids }
             for child in ids where kind[child] != nil { parent[child] = op.id }
         }

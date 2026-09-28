@@ -185,7 +185,7 @@ extension Agent {
         // The scene's title as UIKit holds it (LLP 1048.003 D1; the app sets it).
         let window: [String: Any] = ["title": presenter.session?.view?.window?.windowScene?.title ?? NSNull()]
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
-        var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }
+        var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool]
     }
