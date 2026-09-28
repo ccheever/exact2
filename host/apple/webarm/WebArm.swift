@@ -66,6 +66,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var suppressLoad = false
     var recovering = false
     var invalidated = false
+    static let template: WKWebViewConfiguration = {
+        let template = WKWebViewConfiguration()
+        _ = template.preferences
+        _ = template.websiteDataStore
+        _ = template.defaultWebpagePreferences
+        return template
+    }()
     var wrapperURL: URL { URL(string: "https://exact.invalid/frame/\(id)/index.html")! }
 
     init(id: UInt32, context: UnsafeMutableRawPointer?, event: @escaping EventFn, reply: @escaping ReplyFn) {
@@ -73,7 +80,14 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         self.context = context
         self.event = event
         self.reply = reply
-        let configuration = WKWebViewConfiguration()
+        // A copy of one shared configuration, not a fresh one: a fresh
+        // configuration builds its preferences, visited-link store and
+        // page defaults again for every row (`ensureLazyInitializedRefs`,
+        // 3–4 ms a view). The copy shares only what every iframe on one web
+        // page shares: the default website data store (same-origin storage
+        // and cookies) and default preferences. The script bridge stays per
+        // view (@ref LLP 1020 D2, LLP 1068 §0.1 Q3: views are not pooled).
+        let configuration = WebArm.template.copy() as! WKWebViewConfiguration
         configuration.userContentController = controller
         #if os(macOS)
         webView = ExactWebView(frame: .zero, configuration: configuration)
