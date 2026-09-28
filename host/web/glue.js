@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl } from "./navigation.js";
+import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -711,7 +711,7 @@ function apply(batch) {
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
         track(p,op.ticket);break;
       }
-      case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", encoder.encode(op.message)); break; }
+      case "refuse": { deferFulfill(...refusal(op, incarnation)); break; }
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -986,14 +986,7 @@ function safelyFulfill(...args) {
   try { fulfill(...args); }
   catch (e) { console.error("exact: request fulfillment failed", e); }
 }
-function deferFulfill(...args) {
-  // Refusals and malformed request bodies are known while their enclosing
-  // batch is still applying. Deliver them on the next microtask so their
-  // commits cannot re-enter `apply` halfway through that batch; in flight
-  // until then, so a wait sees what their parse asks for next.
-  const p = Promise.resolve().then(() => safelyFulfill(...args));
-  inflight.add(p); p.finally(() => inflight.delete(p));
-}
+const deferFulfill = deferredFulfill(safelyFulfill, inflight);
 // The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
 // `settle` go to the wasm (`exact_agent`); `layout` reads the browser's
 // boxes — the only layout the web host has; `clock` moves both clocks to

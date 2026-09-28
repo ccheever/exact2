@@ -1,9 +1,8 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { request } from './http-body.js';
+import { deferredFulfill, refusal } from './navigation.js';
 const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-const defer = source.match(/function deferFulfill\(\.\.\.args\) \{[\s\S]*?\n\}/)[0];
-const branch = source.match(/case "refuse": \{[^\n]*\}/)[0];
 
 test('native requests admit the source scope before calling the module and bound UTF-8 replies', async () => {
   const results = [];
@@ -24,11 +23,10 @@ test('native requests admit the source scope before calling the module and bound
   expect(results.pop()?.body.length).toBe(1024 * 1024);
 });
 test('admission refusal delivers Refused only after the enclosing batch, with its incarnation', async () => {
-  const delivered = [];
-  const apply = Function('safelyFulfill', 'encoder', 'inflight', `${defer}; return (op,incarnation)=>{switch(op.op){${branch}}};`)(
-    (...args) => delivered.push(args), new TextEncoder(), new Set());
-  apply({ op: 'refuse', ticket: 17, message: 'only HTTP may opt into independent transport' }, 4);
+  const delivered = [], inflight = new Set(), defer = deferredFulfill((...args) => delivered.push(args), inflight);
+  defer(...refusal({ op: 'refuse', ticket: 17, message: 'only HTTP may opt into independent transport' }, 4));
   expect(delivered.length).toBe(0);
+  expect(inflight.size).toBe(1); // a settle waits for it
   await Promise.resolve();
   expect(delivered.length).toBe(1);
   expect(delivered[0].slice(0, 5)).toEqual([4, 17, 2, 0, '']);

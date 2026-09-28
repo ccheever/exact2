@@ -427,6 +427,15 @@ export function devFirst() {
   });
 }
 
+// Refusals and malformed request bodies are known while their enclosing
+// batch is still applying. Deliver them on the next microtask so their
+// commits cannot re-enter `apply` halfway through that batch; in flight
+// until then, so a wait sees what their parse asks for next.
+export function deferredFulfill(fulfill, inflight) {
+  return (...args) => { const p = Promise.resolve().then(() => fulfill(...args)); inflight.add(p); p.finally(() => inflight.delete(p)); };
+}
+// An admission refusal answers its ticket Refused (kind 2) with the reason, in its incarnation.
+export const refusal = (op, incarnation) => [incarnation, op.ticket, 2, 0, "", new TextEncoder().encode(op.message)];
 export function focusController({ready, elements, inert}) {
   const processed = new WeakSet();
   let pointerTarget = null, restarting = false;
