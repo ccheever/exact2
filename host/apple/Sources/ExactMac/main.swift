@@ -116,6 +116,16 @@ func footprint() -> UInt64 {
     return kr == KERN_SUCCESS ? info.phys_footprint : 0
 }
 
+/// Under a script the window is the size asked for, as headless Chrome's
+/// `--window-size` is, whatever the screen: AppKit would shorten an 860-point
+/// window to fit a 720-point display, and a node the script reads at y 630
+/// would then be below the viewport's edge, where no tap reaches it.
+final class ExactWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        agentMode ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+}
+
 /// One window: its own session and view (LLP 1031 D1). The first is the
 /// app's; under `launch_handler`'s `navigate-new` every further document
 /// gets one of these (LLP 1069.010 D4), and the windows share one
@@ -146,7 +156,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         }
         view = ExactView(session: session)
         if first { ExactEnv.stamp("Presenter (NSScrollView)") }
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = ExactWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         // Present the reading surface at its final size as soon as it is ready.
         window.animationBehavior = .none
