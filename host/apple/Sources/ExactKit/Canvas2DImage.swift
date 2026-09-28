@@ -223,8 +223,9 @@ final class Canvas2DHost: Canvas2DEnv {
     }
 
     func forget(_ id: UInt32) {
+        // Every retired view is forgotten here; only a canvas has a replayer.
+        guard sequence.removeValue(forKey: id) != nil else { return }
         replay.async { [weak self] in self?.replayers.removeValue(forKey: id) }
-        sequence.removeValue(forKey: id)
         layers.removeValue(forKey: id)?.removeFromSuperlayer()
     }
 }
