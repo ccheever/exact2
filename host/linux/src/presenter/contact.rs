@@ -60,6 +60,8 @@ pub(super) struct Contact {
     last_ms: f64,
     pub(super) hold: Option<Hold>,
     panning: bool,
+    /// Every sample since down, for a pan's release velocity (LLP 1057 §10.6).
+    pan_velocity: VelocityTracker,
     retained: Option<super::retained_action::RetainedContact>,
     press: Option<(NodeKey, PaintedBox)>,
 }
@@ -281,6 +283,7 @@ impl<D: DataSource> Presenter<D> {
                     retained: Some(retained),
                     press: None,
                     panning: false,
+                    pan_velocity: VelocityTracker::new(),
                 });
                 self.set_collection_interaction(Some(view));
                 return Ok(true);
@@ -318,6 +321,8 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
         }
         let candidate = (!rest.is_empty()).then(|| rest.remove(0));
+        let mut pan_velocity = VelocityTracker::new();
+        pan_velocity.push(now_ms / 1000., Value::new(x as f64, y as f64));
         self.contact = Some(Contact {
             hit,
             candidate,
@@ -327,6 +332,7 @@ impl<D: DataSource> Presenter<D> {
             last_ms: now_ms,
             hold: None,
             panning: false,
+            pan_velocity,
             retained: None,
             press,
         });
@@ -345,6 +351,9 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        contact
+            .pan_velocity
+            .push(now_ms / 1000., Value::new(x as f64, y as f64));
         if let Some((key, box_)) = contact.press {
             self.host.press_feedback(key, box_.contains(x, y), now_ms);
             self.dirty = true;
@@ -582,7 +591,14 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         } else if contact.panning {
-            Ok(true)
+            // The last delta went out above; then the release, once.
+            let velocity = contact.pan_velocity.estimate(now_ms / 1000.);
+            match contact.candidate {
+                Some(Candidate::Pan(key)) => self
+                    .release_pan(key, (velocity.x, velocity.y), now_ms)
+                    .map_or(Ok(true), Err),
+                _ => Ok(true),
+            }
         } else if let Some((key, box_)) = contact.press {
             if box_.contains(x, y) && self.input_live(key) {
                 if let Some(node) = self.host.kernel().node_by_key(key) {
@@ -618,7 +634,8 @@ impl<D: DataSource> Presenter<D> {
             HeldKind::Swipe { .. } => self.end_swipe(held, end, now_ms),
         }
     }
-    /// Escape, wheel takeover, disconnection, or invalidated binding: no release event.
+    /// Escape, wheel takeover, disconnection, or invalidated binding: no
+    /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
         if self.contact.is_none() {
             return Ok(());
@@ -629,9 +646,14 @@ impl<D: DataSource> Presenter<D> {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;
         }
-        let result = contact.hold.as_ref().map_or(Ok(()), |held| {
+        let mut result = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });
+        if let (true, Some(Candidate::Pan(key))) = (contact.panning, contact.candidate) {
+            if let Some(error) = self.release_pan(key, (0., 0.), now_ms) {
+                result = result.and(Err(error));
+            }
+        }
         if !contact
             .hold
             .as_ref()

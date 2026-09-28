@@ -40,6 +40,7 @@ mod control;
 mod delivery;
 mod display_frame;
 mod events;
+mod pan_release;
 mod picker;
 #[cfg(test)]
 mod save_tests;
