@@ -505,6 +505,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
         // The row-axis twin (LLP 1070 H2): a virtualized row list's estimate.
         "estimated-item-width" => AttrTarget::Prop(p("estimatedItemWidth")),
+        // History's `scrollRestoration` values (LLP 1070 §4.2): whether a
+        // nested list keeps its position across its row's retirement.
+        "scroll-restoration" => AttrTarget::Prop(p("scrollRestoration")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),

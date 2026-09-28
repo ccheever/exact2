@@ -434,6 +434,18 @@ impl SizeIndex {
         })
     }
 
+    /// An anchor at `key`'s item, `within` into it, however that compares
+    /// with the item's estimate: a restored position (LLP 1070 §4.2), held
+    /// until the item is measured.
+    pub(crate) fn anchor_at(&self, key: &str, within: f64) -> Option<Anchor> {
+        Some(Anchor {
+            order: Rc::clone(&self.order),
+            row: Some(self.position(key)?),
+            within,
+            follows_end: false,
+        })
+    }
+
     /// O(log N) while the anchor survives. Deletion fallback scans the old order
     /// only after structural edits (which already permit an index rebuild).
     /// Drop/recapture the anchor after applying the correction; retaining many old

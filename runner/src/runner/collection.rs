@@ -35,6 +35,13 @@ impl<D: DataSource> Runner<D> {
             _ => "[]".to_string(),
         }
     }
+    /// Every outer list's kept inner positions (LLP 1070 §4.2), for `state`.
+    pub fn kept_positions_json(&self) -> String {
+        match (self.links.lists, &self.tree) {
+            (Some(_), Some(tree)) => tree.kept_positions_json(),
+            _ => "[]".to_string(),
+        }
+    }
     /// Decode the common numeric LE protocol before touching state.
     pub fn collection_feedback_bytes(&mut self, bytes: &[u8]) -> Result<Advanced, RunnerError> {
         let (feedback, fill) = CollectionFeedback::decode_with_fill(bytes).map_err(|_| {

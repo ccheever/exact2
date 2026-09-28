@@ -138,6 +138,40 @@ final class ChainingScrollView: NSScrollView {
         scrolls && delta != 0 && limit > 0 && ((delta < 0 && origin < limit) || (delta > 0 && origin > 0))
     }
 
+    /// Chrome's wheel scroll latching for a trackpad gesture (LLP 1070 G1):
+    /// the gesture belongs to one scroller from its first moving event to
+    /// its end, momentum included, and is never handed on mid-gesture. The
+    /// owner is the first scroller, innermost out, whose routing of that
+    /// event is not `.chain`; one destroyed mid-gesture takes the rest with
+    /// it. A new `began` starts a new gesture.
+    struct Latch {
+        weak var owner: ChainingScrollView?
+        var chosen = false
+        var active = false
+    }
+    static var latch = Latch()
+
+    /// What a phased event does here, given the latch: the routing to act
+    /// on, choosing this view as the owner when it is the first to take it.
+    /// Pure over the latch, so `ScrollRoutingTests` can drive a gesture.
+    static func latched(_ latch: inout Latch, view: ChainingScrollView, began: Bool, over: Bool,
+                        moving: Bool, routing: Routing) -> Routing {
+        if began { latch = Latch(owner: nil, chosen: false, active: true) }
+        defer { if over { latch = Latch() } }
+        guard latch.active else { return routing }
+        if latch.chosen {
+            guard let owner = latch.owner else { return .drop }
+            if owner !== view { return view.isDescendant(of: owner) ? .chain : .drop }
+            // The owner keeps what it cannot take: the rest is dropped (or
+            // rubber-banded by AppKit on a contained axis), never chained.
+            return routing == .chain ? .drop : routing
+        }
+        guard moving, routing != .chain else { return routing }
+        latch.owner = view
+        latch.chosen = true
+        return routing
+    }
+
     override func scrollWheel(with event: NSEvent) {
         // Precise deltas (a trackpad) are in points; a wheel's are in lines.
         let precise = event.hasPreciseScrollingDeltas
@@ -145,7 +179,15 @@ final class ChainingScrollView: NSScrollView {
         var dy = precise ? event.scrollingDeltaY : event.deltaY * ChainingScrollView.lineHeight
         let phased = !(event.phase.isEmpty && event.momentumPhase.isEmpty)
         let extent = self.extent
-        switch routing(dx: dx, dy: dy, phased: phased, in: extent) {
+        var route = routing(dx: dx, dy: dy, phased: phased, in: extent)
+        if phased {
+            let began = event.phase.contains(.began) && event.momentumPhase.isEmpty
+            let over = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
+                || event.phase.contains(.cancelled)
+            route = Self.latched(&Self.latch, view: self, began: began, over: over,
+                                 moving: dx != 0 || dy != 0, routing: route)
+        }
+        switch route {
         case .drop:
             return
         case .appKit:

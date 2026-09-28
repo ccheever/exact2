@@ -83,13 +83,13 @@ fn eager_lists_and_actual_parent_stretch_remain_valid() {
 fn nested_source(row: &str) -> String {
     source("virtualized=true height=200").replace("          text `${x}` height=20", row)
 }
-fn refuses_nested(source: &str) {
-    let error = contract::compile(source).unwrap_err();
-    assert_eq!(error.id, "lower-collection-nested", "{error}");
-    assert!(error.message.contains("ancestor"), "{error}");
+/// One level of nesting compiles wherever the row puts it (LLP 1070 N6);
+/// `collection_nest.rs` refuses a second.
+fn nests(source: &str) {
+    contract::compile(source).unwrap_or_else(|e| panic!("{e}"));
 }
 #[test]
-fn nested_virtual_templates_are_rejected_through_branches_and_eager_rows() {
+fn nested_virtual_templates_compile_through_branches_and_eager_rows() {
     let inner =
         "list virtualized=true height=80\n{indent}  each y in rows key=y\n{indent}    text `${y}`";
     for prefix in [
@@ -106,13 +106,13 @@ fn nested_virtual_templates_are_rejected_through_branches_and_eager_rows() {
         if prefix.contains("match") {
             row.push_str("\n              case none\n                text \"empty\"");
         }
-        refuses_nested(&nested_source(&row));
+        nests(&nested_source(&row));
     }
 }
 #[test]
-fn expanded_components_cannot_hide_nested_virtual_collections() {
+fn expanded_components_can_hold_a_nested_virtual_collection() {
     let s = format!("{}\ncomponent Inner\n  props\n    items: list<number>\n  view\n    column\n      list virtualized=true height=80\n        each y in items key=y\n          text `${{y}}`\n", nested_source("          Inner(items=rows)"));
-    refuses_nested(&s);
+    nests(&s);
 }
 #[test]
 fn ordinary_sheet_and_eager_outer_list_can_contain_virtual_collections() {

@@ -27,6 +27,24 @@ fn card(n: u64) -> Value {
     ])
 }
 
+/// Feed row `n`: every fifth a strip of 200 cards, every seventh an inbox
+/// of 120 messages, the rest text. Fields in `shape Post`'s order.
+fn post(n: u64) -> Value {
+    let (kind, items) = if n.is_multiple_of(5) {
+        ("strip", 200)
+    } else if n.is_multiple_of(7) {
+        ("inbox", 120)
+    } else {
+        ("text", 0)
+    };
+    Value::record(vec![
+        Value::str(&format!("p{n}")),
+        Value::Number(n as f64),
+        Value::str(kind),
+        Value::list((0..items).map(card).collect()),
+    ])
+}
+
 impl DataSource for Cards {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
@@ -36,6 +54,13 @@ impl DataSource for Cards {
                     _ => 0,
                 };
                 Ok(Value::list((0..count).map(card).collect()))
+            }
+            "posts" => {
+                let count = match args.first() {
+                    Some(Value::Number(n)) if *n >= 0.0 => (*n as u64).min(10_000),
+                    _ => 0,
+                };
+                Ok(Value::list((0..count).map(post).collect()))
             }
             _ => Err(DataError::UnknownSource(source.into())),
         }

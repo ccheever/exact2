@@ -164,6 +164,8 @@ impl Tree {
             out.push(CollectionSnapshot {
                 view: c.view,
                 axis: c.axis,
+                parent: c.parent,
+                restored: c.restored,
                 revision: c.revision,
                 scroll_sequence: c.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
                 count: c.index.len(),
@@ -377,11 +379,14 @@ fn find_collection_mut(children: &mut [Child], view: ViewId) -> Option<&mut Coll
     while let Some(child) = stack.pop() {
         match child {
             Child::Node(node) => {
+                if node.collection.as_ref().is_some_and(|c| c.view == view) {
+                    return node.collection.as_deref_mut();
+                }
+                // A nested collection lives in a mounted row (LLP 1070 N1).
                 if let Some(collection) = &mut node.collection {
-                    if collection.view == view {
-                        return Some(collection);
+                    for row in &mut collection.mounted {
+                        stack.extend(row.row.roots.iter_mut());
                     }
-                    // Virtual row descendants cannot contain another collection.
                 }
                 stack.extend(node.children.iter_mut());
             }
@@ -410,11 +415,18 @@ fn release_other_pins(
         match child {
             Child::Node(node) => {
                 if let Some(collection) = &mut node.collection {
-                    if collection.view != target {
+                    // The addressed list's ancestors keep their rows: the new
+                    // pin's chain runs through them (LLP 1070 N5), and
+                    // releasing one would retire the row that holds it.
+                    if collection.view != target && !collection.contains(target) {
                         changed |= collection.release_pins(u, frames, categories)?;
                     }
-                    // Nested virtual collections are rejected before realization;
-                    // releasing a sibling can never retire the addressed owner.
+                    for row in &mut collection.mounted {
+                        let mut inner = frames.to_vec();
+                        inner.push(row.row.frame.clone());
+                        changed |=
+                            release_other_pins(&mut row.row.roots, u, &inner, target, categories)?;
+                    }
                 }
                 changed |= release_other_pins(&mut node.children, u, frames, target, categories)?;
             }
@@ -438,44 +450,69 @@ fn release_other_pins(
     Ok(changed)
 }
 
-/// Check the template, including inactive arms and rows not yet materialized.
-/// An explicit false remains an ordinary eager list; a dynamic nested opt-in
-/// could become enabled later and is rejected just like an explicit true.
-pub(super) fn validate_no_nested(
+/// Check the template, including inactive arms and rows not yet materialized:
+/// a row may hold a virtualized list with a constant `virtualized=true`, one
+/// level down (LLP 1070 N6); a dynamic opt-in, at any depth, could become
+/// enabled later and is refused, as is a list inside the inner one. An
+/// explicit false stays an ordinary eager list. Whether the rows can hold one.
+pub(super) fn validate_nesting(
     plan: &Plan,
     sites: &SiteIndex,
     region: RegionsId,
-) -> Result<(), InstanceError> {
-    let mut stack = sites
+) -> Result<bool, InstanceError> {
+    let constant = |value: u8| {
+        [
+            exact_plan::Opcode::Bool as u8,
+            value,
+            exact_plan::Opcode::Return as u8,
+        ]
+    };
+    let mut nested = false;
+    let mut stack: Vec<_> = sites
         .children(None, plan.region(region).arms.iter().next())
-        .to_vec();
-    while let Some((_, site)) = stack.pop() {
+        .iter()
+        .map(|site| (*site, 0))
+        .collect();
+    while let Some(((_, site), depth)) = stack.pop() {
         match site {
             Site::Node(node) => {
                 let row = plan.node(node);
+                let mut inner = depth;
                 for binding in row.bindings.iter().map(|id| plan.binding(id)) {
-                    if binding.kind == BindingKind::Prop
-                        && binding.id == PropId::Virtualized as u16
-                        && plan.code(binding.expr)
-                            != [
-                                exact_plan::Opcode::Bool as u8,
-                                0,
-                                exact_plan::Opcode::Return as u8,
-                            ]
+                    if binding.kind != BindingKind::Prop || binding.id != PropId::Virtualized as u16
                     {
-                        return Err(invalid("nested virtualized collections are not supported"));
+                        continue;
                     }
+                    let code = plan.code(binding.expr);
+                    if code == constant(0) {
+                        continue;
+                    }
+                    if code != constant(1) {
+                        return Err(invalid(
+                            "a nested virtualized list needs a constant `virtualized=true`",
+                        ));
+                    }
+                    if depth > 0 {
+                        return Err(invalid("virtualized lists nest one level deep"));
+                    }
+                    nested = true;
+                    inner = 1;
                 }
-                stack.extend(sites.children(Some(node), row.arm).iter().copied());
+                stack.extend(
+                    sites
+                        .children(Some(node), row.arm)
+                        .iter()
+                        .map(|s| (*s, inner)),
+                );
             }
             Site::Region(region) => {
                 for arm in plan.region(region).arms.iter() {
-                    stack.extend(sites.children(None, Some(arm)).iter().copied());
+                    stack.extend(sites.children(None, Some(arm)).iter().map(|s| (*s, depth)));
                 }
             }
         }
     }
-    Ok(())
+    Ok(nested)
 }
 
 /// Inherited typography may change without changing a row-body expression.

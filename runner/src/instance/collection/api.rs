@@ -109,6 +109,10 @@ pub struct CollectionSnapshot {
     pub view: ViewId,
     /// The main axis: what `offset`, `start`, `size` and the extent measure.
     pub axis: ListAxis,
+    /// The outer list whose mounted row holds this one (LLP 1070 G3).
+    pub parent: Option<ViewId>,
+    /// It started where a kept position said (LLP 1070 §4.2).
+    pub restored: bool,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
     /// Last accepted host sequence.
@@ -267,7 +271,14 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if i > 0 {
             out.push(',');
         }
-        write!(out, "{{\"view\":{},\"axis\":\"{}\",\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.view, c.axis.name(), c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
+        write!(out, "{{\"view\":{},\"axis\":\"{}\",", c.view, c.axis.name()).unwrap();
+        if let Some(parent) = c.parent {
+            write!(out, "\"parent\":{parent},").unwrap();
+        }
+        if c.restored {
+            out.push_str("\"restored\":true,");
+        }
+        write!(out, "\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
             if i > 0 {
                 out.push(',');

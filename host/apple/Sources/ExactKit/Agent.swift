@@ -349,6 +349,9 @@ public final class Agent {
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
             guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
             session.canvases.settle(now: landed)
+            // Every list reported and filled where it shows, nested ones
+            // included, before the fixed point is read (LLP 1070 G3).
+            if settle { presenter.settlePump() }
             world = session.canvases.clock(settle: settle)
             guard settle else { return reply(landed) }
             if pendingCount() > 0 {

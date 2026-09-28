@@ -22,6 +22,16 @@ fn list_region<'a>(
                     if n.view == view {
                         return n.collection.as_deref();
                     }
+                    // A nested list lives in a mounted row (LLP 1070 §4.7).
+                    if let Some(c) = &n.collection {
+                        for (_, row) in c.mounted_rows() {
+                            frames.push(row.frame.clone());
+                            if let Some(r) = walk(&row.roots, view, frames) {
+                                return Some(r);
+                            }
+                            frames.pop();
+                        }
+                    }
                     if let Some(r) = walk(&n.children, view, frames) {
                         return Some(r);
                     }

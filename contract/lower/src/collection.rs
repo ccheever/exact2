@@ -63,7 +63,7 @@ impl Lowerer<'_> {
                 span,
             );
         };
-        self.reject_nested_collections(body)?;
+        self.check_nested(body, false)?;
         let [Node::Element { tag, attrs, .. }] = body.as_slice() else {
             return err("lower-collection-template", "each in a virtualized list needs exactly one element flow root (wrap conditional or multiple roots in column)", span);
         };
@@ -107,6 +107,11 @@ impl Lowerer<'_> {
         if let Some(estimate) = literal(attrs, other) {
             return err("lower-collection-estimate", format!("`{other}` estimates the other axis; this list scrolls {}, so its estimate is `{own}`", if row { "horizontally" } else { "vertically" }), estimate.span);
         }
+        if let Some(restoration) = literal(attrs, "scroll-restoration") {
+            if !matches!(string(restoration), Some("auto" | "manual")) {
+                return err("lower-attr-value", "`scroll-restoration` is `auto` (a nested list keeps where its reader left it) or `manual` (the app does)", restoration.span);
+            }
+        }
         if let Some(reorder) = literal(attrs, "reorderdrop").filter(|_| row) {
             return err("lower-collection-reorder", "reordering is vertical; a virtualized row list refuses `reorderdrop` until a consumer needs it (LLP 1070 §4.7)", reorder.span);
         }
@@ -137,43 +142,61 @@ impl Lowerer<'_> {
     }
 
     // Component uses and slots have already expanded before lowering. Inspect
-    // all arms, even currently inactive ones: an inner focus pin cannot keep
-    // an offscreen ancestor row alive under the initial lifetime policy.
-    fn reject_nested_collections(&self, nodes: &[Node]) -> Result<(), LowerError> {
+    // all arms, even currently inactive ones. A row may hold one virtualized
+    // list, one level down, whose lifetime is the row's (LLP 1070 N1, N6); it
+    // may not hold another, reorder, or scroll vertically without a literal
+    // height, since a row's height is its content's and `flex` alone bounds
+    // nothing there.
+    fn check_nested(&self, nodes: &[Node], inner: bool) -> Result<(), LowerError> {
         for node in nodes {
             match node {
                 Node::Element {
-                    attrs, children, ..
+                    attrs,
+                    children,
+                    span,
+                    ..
                 } => {
                     // `virtualized` is a prop, which no `style` may hold.
                     let opt = attrs.iter().find(|a| a.name == "virtualized");
                     if let Some(opt) = opt.filter(|a| matches!(a.value, Expr::Bool(true, _))) {
-                        return err("lower-collection-nested", "a virtualized list cannot occur inside another virtualized list's row template until bounded ancestor-row lifetime is supported; use an ordinary container or an eager outer list", opt.span);
+                        if inner {
+                            return err("lower-collection-depth", "virtualized lists nest one level deep: this list is inside a virtualized list that is itself in a virtualized list's row", opt.span);
+                        }
+                        if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
+                            return err("lower-collection-reorder", "reordering is not built for a virtualized list in another's row (LLP 1070 §4.7)", reorder.span);
+                        }
+                        let bounded = attrs.iter().any(|a| {
+                            matches!(a.name.as_str(), "height" | "max-height")
+                                && numeric_literal(&a.value).is_some_and(|n| n > 0.0)
+                        });
+                        if !row_list(attrs) && !bounded {
+                            return err("lower-collection-unbounded", "a virtualized list in a virtualized list's row needs a literal `height` or `max-height`: the row's height is its content's, so `flex` bounds nothing there", *span);
+                        }
+                        self.check_nested(children, true)?;
+                        continue;
                     }
-                    self.reject_nested_collections(children)?;
+                    self.check_nested(children, inner)?;
                 }
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    self.reject_nested_collections(then)?;
-                    self.reject_nested_collections(otherwise)?;
+                    self.check_nested(then, inner)?;
+                    self.check_nested(otherwise, inner)?;
                 }
                 Node::Match { some, none, .. } => {
-                    self.reject_nested_collections(&some.1)?;
-                    self.reject_nested_collections(none)?;
+                    self.check_nested(&some.1, inner)?;
+                    self.check_nested(none, inner)?;
                 }
                 Node::Each { body, .. } | Node::Provide { body, .. } => {
-                    self.reject_nested_collections(body)?;
+                    self.check_nested(body, inner)?;
                 }
-                Node::Use { children, .. } => self.reject_nested_collections(children)?,
+                Node::Use { children, .. } => self.check_nested(children, inner)?,
                 Node::Children { .. } => {}
             }
         }
         Ok(())
     }
 
-    /// `row`: the container's axis (a row list's is horizontal); `None`
-    /// for a row root.
     fn collection_flow(&self, attrs: &[Attr], row: Option<bool>) -> Result<(), LowerError> {
         let container = row.is_some();
         let horizontal = row == Some(true);

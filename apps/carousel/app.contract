@@ -17,11 +17,28 @@ shape Card
   width: number
   color: string
 
+// A feed row (LLP 1070 stage 4): every fifth holds a strip, every seventh an
+// inbox, each its own virtualized list inside the feed's row.
+shape Post
+  id: string
+  n: number
+  kind: string
+  cards: list<Card>
+
 component Carousel
   state eager = false
   state jump = 0
   resource cards = cards(25000) as shape list<Card>
   resource few = cards(2000) as shape list<Card>
+  resource posts = posts(200) as shape list<Post>
+  state page = "strip"
+  state feedTop = 0
+  action feedFar writes feedTop
+    feedTop = 6000
+  action feedTopAgain writes feedTop
+    feedTop = 0
+  action showFeed writes page
+    page = page == "feed" ? "strip" : "feed"
   action far writes jump
     jump = jump + 100000
   action toggle writes eager
@@ -32,17 +49,33 @@ component Carousel
         text "Cards" flex=1 font-size=17 font-weight=600
         button press=far testId="far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
           text "Far" font-size=13
+        button press=showFeed testId="feed-page" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text (page == "feed" ? "Strip" : "Feed") font-size=13
+        button press=feedFar testId="feed-far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text "Down" font-size=13
+        button press=feedTopAgain testId="feed-top" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text "Top" font-size=13
         button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
           text (eager ? "Virtualized" : "Eager") font-size=13
-      when eager
-        list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId="strip"
-          each c in few key=c.id
-            CardView(c=c)
+      when page == "feed"
+        when eager
+          list width="100%" flex=1 min-height=0 overflow-x="hidden" scrollTop=feedTop testId="feed"
+            each p in posts key=p.id
+              PostView(p=p, virtual=false)
+        else
+          list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=180 scrollTop=feedTop testId="feed"
+            each p in posts key=p.id
+              PostView(p=p, virtual=true)
       else
-        list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
-          each c in cards key=c.id
-            CardView(c=c)
-      text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="#6b7280"
+        when eager
+          list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId="strip"
+            each c in few key=c.id
+              CardView(c=c)
+        else
+          list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
+            each c in cards key=c.id
+              CardView(c=c)
+        text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="#6b7280"
 
 component CardView
   props
@@ -50,3 +83,51 @@ component CardView
   view
     column testId=`card-${c.n}` width=c.width height=116 flex-shrink=0 margin-right=8 box-sizing="border-box" border-radius=10 background-color=c.color padding=10 justify-content="flex-end"
       text c.label font-size=14 color="#ffffff" white-space="nowrap"
+
+// One feed row. `virtual` picks the virtualized inner lists or their eager
+// oracle; the boxes are the same either way.
+component PostView
+  props
+    p: Post
+    virtual: bool
+  view
+    column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+      text `Post ${p.n}` padding-left=12 font-size=15 font-weight=600 height=24
+      when p.kind == "strip"
+        when virtual
+          list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+            each c in p.cards key=c.id
+              FeedCard(post=p.n, c=c)
+        else
+          list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+            each c in p.cards key=c.id
+              FeedCard(post=p.n, c=c)
+      when p.kind == "inbox"
+        when virtual
+          list virtualized=true width="100%" height=300 overflow-x="hidden" estimated-item-height=48 testId=`inbox-${p.n}`
+            each m in p.cards key=m.id
+              Message(post=p.n, m=m)
+        else
+          list width="100%" height=300 overflow-x="hidden" testId=`inbox-${p.n}`
+            each m in p.cards key=m.id
+              Message(post=p.n, m=m)
+      when p.kind == "text"
+        text "An ordinary row between the lists." padding-left=12 font-size=13 color="#6b7280" height=40
+
+component FeedCard
+  props
+    post: number
+    c: Card
+  view
+    column testId=`card-${post}-${c.n}` width=c.width height=116 flex-shrink=0 margin-right=8 box-sizing="border-box" border-radius=10 background-color=c.color padding=10 justify-content="flex-end"
+      text c.label font-size=14 color="#ffffff" white-space="nowrap"
+
+// A message's height follows its card's width, so an inbox's estimates are
+// replaced by real, varied measurements.
+component Message
+  props
+    post: number
+    m: Card
+  view
+    row testId=`msg-${post}-${m.n}` width="100%" height=(m.width / 2) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="#f3f4f6"
+      text m.label font-size=13

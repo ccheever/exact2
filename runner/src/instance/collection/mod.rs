@@ -2,6 +2,7 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
@@ -100,6 +101,21 @@ pub(crate) struct Collection {
     edge_armed: [bool; 2],
     /// The last realization left window rows unbuilt or kept rows past it.
     pending: bool,
+    /// The outer list whose row holds this one (LLP 1070 N1).
+    parent: Option<ViewId>,
+    /// Whether this list's rows can hold virtualized lists.
+    nested: bool,
+    /// Where its inner lists were when their rows left (Q1 as ruled).
+    kept: nest::Kept,
+    /// `scroll-restoration: manual`: the app keeps this list's position.
+    manual: bool,
+    /// This list started where a kept position said.
+    restored: bool,
+    /// That position, until a host reports one.
+    restored_at: Option<(Rc<str>, f64)>,
+    /// Where the window starts before the host reports: 0, or a restored
+    /// position.
+    start_offset: f64,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -219,7 +235,20 @@ impl Collection {
         ) {
             return Err(invalid("collection row needs one flow root"));
         }
-        traversal::validate_no_nested(plan, u.sites, region)?;
+        let nested = traversal::validate_nesting(plan, u.sites, region)?;
+        let manual = descriptor
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::ScrollRestoration as u16
+                    && u.eval(b.expr, frames)
+                        .ok()
+                        .as_ref()
+                        .and_then(|v| v.as_str())
+                        == Some("manual")
+            });
         let mut this = Box::new(Self {
             preview: None,
             view,
@@ -253,6 +282,13 @@ impl Collection {
             }),
             edge_armed: [true; 2],
             pending: false,
+            parent: None,
+            nested,
+            kept: Default::default(),
+            manual,
+            restored: false,
+            restored_at: None,
+            start_offset: 0.0,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -320,6 +356,7 @@ impl Collection {
                 );
             }
             self.items = items;
+            self.forget_departed();
         }
         let previous = in_place.as_ref().map(|_| self.snapshot());
         if changed {
@@ -473,6 +510,10 @@ impl Collection {
                     offset: corrected,
                 });
                 g.offset = corrected;
+                if self.restored_at.is_some() {
+                    // Where a restored list now expects the host to be.
+                    self.start_offset = corrected;
+                }
             }
         }
         Ok(())
@@ -533,13 +574,14 @@ impl Collection {
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
         let mut port = None;
         let ranges = if let Some(g) = &self.geometry {
-            let focus = self.pin(g.focus_view);
+            let pins = self.pins();
+            let focus = self.pin(pins[0]);
             let interaction = self
                 .preview
                 .as_ref()
                 .filter(|p| p.pin_owned)
                 .map(|p| p.source.clone())
-                .or_else(|| self.pin(g.interaction_view));
+                .or_else(|| self.pin(pins[1]));
             let window = self
                 .index
                 .window_led(
@@ -558,7 +600,11 @@ impl Collection {
             port = Some((window.offset, window.offset + g.port_main));
             window.segments
         } else {
-            let first = self.index.row_at(0.0).map_err(index_error)?.unwrap_or(0);
+            let first = self
+                .index
+                .row_at(self.start_offset)
+                .map_err(index_error)?
+                .unwrap_or(0);
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
@@ -605,7 +651,8 @@ impl Collection {
                         continue;
                     }
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
-                    let row = self.create_row(u, position, frames)?;
+                    let mut row = self.create_row(u, position, frames)?;
+                    self.adopt_nested(u, &mut row, &text, frames)?;
                     let wrapper = views::row_wrapper(u, self.axis, roots_of(&row.roots), &text)?;
                     Mounted {
                         position,
@@ -622,7 +669,7 @@ impl Collection {
         }
         // Rows past the window: all retire, unless a limited report bounds it.
         let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
-        for (text, mounted) in old {
+        for (text, mut mounted) in old {
             match (limited, self.index.position(&text)) {
                 (Some((_, (top, end))), Some(p)) => {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
@@ -630,6 +677,8 @@ impl Collection {
                 (_, position) => {
                     if position.is_none() {
                         views::item_left(u, mounted.wrapper);
+                    } else {
+                        self.keep_positions(&mut mounted, &text);
                     }
                     u.ops.push(Op::DestroyView {
                         id: mounted.wrapper,
@@ -656,7 +705,8 @@ impl Collection {
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
             let kept = leaving.split_off(far.max(cap).min(leaving.len()));
-            for (_, _, gone) in leaving {
+            for (_, text, mut gone) in leaving {
+                self.keep_positions(&mut gone, &text);
                 u.ops.push(Op::DestroyView { id: gone.wrapper });
             }
             pending |= !kept.is_empty();
@@ -862,6 +912,11 @@ impl Collection {
         }) {
             fill.limit = None;
         }
+        // An enclosing list is moving (LLP 1070 F2): build what this list
+        // owes and nothing else, first report and resize included.
+        if fill.ancestor_moving {
+            fill.limit = Some(0);
+        }
         if changed_width {
             self.end_preview(u)?;
         }
@@ -893,15 +948,17 @@ impl Collection {
             .geometry
             .as_ref()
             .map_or(feedback.port_main, |g| g.port_main);
-        let anchor = Some(
-            self.index
+        let anchor = Some(match self.restoring(&feedback) {
+            Some(anchor) => anchor,
+            None => self
+                .index
                 .capture_anchor(
                     feedback.offset,
                     anchor_height,
                     self.follow_end && self.preview.is_none(),
                 )
                 .map_err(index_error)?,
-        );
+        });
         self.geometry = Some(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()
@@ -989,6 +1046,7 @@ impl Collection {
                     && (m.size == 0.0) == self.zero_heights.contains(key))
         };
         if feedback.measurements.iter().any(remeasures)
+            || self.restored_at.is_some()
             || self.pending
             || self.preview.is_some()
             || self.correction.is_some()
@@ -1019,7 +1077,8 @@ impl Collection {
         if (corrected - feedback.offset).abs() > 0.01 {
             return Ok(None);
         }
-        let (focus, interaction) = (self.pin(g.focus_view), self.pin(g.interaction_view));
+        let pins = self.pins();
+        let (focus, interaction) = (self.pin(pins[0]), self.pin(pins[1]));
         let window = self
             .index
             .window_led(
@@ -1080,6 +1139,8 @@ impl Collection {
         CollectionSnapshot {
             view: self.view,
             axis: self.axis,
+            parent: self.parent,
+            restored: self.restored,
             revision: self.revision,
             scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
             count: self.index.len(),

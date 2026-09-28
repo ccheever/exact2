@@ -137,6 +137,46 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: true, in: sideways), .chain)
     }
 
+    /// A trackpad gesture latches (LLP 1070 G1, Chrome's rule): the first
+    /// scroller that takes a moving event owns the rest of the gesture, its
+    /// zero-delta lift and momentum included; an inner list that reaches
+    /// its end mid-gesture does not hand the rest to the page.
+    func testAGestureLatchesToItsFirstOwnerUntilItEnds() {
+        let outer = scroller(), inner = scroller()
+        outer.addSubview(inner)
+        var latch = ChainingScrollView.Latch()
+        // Began, zero-delta: nobody owns it yet.
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: true, over: false, moving: false, routing: .drop), .drop)
+        // The inner list takes the first moving event: it owns the gesture.
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: false, moving: true, routing: .here), .here)
+        // At its end it would chain; latched, the rest is dropped.
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: false, moving: true, routing: .chain), .drop)
+        // The lift and the momentum still reach it; the momentum's end frees it.
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: false, moving: false, routing: .appKit), .appKit)
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: true, moving: true, routing: .here), .here)
+        XCTAssertFalse(latch.active)
+        // A gesture that starts at the inner list's end goes to the page: the
+        // inner list chains, and the outer one owns it.
+        _ = ChainingScrollView.latched(&latch, view: inner, began: true, over: false, moving: false, routing: .drop)
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: false, moving: true, routing: .chain), .chain)
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: outer, began: false, over: false, moving: true, routing: .here), .here)
+        // Later events arrive at the inner list first: it passes them up
+        // even where it could now scroll.
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: inner, began: false, over: false, moving: true, routing: .here), .chain)
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: outer, began: false, over: false, moving: true, routing: .here), .here)
+    }
+
+    /// An owner destroyed mid-gesture takes the rest of the gesture with it.
+    func testAGestureWhoseOwnerIsGoneIsDropped() {
+        var latch = ChainingScrollView.Latch()
+        let page = scroller()
+        do {
+            let gone = scroller()
+            _ = ChainingScrollView.latched(&latch, view: gone, began: true, over: false, moving: true, routing: .here)
+        }
+        XCTAssertEqual(ChainingScrollView.latched(&latch, view: page, began: false, over: false, moving: true, routing: .here), .drop)
+    }
+
     /// The readers' panes, as they are declared: `overflow-x: hidden` with
     /// `overscroll-behavior: contain` (LLP 1033 D4). A sideways gesture must
     /// not escape to the page, and must not scroll the pane either.

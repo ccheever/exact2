@@ -517,6 +517,10 @@ fn clock_within<D: DataSource>(
             return format!("{s},\"clock\":{}}}", num(landed));
         }
         p.sync_surfaces();
+        if settle_to_end {
+            // Its error is the next report's to raise; the pass is bounded.
+            let _ = p.settle_collections();
+        }
         let world = p.worlds(serde_json::json!({"op":"clock","settle":settle_to_end}));
         p.sync_surfaces();
         let response = |settled: Option<bool>, requests: bool| {

@@ -211,7 +211,10 @@ export function collectionController({ root, views, report, settled=()=>{},
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
       const v = jump == null ? velocity(s) : 0;
-      const fill = { velocity: v, limit: jump != null ? 2
+      // While its outer list moves, an inner list builds only what it owes
+      // (LLP 1070 F2); its pending reply continues the fill at rest.
+      const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
+      const fill = { velocity: v, ancestorMoving: !!outer && velocity(outer) !== 0, limit: jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }

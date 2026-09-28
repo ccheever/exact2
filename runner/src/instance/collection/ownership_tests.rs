@@ -300,16 +300,12 @@ fn nested_plan(
 }
 
 #[test]
-fn handbuilt_nested_virtual_collection_is_rejected_even_when_unrealized() {
-    for (count, conditional) in [(1, false), (0, false), (1, true)] {
-        match from_plan(nested_plan(count, true, true, conditional)) {
-            Err(InstanceError::Collection(message)) => {
-                assert!(message.contains("nested"), "{message}")
-            }
-            _ => panic!(
-                "nested virtual collection accepted: count={count}, conditional={conditional}"
-            ),
-        }
+fn handbuilt_constant_nesting_one_level_down_is_accepted() {
+    // LLP 1070 N6: a constant opt-in one level down, realized or not.
+    for (count, conditional, lists) in [(1, false, 2), (0, false, 1), (1, true, 1)] {
+        let h = from_plan(nested_plan(count, true, true, conditional))
+            .unwrap_or_else(|e| panic!("count={count}, conditional={conditional}: {e:?}"));
+        assert_eq!(h.tree.collections().len(), lists);
     }
 }
 

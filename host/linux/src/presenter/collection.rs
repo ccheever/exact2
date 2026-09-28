@@ -658,6 +658,18 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// The agent's `clock settle`: every queued report, nested lists'
+    /// included, before the fixed point is read (LLP 1070 G3). Bounded.
+    pub(crate) fn settle_collections(&mut self) -> Option<String> {
+        let mut error = None;
+        for _ in 0..16 {
+            if !self.collection.pending() {
+                break;
+            }
+            error = error.or(self.refine_collections());
+        }
+        error
+    }
     pub(super) fn refine_collections(&mut self) -> Option<String> {
         let mut error = None;
         for _ in 0..PASSES {
@@ -824,6 +836,8 @@ mod tests {
         CollectionSnapshot {
             view: 1,
             axis: exact_runner::ListAxis::Vertical,
+            parent: None,
+            restored: false,
             revision: 4,
             scroll_sequence: 2,
             count: 0,

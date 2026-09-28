@@ -207,9 +207,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
         for _ in 0..<8 {
+            presenter?.collections.settle()
             guard let collections = presenter?.collections, !collections.fillPending.isEmpty else { break }
             for id in collections.fillPending.sorted() { collections.fillSlice(id, limit: UInt32.max - 1) }
         }
+        presenter?.collections.settle()
         textPending = presenter?.refreshVisibleText() ?? false
         if !textPending { stop() }
     }

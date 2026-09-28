@@ -79,6 +79,8 @@ struct CollectionSnapshot {
     /// The main axis (LLP 1070 H1): a row list scrolls on x, and `extent`,
     /// a correction's offset and every measured size run along it.
     let horizontal: Bool
+    /// The outer list whose mounted row holds this one (LLP 1070 N1).
+    let parent: UInt32?
     let revision: UInt64
     let sequence: UInt64
     let extent: Double
@@ -108,6 +110,7 @@ struct CollectionSnapshot {
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.horizontal = (value["axis"] as? String) == "x"
+        self.parent = Self.viewID(value["parent"])
         self.extent = extent; self.rows = rows; self.correction = correction
         self.count = Self.uint(value["count"]).map { Int(clamping: $0) } ?? rows.count
         self.pending = (value["pending"] as? NSNumber)?.boolValue ?? false
@@ -302,6 +305,17 @@ final class CollectionHost {
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
     }
+    /// The agent's `clock settle`: every list reports until none is owed a
+    /// report, so rows a reply mounted are measured before the agent reads
+    /// or moves them, as a turn of the main queue would do between a
+    /// reader's frames. Bounded.
+    func settle() {
+        for _ in 0..<8 {
+            guard !dirty.isEmpty, batchDepth == 0 else { return }
+            budget.nextTurn()
+            flush()
+        }
+    }
     func dataReady() {
         // Retry armed edges once after deferred activation without forgetting
         // the accepted pin reservations used to order transfers.
@@ -400,8 +414,12 @@ final class CollectionHost {
                     || (entry.snapshot.pending && limit != 0) {
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
+                    // While its outer list moves, an inner list builds only
+                    // what it owes (LLP 1070 F2); its pending report
+                    // continues once the outer list rests.
+                    let ancestorMoving = entry.snapshot.parent.flatMap { motion?($0) } != nil
                     onFeedback(facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
-                        velocity: velocity ?? 0, limit: limit))
+                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving))
                 }
             }
             budget.end()

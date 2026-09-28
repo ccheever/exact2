@@ -571,6 +571,11 @@
       "kind": "float"
     },
     {
+      "id": 214,
+      "name": "scrollRestoration",
+      "kind": "str"
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

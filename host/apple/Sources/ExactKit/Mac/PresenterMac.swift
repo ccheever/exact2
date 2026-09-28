@@ -447,9 +447,11 @@ final class Presenter {
         // Match the previous bounded native-feedback depth while keeping
         // background admission out of this synchronous agent boundary.
         for _ in 0..<8 {
+            collections.settle()
             guard !collections.fillPending.isEmpty else { break }
             for id in collections.fillPending.sorted() { collections.fillSlice(id, limit: UInt32.max - 1) }
         }
+        collections.settle()
         refreshVisibleText()
         textPending = false
         if !collections.fillPending.isEmpty { startPump() } else { stopPump() }
