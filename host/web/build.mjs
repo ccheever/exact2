@@ -71,8 +71,13 @@ const out = resolve(stage, 'app.wasm');
 // about what a large one does to set up. RealWorld's boot compiles 15% fewer
 // (1,314 -> 1,123), for 511 B less Brotli (+7 KB raw); 10 or 16 add Brotli.
 // The feature flags match what rustc's wasm32 target emits.
+// `--low-memory-unused` lets binaryen fold a constant under 1024 added to a
+// pointer into the access's offset, which differs only when the addition
+// wraps below zero. Rust's pointers never wrap, and nothing lives there:
+// the stack is first in memory and grows down from 1 MiB, so it reaches
+// below 1024 only in its last KiB (2026-09-28: 0.7–1.4 KiB brotli).
 const named = resolve(stage, 'app.named.wasm');
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--low-memory-unused', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = `wasm-opt not on PATH (binaryen: brew install binaryen, or ${BINARYEN_DOWNLOAD}): shipped unoptimized`; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
