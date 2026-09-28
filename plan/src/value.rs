@@ -8,7 +8,7 @@
 //! names them. Absence is `Option` and nothing else.
 
 use crate::bytes::{Reader, Writer};
-use crate::{FieldsRange, Plan, PlanError, TypeKind, TypesId};
+use crate::{FieldsRange, Items, Plan, PlanError, Str, TypeKind, TypesId};
 use std::rc::Rc;
 
 /// A runtime value.
@@ -19,15 +19,15 @@ pub enum Value {
     /// A boolean.
     Bool(bool),
     /// UTF-8 text.
-    Str(Rc<str>),
+    Str(Str),
     /// The unit value.
     Unit,
     /// `none` or `some(v)`.
     Option(Option<Rc<Value>>),
     /// An ordered list.
-    List(Rc<[Value]>),
+    List(Items),
     /// A record; fields by position per its type.
-    Record(Rc<[Value]>),
+    Record(Items),
 }
 
 /// The derived text, with the number printed by exact-num (LLP 1047 §6).
@@ -58,7 +58,7 @@ impl Default for Value {
 impl Value {
     /// A string value.
     pub fn str(s: &str) -> Value {
-        Value::Str(Rc::from(s))
+        Value::Str(Str::from(s))
     }
 
     /// `some(v)`.
@@ -71,12 +71,12 @@ impl Value {
 
     /// A record from its fields in order.
     pub fn record(fields: Vec<Value>) -> Value {
-        Value::Record(Rc::from(fields))
+        Value::Record(Items::from(fields))
     }
 
     /// A list.
     pub fn list(items: Vec<Value>) -> Value {
-        Value::List(Rc::from(items))
+        Value::List(Items::from(items))
     }
 
     /// The number, if it is one.
@@ -259,14 +259,14 @@ fn mix(h: u64, x: u64) -> u64 {
 
 /// Identical short strings in one decoded value share one allocation: a
 /// baked list repeats its authors, file names, style names and small
-/// numbers as text, and a separate `Rc<str>` for each copy is most of a
+/// numbers as text, and a separate allocation for each copy is most of a
 /// string's cost. Sharing is sound where identity is compared
 /// (`compare::same`): equal strings are equal values. The table is
 /// direct-mapped and bounded; a collision only keeps the later string. A
 /// small value never makes one.
 #[derive(Default)]
 struct Strings {
-    slots: Vec<Option<Rc<str>>>,
+    slots: Vec<Option<Str>>,
     seen: u32,
 }
 
@@ -277,14 +277,14 @@ impl Strings {
     /// Strings a value decodes before it gets a table.
     const AFTER: u32 = 64;
 
-    fn get(&mut self, s: &str) -> Rc<str> {
+    fn get(&mut self, s: &str) -> Str {
         if s.len() > Self::SHORT {
-            return Rc::from(s);
+            return Str::from(s);
         }
         if self.slots.is_empty() {
             self.seen += 1;
             if self.seen < Self::AFTER {
-                return Rc::from(s);
+                return Str::from(s);
             }
             self.slots = vec![None; Self::SLOTS];
         }
@@ -293,7 +293,7 @@ impl Strings {
         match slot {
             Some(rc) if **rc == *s => rc.clone(),
             _ => {
-                let rc: Rc<str> = Rc::from(s);
+                let rc = Str::from(s);
                 *slot = Some(rc.clone());
                 rc
             }
@@ -317,7 +317,7 @@ fn text_hash(s: &str) -> u64 {
 /// object. A small value never makes a table.
 #[derive(Default)]
 struct Objects {
-    slots: Vec<Option<(u64, Rc<[Value]>)>>,
+    slots: Vec<Option<(u64, Items)>>,
     seen: u32,
 }
 
@@ -329,14 +329,14 @@ impl Objects {
     /// each of its items would cost a hash.
     const LONGEST: usize = 32;
 
-    fn get(&mut self, record: bool, items: Vec<Value>, unique: bool) -> Rc<[Value]> {
+    fn get(&mut self, record: bool, items: Vec<Value>, unique: bool) -> Items {
         if unique || items.len() > Self::LONGEST {
-            return Rc::from(items);
+            return Items::from(items);
         }
         if self.slots.is_empty() {
             self.seen += 1;
             if self.seen < Self::AFTER {
-                return Rc::from(items);
+                return Items::from(items);
             }
             self.slots = vec![None; Self::SLOTS];
         }
@@ -357,7 +357,7 @@ impl Objects {
                 rc.clone()
             }
             _ => {
-                let rc: Rc<[Value]> = Rc::from(items);
+                let rc = Items::from(items);
                 *slot = Some((h, rc.clone()));
                 rc
             }
@@ -370,12 +370,12 @@ fn shallow_hash(v: &Value) -> u64 {
     match v {
         Value::Number(n) => mix(1, n.to_bits()),
         Value::Bool(b) => 2 + *b as u64,
-        Value::Str(s) => mix(3, s.as_ptr() as usize as u64),
+        Value::Str(s) => mix(3, s.addr() as u64),
         Value::Unit => 4,
         Value::Option(None) => 5,
         Value::Option(Some(v)) => mix(6, Rc::as_ptr(v) as usize as u64),
-        Value::List(items) => mix(7, items.as_ptr() as usize as u64),
-        Value::Record(fields) => mix(8, fields.as_ptr() as usize as u64),
+        Value::List(items) => mix(7, items.addr() as u64),
+        Value::Record(fields) => mix(8, fields.addr() as u64),
     }
 }
 
@@ -385,10 +385,12 @@ fn shallow_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
         (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b),
+        (Value::Str(a), Value::Str(b)) => Str::ptr_eq(a, b),
         (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
         (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
+        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
+            Items::ptr_eq(a, b)
+        }
         _ => false,
     }
 }
@@ -406,6 +408,7 @@ impl Plan {
 #[cfg(test)]
 mod debug_tests {
     use super::Value;
+    use crate::Items;
     use std::rc::Rc;
 
     /// `Value` as it was, with the derived `Debug` and core's float printer.
@@ -426,7 +429,7 @@ mod debug_tests {
         match v {
             Value::Number(n) => Derived::Number(*n),
             Value::Bool(b) => Derived::Bool(*b),
-            Value::Str(s) => Derived::Str(Rc::clone(s)),
+            Value::Str(s) => Derived::Str(Rc::from(&**s)),
             Value::Unit => Derived::Unit,
             Value::Option(o) => Derived::Option(o.as_deref().map(|v| Rc::new(derived(v)))),
             Value::List(items) => Derived::List(all(items)),
@@ -457,8 +460,8 @@ mod debug_tests {
             Value::Option(None),
             Value::Option(Some(Rc::new(Value::Number(0.5)))),
         ]);
-        let list = Value::List(Rc::from(values.clone()));
-        values.push(Value::Record(Rc::from(vec![
+        let list = Value::List(Items::from(values.clone()));
+        values.push(Value::Record(Items::from(vec![
             list.clone(),
             Value::Number(-1e-7),
         ])));
@@ -473,9 +476,9 @@ mod debug_tests {
 #[cfg(test)]
 mod decode_tests {
     use super::Value;
-    use std::rc::Rc;
+    use crate::{Items, Str};
 
-    fn strs(v: &Value) -> Vec<Rc<str>> {
+    fn strs(v: &Value) -> Vec<Str> {
         let Value::List(items) = v else {
             panic!("a list")
         };
@@ -496,18 +499,18 @@ mod decode_tests {
         let items: Vec<Value> = (0..200)
             .map(|i| Value::str(if i % 2 == 0 { "bold" } else { &long }))
             .collect();
-        let big = Value::List(Rc::from(items));
+        let big = Value::List(Items::from(items));
         let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
         assert_eq!(decoded, big);
         let s = strs(&decoded);
-        assert!(Rc::ptr_eq(&s[198], &s[196]), "late repeats share");
-        assert!(!Rc::ptr_eq(&s[199], &s[197]), "long strings stay separate");
-        let small = Value::List(Rc::from(vec![Value::str("bold"), Value::str("bold")]));
+        assert!(Str::ptr_eq(&s[198], &s[196]), "late repeats share");
+        assert!(!Str::ptr_eq(&s[199], &s[197]), "long strings stay separate");
+        let small = Value::List(Items::from(vec![Value::str("bold"), Value::str("bold")]));
         let s = strs(&Value::from_bytes(&small.to_bytes()).unwrap());
-        assert!(!Rc::ptr_eq(&s[0], &s[1]), "a small value makes no table");
+        assert!(!Str::ptr_eq(&s[0], &s[1]), "a small value makes no table");
     }
 
-    fn objects(v: &Value) -> Vec<Rc<[Value]>> {
+    fn objects(v: &Value) -> Vec<Items> {
         let Value::List(items) = v else {
             panic!("a list")
         };
@@ -536,34 +539,40 @@ mod decode_tests {
                 _ => Value::record(vec![Value::some(Value::Bool(true))]),
             })
             .collect();
-        let big = Value::List(Rc::from(items));
+        let big = Value::List(Items::from(items));
         let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
         assert_eq!(decoded, big);
         let o = objects(&decoded);
-        assert!(Rc::ptr_eq(&o[396], &o[392]), "late repeats share");
-        assert!(Rc::ptr_eq(&o[397], &o[393]), "lists too");
-        assert!(!Rc::ptr_eq(&o[396], &o[397]), "a record is not a list");
+        assert!(Items::ptr_eq(&o[396], &o[392]), "late repeats share");
+        assert!(Items::ptr_eq(&o[397], &o[393]), "lists too");
+        assert!(!Items::ptr_eq(&o[396], &o[397]), "a record is not a list");
         assert!(
-            Rc::ptr_eq(&list_of(&o[398][1]), &list_of(&o[394][1])),
+            Items::ptr_eq(&list_of(&o[398][1]), &list_of(&o[394][1])),
             "empty lists share"
         );
         assert!(
-            !Rc::ptr_eq(&o[398], &o[394]),
+            !Items::ptr_eq(&o[398], &o[394]),
             "an object with a long string stays separate"
         );
         assert!(
-            !Rc::ptr_eq(&o[399], &o[395]),
+            !Items::ptr_eq(&o[399], &o[395]),
             "an object with an option stays separate"
         );
-        let small = Value::List(Rc::from(vec![Value::list(vec![]), Value::list(vec![])]));
+        let small = Value::List(Items::from(vec![Value::list(vec![]), Value::list(vec![])]));
         let o = objects(&Value::from_bytes(&small.to_bytes()).unwrap());
-        assert!(!Rc::ptr_eq(&o[0], &o[1]), "a small value makes no table");
+        assert!(!Items::ptr_eq(&o[0], &o[1]), "a small value makes no table");
     }
 
-    fn list_of(v: &Value) -> Rc<[Value]> {
+    fn list_of(v: &Value) -> Items {
         match v {
             Value::List(items) => items.clone(),
             _ => panic!("a list"),
         }
     }
+}
+
+#[test]
+fn a_value_is_sixteen_bytes() {
+    assert_eq!(std::mem::size_of::<Value>(), 16);
+    assert_eq!(std::mem::size_of::<Option<Value>>(), 16);
 }

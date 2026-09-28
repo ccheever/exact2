@@ -8,8 +8,7 @@
 //! call names, by design: a deterministic string is what the corpus and the
 //! agent compare, and the web's `Intl` is its oracle.
 
-use exact_plan::{Plan, Stdlib, Value};
-use std::rc::Rc;
+use exact_plan::{Plan, Stdlib, Str, Value};
 
 /// Why a standard function could not produce its value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +50,7 @@ pub fn call(
             },
             crate::vm::MAX_STRING,
         )
-        .map(|s| Value::Str(Rc::from(s)))
+        .map(|s| Value::Str(Str::from(s)))
         .ok_or(CallError::StringTooLong);
     }
     call_value(f, args, now_ms, plan, router, format).ok_or(CallError::TypeMismatch)
@@ -98,7 +97,7 @@ fn call_value(
             Value::Str(s) => {
                 let trimmed = s.trim_matches(is_js_space);
                 if trimmed.len() == s.len() {
-                    Value::Str(Rc::clone(s))
+                    Value::Str(s.clone())
                 } else {
                     Value::str(trimmed)
                 }
@@ -142,7 +141,7 @@ fn call_value(
         Stdlib::ToString => match args.first()? {
             Value::Number(n) => assembled(|s| push_number(*n, s)),
             Value::Bool(b) => Value::str(if *b { "true" } else { "false" }),
-            Value::Str(s) => Value::Str(Rc::clone(s)),
+            Value::Str(s) => Value::Str(s.clone()),
             _ => return None,
         },
         Stdlib::First => match args.first()? {
@@ -179,7 +178,7 @@ pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
         return Err(JoinError::Type);
     };
     if let [Value::Str(only)] = &items[..] {
-        return Ok(Value::Str(Rc::clone(only)));
+        return Ok(Value::Str(only.clone()));
     }
     let mut result = Ok(());
     let v = assembled(|out| {
@@ -492,10 +491,10 @@ mod tests {
             assert_eq!(trim(text), Ok(Value::str(expected)), "{text:?}");
         }
         // Nothing to strip: the same string, not a copy.
-        let s: Rc<str> = Rc::from("kept");
+        let s = Str::from("kept");
         let Ok(Value::Str(out)) = call(
             Stdlib::Trim,
-            &[Value::Str(Rc::clone(&s))],
+            &[Value::Str(s.clone())],
             0.0,
             &plan,
             None,
@@ -503,6 +502,6 @@ mod tests {
         ) else {
             panic!("trim answers a string");
         };
-        assert!(Rc::ptr_eq(&s, &out));
+        assert!(Str::ptr_eq(&s, &out));
     }
 }

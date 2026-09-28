@@ -11,7 +11,7 @@
 
 use crate::stdlib;
 use exact_plan::bytes::Reader;
-use exact_plan::{Opcode, Operand, Plan, Stdlib, Value};
+use exact_plan::{Items, Opcode, Operand, Plan, Stdlib, Str, Value};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -85,7 +85,7 @@ pub struct Env<'a> {
     /// The plan's string pool, interned once per runner ([`intern`]): a
     /// string literal is a shared `Rc`, never a fresh allocation, and two
     /// evaluations of one literal are the same object.
-    pub strings: &'a [Rc<str>],
+    pub strings: &'a [Str],
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
@@ -196,7 +196,7 @@ struct Callback {
     filter: bool,
     start: usize,
     end: usize,
-    items: Rc<[Value]>,
+    items: Items,
     next: usize,
     out: Vec<Value>,
     extent: Extent,
@@ -277,9 +277,7 @@ struct Extents(exact_kernel::id::IdMap<usize, (Value, Extent)>);
 impl Extents {
     fn key(v: &Value) -> Option<usize> {
         match v {
-            Value::List(items) | Value::Record(items) => {
-                Some(Rc::as_ptr(items).cast::<()>() as usize)
-            }
+            Value::List(items) | Value::Record(items) => Some(items.addr()),
             Value::Option(Some(inner)) => Some(Rc::as_ptr(inner) as usize),
             _ => None,
         }
@@ -367,8 +365,8 @@ pub struct Outcome {
 }
 
 /// The plan's string pool as shared strings, for [`Env::strings`].
-pub fn intern(plan: &Plan) -> Vec<Rc<str>> {
-    plan.strings.iter().map(|s| Rc::from(s.as_str())).collect()
+pub fn intern(plan: &Plan) -> Vec<Str> {
+    plan.strings.iter().map(|s| Str::from(s.as_str())).collect()
 }
 
 /// One decoded instruction: its opcode and operands in declared order,
@@ -681,7 +679,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 if json.len() > MAX_STRING {
                     return Err(Trap::StringTooLong { pc });
                 }
-                stack.push(Value::Str(Rc::from(json)));
+                stack.push(Value::Str(Str::from(json)));
             }
             Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
             Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),

@@ -2,20 +2,20 @@
 use exact_kernel::{motion::motion_node, NodeKey};
 use exact_linux::{presenter::PainterChoice, Presenter};
 use exact_motion::Property;
-use exact_runner::{DataError, DataSource, Value};
-use std::{path::PathBuf, rc::Rc};
+use exact_runner::{DataError, DataSource, Items, Value};
+use std::path::PathBuf;
 
 struct Rows {
-    rows: Rc<[Value]>,
+    rows: Items,
     calls: usize,
 }
 impl Rows {
     fn new(n: usize) -> Self {
         Self {
-            rows: Rc::<[Value]>::from(
+            rows: Items::from(
                 (0..n)
                     .map(|i| {
-                        Value::Record(Rc::from(vec![
+                        Value::Record(Items::from(vec![
                             Value::str(&i.to_string()),
                             Value::str(if i == 0 { "#ff0000" } else { "#0000ff" }),
                             Value::Number(40.),
@@ -31,7 +31,7 @@ impl DataSource for Rows {
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
         self.calls += 1;
         if name == "removeFirst" {
-            self.rows = Rc::<[Value]>::from(self.rows.iter().skip(1).cloned().collect::<Vec<_>>());
+            self.rows = Items::from(self.rows.iter().skip(1).cloned().collect::<Vec<_>>());
         }
         if name == "move" {
             let key = |v: &Value| {
@@ -54,9 +54,9 @@ impl DataSource for Rows {
                 .and_then(|b| rows.iter().position(|v| key(v) == b))
                 .unwrap_or(rows.len());
             rows.insert(at, item);
-            self.rows = Rc::<[Value]>::from(rows);
+            self.rows = Items::from(rows);
         }
-        Ok(Value::List(Rc::clone(&self.rows)))
+        Ok(Value::List(self.rows.clone()))
     }
 }
 const APP: &str = r#"shape Row

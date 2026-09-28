@@ -276,9 +276,9 @@ impl DataSource for Gallery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
+    use exact_plan::Items;
 
-    fn list(value: Value) -> Rc<[Value]> {
+    fn list(value: Value) -> Items {
         let Value::List(rows) = value else {
             panic!("row list")
         };
@@ -297,22 +297,22 @@ mod tests {
             ("page", "", 1),
         ] {
             source.action(op, id, n).unwrap();
-            assert!(Rc::ptr_eq(
+            assert!(Items::ptr_eq(
                 &full,
                 &list(source.rows(revision, 0, true).unwrap())
             ));
-            assert!(Rc::ptr_eq(
+            assert!(Items::ptr_eq(
                 &page,
                 &list(source.rows(revision, 0, false).unwrap())
             ));
         }
         let second = list(source.rows(revision, 1, false).unwrap());
-        assert!(!Rc::ptr_eq(&page, &second));
+        assert!(!Items::ptr_eq(&page, &second));
         assert_eq!(second.len(), model::PAGE_SIZE);
         source.action("insert", "", 0).unwrap();
         assert!(source.rows(revision, 0, true).is_err());
         let next = list(source.rows(source.model.revision, 0, true).unwrap());
-        assert!(!Rc::ptr_eq(&full, &next));
+        assert!(!Items::ptr_eq(&full, &next));
         assert_eq!(next.len(), full.len() + 1);
     }
 
@@ -339,11 +339,11 @@ mod tests {
                 assert_eq!(&fields(&answer)[index], expected);
             }
         }
-        assert!(Rc::ptr_eq(
+        assert!(Items::ptr_eq(
             &full,
             &list(source.rows(u32::MAX, 0, true).unwrap())
         ));
-        assert!(Rc::ptr_eq(
+        assert!(Items::ptr_eq(
             &page,
             &list(source.rows(u32::MAX, 0, false).unwrap())
         ));
@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(fields(&item[1]).len(), 8);
         assert_eq!(item[2], Value::Number(1448.));
         assert_eq!(item[3], Value::Number(1086.));
-        assert!(Rc::ptr_eq(
+        assert!(Items::ptr_eq(
             &rows,
             &list(source.rows(revision, 0, true).unwrap())
         ));
@@ -452,7 +452,7 @@ mod tests {
         assert_eq!(source.model.viewer_token, token);
         source.action("select", "photo-00003", 0).unwrap();
         assert_ne!(source.model.viewer_token, token);
-        assert!(Rc::ptr_eq(
+        assert!(Items::ptr_eq(
             &rows,
             &list(source.rows(revision, 0, true).unwrap())
         ));

@@ -1,9 +1,7 @@
 //! Default synchronous runtime source; the stateless generator remains the control.
 //! Keep one latest immutable result, not a cache of revisions or visited pages.
 
-use std::rc::Rc;
-
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{DataError, DataSource};
 
 use crate::{
@@ -37,7 +35,7 @@ struct Args {
     count: usize,
     revision: usize,
     batch: usize,
-    echo: Rc<str>,
+    echo: exact_plan::Str,
     offset: usize,
     full: bool,
 }
@@ -94,7 +92,7 @@ fn bad_arguments(message: &str) -> DataError {
     DataError::BadArguments(message.into())
 }
 
-fn record(value: &Value) -> &Rc<[Value]> {
+fn record(value: &Value) -> &Items {
     let Value::Record(fields) = value else {
         unreachable!("only this source's canonical records enter its cache")
     };

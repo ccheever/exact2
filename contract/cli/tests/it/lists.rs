@@ -4,11 +4,10 @@
 //! changes.
 
 use exact_kernel::{Kernel, PropValue};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::instance::InstanceError;
 use exact_runner::{DataError, DataSource, Runner, RunnerError, Trap};
 use std::path::Path;
-use std::rc::Rc;
 
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -78,7 +77,7 @@ impl DataSource for Coins {
                     }
                     _ => b[5] = Value::list(vec![Value::str("w")]),
                 }
-                self.rows[1] = Value::Record(Rc::from(b));
+                self.rows[1] = Value::Record(Items::from(b));
                 Ok(Value::list(self.rows.clone()))
             }
             _ => Err(DataError::UnknownSource(source.into())),

@@ -16,7 +16,7 @@
 //! [`shared`] matches two lists by [`same`]: what a new answer kept of the
 //! previous one, so the work of a live insert follows what changed.
 
-use exact_plan::Value;
+use exact_plan::{Items, Str, Value};
 use std::rc::Rc;
 
 /// Whether `a` and `b` are the same object: equal scalars (numbers by bits),
@@ -26,8 +26,10 @@ pub fn same(a: &Value, b: &Value) -> bool {
         (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
-        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b),
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
+        (Value::Str(a), Value::Str(b)) => Str::ptr_eq(a, b),
+        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
+            Items::ptr_eq(a, b)
+        }
         (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
         _ => false,
     }
@@ -119,10 +121,10 @@ fn identity(v: &Value) -> (u8, u64) {
         Value::Bool(b) => (1, *b as u64),
         Value::Unit => (2, 0),
         Value::Option(None) => (3, 0),
-        Value::Str(s) => (4, at(s)),
+        Value::Str(s) => (4, s.addr() as u64),
         Value::Option(Some(v)) => (5, at(v)),
-        Value::List(v) => (6, at(v)),
-        Value::Record(v) => (7, at(v)),
+        Value::List(v) => (6, v.addr() as u64),
+        Value::Record(v) => (7, v.addr() as u64),
     }
 }
 
@@ -178,7 +180,7 @@ pub fn equal(a: &Value, b: &Value) -> Option<bool> {
     Some(match (a, b) {
         (Value::Number(a), Value::Number(b)) => a == b,
         (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b) || a == b,
+        (Value::Str(a), Value::Str(b)) => Str::ptr_eq(a, b) || a == b,
         (Value::Unit, Value::Unit) => true,
         (Value::Option(None), Value::Option(None)) => true,
         (Value::Option(Some(_)), Value::Option(None))

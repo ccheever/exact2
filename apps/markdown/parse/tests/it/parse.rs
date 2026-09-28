@@ -10,7 +10,6 @@ fn here(source: &str) -> markdown_parse::Document {
 #[test]
 fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     use exact_plan::Value;
-    use std::rc::Rc;
     fn fields(value: &Value) -> &[Value] {
         match value {
             Value::Record(values) | Value::List(values) => values,
@@ -21,7 +20,7 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
         let (Value::Str(a), Value::Str(b)) = (a, b) else {
             panic!("expected strings");
         };
-        assert!(Rc::ptr_eq(a, b));
+        assert!(exact_plan::Str::ptr_eq(a, b));
     }
     let doc = here("alpha **β** [site](next.md)\n\nalpha **β** [site](next.md)");
     let value = markdown_parse::value::blocks(&doc);
@@ -43,16 +42,16 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     let (Value::List(a), Value::List(b)) = (&first[8], &second[8]) else {
         panic!("expected empty cells");
     };
-    assert!(a.is_empty() && Rc::ptr_eq(a, b));
+    assert!(a.is_empty() && exact_plan::Items::ptr_eq(a, b));
     assert_eq!(Value::from_bytes(&value.to_bytes()).unwrap(), value);
     // A separate conversion has independent ownership; closing a document
     // must not leave its content in an intern pool.
     let Value::Str(text) = &first[1] else {
         unreachable!();
     };
-    let weak = Rc::downgrade(text);
+    let kept = text.clone();
     drop(value);
-    assert!(weak.upgrade().is_none());
+    assert_eq!(exact_plan::Str::strong_count(&kept), 1);
     assert_eq!(
         fields(&markdown_parse::value::block(usize::MAX, &doc.blocks[0]))[0].as_str(),
         Some(usize::MAX.to_string().as_str())

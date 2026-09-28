@@ -3,15 +3,14 @@ use exact_live_data::Live;
 use exact_plan::Value;
 use exact_runner::{Answer, DataSource, Outcome, Response, Store};
 use messages_stress_data::ReusableMessagesStress;
-use std::rc::Rc;
 
-fn fields(v: &Value) -> &Rc<[Value]> {
+fn fields(v: &Value) -> &exact_plan::Items {
     let Value::Record(v) = v else {
         panic!("record")
     };
     v
 }
-fn rows(v: &Value) -> &Rc<[Value]> {
+fn rows(v: &Value) -> &exact_plan::Items {
     let Value::List(v) = &fields(v)[0] else {
         panic!("rows")
     };
@@ -111,7 +110,10 @@ fn full_stress_is_exact_existing_reusable_source_and_reuses_unchanged_rows() {
     assert_eq!(rows(&b).len(), 10_000);
     assert_eq!(fields(&b)[3], Value::Number(32.));
     for i in 0..9968 {
-        assert!(Rc::ptr_eq(fields(&rows(&a)[i]), fields(&rows(&b)[i])));
+        assert!(exact_plan::Items::ptr_eq(
+            fields(&rows(&a)[i]),
+            fields(&rows(&b)[i])
+        ));
     }
 }
 
@@ -123,8 +125,8 @@ fn unrelated_queries_preserve_canonical_history_and_runbook() {
     data.query("gallery", &[]).unwrap();
     data.query("theme", &[]).unwrap();
     let b = data.query("history", &history(10_000., 1.)).unwrap();
-    assert!(Rc::ptr_eq(fields(&a), fields(&b)));
-    assert!(Rc::ptr_eq(
+    assert!(exact_plan::Items::ptr_eq(fields(&a), fields(&b)));
+    assert!(exact_plan::Items::ptr_eq(
         fields(&book),
         fields(&data.query("runbook", &[Value::Number(0.)]).unwrap())
     ));

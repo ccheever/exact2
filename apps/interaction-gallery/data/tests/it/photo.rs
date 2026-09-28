@@ -1,10 +1,10 @@
 //! Real Contract photo lifetime, contained-image bounds and paired held targets.
 //! Physical pointer generations and end delivery remain shared-host tests.
 use exact_kernel::{motion_node, CommitReceipt, Kernel, NodeKey, NodeType, Offer, PropId};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
 use interaction_gallery_data::Gallery;
-use std::{path::Path, rc::Rc};
+use std::path::Path;
 
 #[derive(Default)]
 struct CountedGallery {
@@ -100,7 +100,7 @@ fn close_to(actual: [f64; 3], expected: [f64; 3]) {
     }
 }
 
-fn rows(r: &Runner<CountedGallery>) -> Rc<[Value]> {
+fn rows(r: &Runner<CountedGallery>) -> Items {
     let Value::List(rows) = r.resource("rows").unwrap() else {
         panic!("row resource")
     };
@@ -208,7 +208,7 @@ fn contain_bounds_cover_letterboxing_signed_edges_and_incoming_resize_values() {
     press(&mut r, "viewer-reset");
     close_to(targets(&r), [0., 0., 1.]);
     assert_eq!(r.data_ref().calls, calls, "no per-gesture data actions");
-    assert!(Rc::ptr_eq(&source, &rows(&r)));
+    assert!(Items::ptr_eq(&source, &rows(&r)));
 }
 
 #[test]

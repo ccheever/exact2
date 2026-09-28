@@ -88,7 +88,7 @@ fn build(
     let Value::Record(slots) = &mut value else {
         return None;
     };
-    let slots = std::rc::Rc::make_mut(slots);
+    let mut owned = slots.to_vec();
     let mut seen: Vec<&str> = Vec::new();
     for arg in args {
         let Expr::NamedArg(name, inner, at) = arg else {
@@ -121,9 +121,10 @@ fn build(
         seen.push(name);
         let field_path = format!("{path}.{name}");
         if let Some(v) = constant(&fields[index].1, inner, shapes, &field_path, errors) {
-            slots[index] = v;
+            owned[index] = v;
         }
     }
+    *slots = owned.into();
     Some(value)
 }
 

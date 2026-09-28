@@ -69,7 +69,7 @@ pub mod vm;
 
 pub use delivery::Delivery;
 pub use exact_canvas;
-pub use exact_plan::Value;
+pub use exact_plan::{Items, Str, Value};
 pub use format::formatting;
 pub use head::Head;
 pub use instance::collection::{

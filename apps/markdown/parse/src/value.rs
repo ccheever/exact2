@@ -3,14 +3,13 @@
 //! into two documents that render differently. @ref LLP 1033
 
 use crate::{Block, Document, Run};
-use exact_plan::Value;
+use exact_plan::{Str, Value};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 /// Sharing is scoped to one conversion: no global pool retains closed files.
 /// Owned lookup keys let a consuming conversion release parsed blocks as it goes.
 struct Values {
-    strings: HashSet<Rc<str>>,
+    strings: HashSet<Str>,
     indices: HashMap<usize, Value>,
     empty_list: Value,
 }
@@ -26,7 +25,7 @@ impl Values {
 
     fn string(&mut self, text: &str) -> Value {
         let text = self.strings.get(text).cloned().unwrap_or_else(|| {
-            let text: Rc<str> = Rc::from(text);
+            let text = Str::from(text);
             self.strings.insert(text.clone());
             text
         });

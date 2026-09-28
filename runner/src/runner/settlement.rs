@@ -778,8 +778,8 @@ mod tests {
     use super::*;
     use crate::{Carried, Outcome, Store};
     use exact_kernel::{Kernel, NodeType};
-    use exact_plan::{asm::Asm, builder::PlanBuilder, Plan, Stdlib, TypeKind};
-    use std::{cell::Cell, rc::Rc};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, Items, Plan, Stdlib, TypeKind};
+    use std::cell::Cell;
 
     // Count actual resource-validation entries, not elapsed time or a duplicate
     // traversal. Zero entries means the 25k list cannot be walked by check_shape.
@@ -1004,7 +1004,7 @@ mod tests {
         let (Value::List(before), Some(Value::List(after))) = (&value, r.resource("rows")) else {
             panic!()
         };
-        assert!(Rc::ptr_eq(before, after));
+        assert!(Items::ptr_eq(before, after));
         r.act("refresh", vec![]).unwrap();
         assert_eq!(
             checks(),
@@ -1025,7 +1025,9 @@ mod tests {
         let Value::List(items) = &mut r.data().value else {
             panic!()
         };
-        Rc::make_mut(items)[24_999] = Value::record(vec![Value::str("invalid tail")]);
+        let mut tail = items.to_vec();
+        tail[24_999] = Value::record(vec![Value::str("invalid tail")]);
+        *items = Items::from(tail);
         checks();
         assert!(matches!(
             r.act("change", vec![Value::Number(1.)]),
@@ -1090,7 +1092,7 @@ mod tests {
         let (Value::List(given), Some(Value::List(held))) = (value, r.resource("rows")) else {
             panic!()
         };
-        assert!(Rc::ptr_eq(given, held), "the one decoded copy, shared");
+        assert!(Items::ptr_eq(given, held), "the one decoded copy, shared");
         tick(&mut r);
         r.act("change", vec![Value::Number(1.)]).unwrap();
         assert_eq!(r.data().queries, 1, "new arguments ask the source");

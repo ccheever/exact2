@@ -3,7 +3,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use exact_kernel::{Frame, Kernel, Offer};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{Answer, CollectionFeedback, DataError, DataSource, Runner, Store};
 use messages_stress_data::MessagesStress;
 
@@ -28,14 +28,19 @@ fn args(
     ]
 }
 
-fn record(value: &Value) -> &Rc<[Value]> {
+/// Whether this is the last holder of `items`; it is dropped either way.
+fn sole(items: Items) -> bool {
+    Items::strong_count(&items) == 1
+}
+
+fn record(value: &Value) -> &Items {
     let Value::Record(fields) = value else {
         panic!("expected canonical record")
     };
     fields
 }
 
-fn rows(value: &Value) -> &Rc<[Value]> {
+fn rows(value: &Value) -> &Items {
     let Value::List(items) = &record(value)[0] else {
         panic!("expected canonical history rows")
     };
@@ -43,7 +48,7 @@ fn rows(value: &Value) -> &Rc<[Value]> {
 }
 
 fn shared_record(a: &Value, b: &Value) -> bool {
-    Rc::ptr_eq(record(a), record(b))
+    Items::ptr_eq(record(a), record(b))
 }
 
 fn shared_rows(a: &Value, b: &Value) -> usize {
@@ -74,7 +79,7 @@ fn one_tick_reuses_9968_records_and_replaces_only_the_32_changed_bodies() {
     let after = canonical(&mut source, &args(10_000, 1, 32, "", 9900, true));
     assert_eq!(rows(&after).len(), 10_000);
     assert!(
-        !Rc::ptr_eq(rows(&before), rows(&after)),
+        !Items::ptr_eq(rows(&before), rows(&after)),
         "fresh list of handles"
     );
     assert_eq!(shared_rows(&before, &after), 9968);
@@ -87,7 +92,10 @@ fn one_tick_reuses_9968_records_and_replaces_only_the_32_changed_bodies() {
             ) else {
                 panic!("string field")
             };
-            assert!(Rc::ptr_eq(a, b), "unchanged id/sender/meta stay shared");
+            assert!(
+                exact_plan::Str::ptr_eq(a, b),
+                "unchanged id/sender/meta stay shared"
+            );
         }
     }
     assert_eq!(
@@ -103,7 +111,7 @@ fn same_full_args_reuse_the_whole_history_even_with_new_echo_argument_storage() 
     let before = canonical(&mut source, &args(10_000, 8, 32, "🦀 e\u{301}", 9900, true));
     let after = canonical(&mut source, &args(10_000, 8, 32, "🦀 e\u{301}", 9900, true));
     assert!(shared_record(&before, &after));
-    assert!(Rc::ptr_eq(rows(&before), rows(&after)));
+    assert!(Items::ptr_eq(rows(&before), rows(&after)));
 }
 
 #[test]
@@ -234,28 +242,24 @@ fn invalid_full_args_and_source_preserve_the_exact_latest_cache() {
 fn one_latest_result_does_not_keep_old_result_or_visited_page_history_alive() {
     let mut source = Candidate::default();
     let a = canonical(&mut source, &args(1000, 8, 32, "old", 0, false));
-    let old_history = Rc::downgrade(record(&a));
-    let old_list = Rc::downgrade(rows(&a));
-    let old_first = Rc::downgrade(record(&rows(&a)[0]));
+    // Held here too, outermost first: each count says whether anything
+    // besides this test (and the one holder above it, dropped first) does.
+    let old_history = record(&a).clone();
+    let old_list = rows(&a).clone();
+    let old_first = record(&rows(&a)[0]).clone();
     let b = canonical(&mut source, &args(1000, 9, 32, "new", 900, false));
     drop(a);
-    assert!(old_history.upgrade().is_none());
-    assert!(old_list.upgrade().is_none());
-    assert!(
-        old_first.upgrade().is_none(),
-        "unvisited old page must be released"
-    );
-    let latest = Rc::downgrade(record(&b));
+    assert!(sole(old_history));
+    assert!(sole(old_list));
+    assert!(sole(old_first), "unvisited old page must be released");
+    let latest = record(&b).clone();
     drop(b);
     assert!(
-        latest.upgrade().is_some(),
+        Items::strong_count(&latest) > 1,
         "one latest output belongs to source"
     );
     drop(source);
-    assert!(
-        latest.upgrade().is_none(),
-        "source drop releases final cache"
-    );
+    assert!(sole(latest), "source drop releases final cache");
 }
 
 #[test]
@@ -446,7 +450,7 @@ fn bounded_refusals_preserve_latest_and_mode_changes_release_only_unowned_output
     request.push(Value::some(Value::str("")));
     let accepted = canonical(&mut source, &request);
     let bytes = accepted.to_bytes();
-    let weak = Rc::downgrade(record(&accepted));
+    let held = record(&accepted).clone();
     for selection in [
         Value::some(Value::str("-1")),
         Value::some(Value::str(" 1")),
@@ -477,11 +481,11 @@ fn bounded_refusals_preserve_latest_and_mode_changes_release_only_unowned_output
         "accepted old result is immutable"
     );
     drop(accepted);
-    assert!(weak.upgrade().is_none(), "no bounded output history");
-    let full_weak = Rc::downgrade(record(&full));
+    assert!(sole(held), "no bounded output history");
+    let full_held = record(&full).clone();
     let bounded = canonical(&mut source, &request);
     drop(full);
-    assert!(full_weak.upgrade().is_none(), "no full output history");
+    assert!(sole(full_held), "no full output history");
     drop(source);
     assert_eq!(bounded.to_bytes(), bytes, "accepted result outlives source");
 }

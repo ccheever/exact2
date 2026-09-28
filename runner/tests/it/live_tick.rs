@@ -5,9 +5,8 @@
 //! The runner keys only the rows whose allocation is new, and type-checks
 //! only the records it has not already checked.
 use exact_kernel::{Kernel, Offer};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{DataError, DataSource, Runner, RunnerError};
-use std::rc::Rc;
 use std::time::Instant;
 
 const SOURCE: &str = r##"shape Run
@@ -86,7 +85,7 @@ fn message(id: &str, i: usize, bump: f64) -> Value {
 
 /// The feed a source keeps: the rows it answered last, shared.
 struct Feed {
-    rows: Rc<[Value]>,
+    rows: Items,
     ticks: usize,
     /// The next tick answers one record of the wrong shape.
     bad: bool,
@@ -94,7 +93,7 @@ struct Feed {
 impl Feed {
     fn new() -> Self {
         Self {
-            rows: Rc::<[Value]>::from(
+            rows: Items::from(
                 (0..COUNT)
                     .map(|i| message(&format!("m{i}"), i, 0.0))
                     .collect::<Vec<_>>(),
@@ -133,7 +132,7 @@ impl DataSource for Feed {
                 rows[at] = Value::record(fields);
                 return Ok(Value::record(vec![Value::list(rows)]));
             }
-            self.rows = Rc::<[Value]>::from(rows);
+            self.rows = Items::from(rows);
         }
         Ok(self.feed())
     }

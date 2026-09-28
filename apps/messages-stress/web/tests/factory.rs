@@ -1,7 +1,6 @@
 //! Verify the actual build-script output, not a second selection recipe.
 
 use exact_logic::{exact_plan::Value, exact_runner::DataSource};
-use std::rc::Rc;
 
 mod dev_factory {
     include!(concat!(env!("OUT_DIR"), "/factory.rs"));
@@ -77,7 +76,7 @@ fn compiled_factory_and_dev_default_preserve_values_and_select_row_ownership() {
             .iter()
             .zip(after.iter())
             .filter(
-                |(a, b)| matches!((a, b), (Value::Record(a), Value::Record(b)) if Rc::ptr_eq(a, b)),
+                |(a, b)| matches!((a, b), (Value::Record(a), Value::Record(b)) if exact_logic::exact_plan::Items::ptr_eq(a, b)),
             )
             .count();
         let expected = match option_env!("EXACT_MESSAGES_SOURCE").unwrap_or("reuse") {

@@ -1,6 +1,5 @@
 use exact_plan::Value;
 use exact_runner::DataError;
-use std::rc::Rc;
 
 const NOTES: [(&str, &str, &str); 8] = [
     ("Maya · Director", "North shore opens the film. Hold on the water before the title arrives.", "09:41"),
@@ -16,7 +15,7 @@ const NOTES: [(&str, &str, &str); 8] = [
 pub struct Crew {
     rows: Vec<Value>,
     body_bytes: usize,
-    latest: Option<(Rc<str>, Value)>,
+    latest: Option<(exact_plan::Str, Value)>,
 }
 
 impl Default for Crew {

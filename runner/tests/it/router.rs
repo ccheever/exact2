@@ -542,27 +542,13 @@ fn assigned_router_entries_must_be_canonical_and_match_name_and_params() {
         (0, 0, 2, Value::str("/foo")),
         (1, 0, 2, Value::str("/foo")),
     ] {
-        let Value::Record(mut router) = before.clone() else {
-            panic!()
-        };
-        let Value::List(tabs) = &mut Rc::make_mut(&mut router)[1] else {
-            panic!()
-        };
-        let Value::Record(t) = &mut Rc::make_mut(tabs)[tab] else {
-            panic!()
-        };
-        let Value::List(stack) = &mut Rc::make_mut(t)[1] else {
-            panic!()
-        };
-        let Value::Record(e) = &mut Rc::make_mut(stack)[entry] else {
-            panic!()
-        };
-        Rc::make_mut(e)[field] = replacement;
+        let mut path = vec![1, tab, 1, entry, field];
+        let mut value = replaced(&before, &path, replacement);
         // The review's exact case: top /foo named home.
-        if field == 2 && tab == 0 && entry == 1 && e[2] == Value::str("/foo") {
-            Rc::make_mut(e)[1] = Value::str("home");
+        if field == 2 && tab == 0 && entry == 1 && at(&value, &path) == &Value::str("/foo") {
+            path[4] = 1;
+            value = replaced(&value, &path, Value::str("home"));
         }
-        let value = Value::Record(router);
         assert!(value.conforms(r.plan(), r.plan().slot(r.plan().router.unwrap()).ty));
         assert!(matches!(
             r.act("set", vec![value]),
@@ -719,4 +705,28 @@ fn a_refused_navigation_does_not_carry_its_refresh_into_the_next_commit() {
         asked,
         "the refused refresh never reaches the source"
     );
+}
+
+/// `v` with the item at `path` (positions through records and lists)
+/// replaced.
+fn replaced(v: &Value, path: &[usize], new: Value) -> Value {
+    let Some((&first, rest)) = path.split_first() else {
+        return new;
+    };
+    let (Value::Record(items) | Value::List(items)) = v else {
+        panic!("a record or a list")
+    };
+    let mut items = items.to_vec();
+    items[first] = replaced(&items[first], rest, new);
+    match v {
+        Value::Record(_) => Value::record(items),
+        _ => Value::list(items),
+    }
+}
+
+fn at<'a>(v: &'a Value, path: &[usize]) -> &'a Value {
+    path.iter().fold(v, |v, &i| match v {
+        Value::Record(items) | Value::List(items) => &items[i],
+        _ => panic!("a record or a list"),
+    })
 }

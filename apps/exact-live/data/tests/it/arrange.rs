@@ -6,7 +6,6 @@ use exact_runner::{
     Answer, CollectionFeedback, DataError, DataSource, Event, ReorderProgress, RowMeasurement,
     Runner, Store, Viewport,
 };
-use std::rc::Rc;
 
 #[derive(Default)]
 struct Counted {
@@ -55,7 +54,7 @@ fn press(r: &mut Runner<Counted>, name: &str) {
     let id = r.kernel().node_by_key(key(r, name)).unwrap().id;
     r.dispatch(id, Event::Press).unwrap();
 }
-fn rows(r: &Runner<Counted>) -> Rc<[Value]> {
+fn rows(r: &Runner<Counted>) -> exact_plan::Items {
     let Value::List(rows) = r.resource("rows").unwrap() else {
         panic!("rows")
     };
@@ -122,7 +121,7 @@ fn authored_grips_bind_stable_list_and_manual_move_excludes_physical_drop() {
         terminal(&mut r, "photo-00001", None);
         assert_eq!(reorder_calls(&r).len(), 1);
         assert!(
-            Rc::ptr_eq(&original, &rows(&r)),
+            exact_plan::Items::ptr_eq(&original, &rows(&r)),
             "manual move rejects synthesized physical drop too"
         );
         assert!(r.kernel().find_by_test_id("manual-move").len() == 1);
@@ -258,7 +257,7 @@ fn common_preview_never_calls_data_and_terminal_queries_once_before_pin_finish()
             ReorderProgress::Accepted { .. }
         ));
         assert_eq!(r.data_ref().calls.len(), query_count);
-        assert!(Rc::ptr_eq(&before, &rows(&r)));
+        assert!(exact_plan::Items::ptr_eq(&before, &rows(&r)));
     }
     let g = r.reorder_geometry(binding.list).unwrap();
     assert!(r.drop_reorder(token, g.clone()).unwrap().is_some());

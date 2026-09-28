@@ -27,6 +27,7 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+pub mod shared;
 pub mod strings;
 pub mod value;
 
@@ -37,6 +38,7 @@ pub mod generated {
 }
 
 pub use generated::*;
+pub use shared::{Items, Str};
 pub use value::Value;
 
 /// Interned string index.

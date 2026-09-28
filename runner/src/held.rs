@@ -15,7 +15,7 @@
 //! a checkpoint) decodes into the cell and is released again after the next
 //! update.
 
-use exact_plan::{Bytes, Plan, Value};
+use exact_plan::{Bytes, Items, Plan, Str, Value};
 use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
 
@@ -117,8 +117,8 @@ impl Held {
 /// dropping it frees the value. A scalar has nothing to free.
 fn sole(value: &Value) -> bool {
     match value {
-        Value::Str(s) => Rc::strong_count(s) == 1,
-        Value::List(items) | Value::Record(items) => Rc::strong_count(items) == 1,
+        Value::Str(s) => Str::strong_count(s) == 1,
+        Value::List(items) | Value::Record(items) => Items::strong_count(items) == 1,
         Value::Option(Some(inner)) => Rc::strong_count(inner) == 1,
         Value::Number(_) | Value::Bool(_) | Value::Unit | Value::Option(None) => false,
     }

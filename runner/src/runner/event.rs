@@ -1045,7 +1045,7 @@ mod retained_binding_tests {
                 Err(ActionBindingRefusal::Unsupported)
             );
         }
-        let text: Rc<str> = Rc::from("retained-id");
+        let text = exact_plan::Str::from("retained-id");
         let parent = Value::record(vec![
             Value::Str(text.clone()),
             Value::list(vec![Value::Unit; 1024]),
@@ -1053,11 +1053,11 @@ mod retained_binding_tests {
         let Value::Record(fields) = &parent else {
             unreachable!()
         };
-        let before = Rc::strong_count(&text);
+        let before = exact_plan::Str::strong_count(&text);
         let scalar = BindingScalar::capture(&fields[0], &mut n).unwrap();
-        assert_eq!(Rc::strong_count(&text), before);
+        assert_eq!(exact_plan::Str::strong_count(&text), before);
         drop(parent);
-        assert_eq!(Rc::strong_count(&text), 1);
+        assert_eq!(exact_plan::Str::strong_count(&text), 1);
         assert_eq!(scalar, BindingScalar::String("retained-id".into()));
         assert_ne!(
             BindingScalar::capture(&Value::Number(0.0), &mut n),

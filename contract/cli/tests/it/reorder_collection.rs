@@ -1,6 +1,6 @@
 //! Real Runner collection ownership/preview, with no host or secondary item graph.
 use exact_kernel::{Kernel, NodeKey};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{
     CollectionFeedback, DataError, DataSource, ReorderProgress, RowMeasurement, Runner,
 };
@@ -163,9 +163,8 @@ fn true_end_is_not_window_end_and_disabled_source_cannot_dispatch() {
     assert!(!r.is_poisoned());
 }
 
-use std::rc::Rc;
 struct EditingRows {
-    order: Rc<[Value]>,
+    order: Items,
     calls: usize,
     mode: &'static str,
 }
@@ -187,9 +186,9 @@ impl DataSource for EditingRows {
                     .unwrap_or(next.len());
                 next.insert(at, value);
             }
-            self.order = Rc::<[Value]>::from(next);
+            self.order = Items::from(next);
         }
-        Ok(Value::List(Rc::clone(&self.order)))
+        Ok(Value::List(self.order.clone()))
     }
 }
 fn editing(mode: &'static str) -> Runner<EditingRows> {
@@ -200,7 +199,7 @@ fn editing(mode: &'static str) -> Runner<EditingRows> {
     Runner::boot(
         contract::compile(&source).unwrap(),
         EditingRows {
-            order: Rc::<[Value]>::from(
+            order: Items::from(
                 (0..25_000)
                     .map(|i| Value::str(&i.to_string()))
                     .collect::<Vec<_>>(),
@@ -248,11 +247,11 @@ fn own_structural_drop_pins_source_until_explicit_finish_and_dispatches_once() {
     let b = r.reorder_binding(h).unwrap();
     let g = r.reorder_geometry(b.list).unwrap();
     let token = r.begin_reorder(b, g).unwrap().unwrap().token;
-    let old = Rc::clone(&r.data_ref().order);
+    let old = r.data_ref().order.clone();
     let calls = r.data_ref().calls;
     let g = r.reorder_geometry(b.list).unwrap();
     r.preview_reorder(token, g, 90.).unwrap();
-    assert!(Rc::ptr_eq(&old, &r.data_ref().order));
+    assert!(Items::ptr_eq(&old, &r.data_ref().order));
     assert_eq!(r.data_ref().calls, calls);
     let before = r.reorder_frame(token).unwrap();
     assert!(!before.terminal);
@@ -300,14 +299,14 @@ fn deletion_and_normal_model_refusal_both_have_bounded_terminal_cleanup() {
         let b = r.reorder_binding(h).unwrap();
         let g = r.reorder_geometry(b.list).unwrap();
         let token = r.begin_reorder(b, g).unwrap().unwrap().token;
-        let old = Rc::clone(&r.data_ref().order);
+        let old = r.data_ref().order.clone();
         let g = r.reorder_geometry(b.list).unwrap();
         r.preview_reorder(token, g, 90.).unwrap();
         let g = r.reorder_geometry(b.list).unwrap();
         r.drop_reorder(token, g).unwrap().unwrap();
         assert_eq!(r.slot("count"), Some(&Value::Number(1.)));
         if mode == "refuse" {
-            assert!(Rc::ptr_eq(&old, &r.data_ref().order));
+            assert!(Items::ptr_eq(&old, &r.data_ref().order));
         } else {
             assert!(r.kernel().node_by_key(h).is_none());
         }

@@ -1,6 +1,6 @@
 //! Atomic terminal reorder; no per-pointer app data or synthetic geometry.
 use exact_kernel::Kernel;
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{DataError, DataSource, Runner};
 use interaction_gallery_data::Gallery;
 use std::rc::Rc;
@@ -46,7 +46,7 @@ fn terminal(source: &mut Gallery, item: &str, before: Option<&str>, revision: u3
         .expect("typed domain refusal must return a GalleryState, not DataError")
 }
 
-fn rows(source: &mut Gallery, revision: u32) -> Rc<[Value]> {
+fn rows(source: &mut Gallery, revision: u32) -> Items {
     let Value::List(rows) = source
         .query(
             "galleryRows",
@@ -89,7 +89,7 @@ fn atomic_reorder_moves_up_down_and_to_end_once_by_current_identity() {
     let first = terminal(&mut source, "photo-00004", Some("photo-00001"), 0);
     assert_eq!(revision(&first), 1);
     let first_rows = rows(&mut source, 1);
-    assert!(!Rc::ptr_eq(&old_rows, &first_rows));
+    assert!(!Items::ptr_eq(&old_rows, &first_rows));
     assert_eq!(
         &ids(&first_rows)[..6],
         [
@@ -147,7 +147,7 @@ fn stale_duplicate_returns_current_metadata_without_invalidating_rows() {
         before,
         "refusal notice is returned, not model state"
     );
-    assert!(Rc::ptr_eq(&cached, &rows(&mut source, 1)));
+    assert!(Items::ptr_eq(&cached, &rows(&mut source, 1)));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn self_adjacent_and_already_at_end_are_normalized_noops() {
     ] {
         assert_eq!(terminal(&mut source, item, destination, 0), before);
         assert_eq!(snapshot(&mut source), before);
-        assert!(Rc::ptr_eq(&cached, &rows(&mut source, 0)));
+        assert!(Items::ptr_eq(&cached, &rows(&mut source, 0)));
     }
 }
 
@@ -179,7 +179,7 @@ fn missing_source_destination_and_empty_some_never_fall_back_to_end() {
     ] {
         refusal(&terminal(&mut source, item, destination, 0), "");
         assert_eq!(snapshot(&mut source), before);
-        assert!(Rc::ptr_eq(&cached, &rows(&mut source, 0)));
+        assert!(Items::ptr_eq(&cached, &rows(&mut source, 0)));
     }
 }
 
@@ -200,7 +200,7 @@ fn deleted_source_or_destination_cannot_reappear_or_use_a_rank_fallback() {
             "",
         );
         assert_eq!(snapshot(&mut source), before);
-        assert!(Rc::ptr_eq(&cached, &rows(&mut source, current)));
+        assert!(Items::ptr_eq(&cached, &rows(&mut source, current)));
         assert!(!ids(&cached).contains(&removed.to_owned()));
     }
 }
@@ -215,7 +215,7 @@ fn manual_move_blocks_atomic_drop_without_consuming_its_preview_or_token() {
     let cached = rows(&mut source, 0);
     refusal(&terminal(&mut source, "photo-00005", None, 0), "manual");
     assert_eq!(snapshot(&mut source), before);
-    assert!(Rc::ptr_eq(&cached, &rows(&mut source, 0)));
+    assert!(Items::ptr_eq(&cached, &rows(&mut source, 0)));
     let placed = action(&mut source, "place", "", token);
     assert_eq!(revision(&placed), 1);
     let order = ids(&rows(&mut source, 1));
@@ -252,7 +252,7 @@ fn malformed_reorder_wire_refuses_without_changing_model_or_rows() {
             .is_err());
     }
     assert_eq!(snapshot(&mut source), before);
-    assert!(Rc::ptr_eq(&cached, &rows(&mut source, 0)));
+    assert!(Items::ptr_eq(&cached, &rows(&mut source, 0)));
 }
 
 #[derive(Default)]
@@ -312,7 +312,7 @@ fn real_runner_terminal_is_synchronous_and_stale_refusal_does_not_poison_actions
     let Value::List(rows) = runner.resource("rows").unwrap() else {
         panic!("rows")
     };
-    assert!(Rc::ptr_eq(&current, rows));
+    assert!(Items::ptr_eq(&current, rows));
     runner
         .act("edit", vec![Value::str("still usable")])
         .unwrap();
@@ -349,7 +349,7 @@ fn app_press(runner: &mut Runner<Counted>, name: &str) {
     runner.dispatch(id, exact_runner::Event::Press).unwrap();
 }
 
-fn app_rows(runner: &Runner<Counted>) -> Rc<[Value]> {
+fn app_rows(runner: &Runner<Counted>) -> Items {
     let Value::List(rows) = runner.resource("rows").unwrap() else {
         panic!("rows")
     };
@@ -401,12 +401,12 @@ fn authored_windowed_grips_are_nonbuttons_and_disabled_during_manual_move() {
             .unwrap();
         assert_eq!(grip.props.bool(PropId::Disabled), Some(true));
     }
-    assert!(Rc::ptr_eq(&original, &app_rows(&runner)));
+    assert!(Items::ptr_eq(&original, &app_rows(&runner)));
     let queries = runner.data_ref().reorder_calls;
     app_drop(&mut runner, "photo-00003", None);
     assert_eq!(runner.data_ref().reorder_calls, queries + 1);
     assert!(
-        Rc::ptr_eq(&original, &app_rows(&runner)),
+        Items::ptr_eq(&original, &app_rows(&runner)),
         "manual exclusion applies even to synthesized delivery"
     );
     app_press(&mut runner, "cancel");
@@ -455,7 +455,7 @@ fn actual_list_terminal_uses_latest_revision_and_keeps_orthogonal_local_state() 
         (runner.data_ref().reorder_calls, runner.data_ref().row_calls),
         queries
     );
-    assert!(Rc::ptr_eq(&original, &app_rows(&runner)));
+    assert!(Items::ptr_eq(&original, &app_rows(&runner)));
     assert_eq!(runner.last_instance_work().rows_keyed, 0);
     app_drop(&mut runner, "photo-00000", Some("photo-24999"));
     assert_eq!(runner.data_ref().reorder_calls, queries.0 + 1);
@@ -470,7 +470,7 @@ fn actual_list_terminal_uses_latest_revision_and_keeps_orthogonal_local_state() 
     let row_queries = runner.data_ref().row_calls;
     app_drop(&mut runner, "photo-00000", Some("photo-24999"));
     assert!(
-        Rc::ptr_eq(&moved, &app_rows(&runner)),
+        Items::ptr_eq(&moved, &app_rows(&runner)),
         "duplicate gap is unchanged"
     );
     assert_eq!(runner.data_ref().row_calls, row_queries);
@@ -498,7 +498,7 @@ fn actual_list_missing_destination_refuses_and_following_valid_terminal_still_wo
     let row_queries = runner.data_ref().row_calls;
     for (item, before) in [("photo-00000", Some("photo-00003")), ("photo-00003", None)] {
         app_drop(&mut runner, item, before);
-        assert!(Rc::ptr_eq(&original, &app_rows(&runner)));
+        assert!(Items::ptr_eq(&original, &app_rows(&runner)));
         assert_eq!(runner.data_ref().row_calls, row_queries);
         let status = runner
             .kernel()

@@ -5,8 +5,7 @@
 //! plan's bytes again: the value never changes for a reader.
 
 use exact_kernel::{Kernel, PropId};
-use exact_runner::{DataError, DataSource, Runner, Value};
-use std::rc::{Rc, Weak};
+use exact_runner::{DataError, DataSource, Items, Runner, Value};
 
 const SRC: &str = r#"
 shape Row
@@ -76,9 +75,11 @@ impl DataSource for Feed {
     }
 }
 
-/// The resource's record and its first row, weakly: whether the runner's
-/// decoded copy is still alive.
-fn weak(r: &Runner<Feed>) -> (Weak<[Value]>, Weak<[Value]>) {
+/// The resource's first row, held here: its count says whether the runner's
+/// decoded record still holds it (the record is the row's only other
+/// holder once the row is off screen). Holding the row leaves the record's
+/// own count, the one the runner reads before releasing it, alone.
+fn first_row(r: &Runner<Feed>) -> Items {
     let Some(Value::Record(record)) = r.resource("initial") else {
         panic!("a record")
     };
@@ -88,7 +89,12 @@ fn weak(r: &Runner<Feed>) -> (Weak<[Value]>, Weak<[Value]>) {
     let Value::Record(first) = &rows[0] else {
         panic!("a row")
     };
-    (Rc::downgrade(record), Rc::downgrade(first))
+    first.clone()
+}
+
+/// Whether anything besides this handle holds `row`.
+fn alive(row: &Items) -> bool {
+    Items::strong_count(row) > 1
 }
 
 fn text(r: &Runner<Feed>, id: &str) -> String {
@@ -114,27 +120,26 @@ fn an_adopted_value_replaced_on_screen_is_released_and_reads_the_same() {
         "/",
     )
     .unwrap();
-    let (record, first) = weak(&r);
+    let first = first_row(&r);
     // The list shows it: held.
     r.advance(0.).unwrap();
-    assert!(record.upgrade().is_some() && first.upgrade().is_some());
+    assert!(alive(&first));
 
     r.act("edit", vec![]).unwrap();
     // Replaced on screen by the source's edit, which shares rows 1 and 2:
     // the record and the row it replaced are freed.
-    assert!(record.upgrade().is_none(), "the baked record is released");
-    assert!(first.upgrade().is_none(), "the replaced row with it");
+    assert!(
+        !alive(&first),
+        "the baked record is released, and the replaced row with it"
+    );
 
     // Read for inspection, it is the same value, decoded again, and
     // released again after the next update.
     assert_eq!(r.resource("initial"), Some(&baked));
     assert!(exact_runner::agent::state(&r).contains("\"baked\""));
-    let (again, _) = weak(&r);
+    let again = first_row(&r);
     r.act("edit", vec![]).unwrap();
-    assert!(
-        again.upgrade().is_none(),
-        "an inspection's copy is released"
-    );
+    assert!(!alive(&again), "an inspection's copy is released");
 
     // A reload carries the value as it was compiled.
     let carried = r.carry();
@@ -153,9 +158,9 @@ fn an_adopted_value_replaced_on_screen_is_released_and_reads_the_same() {
     // and keeps it from then on: no decode per evaluation.
     r.act("look", vec![]).unwrap();
     assert_eq!(text(&r, "baked"), "3");
-    let (kept, _) = weak(&r);
+    let kept = first_row(&r);
     r.act("edit", vec![]).unwrap();
-    assert!(kept.upgrade().is_some(), "read by an expression: kept");
+    assert!(alive(&kept), "read by an expression: kept");
     assert_eq!(r.resource("initial"), Some(&baked));
 }
 
@@ -170,10 +175,10 @@ fn a_value_still_on_screen_is_never_released() {
         "/",
     )
     .unwrap();
-    let (record, first) = weak(&r);
+    let first = first_row(&r);
     for _ in 0..5 {
         r.act("look", vec![]).unwrap();
         r.advance(100.).unwrap();
     }
-    assert!(record.upgrade().is_some() && first.upgrade().is_some());
+    assert!(alive(&first));
 }

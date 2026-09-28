@@ -1194,7 +1194,7 @@ fn a_repeated_key_is_kept_and_a_later_vm_trap_refuses_without_publication() {
     let mut h = key_reuse_harness(false);
     let before = h.snapshot();
     let keys = h.collection().keys.as_ptr();
-    let items = Rc::clone(&h.collection().items);
+    let items = h.collection().items.clone();
     let mut next = key_reuse_items(&h);
     next[2] = key_reuse_row(0., "duplicate reused prefix");
     next[3] = Value::record(vec![Value::Number(3.), Value::NONE, Value::str("trap")]);
@@ -1205,7 +1205,7 @@ fn a_repeated_key_is_kept_and_a_later_vm_trap_refuses_without_publication() {
     ));
     assert_eq!(h.snapshot(), before);
     assert_eq!(h.collection().keys.as_ptr(), keys);
-    assert!(Rc::ptr_eq(&h.collection().items, &items));
+    assert!(Items::ptr_eq(&h.collection().items, &items));
 }
 
 #[test]
@@ -1261,18 +1261,20 @@ fn key_reuse_repeated_answers_do_not_retain_historical_records() {
     let mut h = key_reuse_harness(false);
     h.send(h.feedback(0.));
     for turn in 0..16 {
-        let old = Rc::downgrade(&h.collection().items);
-        let Value::Record(row) = &h.collection().items[100] else {
+        // Held here only: the count says whether anything else still does.
+        let old = h.collection().items.clone();
+        let Value::Record(row) = &old[100] else {
             panic!()
         };
-        let old_row = Rc::downgrade(row);
+        let old_row = row.clone();
         let mut next = key_reuse_items(&h);
         next[100] = key_reuse_row(100., &format!("answer {turn}"));
         h.slots[0] = Value::list(next);
         h.update().unwrap();
         assert_eq!(h.tree.last_work.rows_keyed, 1);
-        assert!(old.upgrade().is_none());
-        assert!(old_row.upgrade().is_none());
+        assert_eq!(Items::strong_count(&old), 1);
+        drop(old);
+        assert_eq!(Items::strong_count(&old_row), 1);
         assert_eq!(h.collection().keys.len(), 128);
         assert!(h.collection().mounted.len() <= 31);
     }

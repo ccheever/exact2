@@ -1,9 +1,8 @@
 //! Real gallery Contract, complete records and actual nested viewport geometry.
 use exact_kernel::{Kernel, Offer, PresentedHeight, PropId};
-use exact_plan::Value;
+use exact_plan::{Items, Value};
 use exact_runner::{CollectionFeedback, Event, RowMeasurement, Runner};
 use interaction_gallery_data::Gallery;
-use std::rc::Rc;
 
 fn boot() -> Runner<Gallery> {
     Runner::boot(
@@ -21,7 +20,7 @@ fn press(r: &mut Runner<Gallery>, name: &str) {
     let id = r.kernel().node_by_key(keys[0]).unwrap().id;
     r.dispatch(id, Event::Press).unwrap();
 }
-fn rows(r: &Runner<Gallery>) -> Rc<[Value]> {
+fn rows(r: &Runner<Gallery>) -> Items {
     let Value::List(rows) = r.resource("rows").expect("separate stable row resource") else {
         panic!("rows must be a list")
     };
@@ -158,11 +157,11 @@ fn draft_preview_and_sheet_only_actions_keep_rows_and_skip_all_record_keying() {
     let original = rows(&r);
     r.act("edit", vec![Value::str("Persistent draft")]).unwrap();
     for control in ["lift-photo-00000", "later", "earlier", "cancel"] {
-        assert!(Rc::ptr_eq(&original, &rows(&r)));
+        assert!(Items::ptr_eq(&original, &rows(&r)));
         assert_eq!(r.last_instance_work().rows_keyed, 0, "{control}");
         press(&mut r, control);
     }
-    assert!(Rc::ptr_eq(&original, &rows(&r)));
+    assert!(Items::ptr_eq(&original, &rows(&r)));
     assert_eq!(r.last_instance_work().rows_keyed, 0);
     press(&mut r, "mode-sheet");
     settle(&mut r, 0., 1180.);
@@ -170,7 +169,7 @@ fn draft_preview_and_sheet_only_actions_keep_rows_and_skip_all_record_keying() {
     for control in ["note-photo-00002", "sheet-peek", "sheet-full", "sheet-read"] {
         press(&mut r, control);
         assert!(
-            Rc::ptr_eq(&original, &rows(&r)),
+            Items::ptr_eq(&original, &rows(&r)),
             "{control} regenerated rows"
         );
         assert_eq!(
@@ -226,7 +225,7 @@ fn insertion_preserves_the_reading_identity_and_offset_while_rekeying_new_data()
     let offset = anchor.start - top;
     let old = rows(&r);
     press(&mut r, "insert");
-    assert!(!Rc::ptr_eq(&old, &rows(&r)));
+    assert!(!Items::ptr_eq(&old, &rows(&r)));
     assert_eq!(r.last_instance_work().rows_keyed, 1001);
     let next = r.collections()[0].correction.map_or(top, |c| c.offset);
     let (new_top, _) = settle(&mut r, next, 1180.);
@@ -252,7 +251,7 @@ fn full_collection_preview_does_not_change_order_and_drop_applies_once() {
     press(&mut r, "lift-photo-00000");
     settle(&mut r, 1e9, 1180.);
     press(&mut r, "before-photo-24999");
-    assert!(Rc::ptr_eq(&before, &rows(&r)));
+    assert!(Items::ptr_eq(&before, &rows(&r)));
     press(&mut r, "place");
     let after = rows(&r);
     assert_eq!(id(&after[0]), "photo-00001");
@@ -307,7 +306,7 @@ fn intermediate_sheet_samples_and_resize_feed_actual_nested_list_geometry() {
         previous = Some((px, port));
         assert_eq!(r.kernel().height_target(owner).unwrap().x, 360.);
         assert_eq!(r.slot("sheetPx"), Some(&Value::Number(360.)));
-        assert!(Rc::ptr_eq(&records, &rows(&r)));
+        assert!(Items::ptr_eq(&records, &rows(&r)));
     }
     let wide_row = r.collections()[0].rows[0].size;
     for (width, height) in [(420., 620.), (420., 860.), (1180., 960.)] {
@@ -320,7 +319,7 @@ fn intermediate_sheet_samples_and_resize_feed_actual_nested_list_geometry() {
         );
         assert!(port > 0. && port < panel as f64);
         assert_eq!(r.collections()[0].count, 1000);
-        assert!(Rc::ptr_eq(&records, &rows(&r)));
+        assert!(Items::ptr_eq(&records, &rows(&r)));
         if width == 420. {
             assert!(r.collections()[0].rows[0].size > wide_row);
         }
