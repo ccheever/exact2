@@ -149,3 +149,11 @@ fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
     );
     assert!(picks.has(Capability::Documents) && !picks.has(Capability::Share));
 }
+
+#[test]
+fn the_picker_is_a_file_input_or_show_picker() {
+    // @ref LLP 1069.002 — linked by use on the web (the web core's size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Picker));
+    let input = used("component A\n  view\n    input type=\"file\" accept=\"image/*\" id=\"f\"\n");
+    assert!(input.has(Capability::Picker));
+}

@@ -48,11 +48,14 @@ pub enum Capability {
     /// `saveFile` and the three file pickers (LLP 1069.010): a plan whose
     /// code runs one.
     Documents,
+    /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
+    /// file input, or whose code runs the command.
+    Picker,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 11] = [
+    pub const ALL: [Capability; 12] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -64,6 +67,7 @@ impl Capability {
         Capability::Backdrop,
         Capability::Share,
         Capability::Documents,
+        Capability::Picker,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -80,6 +84,7 @@ impl Capability {
             Capability::Backdrop => "backdrop",
             Capability::Share => "share",
             Capability::Documents => "documents",
+            Capability::Picker => "picker",
         }
     }
 
@@ -167,6 +172,9 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
+                    uses = uses.with(Capability::Picker);
+                }
                 _ => {}
             },
             BindingKind::Style => {
@@ -216,6 +224,9 @@ pub fn uses(plan: &Plan) -> Uses {
         ],
     ) {
         uses = uses.with(Capability::Documents);
+    }
+    if runs_command(plan, &["showPicker"]) {
+        uses = uses.with(Capability::Picker);
     }
     uses
 }

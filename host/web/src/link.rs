@@ -58,11 +58,17 @@ pub struct Linked {
     pub share: bool,
     /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
+    /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
+    /// `change` payload, read.
+    pub picker: Option<PickedPayload>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
 /// style, and the line to log, once, for a name the table lacks.
 pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
+
+/// A file input's `change` payload, read: [`exact_runner::Picked::payload`].
+pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
 
 impl Linked {
     /// The core alone.
@@ -82,6 +88,7 @@ impl Linked {
         auth: false,
         share: false,
         documents: false,
+        picker: None,
     };
 
     /// The capabilities registered here.
@@ -119,6 +126,9 @@ impl Linked {
         }
         if self.documents {
             uses = uses.with(Capability::Documents);
+        }
+        if self.picker.is_some() {
+            uses = uses.with(Capability::Picker);
         }
         uses
     }

@@ -25,6 +25,40 @@ pub type CommandLink<D> = fn(&mut Runner<D>, &str) -> String;
 /// An agent's answer to a held command, for its journal line.
 pub type AnswerLink<D> = fn(&mut Runner<D>, &str);
 
+/// An agent's files for a file input's hold, checked.
+pub type PickCheck<D> = fn(&Runner<D>, Option<exact_kernel::ViewId>, &str) -> Result<(), String>;
+
+/// `input type="file"` and `showPicker` (LLP 1069.002):
+/// [`super::picker`]'s entries the core reaches, from the agent and a hold.
+pub struct PickerLinks<D: DataSource> {
+    /// What `showPicker(id)` names.
+    pub picker: fn(&Runner<D>, &str) -> Option<super::PickerRequest>,
+    /// `showPicker(id)` held for the agent.
+    pub hold: fn(&mut Runner<D>, &str) -> Result<u64, String>,
+    /// A picked file's name under `app:/tmp/picked/`.
+    pub picked_path: fn(&mut Runner<D>, &str) -> String,
+    /// An agent's files, checked against the input before the hold is spent.
+    pub check: PickCheck<D>,
+}
+
+impl<D: DataSource> Clone for PickerLinks<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: DataSource> Copy for PickerLinks<D> {}
+
+impl<D: DataSource> PickerLinks<D> {
+    /// [`super::picker`]'s entries.
+    pub const LINKED: PickerLinks<D> = PickerLinks {
+        picker: Runner::<D>::picker,
+        hold: Runner::<D>::hold_picker,
+        picked_path: Runner::<D>::picked_path,
+        check: Runner::<D>::check_pick,
+    };
+}
+
 /// What a runner links of the device capabilities.
 pub struct DeviceLinks<D: DataSource> {
     /// `openAuthSession` (LLP 1069.006).
@@ -33,6 +67,8 @@ pub struct DeviceLinks<D: DataSource> {
     pub share: Option<(CommandLink<D>, AnswerLink<D>)>,
     /// `saveFile` (LLP 1069.010 D3) and the file pickers (D2): their rulings.
     pub documents: Option<(CommandLink<D>, CommandLink<D>)>,
+    /// `input type="file"` and `showPicker` (LLP 1069.002).
+    pub picker: Option<PickerLinks<D>>,
 }
 
 impl<D: DataSource> Clone for AuthLinks<D> {
@@ -67,6 +103,7 @@ impl<D: DataSource> DeviceLinks<D> {
             crate::save_file::request::<D>,
             crate::file_pickers::request::<D>,
         )),
+        picker: Some(PickerLinks::LINKED),
     };
 
     /// The core alone.
@@ -74,6 +111,7 @@ impl<D: DataSource> DeviceLinks<D> {
         auth: None,
         share: None,
         documents: None,
+        picker: None,
     };
 }
 

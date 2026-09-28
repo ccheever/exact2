@@ -30,7 +30,7 @@ mod delivery;
 mod device;
 mod device_links;
 pub use device::{Hold, HoldAnswer};
-pub use device_links::{AuthLinks, DeviceLinks};
+pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
 mod kept;

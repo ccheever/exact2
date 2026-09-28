@@ -34,7 +34,11 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
         Some("picker") => match field_str(request, "id") {
-            Some(id) => match runner.picker(&id) {
+            Some(id) => match runner
+                .device_links()
+                .picker
+                .and_then(|picker| (picker.picker)(runner, &id))
+            {
                 Some(p) => p.json(&id, true),
                 None => error(&format!("no file input with id \"{id}\"")),
             },
@@ -113,7 +117,13 @@ pub fn answer<D: DataSource>(
     // under `app:/tmp/picked/` before a host copies it in (D3).
     if op == "showPicker" {
         let id = field_str(request, "id").unwrap_or_default();
-        return Some(match runner.hold_picker(&id) {
+        let Some(picker) = runner.device_links().picker else {
+            return Some((
+                error("the file picker is not linked into this artifact"),
+                None,
+            ));
+        };
+        return Some(match (picker.hold)(runner, &id) {
             Ok(ticket) => (format!("{{\"ticket\":{ticket}}}"), None),
             Err(e) => (error(&e), None),
         });
@@ -121,7 +131,13 @@ pub fn answer<D: DataSource>(
     if op == "pickedPath" {
         let name = field_str(request, "name").unwrap_or_default();
         let mut s = String::from("{\"path\":");
-        quote(&runner.picked_path(&name), &mut s);
+        let Some(picker) = runner.device_links().picker else {
+            return Some((
+                error("the file picker is not linked into this artifact"),
+                None,
+            ));
+        };
+        quote(&(picker.picked_path)(runner, &name), &mut s);
         s.push('}');
         return Some((s, None));
     }

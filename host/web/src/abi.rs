@@ -523,7 +523,8 @@ impl<D: DataSource> Bridge<D> {
             // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one
             // picked file per line; 27 its `cancel`.
             26 => {
-                let Some(files) = exact_runner::Picked::payload(&payload) else {
+                let payload_files = crate::link::linked().picker.and_then(|read| read(&payload));
+                let Some(files) = payload_files else {
                     return self.emit(r#"{"ops":[],"error":"invalid picked files"}"#.into());
                 };
                 Event::Change(exact_runner::ControlValue::Files(files))

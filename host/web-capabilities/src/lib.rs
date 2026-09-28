@@ -22,6 +22,7 @@ pub mod inspection;
 pub mod markdown;
 pub mod materials;
 pub mod motion;
+pub mod picker;
 pub mod router;
 pub mod share;
 pub mod surfaces;
@@ -53,5 +54,6 @@ pub const ALL: exact_web::Linked = linked!(
     backdrop,
     auth,
     share,
-    documents
+    documents,
+    picker
 );

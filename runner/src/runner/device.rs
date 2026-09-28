@@ -133,7 +133,11 @@ impl<D: DataSource> Runner<D> {
             // hold is spent (LLP 1069.002 D9), so a refused answer can be
             // corrected.
             HoldAnswer::Value(v) if hold.capability == "pick" => {
-                if let Err(e) = self.check_pick(hold.node, v) {
+                let checked = self.device_links.picker.map_or(
+                    Err("the file picker is not linked into this artifact".into()),
+                    |picker| (picker.check)(self, hold.node, v),
+                );
+                if let Err(e) = checked {
                     return Err(format!("@{ticket} (pick): {e}"));
                 }
                 let n = super::picker::answer_paths(v).len();

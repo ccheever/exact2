@@ -193,6 +193,11 @@ impl<D: DataSource> HostLinks<D> {
                 } else {
                     None
                 },
+                picker: if linked.picker.is_some() {
+                    Some(exact_runner::PickerLinks::LINKED)
+                } else {
+                    None
+                },
             },
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)
