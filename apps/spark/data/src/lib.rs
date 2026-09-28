@@ -1,5 +1,8 @@
 //! Spark's data: `profiles()` is the deck, eight people with two portraits
-//! each, the same on every host. The portraits are randomuser.me's, loaded
+//! each, the same on every host. The list runs from the bottom of the deck
+//! to the top (`n` counts down to 0, the first card shown): siblings paint
+//! in document order, so the card listed last is the one on top, as in a
+//! web page's stack, on every host and without `z-index`. The portraits are randomuser.me's, loaded
 //! from the network as a web page's `<img>` loads them.
 
 #![deny(missing_docs)]
@@ -140,6 +143,7 @@ impl DataSource for Profiles {
             "profiles" => Ok(Value::list(
                 DECK.iter()
                     .enumerate()
+                    .rev()
                     .map(|(n, p)| profile(n, p))
                     .collect(),
             )),
