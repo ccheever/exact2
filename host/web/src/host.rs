@@ -705,6 +705,23 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// The page's visibility, connectivity or share sheet (LLP 1069.000 D2):
+    /// the `exactPage()` readers, in one batch.
+    pub fn set_page(&mut self, page: exact_runner::Page) -> String {
+        let (receipts, error) = match self.runner.set_page(page) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("page: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// The page module says `topic` changed (LLP 1016.002): the resources
     /// watching it are asked again, in one batch.
     pub fn changed(&mut self, topic: &str) -> String {

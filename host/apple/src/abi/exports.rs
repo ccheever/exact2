@@ -364,10 +364,17 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
-        /// The display preferences: bit 0 reduced motion, bit 1 reduced transparency.
+        /// The display preferences: bit 0 reduced motion, bit 1 reduced
+        /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 dark.
         #[no_mangle]
         pub extern "C" fn exact_set_preferences(rt: u32, bits: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_preferences(bits), |n| n)
+        }
+
+        /// The page's facts: bit 0 hidden, bit 1 offline, bit 2 a share sheet.
+        #[no_mangle]
+        pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
         }
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.

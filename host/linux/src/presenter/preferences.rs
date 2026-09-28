@@ -1,6 +1,8 @@
 //! What the host tells the app about the device and its user, after boot:
-//! the date (LLP 1027.000.000) and the display preferences (LLP 1061 D5).
-//! This host reads no system setting; an agent sets them (`prefer`).
+//! the date (LLP 1027.000.000), the display preferences (LLP 1061 D5; LLP
+//! 1069.000 D1) and the page's facts (LLP 1069.000 D2). This host reads no
+//! system setting: it reports no preference, a light system, a visible page,
+//! online, and no share sheet; an agent sets them (`prefer`).
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
@@ -15,6 +17,15 @@ impl<D: DataSource> Presenter<D> {
     /// A candidate has a new runner, but belongs to the same launch.
     pub(super) fn restore_time(&self, host: &mut Host<D>) -> Result<(), HostError> {
         host.set_scheme(self.dark());
+        // The same launch keeps what the device said about itself.
+        let runner = self.host.runner();
+        let (preferences, page) = (runner.viewport().preferences, runner.page());
+        if let Some(error) = host.set_preferences(preferences) {
+            return Err(HostError::Layout(error));
+        }
+        if let Some(error) = host.set_page(page) {
+            return Err(HostError::Layout(error));
+        }
         let time = self.host.runner().wall_time();
         if let Some(error) = host.set_place(self.host.runner().place()) {
             return Err(HostError::Layout(error));
@@ -36,10 +47,21 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// `prefers-reduced-motion` and `prefers-reduced-transparency`, as
-    /// `exactViewport()` answers them: re-answered in one commit.
+    /// `prefers-reduced-motion`, `-reduced-transparency`, `-contrast` and
+    /// `-color-scheme`, as `exactViewport()` answers them: re-answered in
+    /// one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
         let error = self.host.set_preferences(preferences);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
+    /// `visibilityState`, `onLine` and `canShare`, as `exactPage()` answers
+    /// them: re-answered in one commit.
+    pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
+        let error = self.host.set_page(page);
         if error.is_some() {
             return error;
         }

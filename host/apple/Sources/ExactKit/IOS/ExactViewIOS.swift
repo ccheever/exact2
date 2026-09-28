@@ -47,7 +47,9 @@ public final class ExactView: UIView {
     }
 
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
-    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark) }
+    /// A system appearance change reaches the view as a trait change too:
+    /// `prefers-color-scheme` is told again (LLP 1069.000 D1).
+    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences() }
 
     required init?(coder: NSCoder) { nil }
     deinit { keyboardObserver.map(NotificationCenter.default.removeObserver) }

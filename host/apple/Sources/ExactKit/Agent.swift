@@ -245,29 +245,49 @@ public final class Agent {
     /// point: advance to when the last transition in flight ends, and if
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
-    /// `prefer` (LLP 1061 D5): the user's display preferences by CSS's media
-    /// feature names. Reduced motion and transparency stand in for the
-    /// accessibility settings, for this process; the colour scheme is the
-    /// system's appearance, beneath the app's own `setScheme`. A feature not
-    /// named stays as it is; nothing applies unless every one is known.
+    /// `prefer` (LLP 1061 D5; LLP 1069.000 D6): the device facts by their
+    /// web names, grouped as LLP 1069.007 D2 groups them. `media`: reduced
+    /// motion, transparency and contrast stand in for the accessibility
+    /// settings, for this process; the colour scheme is the system's
+    /// appearance, beneath the app's own `setScheme`. `page`: what
+    /// `exactPage()` answers. A fact not named stays as it is; nothing
+    /// applies unless every one is known.
     func prefer(_ req: [String: Any]) -> [String: Any] {
-        guard let media = req["media"] as? [String: String] else { return ["error": "prefer needs media: {\"prefers-reduced-motion\": \"reduce\", …}"] }
-        var (motion, transparency) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency)
+        let media = req["media"] as? [String: String], page = req["page"] as? [String: Any]
+        guard media != nil || page != nil else { return ["error": "prefer needs media or page: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
-        for (name, value) in media {
+        for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
+            case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
             default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
             }
         }
-        DisplayPreferences.agent = (motion, transparency)
+        var facts = PageFacts.agent
+        for (name, raw) in page ?? [:] {
+            let value = (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
+            switch (name, value) {
+            case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
+            case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
+            case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
+            default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
+            }
+        }
+        // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
+        DisplayPreferences.agentContrast = contrast
+        DisplayPreferences.agent = (motion, transparency)
+        if page != nil { PageFacts.agent = facts }
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
-                          "prefers-color-scheme": systemDark ? "dark" : "light"]]
+                          "prefers-contrast": DisplayPreferences.contrast,
+                          "prefers-color-scheme": systemDark ? "dark" : "light"],
+                "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
+                         "online": PageFacts.onLine, "can-share": PageFacts.canShare]]
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {

@@ -72,6 +72,7 @@ fn reduced_motion_is_read_by_the_app_and_reanswered_in_one_commit() {
         .set_preferences(Preferences {
             reduced_motion: true,
             reduced_transparency: false,
+            ..Default::default()
         })
         .unwrap()
         .expect("a reader re-answers");
@@ -85,12 +86,14 @@ fn reduced_motion_is_read_by_the_app_and_reanswered_in_one_commit() {
         .set_preferences(Preferences {
             reduced_motion: true,
             reduced_transparency: false,
+            ..Default::default()
         })
         .unwrap()
         .is_none());
     r.set_preferences(Preferences {
         reduced_motion: true,
         reduced_transparency: true,
+        ..Default::default()
     })
     .unwrap()
     .unwrap();

@@ -887,6 +887,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The page's visibility, connectivity and share sheet (LLP 1069.000
+    /// D2): re-answer `exactPage()` in one commit.
+    pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
+        match self.runner.set_page(page) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("page: {e:?}")),
+        }
+    }
+
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {

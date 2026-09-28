@@ -420,6 +420,7 @@ public final class ExactSession {
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
     private var preferenceObservers: [NSObjectProtocol] = []
+    private var pageObservers: [NSObjectProtocol] = []
 
     init(app: ExactApp, label: String) {
         self.app = app
@@ -468,6 +469,7 @@ public final class ExactSession {
         pressure.resume(); textPressure = pressure
         wire()
         preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
+        pageObservers = PageFacts.observe { [weak self] in self?.tellPage() }
     }
 
     deinit { destroy() }
@@ -881,6 +883,7 @@ public final class ExactSession {
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
+        tellPage()
     }
     /// Under the agent, the drive's date at the clock's zero and its zone's
     /// offset at the virtual instant the clock reads: told at boot and after
@@ -898,6 +901,13 @@ public final class ExactSession {
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
         apply(runtime.setPreferences(DisplayPreferences.bits))
+    }
+    /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
+    /// change while iOS suspends the process lands with the foreground
+    /// notification, in the same turn.
+    func tellPage() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPage(PageFacts.bits))
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
@@ -1006,6 +1016,7 @@ public final class ExactSession {
         clockTimer = nil
         frames.run(false)
         DisplayPreferences.forget(preferenceObservers)
+        PageFacts.forget(pageObservers)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         rasters.shutdown()

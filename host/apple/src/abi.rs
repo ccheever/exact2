@@ -1111,13 +1111,26 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The user's display preferences changed or became known (LLP 1061
-    /// D4): bit 0 reduced motion, bit 1 reduced transparency.
+    /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
+    /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
+    /// system.
     pub fn set_preferences(&mut self, bits: u32) -> u32 {
         let preferences = exact_runner::Preferences::from_bits(bits);
         let out = self
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_preferences(preferences));
+        self.emit(out)
+    }
+
+    /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
+    /// hidden, bit 1 offline, bit 2 a share sheet.
+    pub fn set_page(&mut self, bits: u32) -> u32 {
+        let page = exact_runner::Page::from_bits(bits);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_page(page));
         self.emit(out)
     }
 

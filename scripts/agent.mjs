@@ -8,7 +8,7 @@
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
-//   clock <ms|+ms|settle> | prefer <media feature> <value> […]
+//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
@@ -58,7 +58,8 @@ export function browserDiagnosticNoise(line) {
 
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
-export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
+export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
+export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'] }; // `prefer`'s page group (LLP 1069.000 D2, D6; LLP 1069.007 D2)
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
@@ -234,7 +235,14 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
       },
       ask,
       // The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
-      async prefer(media) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame(); return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, [on, off]]) => [name, matchMedia('(' + name + ': ' + on + ')').matches ? on : off]))`) }; },
+      // The page group is the glue's own value, told the runner as the page's observer tells it (LLP 1069.000 D6; LLP 1069.007 D5: not CDP).
+      async prefer(media, page) {
+        if (Object.keys(media).length) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame(); }
+        const pageReply = Object.keys(page).length ? await ask({ op: 'prefer', page }) : null;
+        if (pageReply?.error) throw new Error(pageReply.error);
+        if (pageReply) await frame();
+        return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, values]) => [name, values.find(v => matchMedia('(' + name + ': ' + v + ')').matches) ?? values.at(-1)]))`), ...(pageReply ? { page: pageReply.page } : {}) };
+      },
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
         if (kind === 'history') {
@@ -1025,8 +1033,18 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
-    /** The user's display preferences by CSS's media feature names (LLP 1061 D5): `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). Unnamed features stay. The reply is what the host now reports for all three. */
-    async prefer(media) { for (const [name, value] of Object.entries(media ?? {})) if (!(PREFERENCES[name] ?? []).includes(value)) throw new Error(`prefer: ${name} ${value}: expected ${Object.entries(PREFERENCES).map(([n, v]) => `${n} ${v.join('|')}`).join(', ')}`); return carrier.prefer ? s.tagged(await carrier.prefer(media)) : s.op({ op: 'prefer', media }); },
+    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`. Unnamed facts stay. The reply is what the host now reports, by group. */
+    async prefer(facts) {
+      const media = {}, page = {};
+      const expected = () => Object.entries({ ...PREFERENCES, ...PAGE_FACTS }).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
+      for (const [name, value] of Object.entries(facts ?? {})) {
+        if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
+        else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
+        else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
+      }
+      if (carrier.prefer) return s.tagged(await carrier.prefer(media, page));
+      return s.op({ op: 'prefer', ...(Object.keys(media).length || !Object.keys(page).length ? { media } : {}), ...(Object.keys(page).length ? { page } : {}) });
+    },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
     screenshot: async (path, target = false, form) => {
       if (form === 'save') {
@@ -1228,7 +1246,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });

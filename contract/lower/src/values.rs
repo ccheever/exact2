@@ -174,6 +174,66 @@ pub(crate) fn border_color_sides(value: &Expr) -> Result<Option<[Expr; 4]>, Lowe
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
 /// are refused at compile time, not at the first frame; a computed value
 /// is checked by type — a number or a string (LLP 1017 P1a).
+/// A colour chosen by branching on the system's scheme (LLP 1069.000 D1,
+/// amending LLP 1034 D3): refused, naming the `light-dark()` pair that
+/// does the same as a host repaint instead of a recommit on every
+/// appearance change — and that follows the app's own `setScheme`, which
+/// `prefersColorScheme` does not.
+fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
+    use exact_kernel::StyleCodec;
+    fn reads_scheme(e: &Expr) -> bool {
+        match e {
+            Expr::Member(_, field, _) if field == "prefersColorScheme" => true,
+            Expr::Member(inner, _, _) | Expr::Unary(_, inner, _) | Expr::Some(inner, _) => {
+                reads_scheme(inner)
+            }
+            Expr::Binary(_, l, r, _) => reads_scheme(l) || reads_scheme(r),
+            Expr::Ternary(c, y, n, _) => reads_scheme(c) || reads_scheme(y) || reads_scheme(n),
+            Expr::Call(_, args, _) => args.iter().any(reads_scheme),
+            _ => false,
+        }
+    }
+    let colour = rows.iter().any(|row| {
+        matches!(
+            row.codec(),
+            StyleCodec::ColorValue
+                | StyleCodec::KeywordColor
+                | StyleCodec::Rgba8
+                | StyleCodec::Color2
+                | StyleCodec::Paint
+        )
+    });
+    let Expr::Ternary(cond, yes, no, span) = &a.value else {
+        return Ok(());
+    };
+    if !colour || !reads_scheme(cond) {
+        return Ok(());
+    }
+    let pair = match (yes.as_ref(), no.as_ref()) {
+        (Expr::Str(y, _), Expr::Str(n, _)) => {
+            let (dark, light) = match cond.as_ref() {
+                Expr::Binary(contract_syntax::BinOp::Eq, _, r, _) if matches!(r.as_ref(), Expr::Str(v, _) if v == "light") => {
+                    (n, y)
+                }
+                Expr::Binary(contract_syntax::BinOp::Ne, _, r, _) if matches!(r.as_ref(), Expr::Str(v, _) if v == "dark") => {
+                    (n, y)
+                }
+                _ => (y, n),
+            };
+            format!("`{}=\"light-dark({light}, {dark})\"`", a.name)
+        }
+        _ => format!("`{}=\"light-dark(<light>, <dark>)\"`", a.name),
+    };
+    err(
+        "lower-scheme-color",
+        format!(
+            "`{}` is chosen by `prefersColorScheme`, which costs a recommit on every appearance change and ignores the app's `setScheme`; write {pair}, which the host resolves (LLP 1034 D3)",
+            a.name
+        ),
+        *span,
+    )
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -189,6 +249,7 @@ pub(crate) fn check_style_value(
             return Ok(());
         }
     }
+    scheme_colour(a, rows)?;
     // Validate every authored literal result, including inactive branches.
     // Only the whole expression is type-checked here: match arms bind their
     // own local names, which the type pass resolves in the proper scope.

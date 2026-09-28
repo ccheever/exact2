@@ -50,10 +50,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot: Vec::new(),
             compat: None,
             checkpoint: None,
-            preferences: exact_runner::Preferences {
-                reduced_motion: false,
-                reduced_transparency: false,
-            },
+            preferences: exact_runner::Preferences::NONE,
             links: crate::HostLinks::CORE,
             input: Vec::new(),
             output: Vec::new(),
@@ -100,7 +97,8 @@ impl<D: DataSource> Bridge<D> {
             .map(|(digest, page)| (digest.to_string(), page.to_string()));
     }
 
-    /// The page's `prefers-reduced-motion`/`-transparency` as bits
+    /// The page's `prefers-reduced-motion`/`-transparency`/`-contrast`/
+    /// `-color-scheme` as bits
     /// ([`exact_runner::Preferences::from_bits`]), for the next boot.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences::from_bits(bits);
@@ -636,6 +634,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Re-answer `exactPage` resources (LLP 1069.000 D2): bit 0 hidden,
+    /// bit 1 offline, bit 2 a share sheet ([`exact_runner::Page::from_bits`]).
+    pub fn set_page(&mut self, bits: u32) -> u32 {
+        let page = exact_runner::Page::from_bits(bits);
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_page(page),
+        );
+        self.emit(out)
+    }
+
     /// A topic the page module announced, in the input buffer.
     pub fn changed(&mut self, len: usize) -> u32 {
         let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -1029,7 +1038,8 @@ macro_rules! host {
         }
 
         /// The viewport or the display preferences (bit 0 reduced motion,
-        /// bit 1 reduced transparency) changed; returns the batch length.
+        /// bit 1 reduced transparency, bit 2 contrast more, bit 3 contrast
+        /// less, bit 4 a dark system) changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, preferences, now_ms))
@@ -1039,6 +1049,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_time(epoch_at_zero: f64, utc_offset: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_time(epoch_at_zero, utc_offset))
+        }
+
+        /// The page's facts (LLP 1069.000 D2): bit 0 hidden, bit 1 offline,
+        /// bit 2 a share sheet; returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_page(bits: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_page(bits))
         }
 
         /// A topic the page module announced, in the input buffer.

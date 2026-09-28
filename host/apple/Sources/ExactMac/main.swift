@@ -224,7 +224,6 @@ window.delegate = delegate
 
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?
-var appearanceWatch: NSObjectProtocol?
 var launchDocuments: [String] = []
 nonisolated(unsafe) var readySent = false
 
@@ -314,14 +313,6 @@ func finishLaunching() {
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
     if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
-
-    // What the system is set to, now and whenever it changes (LLP 1033 D6). An
-    // app that draws its own palette needs this to follow the system at all: the
-    // window's appearance is the host's, and the page's colours are the app's.
-    // Delivered under a script too — a reader's palette is part of what a driver
-    // reads, and unlike a command-line argument this is not a stray.
-    ExactDocuments.reportAppearance(to: session)
-    appearanceWatch = ExactDocuments.watchAppearance(session)
 
     /// Agent mode: the driver owns the process from here — one JSON line in,
     /// one out. `ready` goes out once the first frame is applied and the window

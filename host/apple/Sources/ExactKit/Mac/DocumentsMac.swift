@@ -87,41 +87,6 @@ public enum ExactDocuments {
         return delivered
     }
 
-    /// The node the system's appearance is delivered to.
-    public static let appearanceTestId = "appearance"
-
-    /// What the *system* is set to — `"dark"` or `"light"` — regardless of
-    /// any appearance this app has set on itself. `NSApp.effectiveAppearance`
-    /// is the wrong reading: an app that has chosen dark reports dark, so
-    /// switching back to "follow the system" would follow the app. The user's
-    /// preference is `AppleInterfaceStyle` in the global domain, absent when
-    /// the system is light. @ref LLP 1033 D6
-    public static var systemAppearance: String {
-        UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased().contains("dark") == true ? "dark" : "light"
-    }
-
-    /// Tell the app what the system is set to, now and whenever it changes.
-    /// The same seam a document arrives through: an app that declares no
-    /// `appearance` node simply never hears, and draws in what it chose.
-    public static func reportAppearance(to session: ExactSession) {
-        _ = session.change(testId: appearanceTestId, value: systemAppearance)
-    }
-
-    /// Watch the system preference. The notification is the documented one
-    /// for this preference and arrives on a distributed centre, so the
-    /// delivery hops to the main thread the session lives on.
-    public static func watchAppearance(_ session: ExactSession) -> NSObjectProtocol {
-        DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
-        ) { [weak session] _ in
-            guard let session else { return }
-            // The preference is written just before the notification; read it
-            // fresh rather than trusting a cached domain.
-            UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
-            reportAppearance(to: session)
-        }
-    }
-
     /// File ▸ Open… — the panel, offering exactly what the manifest
     /// declares. Cancelling delivers nothing, which is what keeps the
     /// document already open (LLP 1033's milestone).

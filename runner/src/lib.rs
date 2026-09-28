@@ -44,6 +44,7 @@ pub mod delivery;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod page;
 pub mod request;
 pub mod runner;
 pub mod stdlib;
@@ -64,6 +65,7 @@ pub use instance::collection::{
     ReorderToken, ReorderWrapper, RowMeasurement,
 };
 pub use instance::{ListLinks, SurfaceUpdate, LISTS};
+pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request,
     RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES, NATIVE_URL,
@@ -77,5 +79,5 @@ pub use runner::{
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};
-pub use viewport::{Preferences, Viewport};
+pub use viewport::{Contrast, Preferences, Viewport};
 pub use vm::Trap;

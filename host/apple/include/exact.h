@@ -359,9 +359,13 @@ uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
-/* @ref LLP 1061 D4: the user's display preferences, told after boot and on
- * each change — bit 0 reduced motion, bit 1 reduced transparency. */
+/* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
+ * after boot and on each change — bit 0 reduced motion, bit 1 reduced
+ * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system. */
 uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
+/* @ref LLP 1069.000 D2: the page's facts, told after boot and on each change —
+ * bit 0 hidden, bit 1 offline, bit 2 a share sheet. */
+uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.

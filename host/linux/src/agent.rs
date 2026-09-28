@@ -237,16 +237,23 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
 }
 
-/// `prefer` (LLP 1061 D5): the user's display preferences by CSS's media
-/// feature names — reduced motion and transparency as `exactViewport()`
-/// answers them, and the system appearance `setScheme("system")` follows.
-/// A feature not named stays as it is; nothing applies unless all are known.
+/// `prefer` (LLP 1061 D5; LLP 1069.000 D6): the device facts by their web
+/// names, grouped as LLP 1069.007 D2 groups them — `media`, the display
+/// preferences `exactViewport()` answers (the scheme is also the system
+/// appearance `setScheme("system")` follows); `page`, what `exactPage()`
+/// answers and the root font size. A fact not named stays as it is;
+/// nothing applies unless all are known.
 fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let request: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
-    let Some(media) = request.get("media").and_then(|m| m.as_object()) else {
-        return error("prefer needs media: {\"prefers-reduced-motion\": \"reduce\", …}");
-    };
+    let empty = serde_json::Map::new();
+    let group = |name: &str| request.get(name).and_then(|m| m.as_object());
+    let (media, page_facts) = (group("media"), group("page"));
+    if media.is_none() && page_facts.is_none() {
+        return error("prefer needs media or page: {\"prefers-reduced-motion\": \"reduce\", …}");
+    }
+    let (media, page_facts) = (media.unwrap_or(&empty), page_facts.unwrap_or(&empty));
     let mut preferences = p.host().runner().viewport().preferences;
+    let mut page = p.host().runner().page();
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -256,6 +263,14 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("prefers-reduced-transparency", v @ ("reduce" | "no-preference")) => {
                 preferences.reduced_transparency = v == "reduce"
             }
+            ("prefers-contrast", v @ ("more" | "less" | "custom" | "no-preference")) => {
+                preferences.contrast = match v {
+                    "more" => exact_runner::Contrast::More,
+                    "less" => exact_runner::Contrast::Less,
+                    "custom" => exact_runner::Contrast::Custom,
+                    _ => exact_runner::Contrast::NoPreference,
+                }
+            }
             ("prefers-color-scheme", v @ ("light" | "dark")) => dark = v == "dark",
             _ => {
                 return error(&format!(
@@ -264,18 +279,46 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
         }
     }
+    for (name, value) in page_facts {
+        let text = value
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| value.to_string());
+        match (name.as_str(), text.as_str()) {
+            ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
+            ("online", v @ ("true" | "false")) => page.on_line = v == "true",
+            ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            _ => {
+                return error(&format!(
+                    "prefer: {name}: {value} is not a page fact this host sets"
+                ))
+            }
+        }
+    }
+    preferences.dark = dark;
     if let Some(e) = p.set_preferences(preferences) {
+        return error(&e);
+    }
+    if let Some(e) = p.set_page(page) {
         return error(&e);
     }
     if media.contains_key("prefers-color-scheme") {
         p.set_system_scheme(dark);
     }
-    let preferences = p.host().runner().viewport().preferences;
+    let (preferences, page) = (
+        p.host().runner().viewport().preferences,
+        p.host().runner().page(),
+    );
     let keyword = |on: bool| if on { "reduce" } else { "no-preference" };
     serde_json::json!({"media": {
         "prefers-reduced-motion": keyword(preferences.reduced_motion),
         "prefers-reduced-transparency": keyword(preferences.reduced_transparency),
+        "prefers-contrast": preferences.contrast.keyword(),
         "prefers-color-scheme": if p.scheme.1 { "dark" } else { "light" },
+    }, "page": {
+        "visibility-state": page.visibility_state(),
+        "online": page.on_line,
+        "can-share": page.can_share,
     }})
     .to_string()
 }
@@ -702,7 +745,7 @@ mod tests {
         assert!(text(&mut p).contains("moving"));
         let refused = handle(
             &mut p,
-            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-contrast":"more"}}"#,
+            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-contrast":"loud"}}"#,
         );
         assert!(refused.contains("\"error\""), "{refused}");
         assert!(text(&mut p).contains("moving"), "nothing applied");
@@ -721,6 +764,53 @@ mod tests {
         assert!(p.dark(), "no app override: the system's dark");
         p.app_scheme(Some(false));
         assert!(!p.dark(), "the app's own choice wins");
+    }
+
+    /// LLP 1069.000 D1, D2, D6: `prefer` sets contrast, the system's scheme
+    /// beneath an app's own, and what `exactPage()` answers; `state.device`
+    /// shows them without an app declaring either source.
+    #[test]
+    fn prefer_sets_contrast_scheme_and_the_page_facts() {
+        let plan = contract::compile(
+            "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"}` testId=\"t\"\n",
+        )
+        .unwrap();
+        let bytes = contract::bake(plan, NoData).unwrap().encode();
+        let (mut p, _) = Presenter::boot_with(
+            &bytes,
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+        assert!(
+            text(&mut p).contains("no-preference light visible online no-share"),
+            "{}",
+            text(&mut p)
+        );
+        p.app_scheme(Some(false));
+        let reply: serde_json::Value = serde_json::from_str(&handle(
+            &mut p,
+            r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(reply["media"]["prefers-contrast"], "more");
+        assert_eq!(reply["page"]["online"], false);
+        assert!(
+            text(&mut p).contains("more dark hidden offline share"),
+            "{}",
+            text(&mut p)
+        );
+        assert!(!p.dark(), "the app's own scheme still paints");
+        let state: serde_json::Value =
+            serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state["device"]["prefersColorScheme"], "dark");
+        assert_eq!(state["device"]["visibilityState"], "hidden");
+        let refused = handle(&mut p, r#"{"op":"prefer","page":{"online":"maybe"}}"#);
+        assert!(refused.contains("\"error\""), "{refused}");
     }
 
     /// Answers `item` with 1 a moment later, from another thread: a fetch

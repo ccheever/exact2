@@ -883,6 +883,23 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The page's visibility, connectivity and share sheet (LLP 1069.000
+    /// D2): re-answer `exactPage` in one commit; the same facts commit
+    /// nothing.
+    pub fn set_page(&mut self, page: exact_runner::Page) -> String {
+        match self.runner.set_page(page) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("page: {e:?}"))),
+        }
+    }
+
     /// The viewer's locale and zone, beside the date: one commit when it changes.
     pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
         let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {

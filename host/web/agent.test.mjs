@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
-import { focusController, placeReporter, timeReporter } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -476,6 +476,24 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   for (const seed of [-1, 0.5, NaN, Infinity, 9007199254740992]) expect(() => launchFacts({seed})).toThrow('seed:');
   expect(() => launchFacts({locale:'en_US'})).toThrow();
   expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
+});
+
+test('page facts: the platform off the agent, the drive\'s values under it (LLP 1069.000 D2, D6)', () => {
+  const listened = [];
+  const platform = { document: { visibilityState: 'hidden', addEventListener: name => listened.push(name) }, navigator: { onLine: false, share() {} }, addEventListener: name => listened.push(name) };
+  const real = pageReporter(false, platform);
+  expect(real.bits()).toBe(1 | 2 | 4);
+  platform.document.visibilityState = 'visible'; platform.navigator = { onLine: true };
+  expect(real.bits()).toBe(0);
+  real.onChange(() => {});
+  expect(listened).toEqual(['visibilitychange', 'online', 'offline']);
+  const agent = pageReporter(true, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
+  expect(agent.bits()).toBe(4);
+  agent.prefer({ 'visibility-state': 'hidden', online: false });
+  expect(agent.bits()).toBe(1 | 2 | 4);
+  expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
+  expect(agent.read()['can-share']).toBe(true);
+  agent.onChange(() => { throw new Error('agent listened to the platform'); });
 });
 
 test('agent launch facts never read the platform locale, zone or entropy', async () => {

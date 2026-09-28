@@ -137,6 +137,8 @@ appearance. `viewDidChangeEffectiveAppearance` is the hook, and UIKit's
 
 ### D3 — The appearance is one input to the host, and never a fact in the app
 
+*Amended by LLP 1069.000 D1 (2026-09-27): the system's scheme is a fact, `exactViewport().prefersColorScheme` on every host, beneath any `setScheme`; a colour chosen by branching on it is refused (`lower-scheme-color`) in favour of a `light-dark()` pair, and the hidden `appearance` node below is deleted.*
+
 `setScheme` stays exactly what it is: the app tells the host which appearance
 to be — `light`, `dark`, or `system`, where `system` is the absence of an
 override (LLP 1033 D6). Everything else follows from that one value.

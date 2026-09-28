@@ -248,6 +248,7 @@ final class Runtime {
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { read(exact_set_time(rt, epochAtZero, utcOffset)) }
     func setPreferences(_ bits: UInt32) -> Batch { read(exact_set_preferences(rt, bits)) }
+    func setPage(_ bits: UInt32) -> Batch { read(exact_set_page(rt, bits)) }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) }
     func listIndex(_ view: UInt32, key: String) -> Int? {
         let n = write(key)

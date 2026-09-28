@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime } from "./navigation.js";
+import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule;
 function httpHelpers() {
@@ -344,6 +344,7 @@ function positionContexts() {
   }
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
+const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); }; pageFacts.onChange(pageChanged); // @ref LLP 1069.000 D2
 const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
@@ -1121,6 +1122,11 @@ function agentReply(request) {
         }
         return tagged(reply);
       }
+      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP.
+        try { pageFacts.prefer(request.page); } catch (e) { return { error: e.message }; }
+        pageChanged();
+        return tagged({ page: { ...pageFacts.read() } });
+      }
       case "focus": {
         const el = views.get(request.id);
         if (!el) return { error: `no view ${request.id}` };
@@ -1319,6 +1325,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(now())))));
   if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace())))));
+  if (wasm.exact_set_page) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits()))));
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);

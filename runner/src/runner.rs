@@ -30,6 +30,7 @@ pub use device::{Hold, HoldAnswer};
 mod kept;
 mod lines;
 mod lists;
+mod page;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -338,6 +339,8 @@ pub struct Runner<D: DataSource> {
     delivery: crate::delivery::Delivery,
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
+    // @ref LLP 1069.000 D2 — visibility, connectivity, the share sheet.
+    page: crate::page::Page,
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
     place: crate::time::Place,
@@ -616,6 +619,7 @@ impl<D: DataSource> Runner<D> {
                     || plan.str(resource.source) == crate::delivery::SOURCE
                     || plan.str(resource.source) == crate::viewport::SOURCE
                     || plan.str(resource.source) == crate::time::SOURCE
+                    || plan.str(resource.source) == crate::page::SOURCE
                     || plan.str(resource.source) == crate::surface_record::SOURCE
                     || (same_logic
                         && carried.is_some_and(|carried| {
@@ -678,6 +682,7 @@ impl<D: DataSource> Runner<D> {
             keeps_answers: false,
             delivery,
             viewport,
+            page: Default::default(),
             time: Default::default(),
             place: Default::default(),
             surface_records: Default::default(),
@@ -1201,6 +1206,12 @@ impl<D: DataSource> Runner<D> {
         if source == crate::time::SOURCE {
             return self
                 .time_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        if source == crate::page::SOURCE {
+            return self
+                .page_answer(i)
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }

@@ -520,14 +520,39 @@ export function environment() {
   };
 }
 
-// @ref LLP 1061 D4 — the user's display preferences as the page's media
-// queries report them: bit 0 `prefers-reduced-motion: reduce`, bit 1
-// `prefers-reduced-transparency: reduce` (a browser that does not know the
-// feature answers no preference, as CSS does). Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the
+// page's media queries report them: bit 0 `prefers-reduced-motion: reduce`,
+// bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`,
+// bit 3 `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the
+// system's, whatever the page's `color-scheme` (a browser that does not know
+// a feature answers no preference, as CSS does). Told with each boot and resize.
 let preferenceQueries;
-const queries = () => (preferenceQueries ??= ["(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"].map((q) => matchMedia(q)));
-export const preferences = () => queries().reduce((bits, q, i) => bits | (q.matches ? 1 << i : 0), 0);
-export const onPreferences = (changed) => queries().forEach((q) => q.addEventListener("change", changed));
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16]].map(([q, bits]) => [matchMedia(q), bits]));
+export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
+
+// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them:
+// bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
+// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5). Under the
+// agent the drive's values stand in (visible, online, a share sheet: LLP
+// 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
+export function pageReporter(agent, platform = globalThis) {
+  const facts = { "visibility-state": "visible", online: true, "can-share": true };
+  const read = () => agent ? facts : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function" };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0); };
+  const prefer = (page) => {
+    const next = { ...facts };
+    for (const [name, raw] of Object.entries(page ?? {})) {
+      const value = String(raw);
+      if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
+      else if ((name === "online" || name === "can-share") && (value === "true" || value === "false")) next[name] = value === "true";
+      else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
+    }
+    Object.assign(facts, next);
+  };
+  const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); platform.addEventListener("online", changed); platform.addEventListener("offline", changed); };
+  return { bits, read, prefer, onChange };
+}
 
 // The page launch owns its seed; a new runner during development reuses it.
 // Agent facts are supplied by the drive, never by the browser's environment.

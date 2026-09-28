@@ -659,6 +659,25 @@ component A
     text `${viewport.depth}`
 ---
 ---
+== bake-page-field
+# LLP 1069.000 D2: the runner cannot fill an unknown page field.
+shape Page
+  focused: bool
+component A
+  resource page = exactPage() as shape Page
+  view
+    text (page.focused ? "yes" : "no")
+---
+---
+== lower-scheme-color
+# LLP 1069.000 D1: a colour branches on the system's scheme; `light-dark()` does it.
+shape M
+  prefersColorScheme: string
+component A
+  resource m = exactViewport() as shape M
+  view
+    text "a" color=(m.prefersColorScheme == "dark" ? "#ffffff" : "#000000")
+---
 == route-duplicate
 routes nav
   home "/"

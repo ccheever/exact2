@@ -520,8 +520,20 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     if plan.app_id.is_empty() {
         plan.app_id = data.app_id().to_string();
     }
-    delivery_shape(&plan)?;
-    viewport_shape(&plan)?;
+    use exact_runner::{delivery, page, viewport};
+    fact_shape(
+        &plan,
+        delivery::SOURCE,
+        &delivery::FIELDS,
+        "bake-delivery-field",
+    )?;
+    fact_shape(
+        &plan,
+        viewport::SOURCE,
+        viewport::FIELDS,
+        "bake-viewport-field",
+    )?;
+    fact_shape(&plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
     surface::shape(&plan)?;
     let mut runner = Runner::boot(
         plan.clone(),
@@ -574,14 +586,19 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         .map_err(|e| BakeError::Runner(RunnerError::Plan(e)))
 }
 
-/// The delivery shape (LLP 1030 D7): `exactDelivery` is answered by the
-/// runner, not by the data crate, so the fields it can fill are a closed
-/// set — a declared field it does not know would refuse every boot on every
-/// device, which is a build-time refusal here instead, naming the field.
-fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
-    use exact_runner::delivery::{FIELDS, SOURCE};
+/// The runner's own sources (LLP 1030 D7 delivery; LLP 1039 D1 viewport;
+/// LLP 1069.000 D2 page) are answered by the runner, not by the data crate,
+/// so the fields each can fill are a closed set — a declared field it does
+/// not know would refuse every boot on every device, which is a build-time
+/// refusal here instead, naming the field.
+fn fact_shape(
+    plan: &Plan,
+    source: &str,
+    fields: &[&str],
+    id: &'static str,
+) -> Result<(), BakeError> {
     for row in plan.resources.iter() {
-        if plan.str(row.source) != SOURCE {
+        if plan.str(row.source) != source {
             continue;
         }
         let name = plan.str(row.name);
@@ -589,58 +606,22 @@ fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
         if ty.kind != exact_plan::TypeKind::Record {
             return Err(BakeError::Lint {
                 site: None,
-                id: "bake-delivery-field",
+                id,
                 message: format!(
-                    "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
-                    FIELDS.join(", ")
+                    "`resource {name} = {source}()` must be `as shape` a record of {}",
+                    fields.join(", ")
                 ),
             });
         }
         for f in ty.fields.iter() {
             let field = plan.str(plan.field(f).name);
-            if !FIELDS.contains(&field) {
+            if !fields.contains(&field) {
                 return Err(BakeError::Lint {
                     site: None,
-                    id: "bake-delivery-field",
+                    id,
                     message: format!(
-                        "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
-                        FIELDS.join(", ")
-                    ),
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-// @ref LLP 1039 D1 — refuse unknown host fact fields at bake.
-fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
-    use exact_runner::viewport::{FIELDS, SOURCE};
-    for row in plan.resources.iter() {
-        if plan.str(row.source) != SOURCE {
-            continue;
-        }
-        let name = plan.str(row.name);
-        let ty = plan.type_(row.ty);
-        if ty.kind != exact_plan::TypeKind::Record {
-            return Err(BakeError::Lint {
-                site: None,
-                id: "bake-viewport-field",
-                message: format!(
-                    "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
-                    FIELDS.join(", ")
-                ),
-            });
-        }
-        for f in ty.fields.iter() {
-            let field = plan.str(plan.field(f).name);
-            if !FIELDS.contains(&field) {
-                return Err(BakeError::Lint {
-                    site: None,
-                    id: "bake-viewport-field",
-                    message: format!(
-                        "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
-                        FIELDS.join(", ")
+                        "`{name}` declares `{field}`, which {source} does not answer; it answers {}",
+                        fields.join(", ")
                     ),
                 });
             }
