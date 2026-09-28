@@ -418,6 +418,7 @@ fn refine_params_from_view(
                             | "reachstart"
                             | "reachend"
                             | "scroll"
+                            | "panrelease"
                             | "loadedmetadata"
                             | "durationchange"
                             | "timeupdate"
@@ -465,7 +466,7 @@ fn refine_params_from_view(
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" => vec![Ty::Number, Ty::Number],
+                                "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
                                 _ => vec![],
                             };
                             let start = ct.actions[ai].len().saturating_sub(payload.len());

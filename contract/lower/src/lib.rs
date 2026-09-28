@@ -1428,6 +1428,7 @@ impl<'a> Lowerer<'a> {
                                 "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",
+                                "panrelease" => " plus vx and vy",
                                 "transformgeometry" => " plus four geometry numbers",
                                 "transformrelease" => " plus six transform release numbers",
                                 _ => "",
@@ -1448,7 +1449,11 @@ impl<'a> Lowerer<'a> {
                 }
                 if matches!(
                     event,
-                    "pan" | "heightrelease" | "transformgeometry" | "transformrelease"
+                    "pan"
+                        | "panrelease"
+                        | "heightrelease"
+                        | "transformgeometry"
+                        | "transformrelease"
                 ) && self.types.components[0].actions[ai][args.len()..]
                     .iter()
                     .any(|ty| *ty != Ty::Number)

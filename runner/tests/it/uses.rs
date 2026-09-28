@@ -39,6 +39,17 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
         !swipe.has(Capability::Drag),
         "a swipe holds a value but tracks no handle"
     );
+    let pan = used(
+        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move\n",
+    );
+    assert_eq!(pan, Uses::NONE, "a pan commits state; it holds nothing");
+    let release = used(
+        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move panrelease=move\n",
+    );
+    assert!(
+        release.has(Capability::Motion) && !release.has(Capability::Drag),
+        "a pan's release velocity is the engine's tracker (LLP 1057 §10.6)"
+    );
     let drag = used(
         "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
     );

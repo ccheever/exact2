@@ -205,6 +205,7 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Scroll => Event::Scroll(0.0, (rng.below(5) * 40) as f64),
         EventKind::Navigate => Event::Navigate(rng.pick(&["/", "/t/1", "/nowhere"]).to_string()),
         EventKind::Pan => Event::Pan(rng.below(9) as f64 - 4.0, 0.0),
+        EventKind::Panrelease => Event::PanRelease((rng.below(9) as f64 - 4.0) * 250.0, 0.0),
         EventKind::Select => Event::Select {
             formats: text(rng),
             mixed: rng.below(2) == 0,

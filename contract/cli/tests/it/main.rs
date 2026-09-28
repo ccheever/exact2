@@ -43,6 +43,7 @@ mod mutation;
 mod names;
 mod negative_margin;
 mod pan;
+mod pan_release;
 mod picker;
 mod placeholder;
 mod presence;

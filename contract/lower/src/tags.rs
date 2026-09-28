@@ -401,6 +401,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
         "pan" => AttrTarget::Handler("pan"),
+        "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),

@@ -133,6 +133,7 @@ fn all_event_payload_arities_share_the_lowering_rule() {
         ("timeupdate", 1),
         ("durationchange", 1),
         ("pan", 2),
+        ("panrelease", 2),
         ("scroll", 2),
         ("heightrelease", 2),
         ("transformgeometry", 4),

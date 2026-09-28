@@ -10,6 +10,7 @@ mod admission;
 mod commit;
 mod control;
 mod event;
+mod host_kinds;
 mod reorder;
 mod reorder_codec;
 mod root_font;

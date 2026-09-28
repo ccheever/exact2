@@ -448,6 +448,7 @@ impl<D: DataSource> Bridge<D> {
     /// key's name, or a guest message — is the input buffer's first `len`
     /// bytes, UTF-8).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
+    /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s; LLP 1057 §10.6).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
@@ -466,13 +467,11 @@ impl<D: DataSource> Bridge<D> {
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
             12 => Event::Swiperight,
-            13 => {
-                let Some(event) = Event::scroll_payload(&payload) else {
-                    return self
-                        .emit(r#"{"ops":[],"error":"invalid scroll coordinates"}"#.to_string());
-                };
-                event
-            }
+            // Scroll, media, pan, selection and pan release (LLP 1057 §10.6).
+            13 | 19 | 20 | 21 | 28 => match Event::of_host_kind(kind, &payload) {
+                Ok(event) => event,
+                Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+            },
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {
@@ -492,29 +491,10 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            19 => {
-                let Some(event) = Event::media_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
-                };
-                event
-            }
             18 => {
                 let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
                 else {
                     return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
-                };
-                event
-            }
-            // @ref LLP 1043.000 §3 D8 — 18 is reorder, 19 is media.
-            20 => {
-                let Some(event) = Event::pan_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid pan deltas"}"#.into());
-                };
-                event
-            }
-            21 => {
-                let Some(event) = Event::selection_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid Markdown selection"}"#.into());
                 };
                 event
             }

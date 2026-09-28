@@ -888,13 +888,11 @@ impl<D: DataSource> Bridge<D> {
             12 => Event::Swiperight,
             // The platform's pull-to-refresh control fired.
             22 => Event::Refresh,
-            13 => {
-                let Some(event) = Event::scroll_payload(&payload) else {
-                    return self
-                        .emit(r#"{"ops":[],"error":"invalid scroll coordinates"}"#.to_string());
-                };
-                event
-            }
+            // Scroll, media, pan, selection and pan release (LLP 1057 §10.6).
+            13 | 19 | 20 | 21 | 28 => match Event::of_host_kind(kind, &payload) {
+                Ok(event) => event,
+                Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+            },
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {
@@ -926,24 +924,6 @@ impl<D: DataSource> Bridge<D> {
                 let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
                 else {
                     return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
-                };
-                event
-            }
-            19 => {
-                let Some(event) = Event::media_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
-                };
-                event
-            }
-            20 => {
-                let Some(event) = Event::pan_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid pan deltas"}"#.into());
-                };
-                event
-            }
-            21 => {
-                let Some(event) = Event::selection_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid Markdown selection"}"#.into());
                 };
                 event
             }

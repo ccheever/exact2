@@ -314,6 +314,8 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds),
  * 21 = select (formats + newline + mixed 0/1 + newline + unavailable + newline + link);
  * 22 = refresh (the platform's pull-to-refresh control fired; no payload);
+ * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
+ *      cancelled contact releases at 0,0; LLP 1057 §10.6);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
