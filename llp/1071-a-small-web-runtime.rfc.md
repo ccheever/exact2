@@ -451,7 +451,148 @@ report.
 
 ### Spike results
 
-pending: branch exact3-web-spike
+Branch `exact3-web-spike`, 2026-09-28. Numbers are measured on an
+Apple-silicon Mac with headless Chrome 154 unless marked *estimate*. Sizes are
+brotli-11 unless marked.
+
+**Decision recorded (Charlie, 2026-09-28):** pre-rendering "keep both
+options available to allow for different deployment scenarios, but Rust
+should be the primary/default." The build takes `--render rust|js`, default
+`rust`: (a) the Rust render host (`exact_render`) writes the page over the
+JavaScript runtime's shell and the runtime adopts it; (b) the generated
+JavaScript renders the same page under Bun (`host/web3/render.mjs`) for JS
+edge runtimes and TypeScript-heavy deployments.
+
+**What was built.**
+- `exact-web3 js <app.contract | baked app.plan>`: the plan's bytecode to
+  JavaScript (structured forward jumps as labeled blocks), the view as DOM
+  construction, static rows to a class stylesheet computed by the web
+  host's own `tag_for`/`props_for`/`css_text`/`host_css` (a new
+  `exact_web::host::template::parts`), dynamic style units read from
+  `css_text` itself.
+- `host/web3/rt.js`: signals, commits with rollback on refusal, a
+  settlement pass, typed writes, resources with tickets and LLP
+  1054.000.000's kept requests, mutations (`send`, `pending`, declared
+  refreshes, `then`), the durable store, row slots, `when`/`match`/keyed
+  `each`, timers on the driver's clock, placeholders, the router
+  (`route/src` ported; the web host's `navigation.js` reused for history),
+  adoption from a checkpoint, capture and replay, Markdown as a loaded
+  capability (the web host's pieces in a 24 KB wasm, `renderMarkup`
+  reused).
+- Data: TypeScript `app.ts` bundled into the page (RealWorld); Rust sources
+  through their logic module over ABI 3 after first paint (Caltrain's own
+  module, or one generated from the DataSource an app's web build bakes).
+- `host/web3/conform.mjs`: the conformance harness (§4 below), and
+  `host/web3/bench.mjs` / `render-bench.mjs` for the numbers here.
+
+**Conformance.** The same plan through the Rust web runner and the
+JavaScript runner in one Chrome, driven by the same `scripts/agent.mjs`
+operations; after each step the typed state, the tree, layout boxes by
+testId and a screenshot are compared; `app.test.contract` files run on both.
+- RealWorld (a scripted scenario against the hosted API: an article with
+  Markdown, history back, a tag, the global feed, a failed sign-in, the
+  auth pages): 16 steps compared, all equal after the fixes the harness
+  found.
+- Caltrain: state, tree and layout equal (158 testIds within 0.01 px);
+  screenshots differ only where the GPU surfaces are (not built yet);
+  `app.test.contract` 3/3 on both. Video player and completion-storm:
+  every step equal. Four synthetic plans (regions and keyed reorders, row
+  slots, dynamic styles, timers): every step equal.
+- Adoption: a page from either renderer, adopted, against a fresh
+  JavaScript render: every step equal (RealWorld).
+- Other in-repo apps are refused at build by named features not yet
+  compiled (native modules, dynamic SVG paint and clip-path, keyframe
+  animations, virtualized lists, `reachstart`, dynamic `line-height`):
+  the harness lists each (see the full run in the spike report).
+
+**RealWorld, the headline** (`bench.mjs`, LLP 1047.000 §1's method: mobile
+profile, 150 ms RTT, 1.6 Mbps, 4× CPU, cold profile per run, 5 runs,
+medians; pages served per request against api.realworld.show, `cached`
+routes kept at the origin; the press is the sign-in form's submit on
+`/login`, since signed out every press on `/` is a link):
+
+| ms / bytes | exact2 served (wasm) | JS, Rust-rendered (a) | JS, JS-rendered (b) | JS, client only |
+|---|---|---|---|---|
+| FCP, `/` | 400 | 420 | 316 | 752 |
+| Content painted, `/` | 400 | 420 | 316 | 1,201 |
+| Tag tapped at `load` → feed | 1,140 | 1,111 | 879 | (no tag on screen at `load`) |
+| Runtime up, after a press at `load` | 2,329 | 652 | 661 | 678 |
+| A press that needs the runtime, at `load` → effect | 3,084 | 1,440 | 1,431 | 1,469 |
+| Origin bytes before content | 6,979 | 7,892 | 7,032 | 22,092 |
+| Origin bytes before the press answered | 340,164 | 24,413 | 23,762 | 22,092 |
+
+The React SPA and SSR columns wait for the React bench, which isn't on this
+machine; `bench.mjs --config` takes their selectors. LLP 1047.000 §1's React
+SSR figure for runtime-up was ~950 ms on its own machine and network.
+
+**Bytes before interactive, growth by step** (fresh page, JS target):
+
+| brotli B | spike | + semantics, router, adoption (steps 1–3) |
+|---|---|---|
+| Video player: runtime share + generated code | 2,099 + ~940 | 3,738 + ~1,030 |
+| Video player: page + `app.js` | 4,273 | 6,006 |
+| Caltrain: runtime share | 3,295 | 7,315 |
+| Caltrain: `app.js` (runtime, generated, router, `navigation.js`) | 7,367 | 13,239 |
+| Caltrain: pre-rendered page | — (client-rendered) | 6,054 (a) / 5,292 (b) |
+| RealWorld: `app.js` (with `app.ts` and the router) | — | 19,152 |
+
+**Time to interactive, the same method as before** (a press retried until it
+answers; cold; unthrottled / 4× CPU with 150 ms and 1.6 Mbps):
+
+| ms | spike | now | exact2 wasm |
+|---|---|---|---|
+| Video player | 69 / 610 | 59 / 583 | 102 / 2,022 |
+| Caltrain | 89 / 602 (FCP 524) | 71 / 640 (FCP 300, pre-rendered) | 267 / 2,728 (FCP 384) |
+
+**The two renderers** (`render-bench.mjs`: every request renders; one
+server, concurrency as noted; `rust` is the native render host with one
+render worker for Caltrain, four for RealWorld; `js` is one Bun process):
+
+| | Caltrain `/` rust | Caltrain `/` js | RealWorld `/` rust | RealWorld `/` js | RealWorld article rust | RealWorld article js |
+|---|---|---|---|---|---|---|
+| Cold start → first page (ms) | 38–150 | 25 | 765 | 539 | 587 | 543 |
+| Latency p50 / p95 (ms) | 48 / 90 (render 1.7) | 4 / 5 | 554 / 597 | 172 / 522 | 560 / 603 | 174 / 528 |
+| CPU per page (ms) | 1.7–2.7 | 7–11 | 42 | 6 | 36 | 8 |
+| Throughput (pages/s) | 464 at 32 | 280 at 32 | 7.2 at 4 | 17.3 at 4 | 7.2 at 4 | 17.4 at 4 |
+| Resident memory warm → end (MB) | 70 → 70 | 66 → 250 | 76 → 230 | 51 → 66 | 76 → 224 | 58 → 73 |
+| Page bytes (raw) | 58,231 | 36,977 | 78,207 | 44,698 | 52,688 | 39,567 |
+| Build time, warm (s) | ~1.0 | ~0.5 | — | — | — | — |
+
+- Rust's own render is 1.7 ms for Caltrain; about 45 ms of its end-to-end
+  latency sits in the server's request path before the render (not found
+  in three rounds; TCP_NODELAY did not change it).
+- RealWorld's renders wait on the API. The JS server reuses its HTTP
+  connections to the API, the native executor makes a new one per render;
+  most of the latency gap is that, not rendering. The Rust server's CPU per
+  page is the Hermes module realm it builds per render.
+- The JS server's memory grows under concurrent Caltrain renders (a VM
+  context and a module instance per render); not tuned.
+- (a) as wasm on a JS edge runtime, *estimate*: the render host's core is
+  about the size of `app.wasm` (~290 KB brotli) plus the app's data module,
+  and its TypeScript sources would need the edge runtime's own engine
+  through host calls. Not built.
+
+**(a) against (b).**
+
+| | (a) Rust render host, JS adopts | (b) JS under Bun, JS adopts |
+|---|---|---|
+| First paint / TTI | FCP 420 ms; runtime up 652 ms (RealWorld, mobile) | FCP 316 ms; runtime up 661 ms |
+| Bytes before interactive | page 7.9 KB (inline styles, og metas) + the same `app.js` | page 7.0 KB (classes) + the same `app.js` |
+| Adoption code | the same cursor walk, which also strips inline styles and view ids | the same cursor walk |
+| Build time (Caltrain, warm) | ~1.0 s (a release render binary: ~52 s cold) | ~0.5 s |
+| Adoption correctness | fresh-vs-adopted: every step equal | every step equal |
+| A resource that answers later | the checkpoint lists it pending; the runtime asks after adoption | the same, from the runtime's own tickets |
+| Documents (1048.003) | the head, canonical, og, robots, status, sitemap, 404 are the render host's | title, description and 404 only; the rest is a gap |
+| Single source of truth | two renderers of one plan; the harness guards parity | one implementation renders and adopts |
+| Per-request CPU | 2 ms (Caltrain), 36–42 ms (RealWorld, Hermes) | 7–11 ms (Caltrain), 6–8 ms (RealWorld) |
+
+**Recommendation.** Keep (a) as the default, as ruled: it is the renderer
+native hosts and the documents code already trust, it renders Caltrain at a
+fifth of (b)'s CPU, and the harness holds its pages to the JavaScript
+runtime's DOM. Keep (b) for JS edge runtimes and TypeScript-heavy apps,
+where it was cheaper per page here (no Hermes realm per render). The
+remaining gap is (b)'s documents: head fields, canonical URLs and sitemaps
+come only from (a) today.
 
 ## 8. Open questions for Charlie
 
