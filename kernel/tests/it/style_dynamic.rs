@@ -549,6 +549,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
 
 #[test]
 fn every_row_writes_its_own_field_and_no_other() {
+    // Linked by use (LLP 1057.003), as every host that sets the rows links it.
+    exact_kernel::timeline::link();
     let candidates = [
         StyleValue::Number(3.0),
         StyleValue::Number(0.5),

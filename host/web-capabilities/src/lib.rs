@@ -26,6 +26,7 @@ pub mod picker;
 pub mod router;
 pub mod share;
 pub mod surfaces;
+pub mod timelines;
 
 /// The [`exact_web::Linked`] of the named capabilities, as a constant:
 /// `linked!(markdown)`. The generated entry writes one; nothing else should.
@@ -55,5 +56,6 @@ pub const ALL: exact_web::Linked = linked!(
     auth,
     share,
     documents,
-    picker
+    picker,
+    timelines
 );

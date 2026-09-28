@@ -51,11 +51,15 @@ pub enum Capability {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
+    /// Drag timelines (LLP 1057.003): `drag-timeline`, `animation-timeline`
+    /// and `animation-range`, their grammar and lowering. A timeline follows
+    /// a held value, so it uses motion too.
+    Timelines,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 12] = [
+    pub const ALL: [Capability; 13] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -68,6 +72,7 @@ impl Capability {
         Capability::Share,
         Capability::Documents,
         Capability::Picker,
+        Capability::Timelines,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -85,6 +90,7 @@ impl Capability {
             Capability::Share => "share",
             Capability::Documents => "documents",
             Capability::Picker => "picker",
+            Capability::Timelines => "timelines",
         }
     }
 
@@ -180,6 +186,16 @@ pub fn uses(plan: &Plan) -> Uses {
             BindingKind::Style => {
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropBlur) {
                     uses = uses.with(Capability::Backdrop);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::DragTimeline
+                            | StyleId::AnimationTimeline
+                            | StyleId::AnimationRange
+                    )
+                ) {
+                    uses = uses.with(Capability::Timelines).with(Capability::Motion);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))

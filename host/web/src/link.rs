@@ -61,6 +61,8 @@ pub struct Linked {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
     /// `change` payload, read.
     pub picker: Option<PickedPayload>,
+    /// Drag timelines' grammar (LLP 1057.003): linked at [`link`].
+    pub timelines: Option<fn()>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -89,6 +91,7 @@ impl Linked {
         share: false,
         documents: false,
         picker: None,
+        timelines: None,
     };
 
     /// The capabilities registered here.
@@ -130,6 +133,9 @@ impl Linked {
         if self.picker.is_some() {
             uses = uses.with(Capability::Picker);
         }
+        if self.timelines.is_some() {
+            uses = uses.with(Capability::Timelines);
+        }
         uses
     }
 }
@@ -146,6 +152,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.backdrop {
+        link();
+    }
+    if let Some(link) = linked.timelines {
         link();
     }
     LINKED.with(|cell| cell.set(linked));

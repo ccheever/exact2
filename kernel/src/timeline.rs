@@ -19,8 +19,32 @@
 //! The engine evaluates a consumer in the frame its source moves (D2); no
 //! app code runs per frame. `animation-range` takes lengths only: a drag
 //! has no scroll range for CSS's `cover` or percentages to name.
+//!
+//! The grammar is linked by use (LLP 1047 D2): until a host calls [`link`],
+//! a text value for any of the three rows is refused as a bad value. The
+//! compiler and the native hosts link it at start; a web artifact links it
+//! when its plan sets one of the rows, which a plan that sets none never
+//! reaches (D6).
 
 use std::fmt::Write;
+
+/// The three rows' grammar, once linked ([`link`]).
+static LINKED: std::sync::OnceLock<Grammar> = std::sync::OnceLock::new();
+
+struct Grammar {
+    drag: fn(&str) -> Option<DragTimeline>,
+    timeline: fn(&str) -> Option<AnimationTimeline>,
+    range: fn(&str) -> Option<AnimationRange>,
+}
+
+/// Link the three rows' grammar into this artifact.
+pub fn link() {
+    let _ = LINKED.set(Grammar {
+        drag: DragTimeline::parse_text,
+        timeline: AnimationTimeline::parse_text,
+        range: AnimationRange::parse_text,
+    });
+}
 
 /// The axis of a held translate a drag timeline reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -51,8 +75,13 @@ fn dashed(token: &str) -> Option<String> {
 }
 
 impl DragTimeline {
-    /// `none`, or a `<dashed-ident>` and an optional axis.
+    /// `none`, or a `<dashed-ident>` and an optional axis; `None` also
+    /// while the grammar is unlinked ([`link`]).
     pub fn parse(css: &str) -> Option<Self> {
+        (LINKED.get()?.drag)(css)
+    }
+
+    fn parse_text(css: &str) -> Option<Self> {
         let mut tokens = css.split_ascii_whitespace();
         let first = tokens.next()?;
         if first.eq_ignore_ascii_case("none") {
@@ -85,8 +114,12 @@ impl DragTimeline {
 pub struct AnimationTimeline(pub Option<String>);
 
 impl AnimationTimeline {
-    /// `auto` or a `<dashed-ident>`.
+    /// `auto` or a `<dashed-ident>`; `None` also while unlinked.
     pub fn parse(css: &str) -> Option<Self> {
+        (LINKED.get()?.timeline)(css)
+    }
+
+    fn parse_text(css: &str) -> Option<Self> {
         let t = css.trim();
         if t.eq_ignore_ascii_case("auto") {
             return Some(Self(None));
@@ -112,8 +145,13 @@ fn length(token: &str) -> Option<f32> {
 }
 
 impl AnimationRange {
-    /// `normal`, or two lengths (px, or unitless points).
+    /// `normal`, or two lengths (px, or unitless points); `None` also
+    /// while unlinked.
     pub fn parse(css: &str) -> Option<Self> {
+        (LINKED.get()?.range)(css)
+    }
+
+    fn parse_text(css: &str) -> Option<Self> {
         let mut tokens = css.split_ascii_whitespace();
         let first = tokens.next()?;
         if first.eq_ignore_ascii_case("normal") {
@@ -154,6 +192,7 @@ mod tests {
 
     #[test]
     fn the_three_rows_round_trip() {
+        link();
         let d = DragTimeline::parse("--dismiss y").unwrap();
         assert_eq!(d.name.as_deref(), Some("--dismiss"));
         assert_eq!(DragTimeline::parse(&d.css()), Some(d));

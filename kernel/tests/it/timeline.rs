@@ -16,6 +16,7 @@ const SOURCE: u32 = 2;
 const CONSUMER: u32 = 3;
 
 fn rows(pairs: &[(StyleId, &str)]) -> Box<StyleProps> {
+    exact_kernel::timeline::link();
     let mut s = StyleProps::default();
     for (id, css) in pairs {
         s.set_dynamic(*id, &StyleValue::Text((*css).into()))
@@ -78,6 +79,7 @@ fn opacity(e: &mut Engine, node: u64) -> Option<f64> {
 
 #[test]
 fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
+    exact_kernel::timeline::link();
     let mut s = StyleProps::default();
     for (id, css, canonical) in [
         (StyleId::DragTimeline, "--dismiss", "--dismiss y"),

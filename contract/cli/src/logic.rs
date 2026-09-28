@@ -147,7 +147,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Backdrop
             | Capability::Share
             | Capability::Documents
-            | Capability::Picker => {}
+            | Capability::Picker
+            | Capability::Timelines => {}
         }
     }
     entry

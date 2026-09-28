@@ -122,6 +122,23 @@ fn materials_and_backdrop_filter_are_linked_by_use() {
 }
 
 #[test]
+fn drag_timelines_are_linked_by_use() {
+    // @ref LLP 1057.003 — the web core carries their grammar only when a plan sets a row.
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Timelines));
+    for row in [
+        "drag-timeline=\"--dismiss\"",
+        "animation-timeline=\"--dismiss\"",
+        "animation-range=\"0px 300px\"",
+    ] {
+        let set = used(&format!("component A\n  view\n    box {row}\n"));
+        assert!(
+            set.has(Capability::Timelines) && set.has(Capability::Motion),
+            "{row}"
+        );
+    }
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());
