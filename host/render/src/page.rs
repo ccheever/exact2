@@ -121,7 +121,7 @@ pub fn capture_js() -> &'static str {
 /// A route's activation on the JavaScript runtime (LLP 1071 D6): what it
 /// declared, with an undeclared one `eager`, the default (preloaded from
 /// the head, run after first paint).
-fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str {
+pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str {
     match activate {
         exact_plan::ActivatePolicy::Inferred => "eager",
         declared => declared.name(),
@@ -129,63 +129,281 @@ fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str {
 }
 
 /// [`page`] over the JavaScript runtime's shell (the exact3 web target,
-/// LLP 1071): the same document, head and checkpoint; the shell's title and
-/// viewport give way to the head and its capture script, which imports the
-/// entry when the page's policy says (the checkpoint takes the entry's
-/// place). The shell's `modulepreload`s for the entry and its static
-/// imports stay, so the runtime downloads while the document streams; an
-/// `interaction` page drops them: it fetches nothing before intent.
+/// LLP 1071): [`head_js`], then [`body_js`] — the page a server streams in
+/// those two parts is these bytes.
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
-    let mut html = shell.to_string();
+    let preload = activate_js(rendered.activate) != "interaction";
+    let document = &rendered.document;
+    Ok(head_js(shell, &document.lang, &document.dir, preload)? + &body_js(shell, rendered, false)?)
+}
+
+/// Whether `shell` is the JavaScript runtime's, whose pages a server can
+/// send in two parts ([`head_js`], [`body_js`]).
+pub(crate) fn is_js(shell: &str) -> bool {
+    shell.contains(JS_ENTRY)
+}
+
+/// The shell's places, in its order: `<html…>`, `<title>` through the
+/// viewport meta's line, the root, the entry.
+struct Places {
+    html: (usize, usize),
+    title: (usize, usize),
+    root: usize,
+    entry: usize,
+}
+
+fn places(shell: &str) -> Result<Places, String> {
     let lacks = |what: &str| format!("the JavaScript shell has no `{what}`");
-    let lang = rendered
-        .document
-        .lang
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;");
-    let open = html.find("<html").ok_or_else(|| lacks("<html"))?;
-    let end = html[open..].find('>').ok_or_else(|| lacks("<html>"))? + open + 1;
-    html.replace_range(
-        open..end,
-        &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir),
-    );
-    let title = html.find("<title>").ok_or_else(|| lacks("<title>"))?;
-    let meta = html[title..]
+    let open = shell.find("<html").ok_or_else(|| lacks("<html"))?;
+    let end = shell[open..].find('>').ok_or_else(|| lacks("<html>"))? + open + 1;
+    let title = shell.find("<title>").ok_or_else(|| lacks("<title>"))?;
+    let meta = shell[title..]
         .find("<meta name=\"viewport\"")
         .ok_or_else(|| lacks("viewport"))?
         + title;
-    let stop = html[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
-    html.replace_range(
-        title..stop,
-        &format!("{}\n<script>{}</script>\n", rendered.head, capture_js()),
+    let stop = shell[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
+    let root = shell.find(ROOT).ok_or_else(|| lacks(ROOT))?;
+    let entry = shell.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
+    if !(end <= title && stop <= root && root + ROOT.len() <= entry) {
+        return Err("the JavaScript shell's places are out of order".into());
+    }
+    Ok(Places {
+        html: (open, end),
+        title: (title, stop),
+        root,
+        entry,
+    })
+}
+
+/// The shell's `modulepreload` lines between the viewport meta and the root.
+fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut from = places.title.1;
+    while let Some(at) = shell[from..places.root].find(MODULE_PRELOAD) {
+        let at = at + from;
+        let Some(stop) = shell[at..places.root].find(">\n") else {
+            break;
+        };
+        found.push((at, at + stop + 2));
+        from = at + stop + 2;
+    }
+    found
+}
+
+/// What of a JavaScript page comes before anything its render decides: the
+/// doctype and `<html lang dir>`, the charset and base, the capture script,
+/// the entry's `modulepreload`s when `preload` (an `interaction` page has
+/// none: it fetches nothing before intent) and the stylesheet. A server
+/// sends it as a request arrives (LLP 1071 D6's early flush), while the
+/// page's data is still being asked; the head stays open, so what the
+/// render decides — the title, the metas, a late preload — still lands in
+/// `<head>`.
+pub(crate) fn head_js(shell: &str, lang: &str, dir: &str, preload: bool) -> Result<String, String> {
+    let at = places(shell)?;
+    let lang = lang
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;");
+    let mut out = String::with_capacity(at.root + 1024);
+    out.push_str(&shell[..at.html.0]);
+    let _ = std::fmt::Write::write_fmt(
+        &mut out,
+        format_args!("<html lang=\"{lang}\" dir=\"{dir}\">"),
     );
-    let activate = activate_js(rendered.activate);
-    if activate == "interaction" {
-        while let Some(at) = html.find(MODULE_PRELOAD) {
-            let stop = html[at..]
-                .find(">\n")
-                .ok_or_else(|| lacks(MODULE_PRELOAD))?
-                + at
-                + 2;
-            html.replace_range(at..stop, "");
+    out.push_str(&shell[at.html.1..at.title.0]);
+    out.push_str("<script>");
+    out.push_str(capture_js());
+    out.push_str("</script>\n");
+    let mut from = at.title.1;
+    for (start, stop) in preloads(shell, &at) {
+        out.push_str(&shell[from..start]);
+        if preload {
+            out.push_str(&shell[start..stop]);
+        }
+        from = stop;
+    }
+    out.push_str(&shell[from..at.root]);
+    Ok(out)
+}
+
+/// The rest of a JavaScript page, once its render is done: the head's
+/// fields, the entry's `modulepreload`s when `late` (a page sent before its
+/// render turned an `interaction` route `eager`), the document in
+/// `#exact-root`, and its checkpoint in the entry's place, which the capture
+/// script finds. The document goes as the runtime adopts it
+/// ([`for_runtime`]).
+pub(crate) fn body_js(shell: &str, rendered: &Rendered, late: bool) -> Result<String, String> {
+    let at = places(shell)?;
+    let mut out =
+        String::with_capacity(rendered.document.root.len() + rendered.checkpoint.len() + 1024);
+    out.push_str(&rendered.head);
+    out.push('\n');
+    if late {
+        for (start, stop) in preloads(shell, &at) {
+            out.push_str(&shell[start..stop]);
         }
     }
-    let root = "<div id=\"exact-root\"></div>";
-    let at = html.find(root).ok_or_else(|| lacks(root))?;
-    html.replace_range(
-        at..at + root.len(),
-        &format!("<div id=\"exact-root\">{}</div>", rendered.document.root),
-    );
-    let at = html.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
-    html.replace_range(
-        at..at + JS_ENTRY.len(),
-        &format!(
-            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{activate}\">{}</script>",
-            rendered.digest, rendered.checkpoint
+    out.push_str("<div id=\"exact-root\">");
+    out.push_str(&for_runtime(&rendered.document.root, &classes(shell)));
+    out.push_str("</div>");
+    out.push_str(&shell[at.root + ROOT.len()..at.entry]);
+    let _ = std::fmt::Write::write_fmt(
+        &mut out,
+        format_args!(
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>",
+            rendered.digest,
+            activate_js(rendered.activate),
+            rendered.checkpoint
         ),
     );
-    Ok(html)
+    out.push_str(&shell[at.entry + JS_ENTRY.len()..]);
+    Ok(out)
+}
+
+/// The document's element in the shell.
+const ROOT: &str = "<div id=\"exact-root\"></div>";
+
+/// The shell stylesheet's static classes (`host/web3/build.mjs`: `.c<n>{…}`
+/// inside `#exact-root#exact-root{…}`), by their CSS text.
+fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
+    let mut found = std::collections::HashMap::new();
+    let Some(start) = shell.find("#exact-root#exact-root{") else {
+        return found;
+    };
+    let mut rest = &shell[start + "#exact-root#exact-root{".len()..];
+    while let Some(tail) = rest.strip_prefix(".c") {
+        let Some(open) = tail.find('{') else { break };
+        let Some(close) = tail[open..].find('}') else {
+            break;
+        };
+        let (name, css) = (&tail[..open], &tail[open + 1..open + close]);
+        if !name.bytes().all(|b| b.is_ascii_digit()) {
+            break;
+        }
+        // `c<n>`, from the `.c<n>{` at the head of `rest`.
+        found.entry(css).or_insert(&rest[1..2 + open]);
+        rest = &tail[open + close + 1..];
+    }
+    found
+}
+
+/// The render host's document as the JavaScript runtime adopts it: an
+/// element whose inline style is one of the stylesheet's static classes
+/// carries that class instead (the runtime gives it that class at
+/// adoption, and drops the inline style), and no element carries the view
+/// ids only the wasm runtime reads — a link keeps an empty `data-view`, as
+/// the runtime's own links have, which the shell's link rules select. Adoption walks tags, so neither changes
+/// what it claims; the page paints the same before and after (the class's
+/// CSS is the style's, at a specificity above every rule of the shell's
+/// but `!important` ones, as an inline style's is). On RealWorld's `/` the
+/// two took about 1.4 KB off the page (brotli, as sent); it paints
+/// pixel-for-pixel as before, with and without JavaScript.
+fn for_runtime(root: &str, classes: &std::collections::HashMap<&str, &str>) -> String {
+    let mut out = String::with_capacity(root.len());
+    let mut rest = root;
+    while let Some(lt) = rest.find('<') {
+        out.push_str(&rest[..lt]);
+        rest = &rest[lt..];
+        // A comment ends at `-->`; any other tag at its first `>` (the
+        // document escapes `>` and `"` in attribute values).
+        let end = if rest.starts_with("<!--") {
+            rest.find("-->").map(|at| at + 3)
+        } else {
+            rest.find('>').map(|at| at + 1)
+        };
+        let Some(end) = end else { break };
+        let tag = &rest[..end];
+        rest = &rest[end..];
+        if tag.starts_with("</") || tag.starts_with("<!") {
+            out.push_str(tag);
+            continue;
+        }
+        out.push_str(&start_tag(tag, classes));
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One start tag, as [`for_runtime`] writes it.
+fn start_tag(tag: &str, classes: &std::collections::HashMap<&str, &str>) -> String {
+    let body = tag.trim_start_matches('<').trim_end_matches('>');
+    let (body, close) = match body.strip_suffix('/') {
+        Some(body) => (body, "/"),
+        None => (body, ""),
+    };
+    let name_end = body.find([' ', '\t', '\n']).unwrap_or(body.len());
+    let mut attrs: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut rest = &body[name_end..];
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        let stop = rest.find(['=', ' ', '\t', '\n']).unwrap_or(rest.len());
+        let name = &rest[..stop];
+        rest = &rest[stop..];
+        if let Some(value) = rest.strip_prefix("=\"") {
+            let Some(q) = value.find('"') else {
+                return tag.to_string();
+            };
+            attrs.push((name, Some(&value[..q])));
+            rest = &value[q + 1..];
+        } else if rest.starts_with('=') {
+            // An unquoted value: not what the document writes.
+            return tag.to_string();
+        } else {
+            attrs.push((name, None));
+        }
+    }
+    let has_class = attrs.iter().any(|(name, _)| *name == "class");
+    let mut out = String::with_capacity(tag.len());
+    out.push('<');
+    out.push_str(&body[..name_end]);
+    for (name, value) in attrs {
+        let class = match (name, value) {
+            // The shell styles a link by `a[data-view]` (the runtime's
+            // links carry an empty one); no other element needs its id.
+            ("data-view", _) if &body[..name_end] == "a" => {
+                out.push_str(" data-view");
+                continue;
+            }
+            ("data-view", _) => continue,
+            ("style", Some(css)) if !has_class => classes.get(unescape(css).as_ref()).copied(),
+            _ => None,
+        };
+        out.push(' ');
+        match (class, value) {
+            (Some(class), _) => {
+                out.push_str("class=\"");
+                out.push_str(class);
+                out.push('"');
+            }
+            (None, Some(value)) => {
+                out.push_str(name);
+                out.push_str("=\"");
+                out.push_str(value);
+                out.push('"');
+            }
+            (None, None) => out.push_str(name),
+        }
+    }
+    out.push_str(close);
+    out.push('>');
+    out
+}
+
+/// An attribute value's text: the references the document writes, read.
+fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
+    if !value.contains('&') {
+        return value.into();
+    }
+    value
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&#13;", "\r")
+        .replace("&amp;", "&")
+        .into()
 }
 
 /// A `modulepreload` in the JavaScript shell's head (`host/web3/build.mjs`).

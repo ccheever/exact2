@@ -203,9 +203,15 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
 
 /// The runner's checkpoint (LLP 1048.000 D6) as JSON a script element can
 /// carry: the location, the render's time, the logic that answered, the
-/// answers — one list in the plan's value encoding, base64 — and what is
-/// still pending. `<`, `>` and `&` are escapes, so user text can never close
-/// the element or open a comment. [`read_checkpoint`] reads it back.
+/// answers — each `[name, source, [args…], value]`, the values in
+/// [`push_value`]'s JSON — and what is still pending. `<`, `>` and `&` are
+/// escapes, so user text can never close the element or open a comment.
+/// [`read_checkpoint`] reads it back.
+///
+/// The values are text, not their canonical bytes in base64, so a page's
+/// compression finds the strings its document already shows (titles, names,
+/// dates): on RealWorld's `/` that took about 1.8 KB off the page (brotli,
+/// as sent).
 pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
     let checkpoint = runner.document_checkpoint(location);
     let mut json = String::from("{\"location\":");
@@ -219,23 +225,22 @@ pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
         Some(logic) => crate::batch::quote(logic, &mut json),
         None => json.push_str("null"),
     }
-    let answers = checkpoint
-        .answers
-        .iter()
-        .map(|(name, source, args, value)| {
-            Value::record(vec![
-                Value::str(name),
-                Value::str(source),
-                Value::list(args.clone()),
-                value.clone(),
-            ])
-        })
-        .collect();
-    let _ = write!(
-        json,
-        ",\"answers\":\"{}\",\"pending\":[",
-        exact_runner::agent::base64(&Value::list(answers).to_bytes())
-    );
+    json.push_str(",\"answers\":[");
+    for (i, (name, source, args, value)) in checkpoint.answers.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push('[');
+        crate::batch::quote(name, &mut json);
+        json.push(',');
+        crate::batch::quote(source, &mut json);
+        json.push(',');
+        push_value(&Value::list(args.clone()), &mut json);
+        json.push(',');
+        push_value(value, &mut json);
+        json.push(']');
+    }
+    json.push_str("],\"pending\":[");
     for (i, name) in checkpoint.pending.iter().enumerate() {
         if i > 0 {
             json.push(',');
@@ -246,6 +251,106 @@ pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
     json.replace('<', "\\u003c")
         .replace('>', "\\u003e")
         .replace('&', "\\u0026")
+}
+
+/// A plan value as JSON that reads back to the same value ([`read_value`]):
+/// a number as a number (`{"n":"NaN"}`, `{"n":"Infinity"}`,
+/// `{"n":"-Infinity"}` when it isn't finite; `-0` kept), a boolean, a string,
+/// unit as `null`, `none` as `{}`, `some(v)` as `{"s":v}`, a list as an
+/// array, a record as `{"r":[fields…]}`.
+fn push_value(value: &Value, out: &mut String) {
+    use exact_num::Piece as _;
+    match value {
+        Value::Number(n) if n.is_nan() => out.push_str("{\"n\":\"NaN\"}"),
+        Value::Number(n) if n.is_infinite() && *n > 0.0 => out.push_str("{\"n\":\"Infinity\"}"),
+        Value::Number(n) if n.is_infinite() => out.push_str("{\"n\":\"-Infinity\"}"),
+        Value::Number(n) if *n == 0.0 && n.is_sign_negative() => out.push_str("-0"),
+        Value::Number(n) => exact_runner::agent::num(*n).push_to(out),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        text @ exact_plan::str_value!() => crate::batch::quote(text.text(), out),
+        Value::Unit => out.push_str("null"),
+        Value::Option(None) => out.push_str("{}"),
+        Value::Option(Some(v)) => {
+            out.push_str("{\"s\":");
+            push_value(v, out);
+            out.push('}');
+        }
+        Value::List(items) | Value::Record(items) => {
+            let record = matches!(value, Value::Record(_));
+            out.push_str(if record { "{\"r\":[" } else { "[" });
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                push_value(item, out);
+            }
+            out.push_str(if record { "]}" } else { "]" });
+        }
+    }
+}
+
+/// A value [`push_value`] wrote.
+fn read_value(json: &mut Json<'_>) -> Result<Value, String> {
+    let rest = &json.bytes[json.at..];
+    let word = |w: &str| rest.starts_with(w.as_bytes());
+    match json.peek() {
+        Some(b'"') => json.string().map(|s| Value::str(&s)),
+        Some(b'[') => {
+            json.next();
+            let mut items = Vec::new();
+            while json.peek() != Some(b']') {
+                if !items.is_empty() {
+                    json.expect(b',')?;
+                }
+                items.push(read_value(json)?);
+            }
+            json.next();
+            Ok(Value::list(items))
+        }
+        Some(b'{') => {
+            json.next();
+            if json.peek() == Some(b'}') {
+                json.next();
+                return Ok(Value::NONE);
+            }
+            let key = json.string()?;
+            json.expect(b':')?;
+            let value = match key.as_str() {
+                "s" => Value::some(read_value(json)?),
+                "r" => match read_value(json)? {
+                    Value::List(items) => Value::Record(items),
+                    _ => return Err("a record's fields are not a list".into()),
+                },
+                "n" => match json.string()?.as_str() {
+                    "NaN" => Value::Number(f64::NAN),
+                    "Infinity" => Value::Number(f64::INFINITY),
+                    "-Infinity" => Value::Number(f64::NEG_INFINITY),
+                    other => return Err(format!("not a number: {other:?}")),
+                },
+                other => return Err(format!("not a value: `{other}`")),
+            };
+            json.expect(b'}')?;
+            Ok(value)
+        }
+        _ if word("true") => {
+            json.at += 4;
+            Ok(Value::Bool(true))
+        }
+        _ if word("false") => {
+            json.at += 5;
+            Ok(Value::Bool(false))
+        }
+        _ if word("null") => {
+            json.at += 4;
+            Ok(Value::Unit)
+        }
+        _ => {
+            let text = json.number()?;
+            exact_num::parse_f64(&text)
+                .map(Value::Number)
+                .map_err(|e| format!("number {text:?}: {e}"))
+        }
+    }
 }
 
 /// A page's checkpoint, read back: what the web runtime boots from (LLP
@@ -272,28 +377,27 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
             }
             "logic" => checkpoint.logic = Some(json.string()?),
             "answers" => {
-                let bytes = unbase64(&json.string()?).ok_or("answers: not base64")?;
-                let list = Value::from_bytes(&bytes).map_err(|e| format!("answers: {e:?}"))?;
-                let Value::List(items) = list else {
-                    return Err("answers: not a list".into());
-                };
-                for item in items.iter() {
-                    let answer = match item {
-                        Value::Record(fields) => match &fields[..] {
-                            [name @ exact_plan::str_value!(), source @ exact_plan::str_value!(), Value::List(args), value] => {
-                                (
-                                    String::from(name.text()),
-                                    String::from(source.text()),
-                                    args.to_vec(),
-                                    value.clone(),
-                                )
-                            }
-                            _ => return Err("answers: not a (name, source, args, value)".into()),
-                        },
-                        _ => return Err("answers: not a record".into()),
+                json.expect(b'[')?;
+                while json.peek() != Some(b']') {
+                    if !checkpoint.answers.is_empty() {
+                        json.expect(b',')?;
+                    }
+                    json.expect(b'[')?;
+                    let name = json.string()?;
+                    json.expect(b',')?;
+                    let source = json.string()?;
+                    json.expect(b',')?;
+                    let Value::List(args) = read_value(&mut json)? else {
+                        return Err("answers: arguments not a list".into());
                     };
-                    checkpoint.answers.push(answer);
+                    json.expect(b',')?;
+                    let value = read_value(&mut json).map_err(|e| format!("answers: {e}"))?;
+                    json.expect(b']')?;
+                    checkpoint
+                        .answers
+                        .push((name, source, args.to_vec(), value));
                 }
+                json.expect(b']')?;
             }
             "pending" => {
                 json.expect(b'[')?;
@@ -415,36 +519,6 @@ impl<D: DataSource> crate::Host<D> {
         batch.adopt(adopted);
         crate::Host::open(links, runner, launch, batch, computed)
     }
-}
-
-/// Standard base64 with padding, as `exact_runner::agent::base64` writes it.
-fn unbase64(text: &str) -> Option<Vec<u8>> {
-    let digit = |c: u8| match c {
-        b'A'..=b'Z' => Some(c - b'A'),
-        b'a'..=b'z' => Some(c - b'a' + 26),
-        b'0'..=b'9' => Some(c - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    let bytes = text.as_bytes();
-    if !bytes.len().is_multiple_of(4) {
-        return None;
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
-    for chunk in bytes.chunks(4) {
-        let pad = chunk.iter().rev().take_while(|&&c| c == b'=').count();
-        if pad > 2 || chunk[..4 - pad].contains(&b'=') {
-            return None;
-        }
-        let mut n = 0u32;
-        for &c in &chunk[..4 - pad] {
-            n = n << 6 | digit(c)? as u32;
-        }
-        n <<= 6 * pad as u32;
-        out.extend_from_slice(&n.to_be_bytes()[1..4 - pad]);
-    }
-    Some(out)
 }
 
 /// The document's digest (LLP 1048.000 D6): MurmurHash3's x64 128-bit hash

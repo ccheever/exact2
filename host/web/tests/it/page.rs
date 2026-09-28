@@ -104,7 +104,7 @@ fn the_checkpoint_never_closes_its_script_or_opens_a_comment() {
     assert_eq!(
         json,
         format!(
-            "{{\"location\":\"/x{lt}/script{gt}{lt}!--]]{gt}{amp}\",\"time\":0,\"logic\":null,\"answers\":\"BgAAAAA=\",\"pending\":[]}}"
+            "{{\"location\":\"/x{lt}/script{gt}{lt}!--]]{gt}{amp}\",\"time\":0,\"logic\":null,\"answers\":[],\"pending\":[]}}"
         )
     );
     for bad in ["<", ">", "&"] {
@@ -137,6 +137,35 @@ fn a_checkpoint_reads_back_as_the_runner_wrote_it() {
     ] {
         assert!(read_checkpoint(broken).is_err(), "{broken}");
     }
+}
+
+#[test]
+fn checkpoint_values_are_json_that_reads_back_exactly() {
+    // Every kind of plan value, as `push_value` spells it: text a page's
+    // compression matches against the document's own strings.
+    let text = r#"{"location":"/","time":1.5,"logic":null,"answers":[["a","src",["x",{"n":"NaN"}],{"r":[1,-0,2.25,true,null,{},{"s":"y"},["p","q"],{"n":"-Infinity"}]}]],"pending":["b"]}"#;
+    let read = read_checkpoint(text).unwrap();
+    let (name, source, args, value) = &read.answers[0];
+    assert_eq!((name.as_str(), source.as_str()), ("a", "src"));
+    assert_eq!(args[0], Value::str("x"));
+    assert!(matches!(args[1], Value::Number(n) if n.is_nan()));
+    let Value::Record(fields) = value else {
+        panic!("{value:?}")
+    };
+    assert_eq!(fields[0], Value::Number(1.0));
+    assert!(matches!(fields[1], Value::Number(n) if n == 0.0 && n.is_sign_negative()));
+    assert_eq!(fields[2], Value::Number(2.25));
+    assert_eq!(fields[3], Value::Bool(true));
+    assert_eq!(fields[4], Value::Unit);
+    assert_eq!(fields[5], Value::NONE);
+    assert_eq!(fields[6], Value::some(Value::str("y")));
+    assert_eq!(
+        fields[7],
+        Value::list(vec![Value::str("p"), Value::str("q")])
+    );
+    assert_eq!(fields[8], Value::Number(f64::NEG_INFINITY));
+    assert_eq!(read.pending, ["b"]);
+    assert!(read_checkpoint(&text.replace("{\"s\"", "{\"z\"")).is_err());
 }
 
 #[test]

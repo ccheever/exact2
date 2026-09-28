@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import vm from 'node:vm';
-import { brotliCompressSync, constants } from 'node:zlib';
+import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
 
 const DEADLINE = 3000;
@@ -28,7 +28,19 @@ export function renderer(dist) {
   const cache = new Map();
   const files = p => { let v = cache.get(p); if (!v) { v = readFileSync(resolve(dist, p.replace(/^\.?\//, ''))); if (p.endsWith('.wasm')) v = new WebAssembly.Module(v); cache.set(p, v); } return v; };
   const name = /<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '';
-  return async function render(location, deadline = DEADLINE) {
+  // The shell's places, as page.rs `head_js`/`body_js` compose them: what
+  // comes before anything the render decides (the head a server flushes as
+  // a request arrives), then the head's fields, the document and its
+  // checkpoint.
+  const ROOT = '<div id="exact-root"></div>', ENTRY = '<script type="module" src="./app.js"></script>';
+  const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
+  const root = shell.indexOf(ROOT), entry = shell.indexOf(ENTRY);
+  const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
+  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, '<html lang="en" dir="ltr">') + `<script>${capture}</script>\n`
+    + (preload ? shell.slice(stop, root) : shell.slice(stop, root).replace(/<link rel="modulepreload" href="[^"]*">\n/g, ''));
+  /** A render begun: its route's policy and the page's head, known before
+   * any data is asked; `finish` settles it and composes the rest. */
+  async function begin(location) {
     const document = createDocument();
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
@@ -40,20 +52,23 @@ export function renderer(dist) {
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     script.runInContext(ctx);
-    const out = await ctx.__render(deadline);
-    const head = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1')}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
-    const interaction = out.activate === 'interaction';
-    const checkpoint = JSON.stringify({ location: url.pathname + url.search, time: out.time, logic: null, answers: out.answers, pending: out.pending });
-    const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
+    const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
-    // page drops the head's modulepreloads (page.rs `page_js`).
-    let html = shell.replace(/<html[^>]*>/, `<html lang="en" dir="ltr">`)
-      .replace(/<title>[\s\S]*?<meta name="viewport"[^>]*>\n/, () => `${head}\n<script>${capture}</script>\n`)
-      .replace(interaction ? /<link rel="modulepreload" href="[^"]*">\n/g : /(?!)/, '')
-      .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${out.root}</div>`)
-      .replace('<script type="module" src="./app.js"></script>', () => `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${out.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>`);
-    return { html, status: out.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: out.policy };
-  };
+    // page drops the head's modulepreloads (page.rs `head_js`).
+    const head = headOf(info.activate !== 'interaction');
+    return { ...info, location, head, async finish(deadline = DEADLINE) {
+      const out = await ctx.__render(deadline);
+      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
+      const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
+      const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
+      const rest = `${fields}\n<div id="exact-root">${out.root}</div>${shell.slice(root + ROOT.length, entry)}`
+        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${info.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
+      return { html: head + rest, rest, status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy };
+    } };
+  }
+  const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
+  render.begin = begin;
+  return render;
 }
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css', '.mp4': 'video/mp4', '.plan': 'application/octet-stream' };
@@ -90,9 +105,35 @@ if (import.meta.main) {
       const key = url.pathname + url.search, hit = cache.get(key);
       const revalidate = /no-cache|no-store|max-age=0/.test(req.headers.get('cache-control') ?? '');
       if (hit && hit.until > Date.now() && !revalidate) return send(req, hit.html, 'text/html; charset=utf-8', hit.status, 'public, max-age=0, s-maxage=60');
-      const page = await render(key);
-      if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
-      console.log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}`);
+      const begun = await render.begin(key);
+      const keep = page => {
+        if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
+        console.log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
+      };
+      // A browser's navigation gets the head now and the rest after the
+      // render, as the Rust render server sends it (host/render/src/stream.rs):
+      // a 200, `private, no-cache`; the not-found page waits for its 404.
+      if (req.headers.get('sec-fetch-dest') === 'document' && !begun.notfound) {
+        const br = /\bbr\b/.test(req.headers.get('accept-encoding') ?? '');
+        let z;
+        const body = new ReadableStream({ async start(out) {
+          z = br && createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 5 } });
+          // A reader that went away closes the stream under us: its bytes go nowhere.
+          if (z) z.on('data', d => { try { out.enqueue(d); } catch {} });
+          const put = text => new Promise(ok => { if (!z) { out.enqueue(new TextEncoder().encode(text)); ok(); } else { z.write(text); z.flush(constants.BROTLI_OPERATION_FLUSH, ok); } });
+          await put(begun.head);
+          const page = await begun.finish().catch(e => ({ error: e }));
+          await put(page.error ? "<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n" : page.rest);
+          if (z) await new Promise(ok => { z.on('end', ok); z.end(); });
+          try { out.close(); } catch {}
+          if (page.error) console.log(`render ${key} 500 ${page.error.message}`); else keep({ ...page, flushed: true });
+        }, cancel() { z?.destroy?.(); } });
+        const h = { 'content-type': 'text/html; charset=utf-8', 'cache-control': begun.policy === 'request' ? 'no-store' : 'private, no-cache', vary: 'Accept-Encoding' };
+        if (br) h['content-encoding'] = 'br';
+        return new Response(body, { status: 200, headers: h });
+      }
+      const page = await begun.finish();
+      keep(page);
       return send(req, page.html, 'text/html; charset=utf-8', page.status, page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
     } });
     console.log(`serving ${dist} with pages rendered by the JavaScript runtime on ${port}`);

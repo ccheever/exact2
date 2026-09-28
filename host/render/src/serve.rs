@@ -14,6 +14,7 @@
 //! lifetime, bounded to 64 locations and 32 MiB. Other routes render fresh.
 
 use crate::encode::{self, Accepts, Variants};
+use crate::files::{asset_shaped, named_build, percent_decode, static_file, AUTH_CALLBACK};
 use crate::{page, render, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
@@ -90,6 +91,11 @@ struct Shared {
     pages: Mutex<VecDeque<CachedPage>>,
     variants: Variants,
     generations: Option<crate::generations::Generations>,
+    /// The pages' `lang` and `dir` when the plan alone decides them (no
+    /// locale slot, or one table at most): a page may then go in two parts.
+    lang: Option<(String, &'static str)>,
+    /// The entry's `modulepreload`s, for a 103 ([`crate::stream::hint`]).
+    hints: Vec<String>,
 }
 
 struct CachedPage {
@@ -151,6 +157,15 @@ impl Server {
             )?),
             None => None,
         };
+        let lang = (plan.locale.is_none() || plan.locales.len() <= 1).then(|| {
+            plan.locales.first().map_or((String::new(), "ltr"), |row| {
+                (
+                    plan.str(row.name).to_string(),
+                    if row.rtl { "rtl" } else { "ltr" },
+                )
+            })
+        });
+        let hints = crate::stream::preload_paths(&shell);
         Ok(Server {
             listener,
             stop: Arc::new(AtomicBool::new(false)),
@@ -163,6 +178,8 @@ impl Server {
                 pages: Mutex::new(VecDeque::new()),
                 variants,
                 generations,
+                lang,
+                hints,
             },
         })
     }
@@ -280,6 +297,9 @@ struct Request {
     /// The SHA-256 (base64) of the dictionary the browser holds for this URL
     /// (`Available-Dictionary`), which a kept page may be compressed against.
     dictionary: Option<String>,
+    /// A browser's navigation (`Sec-Fetch-Dest: document`): a rendered page
+    /// may go in two parts ([`crate::stream`]).
+    navigate: bool,
 }
 
 #[derive(Clone)]
@@ -288,6 +308,9 @@ struct Response {
     headers: Vec<(&'static str, String)>,
     body: Vec<u8>,
     file: Option<(Arc<std::fs::File>, u64)>,
+    /// Already sent, as a flushed page is ([`crate::stream`]); what it holds
+    /// is what a buffered render would have answered, for the origin's cache.
+    streamed: bool,
 }
 
 impl Response {
@@ -297,6 +320,7 @@ impl Response {
             headers: vec![("Content-Type", "text/plain; charset=utf-8".into())],
             body: body.as_bytes().to_vec(),
             file: None,
+            streamed: false,
         }
     }
 
@@ -419,9 +443,11 @@ fn handle<D: DataSource + 'static>(
     let response = if request.method != "GET" && !head {
         Response::text(405, "GET or HEAD\n").header("Allow", "GET, HEAD")
     } else {
-        finish(respond(&request, shared, data), &request)
+        finish(respond(&request, shared, data, Some(&mut stream)), &request)
     };
-    response.write(&mut stream, head, &shared.csp, &shared.permissions);
+    if !response.streamed {
+        response.write(&mut stream, head, &shared.csp, &shared.permissions);
+    }
     stream
 }
 
@@ -432,6 +458,9 @@ fn handle<D: DataSource + 'static>(
 /// The surrogate keys go only to a CDN, which purges by them; a browser
 /// never reads them.
 fn finish(mut response: Response, request: &Request) -> Response {
+    if response.streamed {
+        return response;
+    }
     if !request.cdn {
         response
             .headers
@@ -493,8 +522,9 @@ fn indexed<D: DataSource + 'static>(
             accepts: Accepts::default(),
             cdn: false,
             dictionary: None,
+            navigate: false,
         };
-        let response = respond(&request, shared, data);
+        let response = respond(&request, shared, data, None);
         let noindex = response.headers.iter().any(|(name, value)| {
             *name == "X-Robots-Tag" && value.to_ascii_lowercase().contains("noindex")
         });
@@ -521,17 +551,6 @@ fn indexed<D: DataSource + 'static>(
         );
     }
     kept
-}
-
-/// Whether a path names a file (its last segment has an extension the
-/// server knows as a type) rather than a page.
-fn asset_shaped(path: &str) -> bool {
-    let last = path.rsplit('/').next().unwrap_or("");
-    last.rsplit_once('.').is_some_and(|(stem, extension)| {
-        !stem.is_empty()
-            && extension != "html"
-            && content_type(&extension.to_ascii_lowercase()) != "application/octet-stream"
-    })
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
@@ -594,6 +613,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         .find(|(name, _)| name.trim().eq_ignore_ascii_case("available-dictionary"))
         .and_then(|(_, value)| value.trim().strip_prefix(':')?.strip_suffix(':'))
         .map(str::to_string);
+    let navigate = headers.iter().any(|(name, value)| {
+        name.trim().eq_ignore_ascii_case("sec-fetch-dest")
+            && value.trim().eq_ignore_ascii_case("document")
+    });
     Ok(Request {
         method: method.to_string(),
         target: target.to_string(),
@@ -603,6 +626,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         accepts,
         cdn,
         dictionary,
+        navigate: navigate && version == "HTTP/1.1",
     })
 }
 
@@ -610,6 +634,7 @@ fn respond<D: DataSource + 'static>(
     request: &Request,
     shared: &Shared,
     data: fn() -> D,
+    early: Option<&mut TcpStream>,
 ) -> Response {
     let path = request
         .target
@@ -706,6 +731,7 @@ fn respond<D: DataSource + 'static>(
             headers,
             body: delta.map_or_else(|| served.body.to_vec(), <[u8]>::to_vec),
             file: None,
+            streamed: false,
         };
     }
     // One URL per page: any other spelling redirects to the canonical one.
@@ -732,10 +758,11 @@ fn respond<D: DataSource + 'static>(
             ],
             body: shared.shell.clone().into_bytes(),
             file: None,
+            streamed: false,
         };
     }
     if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
-        return document(request, policy, notfound, shared, data);
+        return document(request, policy, notfound, shared, data, early);
     }
     // A dictionary the browser holds and names itself (D11). A CDN's request
     // never gets one: the CDN would keep the body for browsers without it.
@@ -754,7 +781,7 @@ fn respond<D: DataSource + 'static>(
         };
         let Some(page) = page else {
             drop(pages);
-            return render_kept(request, policy, notfound, wanted, shared, data);
+            return render_kept(request, policy, notfound, wanted, shared, data, early);
         };
         let response = page
             .response
@@ -786,6 +813,7 @@ fn render_kept<D: DataSource + 'static>(
     wanted: Option<&str>,
     shared: &Shared,
     data: fn() -> D,
+    early: Option<&mut TcpStream>,
 ) -> Response {
     // Render without holding the cache lock. A concurrent miss may render too;
     // it never delays an unrelated route or holds a module realm in the cache.
@@ -798,8 +826,9 @@ fn render_kept<D: DataSource + 'static>(
         accepts: request.accepts,
         cdn: request.cdn,
         dictionary: None,
+        navigate: request.navigate,
     };
-    let mut response = document(&unconditional, policy, notfound, shared, data);
+    let mut response = document(&unconditional, policy, notfound, shared, data, early);
     if response.status != 200 || response.body.len() > MAX_CACHE_BYTES {
         if response.status == 200 && identity(&response, request) {
             response.status = 304;
@@ -834,13 +863,19 @@ fn render_kept<D: DataSource + 'static>(
         pages.push_back(CachedPage {
             target: request.target.clone(),
             created: Instant::now(),
-            response: response.clone(),
+            response: Response {
+                streamed: false,
+                ..response.clone()
+            },
             best,
             hash: hash.clone(),
             pairs: HashMap::new(),
         });
         dictionary
     };
+    if response.streamed {
+        return response;
+    }
     match dictionary {
         Some(dictionary) => pair(response, &hash, &dictionary, request, shared),
         None => plain(response, None, request),
@@ -991,6 +1026,7 @@ fn stream_file(path: &Path, kind: &str, request: &Request) -> Option<Response> {
         ],
         body: Vec::new(),
         file: Some((Arc::new(file), size)),
+        streamed: false,
     })
 }
 
@@ -1000,6 +1036,7 @@ fn document<D: DataSource + 'static>(
     notfound: bool,
     shared: &Shared,
     data: fn() -> D,
+    early: Option<&mut TcpStream>,
 ) -> Response {
     let serve = &shared.serve;
     let started = Instant::now();
@@ -1008,6 +1045,44 @@ fn document<D: DataSource + 'static>(
         origin: serve.origin.as_deref(),
     };
     let location = request.target.as_str();
+    // @ref LLP 1071 D6 — the early flush (crate::stream): a browser's
+    // navigation gets the page's head now; its rest follows the render.
+    let js = crate::page::is_js(&shared.shell) && !notfound && request.method == "GET";
+    let preload = route_at(&shared.plan, location)
+        .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
+    let mut early = early.filter(|_| js);
+    if let Some(out) = early.as_deref_mut().filter(|_| request.cdn && preload) {
+        crate::stream::hint(out, &shared.hints);
+    }
+    let lang = shared
+        .lang
+        .as_ref()
+        .filter(|_| request.navigate && !request.cdn && request.if_none_match.is_none());
+    let head = lang.zip(early).and_then(|((lang, dir), out)| {
+        Some((
+            crate::page::head_js(&shared.shell, lang, dir, preload).ok()?,
+            out,
+        ))
+    });
+    let mut flush = head.map(|(head, out)| {
+        if preload {
+            crate::stream::hint(out, &shared.hints);
+        }
+        let cache = if policy == Some(RenderPolicy::Request) {
+            "no-store"
+        } else {
+            "private, no-cache"
+        };
+        let flush = crate::stream::Flush::open(
+            out,
+            &head,
+            cache,
+            request.accepts,
+            &shared.csp,
+            &shared.permissions,
+        );
+        (flush, head)
+    });
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         render(
             &shared.plan,
@@ -1018,7 +1093,14 @@ fn document<D: DataSource + 'static>(
             serve.deadline,
         )
         .and_then(|rendered| {
-            let html = page(&shared.shell, &rendered)?;
+            let html = match &flush {
+                Some((_, head)) => {
+                    let late =
+                        !preload && crate::page::activate_js(rendered.activate) != "interaction";
+                    head.clone() + &crate::page::body_js(&shared.shell, &rendered, late)?
+                }
+                None => page(&shared.shell, &rendered)?,
+            };
             if html.len() > MAX_PAGE {
                 return Err(format!("the page is {} bytes", html.len()));
             }
@@ -1032,6 +1114,14 @@ fn document<D: DataSource + 'static>(
         Err(error) => {
             println!("render {location} 500 {ms:.1}ms error={error:?}");
             let _ = std::io::stdout().flush();
+            if let Some((mut flush, _)) = flush {
+                flush.send(UNAVAILABLE_AFTER_HEAD.as_bytes());
+                flush.end();
+                return Response {
+                    streamed: true,
+                    ..Response::text(500, "")
+                };
+            }
             return Response {
                 status: 500,
                 headers: vec![
@@ -1039,23 +1129,31 @@ fn document<D: DataSource + 'static>(
                     ("Cache-Control", "no-store".into()),
                 ],
                 file: None,
+                streamed: false,
                 body: b"<!doctype html>\n<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n".to_vec(),
             };
         }
     };
     let status = rendered.status(notfound);
     println!(
-        "render {location} {status} {ms:.1}ms answers={} pending={} bytes={}",
+        "render {location} {status} {ms:.1}ms answers={} pending={} bytes={}{}",
         rendered.state.answers.len(),
         rendered.state.pending.len(),
-        html.len()
+        html.len(),
+        if flush.is_some() { " flushed" } else { "" }
     );
     let _ = std::io::stdout().flush();
+    let streamed = flush.is_some();
+    if let Some((mut flush, head)) = flush.take() {
+        flush.send(&html.as_bytes()[head.len()..]);
+        flush.end();
+    }
     let mut response = Response {
         status,
         headers: vec![("Content-Type", "text/html; charset=utf-8".into())],
         body: html.into_bytes(),
         file: None,
+        streamed: false,
     };
     let lifetime = serve.lifetime.as_secs();
     match status {
@@ -1084,6 +1182,7 @@ fn document<D: DataSource + 'static>(
         response.headers.push(("Surrogate-Key", keys.join(" ")));
         response.headers.push(("Cache-Tag", keys.join(",")));
     }
+    response.streamed = streamed;
     if status != 503 {
         let tag = format!("\"{}\"", &hex(&response.body)[..32]);
         if request.if_none_match.as_deref() == Some(tag.as_str()) {
@@ -1093,6 +1192,11 @@ fn document<D: DataSource + 'static>(
     }
     response
 }
+
+/// What a flushed page's rest is when its render fails: the 500's text,
+/// after the head ([`crate::stream`]).
+const UNAVAILABLE_AFTER_HEAD: &str =
+    "<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n";
 
 /// The sitemap (LLP 1048.000 D2): every rendered route's location — a
 /// parameterized one's as its `pages=` source lists them now, a route
@@ -1158,6 +1262,7 @@ fn sitemap<D: DataSource + 'static>(shared: &Shared, data: fn() -> D) -> Respons
         ],
         body: body.into_bytes(),
         file: None,
+        streamed: false,
     }
 }
 
@@ -1185,95 +1290,6 @@ fn hex(bytes: &[u8]) -> String {
             let _ = write!(out, "{b:02x}");
             out
         })
-}
-
-/// A file `dist` serves as it is: anything under `/.exact/`, and any other
-/// file but a page (`.html`), which is rendered. Never outside `dist`.
-/// Whether `target` names the build whose ETag is `tag`: the web build asks
-/// for `app.wasm?v=` and the first 16 hex digits of its SHA-256, and a URL
-/// that names its content may be cached for good.
-fn named_build(target: &str, tag: &str) -> bool {
-    target.split_once('?').is_some_and(|(_, query)| {
-        query.split('&').any(|pair| {
-            pair.strip_prefix("v=")
-                .is_some_and(|v| v.len() == 16 && tag.starts_with(v))
-        })
-    })
-}
-
-/// The web's auth callback page (LLP 1069.006 D4), served with no referrer
-/// and never stored, as its script is.
-const AUTH_CALLBACK: &str = "/.exact/auth/callback";
-
-fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
-    let decoded = percent_decode(path, false)?;
-    if decoded.split('/').any(|part| part == ".." || part == ".") || decoded.contains('\\') {
-        return None;
-    }
-    let mut file = dist.join(decoded.trim_start_matches('/'));
-    let exact = decoded.starts_with("/.exact/");
-    if exact && file.is_dir() {
-        file = file.join("index.html");
-    }
-    let root = dist.canonicalize().ok()?;
-    let file = file.canonicalize().ok()?;
-    if !file.starts_with(&root) || !file.is_file() {
-        return None;
-    }
-    let extension = file.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if extension == "html" && !exact {
-        return None;
-    }
-    // The auth callback page (LLP 1069.006 D4): one page at exactly this path.
-    if decoded == AUTH_CALLBACK {
-        return Some((file.clone(), content_type("html")));
-    }
-    Some((file.clone(), content_type(extension)))
-}
-
-fn percent_decode(path: &str, allow_slash: bool) -> Option<String> {
-    let bytes = path.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            let byte = u8::from_str_radix(hex, 16).ok()?;
-            if (!allow_slash && byte == b'/') || byte == 0 {
-                return None;
-            }
-            out.push(byte);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(out).ok()
-}
-
-pub(crate) fn content_type(extension: &str) -> &'static str {
-    match extension {
-        "html" => "text/html; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "wasm" => "application/wasm",
-        "json" => "application/json",
-        "webmanifest" => "application/manifest+json",
-        "css" => "text/css; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "ico" => "image/x-icon",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "txt" | "wgsl" => "text/plain; charset=utf-8",
-        "xml" => "application/xml",
-        _ => "application/octet-stream",
-    }
 }
 
 /// The pages' Content-Security-Policy (D11): scripts only from the app's

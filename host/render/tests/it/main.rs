@@ -392,10 +392,36 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let capture = exact_render::capture_js();
     assert!(scripts[0].starts_with(&format!("<script>{capture}</script>")));
     assert!(html.find(capture) < html.find("<div id=\"exact-root\""));
+    // The document as the runtime adopts it: no view ids (only the wasm
+    // runtime reads them); this shell has no classes, so styles stay inline.
+    let root = strip_view_ids(&r.document.root);
+    assert!(r.document.root.contains(" data-view=\""));
     assert!(html.ends_with(&format!(
-        "<div id=\"exact-root\">{}</div>\n<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"eager\">{}</script>\n",
-        r.document.root, r.digest, r.checkpoint
-    )));
+        "<div id=\"exact-root\">{root}</div>\n<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"eager\">{}</script>\n",
+        r.digest, r.checkpoint
+    )), "{html}");
+    // The head goes first, as a server flushes it before the render: the
+    // capture script and the preloads before the stylesheet, and the
+    // render's title and metas after it, still in the head.
+    assert!(html.find(capture) < html.find("<link rel=\"modulepreload\""));
+    assert!(html.find("<style>") < html.find(&r.head));
+    assert!(html.find(&r.head) < html.find("<div id=\"exact-root\""));
+    // An inline style the stylesheet has as a static class goes as that
+    // class (the runtime gives it that class at adoption).
+    let style = &r.document.root[r.document.root.find(" style=\"").unwrap() + 8..];
+    let style = &style[..style.find('"').unwrap()];
+    let classed = shell.replace(
+        "<style>p{margin:0}</style>",
+        &format!("<style>#exact-root#exact-root{{.c7{{{style}}}}}</style>"),
+    );
+    let html = exact_render::page(&classed, &r).unwrap();
+    assert!(html.contains(" class=\"c7\""), "{html}");
+    assert!(!html.contains(&format!(" style=\"{style}\"")));
+    assert!(!html.contains(" data-view=\""));
+    for link in html.match_indices("<a ") {
+        let tag = &html[link.0..link.0 + html[link.0..].find('>').unwrap()];
+        assert!(tag.contains(" data-view"), "{tag}");
+    }
     for part in [
         "import(\"./app.js\")",
         "observe({type:\"paint\",buffered:!0})",
@@ -414,6 +440,22 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"interaction\""));
     assert!(!html.replace(capture, "").contains(".js"), "{html}");
+}
+
+/// `root` without its view ids: a link's `data-view` is empty.
+fn strip_view_ids(root: &str) -> String {
+    let mut out = String::new();
+    let mut rest = root;
+    while let Some(at) = rest.find(" data-view=\"") {
+        out.push_str(&rest[..at]);
+        let tag = &out[out.rfind('<').unwrap()..];
+        if tag.starts_with("<a ") {
+            out.push_str(" data-view");
+        }
+        rest = &rest[at + 12..];
+        rest = &rest[rest.find('"').unwrap() + 1..];
+    }
+    out + rest
 }
 
 #[test]

@@ -69,15 +69,22 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",
   ...(ts ? ["import { install } from './ts-data.js';"] : rust ? ["import { install } from './rust-data.js';"] : []),
-  'globalThis.__render = async deadline => {',
-  '  const t0 = performance.now();',
+  // Two steps, so a server can send the page's head between them
+  // (render.mjs): the app starts and names its route, then settles.
+  'let t0, route;',
+  'globalThis.__start = async () => {',
+  '  t0 = performance.now();',
   ...(ts ? ['  install(data);'] : rust ? ['  await install(data, sources, async p => __files(p));'] : []),
   '  app();',
+  '  route = routeAt(location.pathname + location.search);',
+  '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
+  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "eager", policy: render, notfound: !!pages[route]?.[2] };',
+  '};',
+  'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
-  '  const route = routeAt(location.pathname + location.search), [render, activate] = pages[route] ?? ["build", "inferred"];',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: ["idle", "interaction", "never"].includes(activate) ? activate : "eager", policy: render, notfound: !!pages[route]?.[2], render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), render: performance.now() - t0 };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));

@@ -179,6 +179,11 @@ fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, 
     stream
         .read_to_end(&mut bytes)
         .unwrap_or_else(|e| panic!("no whole answer to {what:?} within {BOUND:?}: {e}"));
+    // An informational response (a 103) goes before the answer.
+    while bytes.starts_with(b"HTTP/1.1 1") {
+        let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        bytes.drain(..at + 4);
+    }
     let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
     let head = String::from_utf8_lossy(&bytes[..at]).into_owned();
     let body = bytes[at + 4..].to_vec();
@@ -1097,4 +1102,127 @@ fn large_static_files_stream_with_lengths_validators_and_head() {
     assert_eq!(status, 304);
     assert!(body.is_empty());
     assert_eq!(get(addr, "/glue.js").0, 200);
+}
+
+/// The JavaScript runtime's shell, as host/web3/build.mjs writes it.
+const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+
+/// A chunked body, its chunks joined.
+fn unchunk(mut body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let line = body.windows(2).position(|w| w == b"\r\n").unwrap();
+        let size = usize::from_str_radix(std::str::from_utf8(&body[..line]).unwrap(), 16).unwrap();
+        body = &body[line + 2..];
+        if size == 0 {
+            return out;
+        }
+        out.extend_from_slice(&body[..size]);
+        body = &body[size + 2..];
+    }
+}
+
+#[test]
+fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
+    // @ref LLP 1071 D6 — the early flush (host/render/src/stream.rs).
+    super::warm_transport();
+    let dir = dist("flush");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let addr = run(Serve {
+        dist: dir,
+        port: 0,
+        name: "Blog".into(),
+        origin: Some("https://blog.test".into()),
+        deadline: Duration::from_millis(1500),
+        renders: 2,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    });
+    let navigate = |target: &str| {
+        format!(
+            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\n\r\n"
+        )
+    };
+    // A render held to its deadline: the head arrives long before it.
+    let started = std::time::Instant::now();
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    stream.write_all(navigate("/post/slow").as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    while !String::from_utf8_lossy(&bytes).contains("</style>") {
+        let mut chunk = [0u8; 4096];
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0, "closed before the head");
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+    let early = started.elapsed();
+    assert!(
+        early < Duration::from_millis(750),
+        "the head after {early:?}"
+    );
+    let first_chunk = String::from_utf8_lossy(&bytes).into_owned();
+    stream.read_to_end(&mut bytes).unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(1400));
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    // A 103 names the entry's preload, then the page is a chunked 200.
+    assert!(
+        text.starts_with("HTTP/1.1 103 Early Hints\r\nLink: </app.js>; rel=modulepreload\r\n\r\nHTTP/1.1 200 OK\r\n"),
+        "{text}"
+    );
+    let head_end = text.find("\r\n\r\nHTTP/1.1 200").unwrap() + 4;
+    let rest = &bytes[head_end..];
+    let at = rest.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let headers = String::from_utf8_lossy(&rest[..at]).to_ascii_lowercase();
+    assert!(headers.contains("transfer-encoding: chunked"), "{headers}");
+    assert!(
+        headers.contains("cache-control: private, no-cache"),
+        "{headers}"
+    );
+    assert!(!headers.contains("etag"), "{headers}");
+    assert!(headers.contains("content-security-policy: "), "{headers}");
+    let page = String::from_utf8(unchunk(&rest[at + 4..])).unwrap();
+    // The first chunk was the head: the capture script, the preload and the
+    // stylesheet, before the render's title.
+    assert!(first_chunk.contains(exact_render::capture_js()));
+    assert!(first_chunk.contains("<link rel=\"modulepreload\" href=\"./app.js\">"));
+    assert!(first_chunk.contains("<style>p{margin:0}</style>"));
+    assert!(!first_chunk.contains("<title>"));
+    // The rest: at the deadline, the document with what is pending, which
+    // the runtime asks again once it adopts the page.
+    assert!(
+        page.starts_with("<!doctype html>\n<html lang=\"\" dir=\"ltr\">"),
+        "{page}"
+    );
+    assert!(page.contains("\"pending\":[\"post\"]"), "{page}");
+    assert!(page.ends_with("</script>\n"), "{page}");
+    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`.
+    let (status, _, _) = get(addr, "/post/slow");
+    assert_eq!(status, 503);
+    let (status, _, body) = fetch(addr, &navigate("/no/such/page"));
+    assert_eq!(status, 404);
+    assert!(body.contains(">Nothing here<"), "{body}");
+    // A flushed 200 of a cached route is kept: the next request is a hit,
+    // with its validator, and the same page.
+    let (status, headers, body) = fetch(addr, &navigate("/post/7"));
+    assert_eq!((status, header(&headers, "etag")), (200, None));
+    let flushed = String::from_utf8(unchunk(body.as_bytes())).unwrap();
+    assert!(flushed.contains(">Post 7<"), "{flushed}");
+    let (status, headers, kept) = get(addr, "/post/7");
+    assert_eq!(status, 200);
+    assert!(header(&headers, "age").is_some(), "{headers:?}");
+    assert!(header(&headers, "etag").is_some());
+    assert_eq!(kept, flushed);
+    // Compressed as the browser accepts, the head flushed through brotli.
+    let (status, headers, body) = fetch_bytes(
+        addr,
+        "GET /live/9 HTTP/1.1\r\nSec-Fetch-Dest: document\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(status, 200);
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "cache-control"), Some("no-store"));
+    let mut page = Vec::new();
+    brotli::BrotliDecompress(&mut &unchunk(&body)[..], &mut page).unwrap();
+    assert!(String::from_utf8(page).unwrap().contains(">Post 9<"));
 }

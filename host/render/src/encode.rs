@@ -60,7 +60,7 @@ impl Accepts {
     }
 
     /// Brotli, else gzip, else none.
-    fn pick(self) -> Option<Encoding> {
+    pub(crate) fn pick(self) -> Option<Encoding> {
         if self.br {
             Some(Encoding::Br)
         } else if self.gzip {
@@ -409,7 +409,7 @@ pub(crate) fn files(dist: &Path) -> Vec<PathBuf> {
                 continue;
             }
             let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if extension != "html" && compressible(crate::serve::content_type(extension)) {
+            if extension != "html" && compressible(crate::files::content_type(extension)) {
                 found.push(path);
             }
         }

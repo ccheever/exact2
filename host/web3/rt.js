@@ -670,29 +670,14 @@ export function checkpoint() {
   const el = typeof document !== "undefined" && document.querySelector('script[type="application/vnd.exact.checkpoint"]');
   if (!el) return Checkpoint;
   const cp = JSON.parse(el.textContent);
-  const bytes = Uint8Array.from(atob(cp.answers), c => c.charCodeAt(0));
-  const list = decodeValue(bytes);
-  Checkpoint.kept = new Map(list.map(([name, , args, value]) => [name, [args, value]]));
+  Checkpoint.kept = new Map(cp.answers.map(([name, , args, value]) => [name, [value_(args), value_(value)]]));
   Checkpoint.time = cp.time;
   clock.now = cp.time || 0;
   return Checkpoint;
 }
-/** A plan value's canonical bytes (plan/src/value.rs) as a runtime value. */
-export function decodeValue(b) {
-  const d = new DataView(b.buffer, b.byteOffset, b.byteLength), text = new TextDecoder();
-  let i = 0;
-  const u32 = () => { const v = d.getUint32(i, true); i += 4; return v; };
-  const value = () => {
-    const tag = b[i++];
-    if (tag === 0) { const v = d.getFloat64(i, true); i += 8; return v; }
-    if (tag === 1) return b[i++] === 1;
-    if (tag === 2) { const n = u32(), s = text.decode(b.subarray(i, i + n)); i += n; return s; }
-    if (tag === 3 || tag === 4) return null;
-    if (tag === 5) return value();
-    const out = []; for (let n = u32(); n--;) out.push(value()); return out;
-  };
-  return value();
-}
+/** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
+ * lists and records are arrays, unit and `none` null, `some(v)` v. */
+const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 export const x_now = () => clock.now;

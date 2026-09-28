@@ -20,11 +20,13 @@
 
 mod encode;
 mod executor;
+mod files;
 mod generations;
 mod page;
 mod pages;
 mod serve;
 mod source;
+mod stream;
 
 pub use executor::Executor;
 pub use page::{capture, capture_js, page};
