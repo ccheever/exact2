@@ -33,7 +33,10 @@ pub struct Skipped {
 /// The style dictionary for a node's set rows, as a JSON object, plus what
 /// was skipped.
 pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
-    let mut out = String::from("{");
+    // Written in place: a list row's mount builds one of these per node,
+    // and a `String` per value (`format!`) was most of its cost.
+    let mut out = String::with_capacity(256);
+    out.push('{');
     let mut skipped = Vec::new();
     let mut first = true;
     for id in style.mask.iter() {
@@ -42,14 +45,37 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
-        let value = match style.get(id) {
-            RowValue::ShapeOutside(_) => continue, // LLP 1043.000 M3
+        if matches!(name, "translate" | "scale" | "rotate" | "opacity") {
+            continue;
+        }
+        let mark = out.len();
+        if !first {
+            out.push(',');
+        }
+        out.push('"');
+        out.push_str(name);
+        out.push_str("\":");
+        let wrote = match style.get(id) {
+            RowValue::ShapeOutside(_) => false, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
-            RowValue::AspectRatio(_) => continue,
-            RowValue::Dimension(d) => dimension(d.resolve(env)),
+            RowValue::AspectRatio(_) => false,
+            RowValue::Dimension(d) => {
+                push_dimension(&mut out, d.resolve(env));
+                true
+            }
             // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.
-            RowValue::TransformOrigin(o) => format!("[{},{}]", dimension(o.x), dimension(o.y)),
-            RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
+            RowValue::TransformOrigin(o) => {
+                out.push('[');
+                push_dimension(&mut out, o.x);
+                out.push(',');
+                push_dimension(&mut out, o.y);
+                out.push(']');
+                true
+            }
+            RowValue::Color(c) => {
+                push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
+                true
+            }
             // A colour a row holds (LLP 1034 D1/D2). A fixed one crosses as
             // the four channels it always did; a `light-dark()` pair crosses
             // as both, because the presenter resolves it against the
@@ -57,19 +83,17 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             // changes. Flattening here would be the kernel choosing, which
             // is exactly what D2 forbids.
             RowValue::ColorValue(ColorValue::Fixed(c)) => {
-                format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a())
+                push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
+                true
             }
-            RowValue::ColorValue(ColorValue::LightDark(l, d)) => format!(
-                "[[{},{},{},{}],[{},{},{},{}]]",
-                l.r(),
-                l.g(),
-                l.b(),
-                l.a(),
-                d.r(),
-                d.g(),
-                d.b(),
-                d.a()
-            ),
+            RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
+                out.push('[');
+                push_rgba(&mut out, [l.r(), l.g(), l.b(), l.a()]);
+                out.push(',');
+                push_rgba(&mut out, [d.r(), d.g(), d.b(), d.a()]);
+                out.push(']');
+                true
+            }
             RowValue::ClipPath(p) => {
                 let commands: Vec<_> = p
                     .commands()
@@ -83,28 +107,51 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                     exact_kernel::FillRule::Evenodd => "evenodd",
                     exact_kernel::FillRule::Nonzero => "nonzero",
                 };
-                format!(
+                let _ = write!(
+                    out,
                     "{{\"rule\":\"{rule}\",\"commands\":[{}]}}",
                     commands.join(",")
-                )
+                );
+                true
             }
             RowValue::BackgroundImage(g) => match g.gradient() {
-                Some(g) => gradient_json(g),
-                None => continue, // `none`: nothing to paint
+                Some(g) => {
+                    out.push_str(&gradient_json(g));
+                    true
+                }
+                None => false, // `none`: nothing to paint
             },
-            RowValue::Enum(e) => format!("\"{e}\""),
-            RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
-            RowValue::LineHeight(v) => match v {
-                exact_kernel::LineHeight::Number(n) => num(n),
-                _ => format!("\"{}\"", v.css()),
-            },
-            RowValue::Number(n) => num(n as f32),
-            RowValue::Transitions(_) => continue, // the engine's, not the presenter's
+            RowValue::Enum(e) => {
+                let _ = write!(out, "\"{e}\"");
+                true
+            }
+            RowValue::Vec2(v) => {
+                out.push('[');
+                push_num(&mut out, v.x);
+                out.push(',');
+                push_num(&mut out, v.y);
+                out.push(']');
+                true
+            }
+            RowValue::LineHeight(v) => {
+                match v {
+                    exact_kernel::LineHeight::Number(n) => push_num(&mut out, n),
+                    _ => {
+                        let _ = write!(out, "\"{}\"", v.css());
+                    }
+                }
+                true
+            }
+            RowValue::Number(n) => {
+                push_num(&mut out, n as f32);
+                true
+            }
+            RowValue::Transitions(_) => false, // the engine's, not the presenter's
             // @ref LLP 1057.003 D2 — drag timelines are the engine's too.
             RowValue::DragTimeline(_)
             | RowValue::AnimationTimeline(_)
             | RowValue::AnimationRange(_)
-            | RowValue::TimelineScope(_) => continue,
+            | RowValue::TimelineScope(_) => false,
             // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
             RowValue::Paint(_)
             | RowValue::DashArray(_)
@@ -112,35 +159,81 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
             | RowValue::Filter(_)
-            | RowValue::Animations(_) => continue,
+            | RowValue::Animations(_) => false,
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,
                     reason: "grid rows are not lowered in v1",
                 });
-                continue;
+                false
             }
         };
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity") {
-            continue;
+        if wrote {
+            first = false;
+        } else {
+            out.truncate(mark);
         }
-        if !first {
-            out.push(',');
-        }
-        first = false;
-        let _ = write!(out, "\"{name}\":{value}");
     }
     out.push('}');
     (out, skipped)
 }
 
-fn dimension(d: Dimension) -> String {
+fn push_dimension(out: &mut String, d: Dimension) {
     match d {
-        Dimension::Auto => "\"auto\"".to_string(),
-        Dimension::Points(p) => num(p),
-        Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
-        Dimension::Calc(p, x) => format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x)),
+        Dimension::Auto => out.push_str("\"auto\""),
+        Dimension::Points(p) => push_num(out, p),
+        Dimension::Percent(p) => {
+            out.push_str("{\"pct\":");
+            push_num(out, p);
+            out.push('}');
+        }
+        Dimension::Calc(p, x) => {
+            out.push_str("{\"pct\":");
+            push_num(out, p);
+            out.push_str(",\"px\":");
+            push_num(out, x);
+            out.push('}');
+        }
         Dimension::Env(..) => unreachable!("resolved"),
+    }
+}
+
+/// `[r,g,b,a]`, the channels as integers.
+fn push_rgba(out: &mut String, channels: [u8; 4]) {
+    out.push('[');
+    for (i, c) in channels.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        push_int(out, i64::from(c));
+    }
+    out.push(']');
+}
+
+fn push_int(out: &mut String, n: i64) {
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    let mut v = n.unsigned_abs();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    if n < 0 {
+        out.push('-');
+    }
+    out.push_str(std::str::from_utf8(&buf[i..]).expect("digits"));
+}
+
+/// A number as `num` spells it, written in place.
+pub fn push_num(out: &mut String, n: f32) {
+    if n.fract() == 0.0 && n.abs() < 1e9 {
+        push_int(out, n as i64);
+    } else {
+        let _ = write!(out, "{n}");
     }
 }
 
@@ -434,11 +527,9 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.
 pub fn num(n: f32) -> String {
-    if n.fract() == 0.0 && n.abs() < 1e9 {
-        format!("{}", n as i64)
-    } else {
-        format!("{n}")
-    }
+    let mut s = String::new();
+    push_num(&mut s, n);
+    s
 }
 
 #[cfg(test)]
