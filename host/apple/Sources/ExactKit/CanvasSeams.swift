@@ -367,11 +367,16 @@ extension Canvases {
         s.surfaceRecord(name, json)
     }
 
+    /// The module's answer when a canvas asks for no asset (`AssetChanges::json`).
+    static let noAssetChanges = Data(#"{"requests":[],"retired":[]}"#.utf8)
+
     func messages(_ e: Entry) {
         if live(e.view.id) === e, let m = e.module, let take = m.assets, let deliver = m.asset {
             var delivered = false
             for _ in 0..<16 {
-                guard let data = m.output(take(e.id)), let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
+                // Nearly every frame asks for nothing: no JSON parse for the empty answer.
+                guard let data = m.output(take(e.id)), data != Canvases.noAssetChanges,
+                      let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
                 delivered = true
                 for name in names {
                     let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }
