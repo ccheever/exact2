@@ -1,0 +1,12 @@
+tap push-post
+tap open-deep
+tap push-modal
+back 1
+tap back
+tap tab-search
+tap replace-search
+tap go-prompts
+tap push-missing
+tap tab-refused
+tap tab-home
+tap tab-home

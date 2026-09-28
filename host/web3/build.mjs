@@ -50,7 +50,9 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.
-    "const load = () => import('./rust-data.js').then(m => m.install(data, sources));",
+    // Counted in flight, so `clock settle` waits for the source to be ready.
+    "const load = () => import('./rust-data.js').then(m => m.install(data, sources)).finally(() => inflight.n--);",
+    "inflight.n++;",
     "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
   ] : ['start();']),
 ].join('\n'));

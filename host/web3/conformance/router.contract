@@ -1,0 +1,56 @@
+// Synthetic conformance plan: the router's verbs and reads (LLP 1038) —
+// tabs, a deep chain, parameters, a query, a modal, refusals, history.
+routes nav
+  tab home "/"
+    post "/post/:post"
+  tab prompts "/prompts"
+    ask "/prompts/new"
+    question "/prompt/:question"
+      write "/prompt/:question/write"
+  tab search "/search"
+  notfound
+
+component Router
+  derive current = top(nav)
+  action open(url: string) writes nav
+    nav = open(nav, url)
+  action push(url: string) writes nav
+    nav = push(nav, url)
+  action replace(url: string) writes nav
+    nav = replace(nav, url)
+  action back writes nav
+    nav = back(nav)
+  action selectTab(name: string) writes nav
+    nav = select(nav, name)
+  action go(url: string) writes nav
+    nav = go(nav, url)
+  view
+    main navigationKey=`${current.id}` navigationBack="back" navigate=go testId="navigation" width="100%" height="100%"
+      column testId="bar" gap=4 padding=8
+        text `${nav.tab} · ${current.name} · ${current.url} · depth ${depth(nav)} · q=${searchParam(current, "q")} · ${join(params(nav, "question"), ",")}` testId="where"
+        row gap=4 flex-wrap="wrap"
+          button press=selectTab("home") testId="tab-home"
+            text "home"
+          button press=selectTab("prompts") testId="tab-prompts"
+            text "prompts"
+          button press=selectTab("search") testId="tab-search"
+            text "search"
+          button press=push(path("post", "a b")) testId="push-post"
+            text "push post"
+          button press=open("/prompt/7/write") testId="open-deep"
+            text "open deep"
+          button press=push("/prompts/new") testId="push-modal"
+            text "modal"
+          button press=replace("/search?q=trains") testId="replace-search"
+            text "replace"
+          button press=go("/prompts") testId="go-prompts"
+            text "go prompts"
+          button press=push("/nowhere/at/all") testId="push-missing"
+            text "missing"
+          button press=selectTab("nope") testId="tab-refused"
+            text "refused"
+          button press=back testId="back"
+            text "back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.name}` padding=8
+          text `${e.id} ${e.name} ${e.url} ${e.tab}` testId=`entry-${e.name}`

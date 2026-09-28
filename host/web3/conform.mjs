@@ -125,7 +125,7 @@ async function drive(t, report, fail, dir, ws, js) {
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
     // a line — `tap <target>`, `type <target> <text…>`, `clock <+ms|settle>`,
     // `back` (the browser's history) — each compared after both settle.
-    const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name}.steps`);
+    const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
     await settle();
     let tree = await compare('boot');
