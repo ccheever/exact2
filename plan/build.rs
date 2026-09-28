@@ -231,6 +231,7 @@ fn validate(schema: &Schema) {
                             | "any"
                             | "Router"
                             | "Entry"
+                            | "Geometry"
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"

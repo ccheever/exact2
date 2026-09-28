@@ -430,11 +430,17 @@ pub struct RunnerLinks {
     /// `formatDate` and `formatNumber` (LLP 1054.000.003 D8):
     /// [`crate::formatting`].
     pub format: FormatLink,
+    /// `frame` and `measure` (LLP 1051.000 D3/D4): the kernel's answers
+    /// natively ([`crate::geometry::KERNEL`]), the page's on the web.
+    pub geometry: GeometryLink,
 }
 
 /// How the VM reaches the `format` capability's entries, when linked: the
 /// entry and its arguments to its value, `None` when they don't fit.
 pub type FormatLink = Option<fn(exact_plan::Stdlib, &[Value]) -> Option<Value>>;
+
+/// How the runner answers geometry reads, when linked (LLP 1051.000 D2).
+pub type GeometryLink = Option<&'static crate::geometry::GeometryLinks>;
 
 /// How a runner makes its Canvas 2D engine, when linked.
 pub type CanvasLink = Option<fn() -> Box<dyn canvas2d::CanvasEngine>>;
@@ -455,6 +461,7 @@ impl RunnerLinks {
         lists: Some(&crate::instance::LISTS),
         canvas: Some(canvas2d::engine),
         format: Some(crate::format::formatting),
+        geometry: Some(&crate::geometry::KERNEL),
     };
 
     /// The core alone.
@@ -464,6 +471,7 @@ impl RunnerLinks {
         lists: None,
         canvas: None,
         format: None,
+        geometry: None,
     };
 }
 
@@ -1243,6 +1251,7 @@ impl<D: DataSource> Runner<D> {
             router: self.router.as_deref(),
             lists: self.links.lists,
             format: self.links.format,
+            geometry: None,
             slots: &self.slots,
             derives: &self.derives,
             resources: &self.resource_values,

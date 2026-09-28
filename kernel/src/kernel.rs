@@ -26,6 +26,7 @@ static INITIAL: LazyLock<StyleProps> = LazyLock::new(StyleProps::default);
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 mod document;
+mod geometry;
 mod intrinsic;
 mod trim;
 

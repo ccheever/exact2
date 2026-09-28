@@ -13,6 +13,7 @@ mod export;
 mod flow;
 mod flow_auto;
 mod flow_rows;
+mod geometry;
 mod head;
 mod height_binding;
 mod image;

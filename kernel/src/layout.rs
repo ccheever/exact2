@@ -395,6 +395,11 @@ impl LayoutTree {
         self.note("remove", r);
     }
 
+    /// The offer `root` was last laid out under, if it has been.
+    pub(crate) fn last_offer(&self, root: NodeId) -> Option<Offer> {
+        self.offers.get(&root).copied()
+    }
+
     /// Replace authored lowering, retaining an active presentation height.
     /// Dirty only when the resulting full derived style changes. This is also
     /// the path for environment/intrinsic updates that do not bump the epoch.

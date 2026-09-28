@@ -1043,3 +1043,35 @@ component A
   resource xs = xs() as shape list<number>
   view
     text toString(reduce(xs, (a, x) => a + x, 0))
+---
+== type-geometry-outside-action
+# LLP 1051.000 D2: a derive that read layout would feed layout back into the tree it lays out.
+component A
+  derive h = frame("box").height
+  view
+    column id="box"
+      text toString(h)
+---
+== type-geometry-outside-action
+component A
+  view
+    column id="box"
+      text toString(measure("box").height)
+---
+== type-geometry-outside-action
+# A `fn` can be called from a view, so its body is outside an action.
+fn roomOf(id: string): number = frame(id).height
+component A
+  view
+    text toString(roomOf("x"))
+---
+== type-measure-literal-id
+# The runner answers `measure` before the action runs, so its id is a literal.
+component A
+  state target = "box"
+  state h = 0
+  action size writes h
+    h = measure(target).height
+  view
+    button press=size
+      text toString(h)

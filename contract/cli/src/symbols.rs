@@ -542,7 +542,10 @@ impl<'a> Resolver<'a> {
                         self.types.components[ci].actions[ai][pi].clone(),
                     );
                 }
+                // Geometry reads type-check only in an action (LLP 1051.000 D2).
+                self.scope.enter_action();
                 self.stmts(&a.body);
+                self.scope.leave_action();
                 for _ in &a.params {
                     self.pop_local();
                 }

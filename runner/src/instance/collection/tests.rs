@@ -101,6 +101,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         router: None,
         lists: Some(&crate::instance::LISTS),
         format: None,
+        geometry: None,
         derives: &[],
         resources: &[],
         params: &[],

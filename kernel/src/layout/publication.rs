@@ -62,7 +62,13 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         {
             tree.publication_visits += 1;
         }
-        let hidden = hidden || arena.style(slot).display == crate::Display::None;
+        let own_hidden = arena.style(slot).display == crate::Display::None;
+        if own_hidden {
+            arena.flags_mut(slot).insert(NodeFlags::HIDDEN);
+        } else {
+            arena.flags_mut(slot).remove(NodeFlags::HIDDEN);
+        }
+        let hidden = hidden || own_hidden;
         if !hidden && crate::flow::is_exclusion(arena, slot) {
             exclusions.push(slot);
         }

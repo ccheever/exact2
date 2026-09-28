@@ -822,6 +822,7 @@ fn publish(
             f.frame
         };
         let moved = !arena.frame(s).bits_eq(frame) || arena.flags(s).has(NodeFlags::CREATED);
+        let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
         let flags = arena.flags_mut(s);
@@ -833,6 +834,11 @@ fn publish(
                 NodeFlags::CHILDREN_DIRTY,
             ] {
                 flags.remove(clear)
+            }
+            if hidden {
+                flags.insert(NodeFlags::HIDDEN);
+            } else {
+                flags.remove(NodeFlags::HIDDEN);
             }
         }
         if moved {

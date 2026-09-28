@@ -1111,6 +1111,18 @@
       "params": ["number", "\"compact\""],
       "returns": "string",
       "_comment": "@ref LLP 1054.000.003 D3/D7/D8: Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). The linked capability `format`."
+    },
+    {
+      "name": "frame",
+      "params": ["string"],
+      "returns": "Geometry",
+      "_comment": "@ref LLP 1051.000 D1/D2: where layout put the first node whose `id` prop is the argument, as last laid out: its border box in its root's space, free of transforms and scrolling. Actions only (the compiler refuses it elsewhere)."
+    },
+    {
+      "name": "measure",
+      "params": ["string"],
+      "returns": "Geometry",
+      "_comment": "@ref LLP 1051.000 D1/D2: the node's border box as if its `height` were `auto`, under the offer it has now. Actions only; the id is a string literal, so the runner answers it before the action runs."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

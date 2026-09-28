@@ -383,10 +383,26 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .map(|w| self.plan.write(w).slot.0)
             .collect();
+        // Geometry (LLP 1051.000 D2): every `measure` in the body is
+        // answered now, with the kernel's engine tree to lay out; `frame`
+        // reads through the borrowed kernel while the body runs.
+        let measured;
+        let geometry = match self.links.geometry {
+            Some(links) => {
+                measured = links.ahead(&self.plan, self.plan.code(row.body), &mut self.kernel);
+                Some(crate::geometry::GeometryEnv::new(
+                    &self.kernel,
+                    links,
+                    &measured,
+                ))
+            }
+            None => None,
+        };
         let outcome = {
             // The frames in force at the view the event hit (LLP 1017 P4c):
             // a row action reads and writes its row through them.
-            let env = self.env(&args, frames);
+            let mut env = self.env(&args, frames);
+            env.geometry = geometry.as_ref();
             vm::eval(self.plan.code(row.body), &env, &allowed)?
         };
         // Sends (LLP 1016 §4): each asks the source now. An answer lands in

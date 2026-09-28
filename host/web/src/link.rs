@@ -228,6 +228,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         lists: linked().collections,
         canvas: linked().canvas,
         format: linked().format,
+        geometry: None,
     }
 }
 

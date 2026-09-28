@@ -28,6 +28,7 @@ mod fns;
 mod fonts;
 mod format;
 mod function_graph;
+mod geometry;
 mod height_binding;
 mod insets;
 mod instance;

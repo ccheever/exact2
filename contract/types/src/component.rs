@@ -209,6 +209,7 @@ pub(crate) fn check_component(
                 })
                 .collect(),
         );
+        scope.enter_action();
         check_stmts(&a.body, &scope, c, &mut ct, shapes, sink);
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against

@@ -19,6 +19,7 @@
 
 mod checks;
 mod component;
+mod geometry;
 mod lists;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
@@ -128,7 +129,7 @@ impl Ty {
             "number" => Ty::Number,
             "string" => Ty::String,
             "bool" => Ty::Bool,
-            "Router" | "Entry" => Ty::Record(spec.into()),
+            "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
             _ => Ty::Unknown,
@@ -356,9 +357,27 @@ struct Frame {
 pub struct Scope {
     // Branches own their stacks, and shared frames remain immutable.
     frames: Vec<Arc<Frame>>,
+    // Inside an action's body, where geometry reads are allowed (LLP 1051.000 D2).
+    action: bool,
 }
 
 impl Scope {
+    /// Mark this scope as an action's body: geometry reads are allowed here
+    /// and nowhere else (LLP 1051.000 D2).
+    pub fn enter_action(&mut self) {
+        self.action = true;
+    }
+
+    /// Leave an action's body (a walker reusing one scope across bodies).
+    pub fn leave_action(&mut self) {
+        self.action = false;
+    }
+
+    /// Whether this scope is an action's body.
+    pub fn in_action(&self) -> bool {
+        self.action
+    }
+
     /// Push a non-region frame (component declarations, action parameters).
     pub fn push(&mut self, names: Vec<(String, Ref, Ty)>) {
         self.frames.push(Arc::new(Frame {
@@ -754,6 +773,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {
                 routes::require_table(f, shapes, *span)?;
+                geometry::check_call(f, args, scope, *span)?;
                 if args.len() != f.arity() {
                     return err(
                         "type-arity",
@@ -970,6 +990,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
+    geometry::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
             return err(

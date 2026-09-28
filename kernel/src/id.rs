@@ -72,6 +72,10 @@ impl NodeFlags {
     pub const GEOMETRY_CHANGED: NodeFlags = NodeFlags(1 << 5);
     /// The node was created in the batch that produced the current epoch.
     pub const CREATED: NodeFlags = NodeFlags(1 << 6);
+    /// The node's own `display` was `none` when it was last laid out. A
+    /// geometry read answers the layout last shown (LLP 1051.000 D1), not a
+    /// visibility a batch has changed since.
+    pub const HIDDEN: NodeFlags = NodeFlags(1 << 7);
 
     /// Whether every bit of `flag` is set.
     pub const fn has(self, flag: NodeFlags) -> bool {

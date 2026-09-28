@@ -68,11 +68,15 @@ pub enum Capability {
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.
     Gradients,
+    /// `frame` and `measure` (LLP 1051.000): a plan whose actions read
+    /// geometry. Native hosts answer from the kernel; the web links a
+    /// synchronous import the page answers.
+    Geometry,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 17] = [
+    pub const ALL: [Capability; 18] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -90,6 +94,7 @@ impl Capability {
         Capability::Effects,
         Capability::Animations,
         Capability::Gradients,
+        Capability::Geometry,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -112,6 +117,7 @@ impl Capability {
             Capability::Effects => "effects",
             Capability::Animations => "animations",
             Capability::Gradients => "gradients",
+            Capability::Geometry => "geometry",
         }
     }
 
@@ -267,7 +273,8 @@ pub fn uses(plan: &Plan) -> Uses {
     {
         uses = uses.with(Capability::Collections);
     }
-    if calls_format(plan) {
+    let (format, geometry) = stdlib_calls(plan);
+    if format {
         uses = uses.with(Capability::Format);
     }
     if runs_command(plan, &["share"]) {
@@ -287,26 +294,29 @@ pub fn uses(plan: &Plan) -> Uses {
     if runs_command(plan, &["showPicker"]) {
         uses = uses.with(Capability::Picker);
     }
+    if geometry {
+        uses = uses.with(Capability::Geometry);
+    }
     uses
 }
 
-/// Whether any code range calls a `format` entry: each validated body walked
-/// whole, so no call a run can reach is missed.
-fn calls_format(plan: &Plan) -> bool {
-    let mut calls = false;
+/// Whether any code range calls a `format` entry, and whether any reads
+/// geometry (`frame`, `measure`): each validated body walked whole, so no
+/// call a run can reach is missed.
+fn stdlib_calls(plan: &Plan) -> (bool, bool) {
+    let (mut format, mut geometry) = (false, false);
     plan.each_code(&mut |code| {
-        calls = calls
-            || crate::vm::instructions(plan.code(code)).any(|i| {
-                i.is_ok_and(|i| {
-                    i.op == Opcode::Call
-                        && matches!(
-                            Stdlib::from_wire(i.args[0] as u8),
-                            Some(Stdlib::FormatDate | Stdlib::FormatNumber)
-                        )
-                })
-            });
+        for i in crate::vm::instructions(plan.code(code)).flatten() {
+            if i.op == Opcode::Call {
+                match Stdlib::from_wire(i.args[0] as u8) {
+                    Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
+                    Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    _ => {}
+                }
+            }
+        }
     });
-    calls
+    (format, geometry)
 }
 
 /// Whether any code range runs a host command named one of `names`.

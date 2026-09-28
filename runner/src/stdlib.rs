@@ -27,6 +27,7 @@ pub fn call(
     plan: &Plan,
     router: Option<&dyn crate::runner::Routing>,
     format: crate::runner::FormatLink,
+    geometry: Option<&crate::geometry::GeometryEnv<'_>>,
 ) -> Result<Value, CallError> {
     if f == Stdlib::T {
         // The compiler proved the key and placeholder names. Check the
@@ -53,7 +54,7 @@ pub fn call(
         .map(|s| Value::str(&s))
         .ok_or(CallError::StringTooLong);
     }
-    call_value(f, args, now_ms, plan, router, format).ok_or(CallError::TypeMismatch)
+    call_value(f, args, now_ms, plan, router, format, geometry).ok_or(CallError::TypeMismatch)
 }
 
 fn call_value(
@@ -63,9 +64,14 @@ fn call_value(
     plan: &Plan,
     router: Option<&dyn crate::runner::Routing>,
     format: crate::runner::FormatLink,
+    geometry: Option<&crate::geometry::GeometryEnv<'_>>,
 ) -> Option<Value> {
     let num = |i: usize| args.get(i).and_then(Value::as_number);
     Some(match f {
+        // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
+        // geometry. The compiler admits them nowhere else, and a host refuses
+        // a plan that reads geometry it doesn't link (LLP 1047 D6).
+        Stdlib::Frame | Stdlib::Measure => return geometry?.read(plan, f, args),
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
@@ -417,6 +423,7 @@ mod tests {
                     0.0,
                     &plan,
                     None,
+                    None,
                     None
                 ),
                 Ok(Value::str(expected)),
@@ -457,7 +464,15 @@ mod tests {
             ("a👍🏽", 5.0),
         ] {
             assert_eq!(
-                call(Stdlib::Length, &[Value::str(text)], 0.0, &plan, None, None),
+                call(
+                    Stdlib::Length,
+                    &[Value::str(text)],
+                    0.0,
+                    &plan,
+                    None,
+                    None,
+                    None
+                ),
                 Ok(Value::Number(expected)),
                 "{text}"
             );
@@ -468,7 +483,17 @@ mod tests {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
             .finish()
             .unwrap();
-        let trim = |text: &str| call(Stdlib::Trim, &[Value::str(text)], 0.0, &plan, None, None);
+        let trim = |text: &str| {
+            call(
+                Stdlib::Trim,
+                &[Value::str(text)],
+                0.0,
+                &plan,
+                None,
+                None,
+                None,
+            )
+        };
         // Every code point `(c + "x").trim() === "x"` holds for, from Bun.
         let js = "\u{9}\u{a}\u{b}\u{c}\u{d}\u{20}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
         assert_eq!(js.chars().count(), 25);
@@ -497,6 +522,7 @@ mod tests {
             std::slice::from_ref(&s),
             0.0,
             &plan,
+            None,
             None,
             None,
         ) else {
