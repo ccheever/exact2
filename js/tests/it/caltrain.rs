@@ -7,7 +7,7 @@
 #![cfg(exact_js_engine)]
 
 use caltrain_data::{Caltrain, DAY_START_MS, DEFAULT_LOCATION};
-use exact_js::{Module, ABI};
+use exact_js::{abi_supported, Module, ABI};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource};
 use std::path::Path;
@@ -88,7 +88,9 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
     let m = module();
     assert_eq!(m.app_id(), "com.exact.caltrain");
     assert_eq!(m.grants(), "");
-    assert_eq!(ABI, 1);
+    // The fixture exports ABI 1 (it draws nothing); the executor speaks
+    // ABI 2 (LLP 1056 D1) and runs both.
+    assert!(abi_supported("1") && abi_supported(&ABI.to_string()));
     let mut names = m.sources();
     names.sort_unstable();
     // `exactDelivery` is the plan's too (LLP 1030 D7): the runner answers it
