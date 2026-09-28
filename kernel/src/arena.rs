@@ -605,7 +605,7 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        computed.text_transform.apply_after(text, *boundary)
+                        crate::text::case::shown(computed.text_transform, text, *boundary)
                     };
                     boundary.push(text);
                     out.push(TextRun { text: shown, style });

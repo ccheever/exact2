@@ -26,6 +26,7 @@ pub mod picker;
 pub mod router;
 pub mod share;
 pub mod surfaces;
+pub mod text_transform;
 pub mod timelines;
 
 /// The [`exact_web::Linked`] of the named capabilities, as a constant:
@@ -57,5 +58,6 @@ pub const ALL: exact_web::Linked = linked!(
     share,
     documents,
     picker,
-    timelines
+    timelines,
+    text_transform
 );

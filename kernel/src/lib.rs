@@ -70,6 +70,7 @@ pub use style::{
     uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
     GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
+pub use text::case::link as link_text_transform;
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
     TextRun, TextStyle,

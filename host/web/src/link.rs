@@ -63,6 +63,8 @@ pub struct Linked {
     pub picker: Option<PickedPayload>,
     /// Drag timelines' grammar (LLP 1057.003): linked at [`link`].
     pub timelines: Option<fn()>,
+    /// `text-transform`'s case mapping (LLP 1064 D5): linked at [`link`].
+    pub text_transform: Option<fn()>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -92,6 +94,7 @@ impl Linked {
         documents: false,
         picker: None,
         timelines: None,
+        text_transform: None,
     };
 
     /// The capabilities registered here.
@@ -136,6 +139,9 @@ impl Linked {
         if self.timelines.is_some() {
             uses = uses.with(Capability::Timelines);
         }
+        if self.text_transform.is_some() {
+            uses = uses.with(Capability::TextTransform);
+        }
         uses
     }
 }
@@ -155,6 +161,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.timelines {
+        link();
+    }
+    if let Some(link) = linked.text_transform {
         link();
     }
     LINKED.with(|cell| cell.set(linked));

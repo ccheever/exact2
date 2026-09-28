@@ -139,6 +139,20 @@ fn drag_timelines_are_linked_by_use() {
 }
 
 #[test]
+fn text_transform_is_linked_by_use() {
+    // @ref LLP 1064 D5 — the web core carries no case tables unless a plan binds the row.
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::TextTransform));
+    assert!(
+        used("component A\n  view\n    text \"a\" text-transform=\"uppercase\"\n")
+            .has(Capability::TextTransform)
+    );
+    assert!(used(
+        "style S\n  text-transform=\"capitalize\"\ncomponent A\n  view\n    text \"a\" class=S\n"
+    )
+    .has(Capability::TextTransform));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

@@ -763,8 +763,10 @@ if (long) {
 // through seven `str::parse::<f64|f32>` sites (a range input's bounds, rgb()
 // channels, the launch seed, Canvas 2D's numbers), its 7.6 KB Eisel–Lemire
 // table with it; they read through exact-num (std's bits), 12.2–13.0 KiB. Then
-// wasm-opt's `--low-memory-unused` (host/web/build.mjs), 0.7–1.0 KiB.
-const WEB_CORE_KIB = { realworld: 300, 'video-player': 246, caltrain: 309 };
+// wasm-opt's `--low-memory-unused` (host/web/build.mjs), 0.7–1.0 KiB; then
+// `text-transform` linked by use (a select's option labels had pulled its
+// Unicode case tables into every core), 3.3–6.1 KiB.
+const WEB_CORE_KIB = { realworld: 295, 'video-player': 240, caltrain: 306 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),

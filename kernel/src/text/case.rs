@@ -19,6 +19,40 @@ impl<'a> NodeRef<'a> {
     }
 }
 
+/// The case mapping, once linked ([`link`]). Only a wasm artifact reads
+/// it: every other build maps directly.
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<Shown> = std::sync::OnceLock::new();
+
+/// [`TextTransform::apply_after`]'s signature.
+#[cfg(target_arch = "wasm32")]
+type Shown = for<'t> fn(TextTransform, &'t str, WordBoundary) -> Cow<'t, str>;
+
+/// Link `text-transform`'s case mapping (LLP 1047 D2, linked by use): its
+/// Unicode case tables are ~3–6 KiB of a web core, and an app's `<option>`
+/// label reaches them through its runs. A web artifact links it when its
+/// plan binds the row, and a plan that binds it unlinked is refused at boot
+/// (D6), so an unlinked artifact never holds a transform but `none`. Native
+/// artifacts and the compiler map without it.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(TextTransform::apply_after);
+}
+
+/// `text` as `transform` shows it in a run: [`TextTransform::apply_after`],
+/// on the web once [`link`]ed.
+pub(crate) fn shown(transform: TextTransform, text: &str, boundary: WordBoundary) -> Cow<'_, str> {
+    if transform == TextTransform::None {
+        return Cow::Borrowed(text);
+    }
+    #[cfg(target_arch = "wasm32")]
+    return LINKED.get().map_or(Cow::Borrowed(text), |shown| {
+        shown(transform, text, boundary)
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    transform.apply_after(text, boundary)
+}
+
 impl TextTransform {
     /// `text` as this transform shows it. `before` is the paragraph's text
     /// ahead of this run, so `capitalize` sees a word split across two runs

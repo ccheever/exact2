@@ -55,11 +55,14 @@ pub enum Capability {
     /// and `animation-range`, their grammar and lowering. A timeline follows
     /// a held value, so it uses motion too.
     Timelines,
+    /// `text-transform` (LLP 1064 D5): its Unicode case mapping, for a plan
+    /// that binds the row.
+    TextTransform,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 13] = [
+    pub const ALL: [Capability; 14] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -73,6 +76,7 @@ impl Capability {
         Capability::Documents,
         Capability::Picker,
         Capability::Timelines,
+        Capability::TextTransform,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -91,6 +95,7 @@ impl Capability {
             Capability::Documents => "documents",
             Capability::Picker => "picker",
             Capability::Timelines => "timelines",
+            Capability::TextTransform => "text_transform",
         }
     }
 
@@ -196,6 +201,9 @@ pub fn uses(plan: &Plan) -> Uses {
                     )
                 ) {
                     uses = uses.with(Capability::Timelines).with(Capability::Motion);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
+                    uses = uses.with(Capability::TextTransform);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))
