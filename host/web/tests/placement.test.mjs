@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {fixture} from './surface-record.test.mjs';
+import {fixture} from './surface.mjs';
 
 test('host-composited children use local homographies, depth order, explicit hiding and retirement', async()=>{
   const f=await fixture(), host=f.create(1), frames=[];
