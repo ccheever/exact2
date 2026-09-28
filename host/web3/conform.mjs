@@ -14,7 +14,7 @@
 //   data sources they may ask; the JS side loads the same Rust module.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
@@ -184,7 +184,7 @@ if (argv.includes('--synthetic')) {
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask Caltrain's sources (stations, nearest, search): its wasm links them.
-    targets.push({ name, app: 'caltrain', wasm: resolve(wasmRoot, 'caltrain'), contract, plan });
+    targets.push({ name, app: 'caltrain', wasm: realpathSync(resolve(wasmRoot, 'caltrain')), contract, plan });
   }
 }
 for (const t of targets) {
