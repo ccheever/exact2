@@ -521,3 +521,16 @@ fn each_swipe_row_label_follows_its_own_card() {
         );
     }
 }
+
+// LLP 1057.003 C6: the deck's face resolves `--fling` to the top card, its
+// ancestor, and the card beneath, the top card's sibling, finds it through
+// the clip's `timeline-scope`.
+#[test]
+fn the_decks_face_and_next_card_follow_the_top_card() {
+    let r = boot();
+    let top = Some(exact_kernel::timeline::NamedTimeline::Source(motion_node(
+        key(&r, "deck-top"),
+    )));
+    assert_eq!(r.kernel().timeline_of(key(&r, "deck-face")), top);
+    assert_eq!(r.kernel().timeline_of(key(&r, "deck-next")), top);
+}

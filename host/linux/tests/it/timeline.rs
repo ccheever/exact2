@@ -304,3 +304,92 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
     p.tick(4050.);
     assert_eq!(shown(&p)[2], 0.55);
 }
+
+/// The gallery's card deck (LLP 1057.003 C6): the top card drives `--fling`
+/// on x; its face, a child, tilts x / 20 degrees about its bottom edge, and
+/// the card beneath, the top card's sibling through the clip's scope, rises
+/// from 0.95 to full size as it leaves either way. A fast release throws it
+/// on the release spring, which starts at the fling's velocity.
+const DECK: &str = r##"keyframes tilt
+  from rotate=-15
+  to rotate=15
+keyframes rise
+  from scale=1
+  50% scale=0.95
+  to scale=1
+component App
+  state x = 0
+  action geometry(w: number, h: number, pw: number, ph: number) writes x
+    x = x
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes x
+    x = ((px > 120 or vx > 800) ? 600 : 0)
+  view
+    box width="100%" height="100%"
+      box testId="clip" timeline-scope="--fling" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
+        box testId="next" position="absolute" left=40 top=20 width=220 height=280 animation="rise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
+        box id="top" testId="top" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px 0px` transition="translate spring(300, 30, 1)" drag-timeline="--fling x"
+          box testId="face" position="absolute" left=40 top=20 width=220 height=280 transform-origin="50% 100%" animation="tilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
+          box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="top" transformgeometry=geometry transformrelease=release touch-action="none"
+"##;
+
+/// The top card's presented `x`, after checking its face's tilt and the next
+/// card's rise against it.
+fn dealt(p: &Presenter<Empty>) -> f32 {
+    let x = p.host().presented(id(p, "top")).translate.0;
+    let tilt = p.host().presented(id(p, "face")).rotate;
+    let rise = p.host().presented(id(p, "next")).scale;
+    let (want_tilt, want_rise) = (
+        (x / 20.).clamp(-15., 15.),
+        1. - 0.05 * (1. - x.abs().min(300.) / 300.),
+    );
+    assert!(
+        (tilt - want_tilt).abs() < 1e-4 && (rise - want_rise).abs() < 1e-5,
+        "at x {x}: the face tilts {tilt}, not {want_tilt}; the next card is at {rise}, not {want_rise}"
+    );
+    x
+}
+
+#[test]
+fn a_thrown_card_tilts_its_face_and_raises_the_next_in_every_frame() {
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(DECK).unwrap().encode(),
+        Empty,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(dealt(&p), 0.);
+    // Recognized past the slop, then 20 points every 16 ms: 1,250 pt/s.
+    assert!(p.pointer_down(150., 200., 0.).unwrap());
+    assert!(p.pointer_move(158., 200., 8.).unwrap());
+    for step in 1..=8 {
+        assert!(p
+            .pointer_move(158. + step as f32 * 20., 200., 8. + step as f64 * 16.)
+            .unwrap());
+        let x = dealt(&p);
+        assert!((x - step as f32 * 20.).abs() < 1e-3, "the card is at {x}");
+    }
+    // Lifted at 160 > 120, still moving: thrown, from 160 at the finger's speed.
+    let up = 8. + 8. * 16.;
+    assert!(p.pointer_up(318., 200., up).unwrap());
+    p.tick(up + 1.);
+    let v = (dealt(&p) - 160.) / 0.001;
+    assert!(
+        (v - 1250.).abs() < 125.,
+        "the spring leaves at {v} pt/s, the finger at 1,250"
+    );
+    let mut x = 0.;
+    for frame in 1..=60 {
+        p.tick(up + frame as f64 * 16.);
+        x = dealt(&p);
+    }
+    assert!((x - 600.).abs() < 5., "thrown to {x}");
+    let face = p.host().presented(id(&p, "face"));
+    assert_eq!(
+        (face.rotate, p.host().presented(id(&p, "next")).scale),
+        (15., 1.)
+    );
+}

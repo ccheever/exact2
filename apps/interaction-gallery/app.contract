@@ -21,6 +21,18 @@ keyframes swipeReveal
   from opacity=0 scale=0.8
   to opacity=1 scale=1
 
+// LLP 1057.003 C6: a card thrown aside. Over the top card's horizontal
+// travel, -300 to 300 points, its face tilts -15 to 15 degrees (dx / 20)
+// and the card beneath rises from 0.95 to full size as it leaves either way.
+keyframes deckTilt
+  from rotate=-15
+  to rotate=15
+
+keyframes deckRise
+  from scale=1
+  50% scale=0.95
+  to scale=1
+
 shape Media
   prefersReducedMotion: bool
 
@@ -172,6 +184,7 @@ component InteractionGallery
                   SwipeRow(n=2)
                   SwipeRow(n=3)
                   SwipeRow(n=4)
+                CardDeck()
                 when gallery.total == 0
                   text "A clean slate. Add a study or reset your collection." font-size=18 color=theme.muted
         when gallery.mode == "reorder"
@@ -295,6 +308,50 @@ component SwipeRow
       box testId=`swipe-card-${n}` swiperight=keep touch-action="pan-y" aria-label=`Swipe study ${n} to ${kept ? "undo keeping it" : "keep it"}` width="100%" height="100%" position="relative" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=16 border-width=0 margin=0 box-sizing="border-box" background-color=theme.card transition="translate spring(300, 30, 1)" drag-timeline="--swipe x"
         text `Study ${n}` font-size=15 font-weight=600 color=theme.ink
         text (kept ? "kept" : "") testId=`swipe-kept-${n}` font-size=11 color=theme.muted
+
+// LLP 1057.003 C6: the top card drives `--fling` with its horizontal
+// translate as the transform drag holds it and as its release spring
+// carries it. Its face, a child, tilts with it about its bottom edge: a drag
+// binding refuses a rotated node above its handle, so the rotation sits
+// below. The card beneath, the top card's sibling, follows through the
+// clip's `timeline-scope`. A release past 120 points or 800 points a second
+// throws the card off on the release spring, carrying the fling; anything
+// less springs back.
+component CardDeck
+  inject
+    theme: Theme
+  state panX = 0
+  state panY = 0
+  state dealt = 0
+  state clipWidth = 0
+  action deckGeometry(bw: number, bh: number, pw: number, ph: number) writes clipWidth
+    clipWidth = pw
+  action releaseCard(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes panX, panY
+    panX = 0
+    panY = 0
+    if x > 120 or vx > 800
+      panX = clipWidth + 60
+      panY = y
+    if x < -120 or vx < -800
+      panX = 0 - clipWidth - 60
+      panY = y
+  action deal writes panX, panY, dealt
+    panX = 0
+    panY = 0
+    dealt = dealt + 1
+  view
+    column gap=8 testId="deck"
+      row gap=8 align-items="center"
+        text "Throw the top card aside; the next rises to meet you." font-size=12 color=theme.muted flex=1
+        button press=deal testId="deck-deal" padding=7 border-width=0 border-radius=6 background-color=theme.card
+          text "Deal again" font-size=12 color=theme.ink
+      box testId="deck-clip" timeline-scope="--fling" width="100%" height=320 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color=theme.wash
+        box testId="deck-next" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.card display="flex" align-items="center" justify-content="center" animation="deckRise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
+          text `Card ${dealt + 2}` font-size=18 font-weight=600 color=theme.ink
+        box id="deck-top" testId="deck-top" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` transition="translate spring(300, 30, 1), scale spring(300, 30, 1)" drag-timeline="--fling x"
+          box testId="deck-face" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.accent display="flex" align-items="center" justify-content="center" transform-origin="50% 100%" animation="deckTilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
+            text `Card ${dealt + 1}` font-size=18 font-weight=600 color="#ffffff"
+          box transformDragFor="deck-top" transformgeometry=deckGeometry transformrelease=releaseCard touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="deck-handle" aria-label="Throw the top card aside"
 
 component Viewer
   inject
