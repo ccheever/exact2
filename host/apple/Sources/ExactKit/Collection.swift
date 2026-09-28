@@ -274,6 +274,12 @@ final class CollectionHost {
         return nil
     }
     func owns(_ view: UInt32) -> Bool { entries[view] != nil }
+    /// An inner list whose outer list moves builds only what it owes (LLP
+    /// 1070 F2): a slice for its pending remainder would report and build
+    /// nothing, once a frame for every mounted inner list.
+    func ancestorMoving(_ view: UInt32) -> Bool {
+        entries[view]?.snapshot.parent.flatMap { motion?($0) } != nil
+    }
     func userIntent(_ view: UInt32) {
         guard let entry = entries[view], !correcting else { return }
         entry.cursor.advance(); dirty.insert(view)

@@ -355,7 +355,7 @@ final class Presenter {
     /// two frames of travel uncover, so the scroll callback that follows
     /// finds them built (LLP 1050.000 stage 1; the iOS `ScrollPump`'s rule).
     private func fillCollections(deadline: TimeInterval) {
-        for id in collections.fillPending.sorted() {
+        for id in collections.fillPending.sorted() where !collections.ancestorMoving(id) {
             let started = CACurrentMediaTime()
             let fits = (listFillCosts[id] ?? ListFillCost()).rows(within: deadline - started)
             let needed = collections.rowsToCover(id, ahead: CGFloat(listVelocity(id) * refreshInterval * 2))

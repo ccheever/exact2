@@ -137,7 +137,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         var rows = 0
         let spent = !fillDeferred && CACurrentMediaTime() - turnStarted > refreshInterval * 0.5
         fillDeferred = false
-        for id in p.collections.fillPending.sorted() {
+        for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
             // What this slice builds commits with the next frame, after
