@@ -638,20 +638,32 @@ extension Agent {
         return ["typed": Int(v.id), "value": f.stringValue]
     }
 
+    /// `CGWindowListCreateImage` of one window of this process, without its
+    /// frame's shadow, at the backing resolution. The SDK marks the call
+    /// unavailable (ScreenCaptureKit replaces it, and asks for Screen
+    /// Recording even for the caller's own windows), so it is looked up at
+    /// run time; the window server still answers it for the caller's own.
+    private static func ownWindowImage(_ number: Int) -> CGImage? {
+        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
+        let create = unsafeBitCast(symbol, to: Create.self)
+        // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
+        return create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue()
+    }
+
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
         let v = presenter.viewport
         if req["window"] as? Bool == true {
             // The window server's picture of this window — Metal layers
-            // included, which cacheDisplay cannot see. Needs screen-capture
-            // permission.
+            // included, which cacheDisplay cannot see. A process may read
+            // its own windows without the Screen Recording permission that
+            // `screencapture` (another process) needs.
             guard let window = v.window else { return ["error": "the session's view is not in a window"] }
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            p.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
-            do { try p.run() } catch { return ["error": "screencapture: \(error)"] }
-            p.waitUntilExit()
-            return p.terminationStatus == 0 ? ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)] : ["error": "screencapture exited \(p.terminationStatus)"]
+            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
+            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
+            do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
+            return ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
         }
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
