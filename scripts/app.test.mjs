@@ -669,7 +669,7 @@ test.each([false, true])('ordinary buildBake with split directories=%s streams p
     write('Cargo.toml', '[workspace]\nmembers=["linux"]\nresolver="2"\n');
     write('linux/Cargo.toml', '[package]\nname="plain-linux"\nversion="0.1.0"\nedition="2021"\n');
     write('linux/src/main.rs', 'fn main() { let unused = 1; }');
-    write('app.contract', 'component App\n  view\n');
+    write('app.contract', 'component App\n  view\n    text "plain"\n');
     write('linux/build.rs', `fn main() {
       let release = std::path::Path::new(${JSON.stringify(resolve(dir,'progress-received'))});
       let started = std::time::Instant::now();
