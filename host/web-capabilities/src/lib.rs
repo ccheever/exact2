@@ -22,6 +22,7 @@ pub mod markdown;
 pub mod materials;
 pub mod motion;
 pub mod router;
+pub mod share;
 pub mod surfaces;
 
 /// The [`exact_web::Linked`] of the named capabilities, as a constant:
@@ -49,5 +50,6 @@ pub const ALL: exact_web::Linked = linked!(
     canvas_colors,
     materials,
     backdrop,
-    auth
+    auth,
+    share
 );

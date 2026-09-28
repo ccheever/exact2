@@ -183,6 +183,11 @@ impl<D: DataSource> HostLinks<D> {
                 } else {
                     None
                 },
+                share: if linked.share {
+                    exact_runner::DeviceLinks::<D>::ALL.share
+                } else {
+                    None
+                },
             },
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)

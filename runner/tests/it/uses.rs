@@ -129,3 +129,13 @@ fn a_set_names_what_it_holds_beyond_another() {
     assert!(Uses::NONE.beyond(markdown).is_empty());
     assert_eq!(Uses::NONE.to_string(), "");
 }
+
+#[test]
+fn share_is_a_plan_that_runs_the_command() {
+    // @ref LLP 1069.003 — linked by use on the web (the web core's size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Share));
+    let shares = used(
+        "component A\n  action send\n    share(text=\"hello\")\n  view\n    button \"Share\" press=send\n",
+    );
+    assert!(shares.has(Capability::Share));
+}

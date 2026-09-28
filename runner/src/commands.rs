@@ -10,8 +10,14 @@ use crate::{DataSource, Runner};
 /// `{"command":"share"|"saveFile",…}`: the named command's ruling, as its
 /// module's `request` writes it.
 pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
+    // Each command's ruling is reached through what the runner links (LLP
+    // 1047 D3): a plan that runs one is refused at boot where it isn't.
+    let links = runner.device_links();
     match field_str(json, "command").as_deref() {
-        Some("share") => crate::share::request(runner, json),
+        Some("share") => match links.share {
+            Some((request, _)) => request(runner, json),
+            None => error("share is not linked into this artifact"),
+        },
         Some("saveFile") => crate::save_file::request(runner, json),
         Some("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
             crate::file_pickers::request(runner, json)

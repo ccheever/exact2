@@ -54,6 +54,8 @@ pub struct Linked {
     /// `openAuthSession` (LLP 1069.006): linked when the app grants
     /// `auth.session`; [`crate::HostLinks::of`] reads it.
     pub auth: bool,
+    /// `share(…)` (LLP 1069.003).
+    pub share: bool,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -76,6 +78,7 @@ impl Linked {
         materials: None,
         backdrop: None,
         auth: false,
+        share: false,
     };
 
     /// The capabilities registered here.
@@ -107,6 +110,9 @@ impl Linked {
         }
         if self.backdrop.is_some() {
             uses = uses.with(Capability::Backdrop);
+        }
+        if self.share {
+            uses = uses.with(Capability::Share);
         }
         uses
     }

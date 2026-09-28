@@ -19,10 +19,18 @@ pub struct AuthLinks<D: DataSource> {
     pub check_answer: fn(&mut Runner<D>, u64, &str) -> Result<(), String>,
 }
 
+/// A host command's ruling: [`crate::commands::request`]'s arms.
+pub type CommandLink<D> = fn(&mut Runner<D>, &str) -> String;
+
+/// An agent's answer to a held command, for its journal line.
+pub type AnswerLink<D> = fn(&mut Runner<D>, &str);
+
 /// What a runner links of the device capabilities.
 pub struct DeviceLinks<D: DataSource> {
     /// `openAuthSession` (LLP 1069.006).
     pub auth: Option<AuthLinks<D>>,
+    /// `share(…)` (LLP 1069.003): its ruling, and an agent's answer.
+    pub share: Option<(CommandLink<D>, AnswerLink<D>)>,
 }
 
 impl<D: DataSource> Clone for AuthLinks<D> {
@@ -52,10 +60,14 @@ impl<D: DataSource> DeviceLinks<D> {
     /// Every device capability.
     pub const ALL: DeviceLinks<D> = DeviceLinks {
         auth: Some(AuthLinks::LINKED),
+        share: Some((crate::share::request::<D>, crate::share::answered::<D>)),
     };
 
     /// The core alone.
-    pub const CORE: DeviceLinks<D> = DeviceLinks { auth: None };
+    pub const CORE: DeviceLinks<D> = DeviceLinks {
+        auth: None,
+        share: None,
+    };
 }
 
 impl<D: DataSource> Runner<D> {

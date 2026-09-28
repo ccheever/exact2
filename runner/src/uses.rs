@@ -43,11 +43,13 @@ pub enum Capability {
     Materials,
     /// `backdrop-filter` (LLP 1053.000 D1): its grammar and named refusals.
     Backdrop,
+    /// `share(…)` (LLP 1069.003): a plan whose code runs the command.
+    Share,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 9] = [
+    pub const ALL: [Capability; 10] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -57,6 +59,7 @@ impl Capability {
         Capability::Format,
         Capability::Materials,
         Capability::Backdrop,
+        Capability::Share,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -71,6 +74,7 @@ impl Capability {
             Capability::Format => "format",
             Capability::Materials => "materials",
             Capability::Backdrop => "backdrop",
+            Capability::Share => "share",
         }
     }
 
@@ -194,6 +198,9 @@ pub fn uses(plan: &Plan) -> Uses {
     if calls_format(plan) {
         uses = uses.with(Capability::Format);
     }
+    if runs_command(plan, &["share"]) {
+        uses = uses.with(Capability::Share);
+    }
     uses
 }
 
@@ -214,6 +221,24 @@ fn calls_format(plan: &Plan) -> bool {
             });
     });
     calls
+}
+
+/// Whether any code range runs a host command named one of `names`.
+fn runs_command(plan: &Plan, names: &[&str]) -> bool {
+    let mut runs = false;
+    plan.each_code(&mut |code| {
+        runs = runs
+            || crate::vm::instructions(plan.code(code)).any(|i| {
+                i.is_ok_and(|i| {
+                    i.op == Opcode::Command
+                        && plan
+                            .strings
+                            .get(i.args[0] as usize)
+                            .is_some_and(|_| names.contains(&plan.str(StrId(i.args[0] as u32))))
+                })
+            });
+    });
+    runs
 }
 
 /// The boolean a binding always evaluates to, when its code is one constant:
