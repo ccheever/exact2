@@ -48,6 +48,9 @@ const NORMALIZED = `(() => {
     if (tag === 'input') { delete attrs.checked; attrs['.checked'] = String(el.checked); }
     if (tag === 'a' && 'href' in attrs) attrs.href = el.href;
     for (const p of el.style) if (!p.startsWith('--exact-symbol-')) style[p] = el.style.getPropertyValue(p) + (el.style.getPropertyPriority(p) ? ' !important' : '');
+    // A surface's box follows its host's content box once laid out (canvas2d-glue.js report, LLP 1056 D6).
+    if (tag === 'canvas' && 'data-surface' in attrs) for (const p of ['top', 'right', 'bottom', 'left', 'width', 'height']) delete style[p];
+    if (tag === 'canvas' && 'data-surface' in attrs) for (const p of Object.keys(style)) if (/^border-.*-radius$/.test(p)) delete style[p];
     const content = [];
     for (const n of el.childNodes) {
       if (n.nodeType === Node.ELEMENT_NODE) content.push(walk(n));
