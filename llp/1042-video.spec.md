@@ -1,7 +1,7 @@
 # LLP 1042: Video — browser semantics, native playback
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28)
 **Systems:** Kernel replaced elements; Contract media attributes/events; web video; Apple AVKit; keyboard viewport; Video Player app
 **Author:** Codex for Charlie Cheever
 **Implementer:** Codex, 2026-09-18
@@ -45,9 +45,13 @@ frame. It sets DOM properties and reports events; it does not render frames.
 
 For iOS inline videos that request no controls, fullscreen behavior, PiP,
 linear-playback restriction or video-frame analysis, the optional artifact uses
-an AVPlayerLayer-backed view (Shop, 2026-09-19). Default PiP and frame-analysis
-preferences still select AVKit; authors must opt out to use the layer. The first
-presentation waits for source props instead of constructing a controller before
+an AVPlayerLayer-backed view (Shop, 2026-09-19). PiP and frame analysis select
+AVKit only when set to true by name (Charlie, 2026-09-28, §7 A): Chrome's
+`<video>` without `controls` draws no UI, and without controls or automatic
+start PiP cannot be reached. So `allowsPictureInPicturePlayback` and
+`allowsVideoFrameAnalysis` are unset-means-no on a video without `controls`
+(Live Text on a paused frame is the app's to ask for); with `controls`, AVKit
+is used as before. The first presentation waits for source props instead of constructing a controller before
 they arrive. Enabling any controller feature later promotes the same AVPlayer
 without replacing its item or seeking. Once installed, that controller remains
 until the node is destroyed, including when controls are subsequently hidden.
@@ -86,7 +90,22 @@ spelling. Boolean false removes an HTML boolean attribute, never serializes
 Autoplay remains a request. Browsers can reject it. The sample is muted and
 inline so it can start without surprise audio; rejected play reaches `error`.
 An app observing play/pause may mirror those events into `paused`; equality
-prevents a feedback seek or repeated play call.
+prevents a feedback seek or repeated play call. A loop is a seek: `seeking`,
+`waiting`, `seeked`, `canplay`, `playing`, never `pause`, `play` or `ended`,
+and `paused` stays false (Chrome 154).
+
+**Off screen (Charlie, 2026-09-28, §7 B).** Chrome's rule for a `muted` video
+its `autoplay` attribute started, with `paused` unbound: it plays only while
+some of it (any positive area) is in the viewport, pausing out of view
+(`pause`, `paused` true, the time held) and resuming on return (`play`,
+`playing`); one that loads out of view starts when first seen. A pause or play
+the rule did not ask for (native controls, the end of a video without `loop`)
+ends it, as HTML's `pause()` and `play()` clear the element's can-autoplay
+flag; so does binding `paused`, since the web glue then calls `play()`. The
+web is Chrome's own; Apple checks view geometry through the same host as
+`playbackVisibilityThreshold` below (`OffscreenAutoplay`,
+`VideoModule.swift`). With `paused` bound, a video plays on out of view on
+every host unless `playbackVisibilityThreshold` says otherwise.
 
 ### Visibility-controlled inline playback (Shop, 2026-09-19)
 
@@ -262,14 +281,16 @@ Workspace build/test/Clippy were incomplete in filesystem-helper fixture bakes;
 formatting, caps, boot and Apple platform builds pass. Detailed evidence lives
 in the Shop consumer's `.evidence/video-startup-checkpoint.json`.
 
-## 7. Proposed amendments (awaiting Charlie's ruling, 2026-09-28)
+## 7. The video row's cost, and Charlie's rulings (2026-09-28)
 
-A–C are measured and not built; each needs a ruling. §7.4 is built. The Extra Heavy
+A–C were proposed with these measurements and ruled on 2026-09-28: A and B
+yes, C no (no pool). A and B are built (§2, §3); §7.4 was built before the
+rulings. The Extra Heavy
 feed (`~/bench/xheavy`, heavybench probe) made only of its video row (`video
 … autoplay muted loop playsinline controls=false paused=…`), base origin/main
 `5d177f3f`, "mine" = `perf/video-row` (§7.4), "layer" = the same build
 launched with `allowsPictureInPicturePlayback=false allowsVideoFrameAnalysis=false`
-on the video (A's default), medians of two rounds of `fling` and `ladder` (2026-09-28):
+on the video (A's default, before it was built), medians of two rounds of `fling` and `ladder` (2026-09-28):
 
 | M1 iPad Pro 12.9" | fps | 24k pt/s | ladder 48k | late/s | CPU ms/s | main ms/s | peak MB |
 |---|---|---|---|---|---|---|---|
@@ -292,10 +313,29 @@ The 17-kind feed (one round, iPad): base 103.0 fps at 969 ms/s CPU, mine
 other kinds carry that difference). exact2's peak memory on the video feed
 stays above SwiftUI's (56 against 34 MB on the iPad) on every variant.
 
-### A. No controller for a video without `controls`
+As built (A and B on `perf/video-rulings`, launched as the app authors it, no
+PiP or frame-analysis property; two rounds of `fling` and `ladder`,
+2026-09-28, base and SwiftUI over all four rounds):
 
-§2 makes AVKit the default because PiP and frame analysis default to true,
-and "authors must opt out to use the layer". Proposed: on iOS a video without
+| | fps | 24k pt/s | ladder 48k | late/s | CPU ms/s | main ms/s | peak MB |
+|---|---|---|---|---|---|---|---|
+| iPad SwiftUI | 104.6 | 40.9 | 19.4 | 4.0 | 433 | 239 | 35 |
+| iPad base | 96.6 | 12.4 | 12.4 | 6.4 | 839 | 443 | 89 |
+| iPad as built | 111.1 | 66.8 | 115.9 | 2.2 | 330 | 175 | 55 |
+| iPhone SwiftUI | 96.2 | 34.3 | 18.3 | 11.9 | 438 | 242 | 37 |
+| iPhone base | 85.0 | 10.8 | 11.0 | 6.9 | 789 | 406 | 73 |
+| iPhone as built | 119.5 | 120.0 | 116.6 | 0.5 | 351 | 196 | 75 |
+
+The 17-kind feed on the iPad (one round): as built 105.9 fps at 947 ms/s
+CPU, base 104.2 at 977, SwiftUI 107.8 at 625. The peak-memory gap is not the
+row's: the video row grows the process as much as SwiftUI's does over a fling
+(+13 against +12 MB on the iPad); exact2 starts 13–20 MB higher on every kind
+of the feed (QUEUE).
+
+### A. No controller for a video without `controls` — accepted
+
+§2 made AVKit the default because PiP and frame analysis defaulted to true,
+and "authors must opt out to use the layer". Accepted: on iOS a video without
 `controls` presents the AVPlayerLayer unless the node sets a controller
 feature explicitly: `allowsPictureInPicturePlayback=true`,
 `allowsVideoFrameAnalysis=true`, `canStartPictureInPictureAutomaticallyFromInline`,
@@ -321,19 +361,22 @@ offers Live Text or subject lifting on its frame unless it sets
 `state.media.renderer` reads `AVPlayerLayer`. macOS keeps `AVPlayerView`
 (its cost is not measured here).
 
-### B. Chrome pauses an autoplaying muted video off screen
+### B. Chrome pauses an autoplaying muted video off screen — accepted
 
 Measured in Chrome 154 (headless and headed, 2026-09-28): a `muted` video
 started by its `autoplay` attribute pauses when scrolled wholly out of the
 viewport (`pause`, `paused` true, the time held) and resumes on return
 (`play`, `playing`). One started or restarted by `play()` — which is what the
 web glue does whenever `paused` is bound — plays on. Native hosts play on in
-both cases, so with `paused` unbound they differ from the oracle. Proposed:
-Apple follows Chrome's rule for an unbound `paused`, through
-`VideoVisibilityHost` at threshold 0; `playbackVisibilityThreshold` stays the
-bound case's policy. Not measured on the feed, which binds `paused`.
+both cases, so with `paused` unbound they differed from the oracle. Accepted:
+Apple follows Chrome's rule for an unbound `paused` (§3). A later probe added:
+any visible area counts as in view, and one loaded out of view does not start
+until seen. Checked with one fixture (an autoplaying video pushed out of view
+and back, a bound one beside it, one loaded out of view then revealed) on
+Chrome, macOS and the iOS simulator: the same four phases on all three.
+The feed binds `paused`, so the rule does not touch its numbers.
 
-### C. Player reuse (LLP 1068 Q5): not proposed
+### C. Player reuse (LLP 1068 Q5): no pool, as recommended
 
 On the layer path the part of a row's video a pool would keep (the
 `AVPlayer`, its layer view, their teardown; LLP 1068 §4.6 keeps the item per
@@ -341,7 +384,7 @@ row) is about 10 ms/s (player creation 3.0, the layer view 4.6, detaching
 both 2.6) of the layer path's 151 ms/s of main thread in the fling, and that
 path already beats SwiftUI's. "One node incarnation owns one player" stands.
 
-### 7.4 Built without a ruling (`perf/video-row`)
+### 7.4 Built before the rulings (`perf/video-row`)
 
 Parity fixes and cuts that change nothing an author sees in Chrome: a loop
 is a seek (Chrome's seeking, waiting, seeked, canplay, playing; never pause,
