@@ -1456,8 +1456,12 @@ if (host === 'macos' && [app.manifest.launch_handler?.client_mode].flat()[0] ===
       check(w.document === docs[i] && /^doc:\/\d+\//.test(shown ?? '') && shown.endsWith('/' + docs[i].split('/').pop()), `documents: session ${w.session} shows ${shown}, not ${docs[i]}`);
       check(head && w.title === head, `documents: window ${w.session} is titled ${JSON.stringify(w.title)}, its head ${JSON.stringify(head)}`);
     }
-    const names = docs.map((p) => p.split('/').pop());
-    check(docs.every((p) => seen?.recent?.includes(p)) && names.every((n) => seen?.openRecentMenu?.includes(n)), `documents: Open Recent lists ${JSON.stringify(seen?.openRecentMenu)}`);
+    // The list is the user's own (AppKit keeps it per bundle id, across
+    // runs and checkouts), so another README.md may already be on it; then
+    // the menu names each by its folder, as AppKit's does (`RecentMenu`).
+    const base = (p) => p.split('/').pop();
+    const titles = docs.map((p) => (seen?.recent ?? []).filter((r) => base(r) === base(p)).length > 1 ? `${base(p)} — ${p.split('/').at(-2)}` : base(p));
+    check(docs.every((p) => seen?.recent?.includes(p)) && titles.every((n) => seen?.openRecentMenu?.includes(n)), `documents: Open Recent lists ${JSON.stringify(seen?.openRecentMenu)}, not ${JSON.stringify(titles)}`);
     const second = seen?.windows?.[1];
     console.log(`${host} documents: ${seen?.windows?.map((w) => `${w.session} "${w.title}"`).join(', ')}; the second session's first pixel ${second?.firstPixelMs} ms, footprint ${((seen?.footprint - second?.footprintBefore) / 1048576).toFixed(1)} MB since it was asked for`);
   } catch (error) { check(false, `documents: ${error.message}`); } finally { await d.close(); }
