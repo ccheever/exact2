@@ -58,11 +58,14 @@ pub enum Capability {
     /// `text-transform` (LLP 1064 D5): its Unicode case mapping, for a plan
     /// that binds the row.
     TextTransform,
+    /// `filter` and `clip-path` (LLP 1055.000 D10, D14): their grammars, for
+    /// a plan that binds either row.
+    Effects,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 14] = [
+    pub const ALL: [Capability; 15] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -77,6 +80,7 @@ impl Capability {
         Capability::Picker,
         Capability::Timelines,
         Capability::TextTransform,
+        Capability::Effects,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -96,6 +100,7 @@ impl Capability {
             Capability::Picker => "picker",
             Capability::Timelines => "timelines",
             Capability::TextTransform => "text_transform",
+            Capability::Effects => "effects",
         }
     }
 
@@ -204,6 +209,12 @@ pub fn uses(plan: &Plan) -> Uses {
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
                     uses = uses.with(Capability::TextTransform);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Filter | StyleId::ClipPath)
+                ) {
+                    uses = uses.with(Capability::Effects);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))

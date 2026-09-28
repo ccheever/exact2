@@ -19,6 +19,8 @@ use crate::generated::{
 
 mod backdrop;
 pub use backdrop::link as link_backdrop_filter;
+pub(crate) mod effects;
+pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
 pub use shadow::BoxShadow;

@@ -17,6 +17,7 @@ pub mod canvas_colors;
 pub mod collections;
 pub mod documents;
 pub mod drag;
+pub mod effects;
 pub mod format;
 pub mod inspection;
 pub mod markdown;
@@ -59,5 +60,6 @@ pub const ALL: exact_web::Linked = linked!(
     documents,
     picker,
     timelines,
-    text_transform
+    text_transform,
+    effects
 );

@@ -153,6 +153,14 @@ fn text_transform_is_linked_by_use() {
 }
 
 #[test]
+fn filter_and_clip_path_are_linked_by_use() {
+    // @ref LLP 1055.000 D10, D14 — the web core carries neither grammar unless a plan binds one.
+    assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Effects));
+    assert!(used("component A\n  view\n    box filter=\"blur(2px)\"\n").has(Capability::Effects));
+    assert!(used("component A\n  view\n    box clip-path=\"none\"\n").has(Capability::Effects));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

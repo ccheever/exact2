@@ -554,8 +554,14 @@ fn angle(t: &str) -> Option<f32> {
 }
 
 impl FilterList {
-    /// CSS's grammar: `none`, or functions separated by white space.
+    /// CSS's grammar: `none`, or functions separated by white space. On the
+    /// web, once linked ([`crate::style::link_effects`]).
     pub fn parse(css: &str) -> Option<FilterList> {
+        crate::style::effects::parse(css, |e| e.filter)
+    }
+
+    /// [`Self::parse`]'s grammar.
+    pub(crate) fn grammar(css: &str) -> Option<FilterList> {
         let t = css.trim();
         if t.eq_ignore_ascii_case("none") {
             return Some(FilterList::default());

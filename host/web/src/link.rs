@@ -65,6 +65,9 @@ pub struct Linked {
     pub timelines: Option<fn()>,
     /// `text-transform`'s case mapping (LLP 1064 D5): linked at [`link`].
     pub text_transform: Option<fn()>,
+    /// `filter`'s and `clip-path`'s grammars (LLP 1055.000 D10, D14):
+    /// linked at [`link`].
+    pub effects: Option<fn()>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -95,6 +98,7 @@ impl Linked {
         picker: None,
         timelines: None,
         text_transform: None,
+        effects: None,
     };
 
     /// The capabilities registered here.
@@ -142,6 +146,9 @@ impl Linked {
         if self.text_transform.is_some() {
             uses = uses.with(Capability::TextTransform);
         }
+        if self.effects.is_some() {
+            uses = uses.with(Capability::Effects);
+        }
         uses
     }
 }
@@ -164,6 +171,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.text_transform {
+        link();
+    }
+    if let Some(link) = linked.effects {
         link();
     }
     LINKED.with(|cell| cell.set(linked));
