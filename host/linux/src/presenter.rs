@@ -41,6 +41,8 @@ mod delivery;
 mod display_frame;
 mod events;
 mod picker;
+#[cfg(test)]
+mod save_tests;
 mod svg_hit;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
@@ -470,6 +472,9 @@ impl<D: DataSource> Presenter<D> {
                     Some(exact_plan::Value::Str(id)) => self.show_picker(&id.clone()),
                     _ => eprintln!("exact: showPicker requires an element id"),
                 },
+                // @ref LLP 1069.010 D3 — no save panel here: refused with
+                // `cancel`, or held for the agent like every host.
+                "saveFile" => self.save_file(&c.args),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

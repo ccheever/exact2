@@ -44,6 +44,9 @@ final class Picker: NSObject {
     private var open: Set<UInt32> = []
     #if canImport(UIKit)
     private var requests: [ObjectIdentifier: Request] = [:]
+    /// Exporting document pickers showing (LLP 1069.010 D3): the element
+    /// the outcome goes to, and the scratch directory to remove.
+    var exports: [ObjectIdentifier: (UInt32, URL)] = [:]
     #endif
     init(session: ExactSession) { self.session = session }
 
@@ -238,11 +241,13 @@ extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        if exportFinished(controller, urls: urls) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
         deliver(r.view, accept: r.accept, files: urls.map { ($0, $0.lastPathComponent) })
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        if exportFinished(controller, urls: nil) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
         cancel(r.view)
     }

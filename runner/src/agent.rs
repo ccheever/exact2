@@ -163,6 +163,12 @@ pub fn answer<D: DataSource>(
             if let Some(node) = hold.node {
                 s.push_str(&format!(",\"node\":{node}"));
             }
+            // What the app asked for, for an arm that acts on it (an
+            // export's `from`, LLP 1069.010 D3): the hold's summary.
+            if hold.capability == "export" {
+                s.push_str(",\"request\":");
+                s.push_str(&hold.args);
+            }
             s.push_str(",\"answered\":");
             match &reply {
                 crate::HoldAnswer::Choice(c) => quote(c, &mut s),

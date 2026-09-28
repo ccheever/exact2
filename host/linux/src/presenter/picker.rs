@@ -1,7 +1,9 @@
 //! `showPicker` and its answer on Linux (LLP 1069.002 D8, D9): refused with
 //! `cancel` outside the agent (ruled: no desktop host yet); under the agent,
 //! held for `tap @t cancel` or `type @t <path>…`, whose files are copied
-//! into `app:/tmp/picked/` before `change` fires.
+//! into `app:/tmp/picked/` before `change` fires. `saveFile` likewise
+//! (LLP 1069.010 D3): refused with `cancel`, or held as `export` for
+//! `type @t <path>`, which the `app:/` file is copied to.
 use super::*;
 use exact_runner::picker_support as support;
 use exact_runner::ControlValue;
@@ -79,6 +81,52 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.deliver_picker(view, Event::Change(ControlValue::Files(files)));
+    }
+
+    /// `saveFile(id, from, suggestedName)`: the runner's rule, with no panel.
+    pub(crate) fn save_file(&mut self, args: &[exact_plan::Value]) {
+        use exact_runner::save_file::{arm, Arm, SaveFile};
+        let request = SaveFile::from_args(args);
+        let agent = crate::picker::agent();
+        if let Arm::Refused(_, Some(view)) = arm(self.host.runner_mut(), request, agent, false) {
+            self.deliver_picker(view, Event::Cancel);
+        }
+        self.dirty = true;
+    }
+
+    /// The agent's answer to a held export: copy the `app:/` file to the
+    /// driver's path and fire `change` with its name, or `cancel`.
+    pub(crate) fn answer_save(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        if r["capability"] != "export" {
+            return;
+        }
+        let Some(view) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        if r["answered"] == "cancel" {
+            self.host.log("saveFile: cancelled");
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let to = std::path::PathBuf::from(q["text"].as_str().unwrap_or("").trim());
+        let copied = r["request"]["from"]
+            .as_str()
+            .and_then(crate::picker::resolve)
+            .ok_or_else(|| "no app file to copy".to_owned())
+            .and_then(|from| std::fs::copy(from, &to).map_err(|e| e.to_string()));
+        match copied {
+            Ok(_) => {
+                self.host.log("saveFile: saved");
+                let name = exact_runner::save_file::chosen_name(&to.to_string_lossy()).to_owned();
+                self.deliver_picker(view, Event::Change(ControlValue::Text(name)));
+            }
+            Err(e) => {
+                self.host.log(format!("saveFile: refused: {e}"));
+                self.deliver_picker(view, Event::Cancel);
+            }
+        }
     }
 
     fn deliver_picker(&mut self, view: ViewId, event: Event) {

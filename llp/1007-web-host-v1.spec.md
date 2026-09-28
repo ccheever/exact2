@@ -391,10 +391,17 @@ set so driver settlement can wait for the write. Invalid arguments, an absent
 secure-context clipboard API, and rejected writes are logged as errors; there
 is no fallback that selects text or moves focus. It never reads the clipboard.
 
-`share` (LLP 1069.003) asks the runner first (`exact_share`: refused, or held
+`share` (LLP 1069.003) asks the runner first (`exact_command`: refused, or held
 under `?agent`), then calls `navigator.share` synchronously in the dispatch,
 like `copyText`, so a pressed action has activation and a timer's is refused
 `NotAllowedError` by the browser. Its outcome is a journal line.
+
+`saveFile` (LLP 1069.010 D3) asks the same door, then calls
+`showSaveFilePicker({suggestedName})` synchronously in the dispatch and writes
+the `app:/` file's bytes (`storage-fs.js`) to the handle; `change` carries the
+handle's `name`. Where the browser has no save picker (Safari, Firefox) the
+copy is a download (`<a download>`) under the suggested name. `AbortError`
+fires `cancel`. Under `?agent` the answer's bytes go back to the driver.
 
 `selectText("html-id")` uses the same post-batch target and eligibility checks
 as `focus`, then focuses the input/textarea and calls its native `select()`.

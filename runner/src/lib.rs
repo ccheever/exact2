@@ -40,6 +40,7 @@
 
 pub mod agent;
 pub mod bridge;
+pub mod commands;
 pub mod compare;
 mod conform;
 pub mod delivery;
@@ -50,6 +51,7 @@ pub mod instance;
 pub mod page;
 pub mod request;
 pub mod runner;
+pub mod save_file;
 /// The picker's helpers a host shares (LLP 1069.002): types by name,
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;

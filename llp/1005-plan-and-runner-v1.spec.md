@@ -295,6 +295,12 @@ positionally as `(title, text, url)` with `none` for an absent one; every
 `Command` carries `source`, the view whose event ran the action (`None` for a
 timer or an answer), and the runner's `share::arm` rules for every host:
 refused into the journal, held for the agent, or presented.
+`saveFile(id, from, suggestedName)` (LLP 1069.010 D3) takes three strings; the
+runner's `save_file::arm` refuses a `from` outside the app's `fs.read` grants
+or an unknown `id` (the host then fires `cancel` there), holds `export` for the
+agent, or says present. The chosen name arrives as `change` on the element
+`id` names, a dismissed panel as `cancel`, which any element may now take.
+Hosts reach both rulings through one door, `commands::request`.
 `selectText(html-id)` focuses and selects an editor after commit using the
 host’s native selection API; it accepts one string (LLP 1007 §4, 1008 §5).
 Linux reports this unsupported; it does not emulate a text selection surface.

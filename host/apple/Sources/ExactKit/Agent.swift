@@ -132,6 +132,7 @@ public final class Agent {
             let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
             // A picker's answer is delivered once the library took it (LLP 1069.002 D9).
             session.picker.answered(answer, request: req)
+            session.picker.saveAnswered(answer, request: req)
             Agent.reply(tagged(answer))
             return
         }

@@ -692,7 +692,37 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     "share",
+    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
+    "saveFile",
 ];
+
+/// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
+/// positional. Whether `from` is granted is the host's to refuse.
+fn save_file_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    if args.len() != 3 || args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return err(
+            "type-save-file-argument",
+            "`saveFile` takes three strings: `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`",
+            span,
+        );
+    }
+    for arg in args {
+        let t = infer(arg, scope, shapes)?;
+        if Ty::String.unify(&t).is_none() {
+            return err(
+                "type-save-file-argument",
+                format!("`saveFile`'s arguments are strings, not `{t}`"),
+                arg.span(),
+            );
+        }
+    }
+    Ok(())
+}
 
 /// `share(title=, text=, url=)` (LLP 1069.003 D1): the Web Share API's
 /// member names, named only, each a string, at least one of `text` and
@@ -820,6 +850,9 @@ fn check_stmt(
                 }
                 if name == "share" {
                     return share_args(args, scope, shapes, *span);
+                }
+                if name == "saveFile" {
+                    return save_file_args(args, scope, shapes, *span);
                 }
                 for arg in args {
                     infer(arg, scope, shapes)?;

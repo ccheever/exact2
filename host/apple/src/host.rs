@@ -478,9 +478,15 @@ impl<D: DataSource> Host<D> {
     /// `cancel`, LLP 1069.002 D9). Also the picker's `showPicker` hold and
     /// `pickedPath`, whose reply adds the file to copy into. A `share` hold
     /// delivers nothing but the journal line the runner writes (LLP 1069.003
-    /// D6). `None` for an ordinary `tap` or `type`.
+    /// D6). `appFile` names the file behind an `app:/` path, what an export
+    /// copies from (LLP 1069.010 D3). `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
-        let picked = exact_runner::agent::field_str(request, "op").as_deref() == Some("pickedPath");
+        let op = exact_runner::agent::field_str(request, "op");
+        if op.as_deref() == Some("appFile") {
+            let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
+            return Some(crate::picker::app_file(&path));
+        }
+        let picked = op.as_deref() == Some("pickedPath");
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| {
             if picked {
                 crate::picker::with_files(reply)
@@ -490,10 +496,11 @@ impl<D: DataSource> Host<D> {
         })
     }
 
-    /// A `share` the session is about to run (LLP 1069.003): the runner's
-    /// ruling on it ([`exact_runner::share::request`]).
-    pub fn share(&mut self, request: &str) -> String {
-        exact_runner::share::request(&mut self.runner, request)
+    /// A command that shows system UI, about to run (`share`, LLP 1069.003;
+    /// `saveFile`, LLP 1069.010 D3): the runner's ruling on it
+    /// ([`exact_runner::commands::request`]).
+    pub fn command(&mut self, request: &str) -> String {
+        exact_runner::commands::request(&mut self.runner, request)
     }
 
     /// What a reload keeps (`Runner::carry`).

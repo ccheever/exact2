@@ -424,6 +424,9 @@ and reports `unsupported` on stderr; it neither saves a pretend clipboard nor
 adds an agent operation (2026-09-10; Apple/web behavior: LLP 1008 §5, 1007 §4).
 It has no share sheet either: `share` is journaled `share: refused:
 unavailable`, and held for the agent like every host's (LLP 1069.003).
+Nor a save panel: `saveFile` is `saveFile: refused: unavailable` with
+`cancel`, and held as `export` for the agent, whose `type @t <path>` gets
+the `app:/` file copied there (LLP 1069.010 D3).
 
 **Closed popovers** keep their inspectable logical tree but are hidden and inert
 on Linux (2026-09-20). Linux has no top-layer popover presenter: tapping an invoker

@@ -10,7 +10,7 @@ const urls = new Map(); // app:/tmp/picked/… → its blob URL, for `image`/`vi
 let store; // the app's file store, or null when it has none (a drive without --storage)
 
 globalThis.exact.picker = function install(host) {
-  // host: { dispatch(id, kind, payload), pickedPath(name), appId, agent }
+  // host: { dispatch(id, kind, payload), pickedPath(name), appId, log(line) }
   async function fileStore() {
     if (store !== undefined) return store;
     try {
@@ -57,7 +57,45 @@ globalThis.exact.picker = function install(host) {
     }
     host.dispatch(id, 26, lines.join('\n'));
   }
+  // `saveFile` (LLP 1069.010 D3): the `app:/` file's bytes, from the store.
+  async function appBytes(from) {
+    const s = await fileStore();
+    if (!s) throw new Error('this page has no app files');
+    return new Uint8Array(await s.readFile(from));
+  }
+  const saved = (view, name) => { host.log('saveFile: saved'); host.dispatch(view, 1, name); };
+  const unsaved = (view, line) => { host.log(line); host.dispatch(view, 27, ''); };
   return {
+    /** `saveFile`'s ruling `r` (refused, or present) and, where the browser
+     * has one, the save picker's pending handle: write the copy there, or
+     * download it under the suggested name (Safari, Firefox). */
+    async save(r, chosen) {
+      if (!r.present) return host.dispatch(r.view, 27, '');
+      let bytes;
+      try { bytes = await appBytes(r.from); } catch (e) { return unsaved(r.view, `saveFile: refused: ${e.message ?? e}`); }
+      if (!chosen) {
+        const url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a');
+        a.href = url; a.download = r.suggestedName; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return saved(r.view, r.suggestedName);
+      }
+      try {
+        const handle = await chosen, w = await handle.createWritable();
+        await w.write(bytes); await w.close();
+        saved(r.view, handle.name);
+      } catch (e) { unsaved(r.view, e?.name === 'AbortError' ? 'saveFile: cancelled' : `saveFile: refused: ${e?.name ?? e}`); }
+    },
+    /** The agent's answer to a held export: the bytes go back to the driver,
+     * which writes them at its path; `change` carries that path's name. */
+    async answerSave(r, path) {
+      if (r.answered === 'cancel') { unsaved(r.node, 'saveFile: cancelled'); return {}; }
+      let bytes;
+      try { bytes = await appBytes(r.request.from); } catch (e) { unsaved(r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
+      let raw = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) raw += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      saved(r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());
+      return { bytes: btoa(raw) };
+    },
     /** The element's own `change`: what the person chose. */
     change: (el, id) => el.files?.length ? deliver(id, [...el.files]).finally(() => { el.value = ''; }) : Promise.resolve(),
     cancel: (id) => host.dispatch(id, 27, ''),

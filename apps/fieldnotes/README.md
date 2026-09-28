@@ -22,8 +22,11 @@ bun host/apple/build.mjs fieldnotes-apple --ios --run
 ```
 
 Save a draft before opening another note, or discard the changes. Backups → Save
-backup writes a separate file on this device. Copy the displayed text somewhere
-safe to keep an independent copy. Restore accepts pasted backup text or, when
+backup writes a separate file on this device. Export backup file… copies that
+file wherever you choose (a save panel on macOS, the Files exporter on iOS,
+the browser's save picker or a download on the web; LLP 1069.010 D3), and
+Import backup file… reads one back (LLP 1069.002). Copying the displayed text
+somewhere safe also keeps an independent copy. Restore accepts pasted backup text or, when
 empty, uses the saved file; it validates the complete backup before replacing
 notes in a transaction.
 

@@ -51,6 +51,7 @@ component Fieldnotes
   state confirmRestore = false
   state importPath = ""
   state importName = ""
+  state exportNote = ""
   state confirmDelete = false
   mutation saved as shape Saved
   mutation status as shape Status
@@ -148,6 +149,14 @@ component Fieldnotes
     confirmRestore = true
   action chooseImport
     showPicker("import-file")
+  // Export is a copy the host makes of the saved backup (LLP 1069.010 D3).
+  action exportBackup writes exportNote
+    exportNote = ""
+    saveFile("export-file", "app:/data/backups/fieldnotes.json", "fieldnotes.json")
+  action exported(name) writes exportNote
+    exportNote = `Exported ${name}.`
+  action exportCancelled writes exportNote
+    exportNote = "The backup was not exported."
   action importPicked(files: list<Picked>) writes importPath, importName, confirmRestore
     importPath = match first(files) { case some(f) => f.path, case none => "" }
     importName = match first(files) { case some(f) => f.name, case none => "" }
@@ -233,8 +242,14 @@ component Fieldnotes
               text "Save backup" color="#ffffff"
             button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="#ffffff" border-radius=7
               text "Show saved backup" color="#31554a"
+          input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
           when backupText != ""
             textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+            row gap=10 align-items="center" flex-wrap="wrap"
+              button press=exportBackup disabled=busy testId="export-backup" padding=10
+                text "Export backup file…" color="#31554a"
+              when exportNote != ""
+                text exportNote font-size=13 color="#63766a" testId="export-note"
           textarea font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
           input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
           when confirmRestore

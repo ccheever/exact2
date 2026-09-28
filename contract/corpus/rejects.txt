@@ -913,6 +913,15 @@ component A
     button press=go
       text "a"
 ---
+== type-save-file-argument
+# `saveFile` takes (id, from, suggestedName), three strings (LLP 1069.010 D3).
+component A
+  action go
+    saveFile("out", "app:/data/a.json")
+  view
+    button press=go
+      text "a"
+---
 == lower-animation-name
 component A
   view

@@ -117,6 +117,17 @@ impl<D: DataSource> Runner<D> {
                 let n = super::picker::answer_paths(v).len();
                 format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
             }
+            // An export's answer is where the copy goes (LLP 1069.010 D3):
+            // an absolute path on the driver's machine, never journalled.
+            HoldAnswer::Value(v) if hold.capability == "export" => {
+                let v = v.trim();
+                if !(v.starts_with('/') || v.get(1..3) == Some(":\\")) || v.ends_with(['/', '\\']) {
+                    return Err(format!(
+                        "@{ticket} (export): type an absolute file path to save to"
+                    ));
+                }
+                "answered: a file".to_owned()
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(

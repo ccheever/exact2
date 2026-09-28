@@ -788,6 +788,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.picker.show(args) }
                     continue
                 }
+                if name == "saveFile" {
+                    app.deliver { [weak self] in self?.picker.save(args) }
+                    continue
+                }
                 if name == "format" {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue

@@ -416,10 +416,12 @@ uint32_t exact_agent(ExactRuntime rt, size_t len);
  * input buffer's first len bytes — a refused intent and its reason. Returns 0. */
 uint32_t exact_log(ExactRuntime rt, size_t len);
 
-/* A share command's data (LLP 1069.003): {"title","text","url","source",
- * "agent"} in the input buffer; the output is the runner's ruling,
- * {"refused":…} / {"ticket":N} (held for the agent) / {"present":true}. */
-uint32_t exact_share(ExactRuntime rt, size_t len);
+/* A command that shows system UI, about to run: {"command":"share",
+ * "title","text","url","source","agent"} (LLP 1069.003) or {"command":
+ * "saveFile","id","from","suggestedName","agent"} (LLP 1069.010 D3) in the
+ * input buffer; the output is the runner's ruling, {"refused":…} /
+ * {"ticket":N} (held for the agent) / {"present":true,…}. */
+uint32_t exact_command(ExactRuntime rt, size_t len);
 
 /* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
  * keys, selection, check or networking implementation is linked. The higher

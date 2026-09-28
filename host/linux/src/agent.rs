@@ -139,6 +139,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if let Some(reply) = p.host_mut().answer_hold(line) {
         // A picker's answer is delivered here (LLP 1069.002 D9).
         p.answer_picker(line, &reply);
+        p.answer_save(line, &reply);
         return reply;
     }
     match field_str(line, "op").as_deref() {

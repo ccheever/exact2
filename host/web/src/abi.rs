@@ -857,13 +857,14 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A `share` the glue is about to run (LLP 1069.003): the runner's
-    /// ruling on it ([`exact_runner::share::request`]).
-    pub fn share(&mut self, len: usize) -> u32 {
+    /// A command that shows system UI, which the glue is about to run
+    /// (`share`, LLP 1069.003; `saveFile`, LLP 1069.010 D3): the runner's
+    /// ruling on it ([`exact_runner::commands::request`]).
+    pub fn command(&mut self, len: usize) -> u32 {
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let out = match self.host.as_mut() {
-            Some(h) => exact_runner::share::request(h.runner_mut(), &request),
+            Some(h) => exact_runner::commands::request(h.runner_mut(), &request),
             None => exact_runner::agent::error("not booted"),
         };
         self.emit(out)
@@ -1128,11 +1129,11 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().log(len as usize))
         }
 
-        /// A `share` command's data (LLP 1069.003), JSON in the input
+        /// A command's data (`share`, `saveFile`), JSON in the input
         /// buffer: the output is `{"refused"|"ticket"|"present":…}`.
         #[no_mangle]
-        pub extern "C" fn exact_share(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().share(len as usize))
+        pub extern "C" fn exact_command(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().command(len as usize))
         }
     };
 }

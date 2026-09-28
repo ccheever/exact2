@@ -795,10 +795,9 @@ impl<D: DataSource> Runner<D> {
             n.node_type == exact_kernel::NodeType::Control
                 && n.props.str(exact_kernel::PropId::Type) == Some("file")
         });
+        // HTML's `cancel`: a file input's dismissed picker, or the element
+        // a `saveFile` names when its panel is dismissed (LLP 1069.010 D3).
         if matches!(event, Event::Cancel) {
-            if !file_input {
-                return Err(RunnerError::InvalidEvent { event: "cancel" });
-            }
             let has_handler = self
                 .plan
                 .node(node)

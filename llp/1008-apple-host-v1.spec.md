@@ -383,9 +383,16 @@ string, does not select text, and does not activate the target. macOS and iOS
 handle it inside the session before forwarding external delegate commands.
 
 `share` (LLP 1069.003) is handled in `ExactKit/Share.swift`: the runner rules
-(`exact_share`), then `UIActivityViewController` or `NSSharingServicePicker`
+(`exact_command`), then `UIActivityViewController` or `NSSharingServicePicker`
 anchored to the command's `source` view, a menu row's popover invoker, or the
 window's centre; the outcome is a journal line. No activation is required.
+
+`saveFile` (LLP 1069.010 D3) is `ExactKit/SaveFile.swift`: after the same
+ruling, macOS shows an `NSSavePanel` sheet and copies the `app:/` file (its
+path from the `appFile` op) to the chosen URL; iOS copies it under the
+suggested name into a scratch directory and presents
+`UIDocumentPickerViewController(forExporting:asCopy:)`. `change` carries the
+chosen name; a dismissed panel is `cancel`.
 
 `copyText(text)` (2026-09-10, Messages) is also handled inside the session,
 after its committed batch. Exactly one string is required. iOS assigns it to

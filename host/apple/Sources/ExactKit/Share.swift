@@ -16,12 +16,12 @@ typealias ShareAnchorView = NSView
 
 extension ExactSession {
     func share(_ args: [Any], source: UInt32?) {
-        var request: [String: Any] = ["agent": ExactEnv.agentMode]
+        var request: [String: Any] = ["command": "share", "agent": ExactEnv.agentMode]
         for (i, key) in ["title", "text", "url"].enumerated() where i < args.count {
             if let value = args[i] as? String { request[key] = value }
         }
         if let source { request["source"] = source }
-        guard runtime.share(request)["present"] as? Bool == true else { return }
+        guard runtime.command(request)["present"] as? Bool == true else { return }
         var items: [Any] = []
         if let text = request["text"] as? String { items.append(text) }
         if let url = (request["url"] as? String).flatMap(URL.init(string:)) { items.append(url) }

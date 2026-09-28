@@ -1026,6 +1026,14 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       // made absolute here, where the host copies it from; the browser is
       // handed the bytes, as a real picker hands it a File.
       const held = ((await s.op({ op: 'state' })).pending ?? []).find(p => p.ticket === ticket);
+      // An export's answer is where the copy goes (LLP 1069.010 D3): a
+      // path on this machine; the browser hands back the bytes to write.
+      if (held?.device?.capability === 'export') {
+        const to = resolve(String(value));
+        const r = await s.op({ op, ticket, text: to });
+        if (typeof r.bytes === 'string') { writeFileSync(to, Buffer.from(r.bytes, 'base64')); delete r.bytes; }
+        return r;
+      }
       if (held?.device?.capability !== 'pick') return s.op({ op, ticket, text: String(value) });
       const paths = String(value).split(/\s+/).filter(Boolean).map(p => resolve(p));
       const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());

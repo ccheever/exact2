@@ -55,3 +55,35 @@ pub fn with_files(reply: String) -> String {
     s.push_str("}}");
     s
 }
+
+/// `{"file":"/…"}`: the file behind an `app:/data|cache|tmp/…` path, which
+/// an export copies out (LLP 1069.010 D3); an error for anything else.
+pub fn app_file(path: &str) -> String {
+    let [data, cache, temporary] = roots();
+    let resolved = path.strip_prefix("app:/").and_then(|rest| {
+        let (dir, rest) = rest.split_once('/')?;
+        let root = match dir {
+            "data" => data,
+            "cache" => cache,
+            "tmp" => temporary,
+            _ => return None,
+        };
+        let parts: Vec<&str> = rest.split('/').collect();
+        if parts
+            .iter()
+            .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
+        {
+            return None;
+        }
+        Some(parts.iter().fold(root, |p, part| p.join(part)))
+    });
+    match resolved {
+        Some(file) => {
+            let mut s = String::from("{\"file\":");
+            exact_runner::agent::quote(&file.to_string_lossy(), &mut s);
+            s.push('}');
+            s
+        }
+        None => exact_runner::agent::error(&format!("{path} names no app file")),
+    }
+}
