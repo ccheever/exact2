@@ -458,6 +458,8 @@ final class Presenter {
     var onSwiperight: ((UInt32) -> Void)?
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
+    var onPanStart: ((UInt32) -> Void)?
+    var onPanEnd: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var interacting: UInt32 = 0
     var listViews: [UInt32: NodeView] = [:]
@@ -534,6 +536,8 @@ final class Presenter {
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
+    func panStart(_ id: UInt32) { send(id) { [self] in onPanStart?(id) } }
+    func panEnd(_ id: UInt32, _ vx: Double, _ vy: Double) { send(id) { [self] in onPanEnd?(id, vx, vy) } }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }

@@ -109,11 +109,20 @@ extension NodeView {
             gesture.isEnabled = false; gesture.isEnabled = true; return
         }
         let p = (gesture as? ContactLayoutPan)?.displacement(in: presenter.viewport) ?? gesture.translation(in: presenter.viewport)
-        if gesture.state == .began { layoutPanOrigin = .zero }
+        if gesture.state == .began {
+            layoutPanOrigin = .zero
+            // LLP 1057.002 §6.7 (spike B): the phase before the first delta.
+            if handlers.contains("panstart") { presenter.panStart(id) }
+        }
         if [.began, .changed, .ended].contains(gesture.state) {
             let dx = p.x - layoutPanOrigin.x, dy = p.y - layoutPanOrigin.y
             layoutPanOrigin = p
             if dx != 0 || dy != 0 { presenter.pan(id, Double(dx), Double(dy)) }
+        }
+        // UIKit measures the release velocity; a cancelled pan releases at rest.
+        if [.ended, .cancelled, .failed].contains(gesture.state), handlers.contains("panend") {
+            let v = gesture.state == .ended ? gesture.velocity(in: presenter.viewport) : .zero
+            presenter.panEnd(id, Double(v.x), Double(v.y))
         }
     }
 }

@@ -271,6 +271,26 @@ component Viewer
   state portHeight = 0
   derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
   derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
+  // LLP 1057.002 §6.7 spike B: at Fit, with dismissing on, the photo drags down to
+  // dismiss; per-frame app code moves it and derives the backdrop from the distance.
+  state dismissing = false
+  state dragging = false
+  state dismissY = 0
+  derive backdrop = 1 - min(max(dismissY / 300, 0), 1)
+
+  action toggleDismiss writes dismissing, dismissY
+    dismissing = not dismissing
+    dismissY = 0
+
+  action dismissStart writes dragging
+    dragging = true
+
+  action dismissPan(dx: number, dy: number) writes dismissY
+    dismissY = dismissY + dy
+
+  action dismissEnd(vx: number, vy: number) writes dragging, dismissY
+    dragging = false
+    dismissY = (dismissY + vy * 0.15 > 150 ? 700 : 0)
 
   action chooseZoom(value: number) writes zoom, panX, panY
     if value == 1 or value == 2
@@ -278,10 +298,11 @@ component Viewer
       panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
       panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
 
-  action resetPhoto writes zoom, panX, panY
+  action resetPhoto writes zoom, panX, panY, dismissY
     zoom = 1
     panX = 0
     panY = 0
+    dismissY = 0
 
   action photoGeometry(bw: number, bh: number, pw: number, ph: number) writes boxWidth, boxHeight, portWidth, portHeight, panX, panY
     if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
@@ -320,10 +341,16 @@ component Viewer
             text "2×" font-size=12 color=theme.ink
           button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Center and fit" font-size=12 color=theme.ink
-        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
+          button press=toggleDismiss testId="viewer-dismiss-mode" aria-label=`Drag to dismiss${dismissing ? ", on" : ""}` padding=8 border-width=0 border-radius=6 background-color=(dismissing ? theme.wash : theme.card)
+            text "Drag to dismiss" font-size=12 color=theme.ink
+        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
+          box testId="viewer-backdrop" position="absolute" left=0 top=0 width="100%" height="100%" background-color="#172521" opacity=backdrop transition=(dragging ? "none" : "opacity spring(300, 30, 1)")
           box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
-            image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
-            box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
+            image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image" translate=`0px ${dismissY}px` transition=(dragging ? "none" : "translate spring(300, 30, 1)")
+            when dismissing and zoom == 1
+              box pan=dismissPan panstart=dismissStart panend=dismissEnd touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-dismiss" aria-label=`Drag ${viewer.photo.title} down to dismiss`
+            else
+              box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7
           row gap=10 align-items="center"
             text viewer.photo.title font-size=28 font-weight=600 color=theme.ink flex=1

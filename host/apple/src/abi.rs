@@ -933,6 +933,14 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            // LLP 1057.002 §6.7, spike B: a pan's phases.
+            26 => Event::PanStart,
+            27 => {
+                let Some(event) = Event::pan_end_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid pan velocity"}"#.into());
+                };
+                event
+            }
             _ => {
                 return self.emit(format!(
                     r#"{{"ops":[],"error":"unknown event kind {kind}"}}"#

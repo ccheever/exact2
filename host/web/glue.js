@@ -530,7 +530,7 @@ function attach(el, id, handlers) {
       on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))); });
     } else if (kind === "pan") {
       let pan;
-      on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
+      on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on, handlers))?.(e));
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
@@ -1439,7 +1439,7 @@ async function main() {
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
-        dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
+        dispatch: (id, payload, kind = 20) => send(wasm.exact_dispatch(id, kind, writeIn(payload), now())) });
     }).catch(console.error);
     try {
       const module = await (prepared ?? realm());

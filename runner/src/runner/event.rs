@@ -217,6 +217,11 @@ pub enum Event {
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
+    /// A recognized pan began, before its first `Pan` (LLP 1057.002 §6.7, spike B).
+    PanStart,
+    /// A recognized pan ended: its release velocity in viewport CSS pixels per
+    /// second (zero when cancelled) (LLP 1057.002 §6.7, spike B).
+    PanEnd(f64, f64),
     /// A standard media event. Numeric payloads are seconds.
     Media(EventKind, String),
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
@@ -333,9 +338,16 @@ impl Event {
         (pixel(x) && pixel(y)).then_some(Self::Pan(x, y))
     }
 
+    /// Decode a pan's release velocity, two finite pixels per second.
+    pub fn pan_end_payload(payload: &str) -> Option<Self> {
+        let [x, y] = tuple(payload)?;
+        (x.is_finite() && y.is_finite()).then_some(Self::PanEnd(x, y))
+    }
+
     fn invalid_payload(&self) -> Option<&'static str> {
         match *self {
             Self::Pan(x, y) if !pixel(x) || !pixel(y) => Some("pan"),
+            Self::PanEnd(x, y) if !x.is_finite() || !y.is_finite() => Some("panend"),
             Self::HeightRelease { height, velocity } if !valid_height_release(height, velocity) => {
                 Some("heightrelease")
             }
@@ -753,6 +765,8 @@ impl<D: DataSource> Runner<D> {
                 Event::Refresh => "refresh",
                 Event::Scroll(_, _) => "scroll",
                 Event::Pan(_, _) => "pan",
+                Event::PanStart => "panstart",
+                Event::PanEnd(_, _) => "panend",
                 Event::Media(kind, _) => kind.name(),
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
@@ -838,6 +852,8 @@ impl<D: DataSource> Runner<D> {
                 kind.name(),
             ),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
+            Event::PanStart => (EventKind::Panstart, None, "panstart"),
+            Event::PanEnd(_, _) => (EventKind::Panend, None, "panend"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),
             Event::TransformGeometry { .. } => {
                 (EventKind::Transformgeometry, None, "transformgeometry")
@@ -873,7 +889,7 @@ impl<D: DataSource> Runner<D> {
                 args.push(Value::str(&item));
                 args.push(before.map_or(Value::NONE, |s| Value::some(Value::str(&s))));
             }
-            Event::Scroll(left, top) | Event::Pan(left, top) => {
+            Event::Scroll(left, top) | Event::Pan(left, top) | Event::PanEnd(left, top) => {
                 args.extend([Value::Number(left), Value::Number(top)])
             }
             Event::HeightRelease { height, velocity } => {

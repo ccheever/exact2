@@ -103,11 +103,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
   return {
-    pan(el, id, on) {
+    pan(el, id, on, hears = []) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
       // LLP 1057.001 §1: an inner swipe that is still deciding (its pointer
       // 'pending' in exact.contacts) goes first; the pan waits for its verdict,
       // and a pan that began cancels the click (rule 4).
+      // LLP 1057.002 §6.7 (spike B): `panstart` before the first delta and
+      // `panend` with the release velocity, where the node hears them.
       let contact = null, frame = 0, suppressClick = false;
       const contacts = () => (globalThis.exact ??= {}).contacts ??= new Map();
       const live = () => views.get(id) === el && !retiredViews.has(el) && ready() && !inertAncestor(el) && !el.closest(":disabled,[disabled='true']");
@@ -117,9 +119,26 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         const [x,y] = contact.to, [px,py] = contact.from;
         // exact_motion::gesture::SLOP; a pan-only plan links no motion export to ask.
         if (!contact.active && Math.max(Math.abs(x-px),Math.abs(y-py)) <= 4) return;
-        if (!contact.active) release(); // a pan ends a press, as it cancels a touch
+        if (!contact.active) { release(); if (hears.includes("panstart")) dispatch(id, "", 26); } // a pan ends a press, as it cancels a touch
         contact.active = true; contact.from = [x,y];
         if (x !== px || y !== py) dispatch(id, `${x-px},${y-py}`);
+      };
+      // exact_motion::VelocityTracker's estimate: recency-weighted least
+      // squares over the last 100 ms of samples, zero with fewer than two.
+      const velocity = (samples, now) => {
+        const recent = samples.filter(([t]) => now - t <= 0.1);
+        if (recent.length < 2) return [0, 0];
+        let sw = 0, st = 0, sx = 0, sy = 0;
+        for (const [t, x, y] of recent) { const w = 1 - (now - t) / 0.1; sw += w; st += w * t; sx += w * x; sy += w * y; }
+        const [mt, mx, my] = [st / sw, sx / sw, sy / sw];
+        let stt = 0, stx = 0, sty = 0;
+        for (const [t, x, y] of recent) { const w = 1 - (now - t) / 0.1, dt = t - mt; stt += w * dt * dt; stx += w * dt * (x - mx); sty += w * dt * (y - my); }
+        return stt > 0 ? [stx / stt, sty / stt] : [0, 0];
+      };
+      const end = (e, cancelled) => {
+        if (!contact?.active || !hears.includes("panend") || !live()) return;
+        const [vx, vy] = cancelled ? [0, 0] : velocity(contact.samples, e.timeStamp / 1000);
+        dispatch(id, `${vx},${vy}`, 27);
       };
       const waiting = e => {
         if (!contact.deferred) return false;
@@ -128,11 +147,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (state === "claimed") { contact = null; return true; }
         contact.deferred = false; el.setPointerCapture(e.pointerId); return false;
       };
-      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
-      on("pointerup", e => { if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; } contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active; contact=null; });
-      on("pointercancel", () => { cancelAnimationFrame(frame); frame=0; contact=null; });
+      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; contact.to=[e.clientX,e.clientY]; contact.samples.push([e.timeStamp/1000,e.clientX,e.clientY]); if (contact.samples.length > 16) contact.samples.shift(); if (!frame) frame=requestAnimationFrame(flush); });
+      on("pointerup", e => { if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; } contact.to=[e.clientX,e.clientY]; flush(); end(e, false); suppressClick = !!contact?.active; contact=null; });
+      on("pointercancel", e => { cancelAnimationFrame(frame); frame=0; end(e, true); contact=null; });
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
-      on("lostpointercapture", e => { if (e.target !== el) return; cancelAnimationFrame(frame); frame=0; contact=null; });
+      on("lostpointercapture", e => { if (e.target !== el) return; cancelAnimationFrame(frame); frame=0; end(e, true); contact=null; });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
       return e => {
         // Only the click right after a pan is suppressed; a drag makes none.
@@ -143,7 +162,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (inner && inner !== el && el.contains(inner)) return;
         const deferred = contacts().get(e.pointerId) === "pending";
         e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId);
-        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred};
+        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred,samples:[[e.timeStamp/1000,e.clientX,e.clientY]]};
       };
     },
   };

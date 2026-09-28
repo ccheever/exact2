@@ -424,7 +424,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 38] = [
+pub const HANDLERS: [&str; 40] = [
     "press",
     "change",
     "input",
@@ -442,6 +442,8 @@ pub const HANDLERS: [&str; 38] = [
     "refresh",
     "scroll",
     "pan",
+    "panstart",
+    "panend",
     "loadedmetadata",
     "durationchange",
     "timeupdate",
@@ -491,7 +493,7 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     let payload = match attr {
         "transformgeometry" => 4,
         "transformrelease" => 6,
-        "scroll" | "pan" | "heightrelease" | "reorderdrop" => 2,
+        "scroll" | "pan" | "panend" | "heightrelease" | "reorderdrop" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
     Some(given + payload..=given + payload)
@@ -621,6 +623,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
                         None if attr == "heightrelease" => " plus height and velocity",
+                        None if attr == "panend" => " plus the release velocity, x and y",
                         None if attr == "transformgeometry" => " plus four geometry numbers",
                         None if attr == "transformrelease" => " plus six transform release numbers",
                         None => "",
@@ -640,7 +643,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
         }
         if matches!(
             attr,
-            "pan" | "heightrelease" | "transformgeometry" | "transformrelease"
+            "pan" | "panend" | "heightrelease" | "transformgeometry" | "transformrelease"
         ) && params[given..].iter().any(|ty| *ty != Ty::Number)
         {
             return err(

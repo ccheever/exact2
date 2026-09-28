@@ -179,6 +179,11 @@ final class Runtime {
     func pan(_ view: UInt32, dx: Double, dy: Double, now: Double) -> Batch {
         read(exact_dispatch(rt, view, 20, write("\(dx),\(dy)"), now))
     }
+    /// A pan's phases (LLP 1057.002 §6.7, spike B).
+    func panStart(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 26, 0, now)) }
+    func panEnd(_ view: UInt32, vx: Double, vy: Double, now: Double) -> Batch {
+        read(exact_dispatch(rt, view, 27, write("\(vx),\(vy)"), now))
+    }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))

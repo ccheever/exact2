@@ -617,6 +617,8 @@ final class Presenter {
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
+    var onPanStart: ((UInt32) -> Void)?
+    var onPanEnd: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var onListIndex: ((UInt32, String) -> Int?)?
     var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
