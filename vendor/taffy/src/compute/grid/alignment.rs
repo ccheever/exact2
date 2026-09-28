@@ -105,6 +105,10 @@ pub(super) fn align_and_position_item(
     let contain = style.contain();
     let scrollbar_width = style.scrollbar_width();
     let aspect_ratio = style.aspect_ratio();
+    // EXACT PATCH 17: a replaced element neither stretches to its area by
+    // default (CSS Grid 1 §6.2: `normal` is `start` for an item with a ratio
+    // or natural size) nor takes its size from its insets.
+    let is_replaced = style.is_compressible_replaced();
     // Resolve writing-mode-relative self-start/self-end keywords against the item's own
     // direction. The horizontal axis is the inline axis (Taffy only supports horizontal-tb);
     // the vertical (block) axis resolves them to plain start/end.
@@ -162,14 +166,18 @@ pub(super) fn align_and_position_item(
     // See: https://www.w3.org/TR/css-grid-1/#grid-item-sizing
     let alignment_styles = InBothAbsAxis {
         horizontal: justify_self.or(container_alignment_styles.horizontal).unwrap_or_else(|| {
-            if inherent_size.width.is_some() || size_style.width.is_sizing_keyword() {
+            if inherent_size.width.is_some() || size_style.width.is_sizing_keyword() || is_replaced {
                 AlignSelf::START
             } else {
                 AlignSelf::STRETCH
             }
         }),
         vertical: align_self.or(container_alignment_styles.vertical).unwrap_or_else(|| {
-            if inherent_size.height.is_some() || size_style.height.is_sizing_keyword() || aspect_ratio.is_some() {
+            if inherent_size.height.is_some()
+                || size_style.height.is_sizing_keyword()
+                || aspect_ratio.is_some()
+                || is_replaced
+            {
                 AlignSelf::START
             } else {
                 AlignSelf::STRETCH
@@ -230,7 +238,7 @@ pub(super) fn align_and_position_item(
     let width = inherent_size.width.or_else(|| {
         // Apply width derived from both the left and right properties of an absolutely
         // positioned element being set
-        if position == Position::Absolute {
+        if position == Position::Absolute && !is_replaced {
             if let (Some(left), Some(right)) = (inset_horizontal.start, inset_horizontal.end) {
                 return Some(f32_max(grid_area_minus_item_margins_size.width - left - right, 0.0));
             }
@@ -275,7 +283,7 @@ pub(super) fn align_and_position_item(
     let Size { width, height } = Size { width, height: inherent_size.height }.maybe_apply_aspect_ratio(aspect_ratio);
 
     let height = height.or_else(|| {
-        if position == Position::Absolute {
+        if position == Position::Absolute && !is_replaced {
             if let (Some(top), Some(bottom)) = (inset_vertical.start, inset_vertical.end) {
                 return Some(f32_max(grid_area_minus_item_margins_size.height - top - bottom, 0.0));
             }

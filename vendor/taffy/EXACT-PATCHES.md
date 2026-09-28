@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14 and 15 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16 and 17 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -549,3 +549,39 @@ It makes `TaffyTree` `!Send`, which the kernel already was. Held by the
 kernel's layout suites (`cargo test -p exact-kernel`), which lay out through
 shared styles throughout, and `kernel/src/kernel/trim.rs`. Upstream would
 want an `Arc` or a style store keyed by handle; this stays Exact's.
+
+## Patch 16: a replaced element that holds children is sized as a leaf — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-09-27, for `canvas`'s default size.
+
+`TaffyView::compute_child_layout` (`src/tree/taffy_tree.rs`) dispatches a
+node with children to its display's algorithm, which sizes an auto box from
+those children. A canvas is a replaced element whose children are laid out
+in its box and never size it (LLP 1014 D1, the web's `layoutsubtree`). A
+node whose style says `item_is_replaced` and that has a measure context is
+therefore sized by the measure function, as a leaf with no children is; on
+`PerformLayout` its display's algorithm then lays the children out at that
+border-box size as an independent formatting context, and only their
+scrollable overflow is kept from it. Held by `kernel/tests/it/canvas.rs`
+(`a_canvas_with_children_is_its_natural_size`). Upstream has no replaced
+container; this stays Exact's.
+
+## Patch 17: a replaced element never stretches to a grid area or its insets — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-09-27, with patch 16.
+
+Upstream stretches an auto-sized grid item whose `justify-self`/`align-self`
+are `normal`, and derives an absolutely positioned box's size from opposing
+insets, whatever the box. CSS gives a replaced element neither: `normal` is
+`start` for an item with a ratio or a natural size (CSS Grid 1 §6.2), and a
+replaced absolute box keeps its natural or ratio size, the insets only
+placing it (CSS 2.1 §10.3.8, §10.6.5). With `item_is_replaced`:
+`compute/grid/alignment.rs::align_and_position_item` defaults both axes to
+`start` and ignores insets for size; `compute/grid/mod.rs` gives track sizing
+the same default after placement, so an auto column is not sized for a
+stretched item; the absolute passes of `compute/block.rs` and
+`compute/flexbox.rs` skip the inset-derived width and height. Held by
+`kernel/tests/it/browser_replaced.rs`
+(`replaced_elements_do_not_stretch_in_a_grid_area_or_between_insets`, 66
+literal-Chrome cases: canvas, iframe, video, `svg` with and without a view
+box, and a loaded image).

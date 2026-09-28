@@ -376,6 +376,21 @@ upstream Taffy's transfer (`vendor/taffy/EXACT-PATCHES.md` patch 12). Declared: 
 *block* flow Taffy stretches an auto-width image to its container where CSS
 would use the intrinsic width (in a stretching flex column both stretch, by
 ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
+A `Canvas` is replaced too: before any row its natural size is its bitmap's
+default, 300×150, so it has the natural ratio 2:1, which a plain
+`aspect-ratio` overrides. An `iframe` (`WebView`), a `Video` before its
+metadata and an `svg` without a view box have only CSS Images 3 §5's
+300×150 default object size and no natural ratio: a width leaves the height
+150, an authored ratio alone stretches the box to the offered width, and a
+flex row may shrink a bare `svg` to nothing, as Chrome does
+(`kernel/tests/it/browser_replaced.rs`). A canvas's children are laid out in
+the box its measure gives and never size it (Taffy patch 16). No replaced
+element stretches to a grid area by default or between an absolute box's
+insets (Taffy patch 17). Declared: the
+web draws a canvas as a `div` that CSS sizes as a `<canvas>`
+(`host/web/src/element.rs`, `canvas_css`), except that in a flex row its
+automatic minimum width is a `div`'s: two bare canvases in a 400px row are
+200 wide there, and 300 in the kernel and on a `<canvas>`.
 `white-space` is a paragraph row: the measure interface carries one mode per
 paragraph, so an inline run inside a paragraph takes its paragraph's collapsing
 and wrapping, where CSS lets each inline element choose its own. A text input's

@@ -1,6 +1,7 @@
 //! A canvas holds children (LLP 1014 D1): they are laid out in its box — the
 //! web's `layoutsubtree`: block flow, the canvas as containing block — and
-//! never size it. Its size is its rows', or the tag's 300×150.
+//! never size it. Its size is its rows', else its natural 300×150 and
+//! ratio 2:1, as a replaced element's (`browser_replaced.rs`).
 
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, Op, StyleId, StyleProps};
 
@@ -86,6 +87,40 @@ fn a_percentage_child_resolves_against_the_canvas() {
     child.mask.set(StyleId::Height);
     let kernel = tree(sized(200.0, 100.0), child);
     assert_eq!(frame(&kernel, 3), (0.0, 0.0, 200.0, 50.0));
+}
+
+/// Rows from `(row, value)` pairs.
+fn rows(rows: &[(StyleId, Dimension)]) -> StyleProps {
+    let mut s = StyleProps::default();
+    for (id, value) in rows {
+        match id {
+            StyleId::Width => s.width = *value,
+            StyleId::Height => s.height = *value,
+            _ => unreachable!(),
+        }
+        s.mask.set(*id);
+    }
+    s
+}
+
+#[test]
+fn a_canvas_with_children_is_its_natural_size() {
+    // A bare canvas holding a child larger than it: 300×150, the child laid
+    // out in that box (block flow fills its width) and overflowing it.
+    let child = sized(0.0, 400.0).without_width();
+    let kernel = tree(StyleProps::default(), child.clone());
+    assert_eq!(frame(&kernel, 2), (0.0, 0.0, 300.0, 150.0));
+    assert_eq!(frame(&kernel, 3), (0.0, 0.0, 300.0, 400.0));
+    // A width gives the height through the natural ratio, children aside.
+    let kernel = tree(rows(&[(StyleId::Width, Dimension::Percent(100.0))]), child);
+    assert_eq!(frame(&kernel, 2), (0.0, 0.0, 390.0, 195.0));
+    assert_eq!(frame(&kernel, 3), (0.0, 0.0, 390.0, 400.0));
+    // A percentage child resolves against the natural box.
+    let mut half = StyleProps::default();
+    half.height = Dimension::Percent(50.0);
+    half.mask.set(StyleId::Height);
+    let kernel = tree(StyleProps::default(), half);
+    assert_eq!(frame(&kernel, 3), (0.0, 0.0, 300.0, 75.0));
 }
 
 trait WithoutWidth {

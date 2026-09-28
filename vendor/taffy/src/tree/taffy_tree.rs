@@ -364,6 +364,36 @@ where
             debug_log!(display_mode);
             debug_log_node!(inputs);
 
+            // EXACT PATCH 16: a replaced element that holds children (a canvas
+            // laying out its subtree) is sized by the measure function, as a
+            // leaf; its children are then laid out in that box, as an
+            // independent formatting context, and never size it.
+            let node_key = node_id.into();
+            if has_children
+                && display_mode != Display::None
+                && tree.taffy.nodes[node_key].style.item_is_replaced
+                && tree.taffy.nodes[node_key].has_context
+            {
+                let style = &tree.taffy.nodes[node_key].style;
+                let node_context = tree.taffy.node_context_data.get_mut(node_key);
+                let leaf = (tree.measure_function)(inputs, node_id, node_context, style);
+                if inputs.run_mode != RunMode::PerformLayout {
+                    return leaf;
+                }
+                let inputs = LayoutInput { known_dimensions: leaf.size.map(Some), ..inputs };
+                let children = match display_mode {
+                    #[cfg(feature = "flexbox")]
+                    Display::Flex => compute_flexbox_layout(tree, node_id, inputs),
+                    #[cfg(feature = "grid")]
+                    Display::Grid => compute_grid_layout(tree, node_id, inputs),
+                    #[cfg(feature = "block_layout")]
+                    _ => compute_block_layout(tree, node_id, inputs, None),
+                    #[cfg(not(feature = "block_layout"))]
+                    _ => leaf,
+                };
+                return LayoutOutput { scrollable_overflow_rect: children.scrollable_overflow_rect, ..leaf };
+            }
+
             // Dispatch to a layout algorithm based on the node's display style and whether the node has children or not.
             match (display_mode, has_children) {
                 (Display::None, _) => compute_hidden_layout(tree, node_id),

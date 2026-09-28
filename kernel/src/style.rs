@@ -1331,6 +1331,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             // @ref LLP 1055.000 D4 — an `svg`'s view box is its natural ratio.
             s.aspect_ratio = Some(ratio);
             s.aspect_ratio_content_box = true;
+        } else if let Some(((w, h), true)) = arena.node_type(slot).default_object_size() {
+            // A canvas's natural size gives it a natural ratio.
+            s.aspect_ratio = Some(w / h);
+            s.aspect_ratio_content_box = true;
         }
     }
     // A native tab bar fills the tablist's box. Its measured height supplies

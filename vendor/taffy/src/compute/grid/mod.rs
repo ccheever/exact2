@@ -259,6 +259,18 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
         justify_items.unwrap_or(AlignItems::STRETCH),
         &name_resolver,
     );
+    // EXACT PATCH 17: with no alignment given, a replaced item is placed at
+    // `start`, never stretched (CSS Grid 1 §6.2), as `align_and_position_item`
+    // places it: track sizing must not size it as stretched.
+    for item in items.iter_mut().filter(|item| item.is_compressible_replaced) {
+        let style = tree.get_grid_child_style(item.node);
+        if style.justify_self().is_none() && justify_items.is_none() {
+            item.justify_self = AlignItems::START;
+        }
+        if style.align_self().is_none() && align_items.is_none() {
+            item.align_self = AlignItems::START;
+        }
+    }
 
     // Extract track counts from previous step (auto-placement can expand the number of tracks)
     let final_col_counts = *cell_occupancy_matrix.track_counts(AbsoluteAxis::Horizontal);

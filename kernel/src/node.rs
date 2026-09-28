@@ -41,16 +41,41 @@ impl NodeType {
     }
 
     /// Whether the node's size comes from a measure — text, a replaced
-    /// element (`Image`) with an intrinsic size the host reported, or a form
-    /// control whose size the platform decides (LLP 1069.001 D3).
+    /// element sized from its natural or default object size (a canvas's
+    /// children then laid out in the measured box, Taffy patch 16), or a
+    /// form control whose size the platform decides (LLP 1069.001 D3).
     pub fn is_measured_leaf(self) -> bool {
         self.is_text_leaf() || self.is_replaced() || self == NodeType::Control
     }
 
-    /// An image, video or `svg` whose content has an intrinsic size. An
-    /// `svg`'s children are its content, never laid out (LLP 1055 D3).
+    /// An image, video, `svg`, canvas or iframe: a replaced element, sized
+    /// from what it shows, never from children. An `svg`'s children are its
+    /// content, never laid out (LLP 1055 D3); a canvas's are laid out in its
+    /// box and never size it (LLP 1014 D1).
     pub fn is_replaced(self) -> bool {
-        matches!(self, NodeType::Image | NodeType::Video | NodeType::Svg)
+        matches!(
+            self,
+            NodeType::Image
+                | NodeType::Video
+                | NodeType::Svg
+                | NodeType::Canvas
+                | NodeType::WebView
+        )
+    }
+
+    /// The size a replaced element has before (or without) a host-reported
+    /// one, and whether it is natural. CSS Images 3 §5's default object
+    /// size is 300×150, with no natural ratio, for an iframe, a video before
+    /// its metadata and an `svg` without a view box. A canvas's natural size
+    /// is its bitmap's, whose `width`/`height` attributes default to 300×150
+    /// (HTML §4.12.5), so it has the natural ratio 2:1. A broken image has
+    /// neither and is 0×0.
+    pub fn default_object_size(self) -> Option<((f32, f32), bool)> {
+        match self {
+            NodeType::Canvas => Some(((300.0, 150.0), true)),
+            NodeType::Video | NodeType::Svg | NodeType::WebView => Some(((300.0, 150.0), false)),
+            _ => None,
+        }
     }
 
     /// Whether this node's children are laid out as boxes: not a paragraph's
@@ -102,10 +127,10 @@ mod tests {
         assert!(!NodeType::Control.is_replaced());
         assert!(!NodeType::Control.can_hold_children());
         assert!(NodeType::ScrollView.scrolls_by_default());
-        // A canvas holds children (LLP 1014 D1) and is never measured: its
-        // size is its rows', never its content's.
+        // A canvas holds children (LLP 1014 D1) and is measured as a
+        // replaced element: its size is never its content's.
         assert!(NodeType::Canvas.can_hold_children());
-        assert!(!NodeType::Canvas.is_measured_leaf());
+        assert!(NodeType::Canvas.is_measured_leaf());
         assert!(!NodeType::WebView.can_hold_children());
         // A head is metadata: never a container, never measured.
         assert!(NodeType::Head.is_metadata());

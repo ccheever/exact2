@@ -35,6 +35,17 @@ pub(crate) fn lay_out_with(
     texts: &[(u32, &str)],
     images: &[(u32, Option<(f32, f32)>)],
 ) -> Kernel {
+    lay_out_as(root, nodes, texts, images, NodeType::View)
+}
+
+/// [`lay_out_with`], where a node neither text nor an image is a `kind`.
+pub(crate) fn lay_out_as(
+    root: StyleProps,
+    nodes: Vec<(u32, u32, Rows)>,
+    texts: &[(u32, &str)],
+    images: &[(u32, Option<(f32, f32)>)],
+    kind: NodeType,
+) -> Kernel {
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -55,7 +66,7 @@ pub(crate) fn lay_out_with(
             } else if images.iter().any(|(i, _)| i == id) {
                 NodeType::Image
             } else {
-                NodeType::View
+                kind
             },
         });
         let mut rows = rows.clone();

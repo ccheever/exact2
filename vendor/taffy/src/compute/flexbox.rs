@@ -2800,6 +2800,8 @@ fn perform_absolute_layout_on_absolute_children(
         let contain = child_style.contain();
         let scrollbar_width = child_style.scrollbar_width();
         let aspect_ratio = child_style.aspect_ratio();
+        // EXACT PATCH 17: a replaced element's insets place it, never size it.
+        let is_replaced = child_style.is_compressible_replaced();
         let align_self = child_style.align_self().unwrap_or(constants.align_items).resolve_self_relative(
             child_style.direction(),
             constants.layout_direction,
@@ -2868,7 +2870,7 @@ fn perform_absolute_layout_on_absolute_children(
         // Fill in width from left/right and reapply aspect ratio if:
         //   - Width is not already known
         //   - Item has both left and right inset properties set
-        if let (None, Some(left), Some(right)) = (known_dimensions.width, left, right) {
+        if let (false, None, Some(left), Some(right)) = (is_replaced, known_dimensions.width, left, right) {
             let new_width_raw = inset_relative_size.width.maybe_sub(margin.left).maybe_sub(margin.right) - left - right;
             known_dimensions.width = Some(f32_max(new_width_raw, 0.0));
             known_dimensions = known_dimensions.maybe_apply_aspect_ratio(aspect_ratio).maybe_clamp(min_size, max_size);
@@ -2877,7 +2879,7 @@ fn perform_absolute_layout_on_absolute_children(
         // Fill in height from top/bottom and reapply aspect ratio if:
         //   - Height is not already known
         //   - Item has both top and bottom inset properties set
-        if let (None, Some(top), Some(bottom)) = (known_dimensions.height, top, bottom) {
+        if let (false, None, Some(top), Some(bottom)) = (is_replaced, known_dimensions.height, top, bottom) {
             let new_height_raw =
                 inset_relative_size.height.maybe_sub(margin.top).maybe_sub(margin.bottom) - top - bottom;
             known_dimensions.height = Some(f32_max(new_height_raw, 0.0));
