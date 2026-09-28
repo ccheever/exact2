@@ -23,6 +23,7 @@ mod paragraph_stamp;
 mod presence;
 mod presented_height;
 mod reader;
+mod rem;
 mod support {
     pub mod reader;
 }

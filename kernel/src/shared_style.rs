@@ -139,7 +139,16 @@ impl SharedStyles {
         }
         self.scratch.clear();
         style.encode_patch(&mut self.scratch);
-        let bytes = self.scratch.as_slice();
+        // What was written in `rem`/`em` tells two styles apart even when
+        // their pixels agree (LLP 1069.000 D3).
+        let mut keyed;
+        let bytes = if style.relative.is_empty() {
+            self.scratch.as_slice()
+        } else {
+            keyed = self.scratch.as_slice().to_vec();
+            style.relative.encode(&mut keyed);
+            &keyed[..]
+        };
         let hash = hash_bytes(bytes);
         if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
             debug_assert!(*found == style, "an unset row holds its initial value");

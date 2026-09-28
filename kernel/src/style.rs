@@ -18,6 +18,7 @@ use crate::generated::{
 };
 
 mod backdrop;
+pub mod relative;
 mod shadow;
 pub use shadow::BoxShadow;
 
@@ -411,10 +412,10 @@ impl StyleValue {
         value
             .filter(|v| v.is_valid())
             .ok_or(StyleValueError::WrongKind {
-                style,
-                expected:
-                    "nonnegative finite number, px length, or normal (percent/em unsupported)",
-            })
+            style,
+            expected:
+                "nonnegative finite number, px, rem or em length, or normal (percent unsupported)",
+        })
     }
 
     /// A `box-shadow` given to one of its four rows: that row's part.
@@ -543,7 +544,7 @@ impl StyleValue {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+                    expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,

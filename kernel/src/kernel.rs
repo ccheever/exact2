@@ -704,6 +704,29 @@ impl Kernel {
         Ok(!users.is_empty())
     }
 
+    /// Set the root font size (CSS's `medium`, 16 by default): what `rem`
+    /// resolves against and what text no ancestor sizes inherits. The host's
+    /// fact — Dynamic Type on iOS, the browser's root size on the web — which
+    /// the next commit applies, re-resolving every `rem`/`em` row and
+    /// invalidating what inherits it, so an empty batch is enough. `px`
+    /// never scales. `false` when it is the size already set.
+    /// @ref LLP 1069.000 D3
+    pub fn set_root_font_size(&mut self, px: f32) -> Result<bool, KernelError> {
+        if !px.is_finite() || px <= 0.0 {
+            return Err(LayoutError::InvalidRootFontSize.into());
+        }
+        if self.arena.root_font_size() == px {
+            return Ok(false);
+        }
+        self.arena.root_font_size_next = Some(px);
+        Ok(true)
+    }
+
+    /// The root font size, as last set (LLP 1069.000 D3).
+    pub fn root_font_size(&self) -> f32 {
+        self.arena.root_font_size()
+    }
+
     /// The EXNODE envelope for `root`, or for every root when `None`.
     pub fn export(&self, root: Option<ViewId>) -> Result<Vec<u8>, KernelError> {
         let slot = match root {

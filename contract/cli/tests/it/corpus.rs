@@ -786,7 +786,15 @@ fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() 
 
 #[test]
 fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar() {
-    for value in ["1.5", "0", "\"0px\"", "\"24px\"", "\"normal\""] {
+    for value in [
+        "1.5",
+        "0",
+        "\"0px\"",
+        "\"24px\"",
+        "\"normal\"",
+        "\"1.5em\"",
+        "\"2rem\"",
+    ] {
         contract::compile(&format!(
             "component App\n  view\n    text \"hello\" line-height={value}\n"
         ))
@@ -795,7 +803,7 @@ fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar()
     for value in [
         "-1",
         "\"-2px\"",
-        "\"1em\"",
+        "\"-1em\"",
         "\"150%\"",
         "\"NaNpx\"",
         "\"24\"",

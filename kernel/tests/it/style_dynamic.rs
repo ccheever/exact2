@@ -505,7 +505,7 @@ fn line_height_preserves_kinds_through_dynamic_changes_wire_and_refusal() {
         StyleValue::Number(f64::INFINITY),
         StyleValue::Text("-2px".into()),
         StyleValue::Text("NaNpx".into()),
-        StyleValue::Text("1em".into()),
+        StyleValue::Text("-1em".into()),
         StyleValue::Text("150%".into()),
         StyleValue::Text("24".into()),
     ] {
@@ -518,14 +518,23 @@ fn line_height_preserves_kinds_through_dynamic_changes_wire_and_refusal() {
 #[test]
 fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically() {
     let mut style = StyleProps::default();
-    for (text, expected) in [("0px", 0.), ("12.5PX", 12.5), (" -2e1px ", -20.), ("0", 0.)] {
+    // `rem`/`em` hold their pixels at the initial root size until the
+    // kernel resolves them (LLP 1069.000 D3).
+    for (text, expected) in [
+        ("0px", 0.),
+        ("12.5PX", 12.5),
+        (" -2e1px ", -20.),
+        ("0", 0.),
+        ("10em", 160.),
+        ("1.5rem", 24.),
+    ] {
         style
             .set_dynamic(StyleId::Height, &StyleValue::Text(text.into()))
             .unwrap();
         assert_eq!(style.height, Dimension::Points(expected));
     }
     for text in [
-        "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10em", "0px 1px",
+        "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10 em", "1e39em", "0px 1px",
     ] {
         let before = style.clone();
         assert!(

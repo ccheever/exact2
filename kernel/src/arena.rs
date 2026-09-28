@@ -49,6 +49,11 @@ pub struct NodeArena {
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
+    /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
+    pub(crate) relative_slots: SlotSet,
+    /// A root font size the host set since the last commit, which that
+    /// commit applies (LLP 1069.000 D3).
+    pub(crate) root_font_size_next: Option<f32>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -92,6 +97,8 @@ impl Clone for NodeArena {
             frames: self.frames.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
+            relative_slots: self.relative_slots.clone(),
+            root_font_size_next: self.root_font_size_next,
             contents: self.contents.clone(),
             intrinsic: self.intrinsic.clone(),
             taffy: self.taffy.clone(),
@@ -126,6 +133,14 @@ impl NodeArena {
         &self.env
     }
 
+    /// The root element's font size, what `rem` resolves against and what
+    /// a node no ancestor gives a `font-size` inherits (CSS's `medium`;
+    /// LLP 1069.000 D3). The host's, not the tree's — a reset keeps it.
+    pub fn root_font_size(&self) -> f32 {
+        self.root_font_size_next
+            .unwrap_or(self.document_style.font_size)
+    }
+
     /// Set the environment. The engine styles that read it are the
     /// kernel's to re-derive (`Kernel::set_env`).
     pub fn set_env(&mut self, env: Env) {
@@ -141,6 +156,7 @@ impl NodeArena {
         self.renew_text_namespace();
         self.flow.clear();
         self.exclusion_slots.clear();
+        self.relative_slots.clear();
         for slot in 0..self.live.len() {
             self.live[slot] = false;
             self.parents[slot] = None;
@@ -705,6 +721,7 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.exclusion_slots.remove(slot);
+        self.relative_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
         let s = slot as usize;
@@ -796,6 +813,11 @@ impl NodeArena {
 
     /// Replace the slot's style, sharing an equal one's allocation.
     pub(crate) fn set_style(&mut self, slot: u32, style: StyleProps) {
+        if style.relative.is_empty() {
+            self.relative_slots.remove(slot);
+        } else {
+            self.relative_slots.insert(slot);
+        }
         self.styles[slot as usize] = self.shared.intern(style);
     }
 

@@ -40,6 +40,7 @@ mod pan;
 mod placeholder;
 mod presence;
 mod refreshes;
+mod rem;
 mod reorder_binding;
 mod reorder_collection;
 mod routes;

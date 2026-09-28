@@ -296,6 +296,8 @@ pub enum LayoutError {
     InvalidIntrinsicSize(ViewId),
     /// An environment with a non-finite inset.
     InvalidEnv,
+    /// A root font size that is not finite and positive (LLP 1069.000 D3).
+    InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
     /// A sampled CSS height is non-finite or negative.

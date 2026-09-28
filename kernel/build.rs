@@ -920,6 +920,12 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "    /// Rows explicitly set.").unwrap();
     writeln!(w, "    pub mask: StyleMask,").unwrap();
+    writeln!(
+        w,
+        "    /// The rows authored in `rem`/`em`, which the kernel keeps resolved (LLP 1069.000 D3)."
+    )
+    .unwrap();
+    writeln!(w, "    pub relative: crate::style::relative::Relative,").unwrap();
     writeln!(w, "}}").unwrap();
     writeln!(w, "impl Default for StyleProps {{").unwrap();
     writeln!(w, "    fn default() -> Self {{").unwrap();
@@ -935,6 +941,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         .unwrap();
     }
     writeln!(w, "            mask: StyleMask::EMPTY,").unwrap();
+    writeln!(w, "            relative: Default::default(),").unwrap();
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
@@ -986,6 +993,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
     }
+    writeln!(w, "        self.relative.copy(&from.relative, mask);").unwrap();
     writeln!(w, "        self.mask = self.mask.union(mask);").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(
@@ -1002,7 +1010,14 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        for id in patch.mask.iter() {{").unwrap();
     writeln!(
         w,
-        "            if !self.mask.has(id) || self.get(id) != patch.get(id) {{ changed.set(id); }}"
+        "            let relative = (self.relative.get(id), patch.relative.get(id));"
+    )
+    .unwrap();
+    // A row written the same relative way is unchanged, whatever pixels
+    // each copy resolved to; written another way, it is changed.
+    writeln!(
+        w,
+        "            if !self.mask.has(id) || relative.0 != relative.1 || (relative.1.is_none() && self.get(id) != patch.get(id)) {{ changed.set(id); }}"
     )
     .unwrap();
     writeln!(w, "        }}").unwrap();
@@ -1179,6 +1194,23 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
+    // `rem`/`em` store their pixels at the initial root size, and are
+    // remembered for the kernel to resolve (LLP 1069.000 D3).
+    writeln!(
+        w,
+        "        let relative = crate::style::relative::of(id, value)?;"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "        let value = provisional.as_ref().unwrap_or(value);"
+    )
+    .unwrap();
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.
@@ -1240,6 +1272,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         }
     }
     writeln!(w, "        }}").unwrap();
+    writeln!(w, "        self.relative.put(id, relative);").unwrap();
     writeln!(w, "        self.mask.set(id);").unwrap();
     writeln!(w, "        Ok(())").unwrap();
     writeln!(w, "    }}").unwrap();

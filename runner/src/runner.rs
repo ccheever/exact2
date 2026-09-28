@@ -11,6 +11,7 @@ mod commit;
 mod event;
 mod reorder;
 mod reorder_codec;
+mod root_font;
 pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event};
 mod canvas2d;
 pub use canvas2d::{

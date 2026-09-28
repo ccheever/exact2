@@ -792,6 +792,8 @@ pub(crate) fn apply_document(
         }
     }
 
+    relative::resolve(arena, layout, &mut touched, &mut receipt);
+
     // A later op can destroy an exit's parent: then that op's root leaves
     // (and exits, if it declares one) and this node goes inside it.
     receipt
@@ -1116,6 +1118,8 @@ fn inherited_changed(
         }
     }
 }
+
+mod relative;
 
 #[cfg(test)]
 mod tests;
