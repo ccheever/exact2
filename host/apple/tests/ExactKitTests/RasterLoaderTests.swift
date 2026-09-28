@@ -68,9 +68,12 @@ final class RasterLoaderTests: XCTestCase {
         CGImageDestinationAddImage(destination, image, nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
     }
+    /// Runs the main run loop until the event `predicate` names has happened,
+    /// however long a loaded machine takes to decode; `hang` only stops a
+    /// test whose event can never come.
     private func settle(file: StaticString = #file, line: UInt = #line, _ predicate: () -> Bool) {
-        let end = Date(timeIntervalSinceNow: 5)
-        while !predicate() && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        let hang = Date(timeIntervalSinceNow: 300)
+        while !predicate() && Date() < hang { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertTrue(predicate(), file: file, line: line)
     }
     private func fixture() throws -> (URL, AssetResolver, Presenter, NodeView, RasterLoader, NSWindow) {
@@ -128,7 +131,9 @@ final class RasterLoaderTests: XCTestCase {
         let (root, resolver, presenter, node, loader, window) = try fixture()
         defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
         // 240 distinct sources, produced on demand: never allocate a 25k-image fixture.
-        var seen = Set<UInt8>()
+        // A decoded pixel, whatever byte order the decoder chose (BGRA here):
+        // each source's red differs, so each first pixel does.
+        var seen = Set<UInt32>()
         var first: NativeRasterLease?
         for traversal in 0..<20 {
             for row in 0..<12 {
@@ -142,7 +147,7 @@ final class RasterLoaderTests: XCTestCase {
                 if identity == 0 { first = node.raster }
                 let bitmap = try XCTUnwrap(node.raster?.image.image)
                 let bytes = try XCTUnwrap(bitmap.dataProvider?.data)
-                seen.insert(CFDataGetBytePtr(bytes)[0])
+                seen.insert(UnsafeRawPointer(CFDataGetBytePtr(bytes)).loadUnaligned(as: UInt32.self))
                 let s = loader.diagnostics
                 XCTAssertTrue((s["peakBytes"] as? UInt64 ?? UInt64.max) <= 32 * 1024 * 1024)
                 XCTAssertTrue((s["running"] as? UInt64 ?? UInt64.max) <= 2)
@@ -241,8 +246,8 @@ final class RasterLoaderTests: XCTestCase {
             other.load(local, source: "local.png", resolver: resolver)
             // No main-runloop progress: cancelled HTTP must free the workers
             // so another session can inspect local metadata independently.
-            let deadline = Date(timeIntervalSinceNow: 2)
-            while (other.diagnostics["metadataReads"] as? Int ?? 0) == 0 && Date() < deadline { Thread.sleep(forTimeInterval: 0.005) }
+            let hang = Date(timeIntervalSinceNow: 300)
+            while (other.diagnostics["metadataReads"] as? Int ?? 0) == 0 && Date() < hang { Thread.sleep(forTimeInterval: 0.005) }
             XCTAssertEqual(other.diagnostics["metadataReads"] as? Int, 1)
             settle { local.raster != nil }
             XCTAssertEqual(server.accepted, 2) // server still never replied

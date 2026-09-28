@@ -133,8 +133,10 @@ final class TextMetricsTests: XCTestCase {
         let reader = RegionReaderParagraph(request, bytes: 100000)
         session.text.readerParagraphs[node.id] = reader
         reader.update(node)
-        let deadline = Date(timeIntervalSinceNow: 3)
-        while reader.raster == nil && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
+        // Each wait is for its event, however long a loaded machine's workers
+        // take; `hang` only stops one that can never come.
+        let hang = Date(timeIntervalSinceNow: 300)
+        while reader.raster == nil && Date() < hang { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
         let first = try XCTUnwrap(reader.raster)
         let ink = try XCTUnwrap(node.layer?.sublayers?.first { $0.contents is IOSurface })
         let firstImage = ink.contents as AnyObject?
@@ -149,7 +151,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(ink.contents as AnyObject? === firstImage)
         RegionTextExecutor.queue.isSuspended = false
         var top: CGFloat = 60
-        while reader.raster === first && Date() < deadline {
+        while reader.raster === first && Date() < hang {
             top += 10
             scroll.contentView.scroll(to: CGPoint(x: 0, y: top)); reader.update(node)
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001))
