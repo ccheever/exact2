@@ -93,6 +93,9 @@ contexts; **accepted (Charlie, 2026-09-27)** on condition that `metrics.mjs`
 shows a still layout costs about nothing and names the worst case for a page
 with several shapes);
 the dragon is a polygon, not a `shape-outside: <image>`.
+Linux skips Thai word breaking (Charlie, 2026-09-28): with no segmenter
+there, flowed Thai, Lao, Khmer and Myanmar text breaks only at spaces; no
+ICU4X dictionaries. Web and Apple take their platforms' words (LLP 1043.000 §8).
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
