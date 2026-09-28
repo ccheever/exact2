@@ -9,7 +9,7 @@ build = "build.rs"
 
 [lib]
 name = "markdown_apple"
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 exact-data-host = { path = "../../../data/host" }

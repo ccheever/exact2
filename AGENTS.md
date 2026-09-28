@@ -38,6 +38,12 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), then
   `metrics.mjs --long`. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
+- A green `--workspace` build proves the apps compile, not that they work: their Apple
+  crates are rlibs to Cargo, and the archive an app links is built only by
+  `host/apple/build.mjs`, when the app is built to run. When a change can affect how an
+  app runs (the kernel, the runner, a host, the app itself), build and launch the apps it
+  touches (`bun host/apple/build.mjs --ios <app>-apple --run`, `bun host/web/dev.mjs --app
+  <app>`) and use them as a person would, with `scripts/agent.mjs` or by hand.
 - An unset `EXACT_UPDATE_TRUST` bakes development trust, which checks only an
   origin named by `EXACT_UPDATE_ORIGIN`. `EXACT_UPDATE_TRUST=production` native
   bakes require an authenticated `EXACT_UPDATE_RECEIPT` or explicit new-stream

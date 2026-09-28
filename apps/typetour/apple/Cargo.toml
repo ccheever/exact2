@@ -9,7 +9,7 @@ build = "build.rs"
 
 [lib]
 name = "typetour_apple"
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 exact-logic = { path = "../../../logic" }
