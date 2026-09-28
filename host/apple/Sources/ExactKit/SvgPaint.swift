@@ -127,8 +127,8 @@ enum SvgPaint {
     /// A layer covering `rect` (user units) with the gradient drawn in it.
     private static func gradient(_ g: [String: Any], rect: CGRect, scale: CGFloat, dark: Bool, color: (Any?, Bool) -> CGColor?) -> CALayer? {
         let rect = rect.integral.insetBy(dx: -1, dy: -1)
-        let w = Int((rect.width * scale).rounded(.up)), h = Int((rect.height * scale).rounded(.up))
-        guard w > 0, h > 0, w * h <= 16_777_216 else { return nil }
+        let fullW = Int((rect.width * scale).rounded(.up)), fullH = Int((rect.height * scale).rounded(.up))
+        guard fullW > 0, fullH > 0, fullW * fullH <= 16_777_216 else { return nil }
         let t = numbers(g["t"])
         let stops: [(CGFloat, CGColor)] = (g["st"] as? [Any] ?? []).compactMap { s in
             guard let s = s as? [Any], s.count == 2, let c = color(s[1], dark) else { return nil }
@@ -137,6 +137,19 @@ enum SvgPaint {
         guard stops.count >= 2 else { return nil }
         let spread = Int(numbers([g["sp"] ?? 0]).first ?? 0)
         let lg = numbers(g["lg"]), rg = numbers(g["rg"])
+        // A linear gradient whose value changes along only one of the
+        // layer's axes (the usual SVG case: x1=x2 or y1=y2, no skew) is one
+        // row or column of pixels stretched across the other: the same
+        // pixels as the full raster, at 1/w or 1/h of its cost and memory.
+        var w = fullW, h = fullH
+        if lg.count == 4 {
+            let m = t.count == 6 ? CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5]) : .identity
+            let i = m.inverted(), (dx, dy) = (lg[2] - lg[0], lg[3] - lg[1])
+            // How the gradient's parameter changes per unit of user x and y.
+            let (px, py) = (i.a * dx + i.b * dy, i.c * dx + i.d * dy)
+            let len = max(abs(px), abs(py))
+            if len > 0 && abs(px) <= len * 1e-9 { w = 1 } else if len > 0 && abs(py) <= len * 1e-9 { h = 1 }
+        }
         var key = "\(w)x\(h) \(rect.minX),\(rect.minY),\(rect.width),\(rect.height) s\(spread) t\(t) l\(lg) r\(rg)"
         for (o, c) in stops { key += " \(o):\(c.colorSpace?.name.map { $0 as String } ?? "")\(c.components ?? [])" }
         let image: CGImage
