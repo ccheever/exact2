@@ -12,6 +12,7 @@ mod collection_axis;
 mod collection_bounds;
 mod collection_edge_async;
 mod collection_edges;
+mod collection_into_view;
 mod collection_nest;
 mod compose;
 mod controls;

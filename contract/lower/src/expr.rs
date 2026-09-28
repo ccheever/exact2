@@ -13,6 +13,23 @@ use exact_plan::{Opcode, Stdlib};
 /// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
 /// for an absent one, so the plan's `Command` op stays positional.
 pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+    let named = |want: &str| {
+        args.iter().find_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
+            _ => None,
+        })
+    };
+    // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
+    // order, `none` where the author left the web's default.
+    if name == "scrollIntoView" {
+        let mut out: Vec<_> = args
+            .iter()
+            .filter(|a| !matches!(a, Expr::NamedArg(..)))
+            .map(Some)
+            .collect();
+        out.extend(["block", "inline", "behavior", "row"].map(named));
+        return out;
+    }
     if name != "share" {
         return args.iter().map(Some).collect();
     }

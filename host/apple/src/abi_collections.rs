@@ -108,4 +108,19 @@ impl<D: DataSource> Bridge<D> {
             .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
         self.emit(out)
     }
+
+    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5).
+    pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();
+        let mut parts = text.split('\n');
+        let (key, block, inline) = (
+            parts.next().unwrap_or(""),
+            parts.next().unwrap_or("start"),
+            parts.next().unwrap_or("nearest"),
+        );
+        let out = self.host.as_mut().map_or_else(not_booted, |host| {
+            host.scroll_into_view(view, key, block, inline)
+        });
+        self.emit(out)
+    }
 }

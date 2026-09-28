@@ -41,12 +41,23 @@ impl<D: DataSource> Runner<D> {
     /// instance tree and the kernel may disagree; the runner is poisoned and
     /// the host restarts it — never a half-applied frame.
     pub(super) fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        let receipt = self.update_tree(true, |tree, u| tree.update(u))?;
+        let requests = std::mem::take(&mut self.into_view);
+        let mut statuses = Vec::new();
+        let receipt = self.update_tree(true, |tree, u| {
+            tree.update(u)?;
+            for request in &requests {
+                statuses.push(tree.scroll_into_view(u, request)?);
+            }
+            Ok(())
+        })?;
+        for (request, status) in requests.iter().zip(statuses) {
+            self.record_into_view(request, Some(status));
+        }
         self.release_compiled();
         Ok(receipt)
     }
 
-    fn update_tree(
+    pub(super) fn update_tree(
         &mut self,
         settled: bool,
         update: impl FnOnce(&mut Tree, &mut Update<'_>) -> Result<(), crate::instance::InstanceError>,

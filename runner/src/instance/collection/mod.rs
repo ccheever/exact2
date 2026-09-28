@@ -2,6 +2,7 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod into_view;
 mod nest;
 mod rekey;
 mod reorder;
@@ -15,6 +16,7 @@ pub use api::*;
 use exact_kernel::PropId;
 use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
+pub use into_view::{Align, IntoView, IntoViewStatus};
 pub use reorder_api::*;
 pub(super) use traversal::invalidate_typography;
 
@@ -113,6 +115,10 @@ pub(crate) struct Collection {
     restored: bool,
     /// That position, until a host reports one.
     restored_at: Option<(Rc<str>, f64)>,
+    /// A `scrollIntoView` under way (LLP 1070.000).
+    target: Option<into_view::Target>,
+    /// The latest request here and how it stands, for `state`.
+    into_view_status: Option<(Rc<str>, IntoViewStatus)>,
     /// Where the window starts before the host reports: 0, or a restored
     /// position.
     start_offset: f64,
@@ -288,6 +294,8 @@ impl Collection {
             manual,
             restored: false,
             restored_at: None,
+            target: None,
+            into_view_status: None,
             start_offset: 0.0,
         });
         this.update_data(u, frames, true)?;
@@ -928,6 +936,7 @@ impl Collection {
             self.lose_preview_pin(u)?;
         }
         let previous = self.snapshot();
+        self.follow_into_view(fill);
         // @ref LLP 1070 H4, Q3 (a): a row list anchors only an estimate
         // replaced by a first measurement, the jump virtualization makes. A
         // card measured again moves what follows it, as Chrome, which does
@@ -976,6 +985,7 @@ impl Collection {
         }
         self.check_preview_height(u)?;
         self.restore(anchor)?;
+        self.settle_into_view(u.env.plan, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
         let mut now = self.snapshot();
         // Receiving a newer sequence without changing rows/extent/correction is
@@ -1047,6 +1057,7 @@ impl Collection {
         };
         if feedback.measurements.iter().any(remeasures)
             || self.restored_at.is_some()
+            || self.target.is_some()
             || self.pending
             || self.preview.is_some()
             || self.correction.is_some()
@@ -1161,7 +1172,7 @@ impl Collection {
                 })
                 .collect(),
             correction: self.correction,
-            pending: self.pending,
+            pending: self.pending || self.target.is_some(), // an into-view request wants its next report
         }
     }
 }

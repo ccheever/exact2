@@ -33,6 +33,7 @@ pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
+mod into_view;
 mod kept;
 mod lines;
 mod lists;
@@ -291,6 +292,10 @@ pub struct Runner<D: DataSource> {
     timers: Vec<Timer>,
     batch: u64,
     commands: Vec<Command>,
+    /// `scrollIntoView` commands an action stated, run after its update.
+    into_view: Vec<crate::instance::collection::IntoView>,
+    /// Refused requests, for `state` (LLP 1070.000 §2.2).
+    into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
     canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
@@ -717,6 +722,8 @@ impl<D: DataSource> Runner<D> {
             timers: Vec::new(),
             batch: 0,
             commands: Vec::new(),
+            into_view: Vec::new(),
+            into_view_refused: Default::default(),
             surfaces: Vec::new(),
             canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),

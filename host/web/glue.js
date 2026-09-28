@@ -851,9 +851,7 @@ function apply(batch) {
   refreshSymbols();
   for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
-  // A collection builds a jump's rows, then moves (LLP 1050.000 §6): the
-  // controller knows each list's axis and moves only that one (LLP 1070 §4.2).
-  const jumps = [];
+  const jumps = []; // a collection builds a jump's rows, then moves, on its own axis (LLP 1050.000 §6)
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
     // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
@@ -1163,6 +1161,8 @@ function agentReply(request) {
         return { ok: true };
       }
       case "tap": {
+        const i = request.into; // @ref LLP 1070.000 §5 — the runner's request, its batch applied now
+        if (i) { send(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return tagged({ tapped: request.id, into: i }); }
         const frame = views.get(request.id);
         if (request.history !== undefined) return navigation.travel(frame, request.history);
         if (frame && (frame.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))

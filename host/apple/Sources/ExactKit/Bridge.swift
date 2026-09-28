@@ -183,6 +183,11 @@ final class Runtime {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))
     }
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
+    func intoView(_ view: UInt32, key: String, block: String, inline: String) -> Batch {
+        let n = write(key + "\n" + block + "\n" + inline)
+        return read(exact_into_view(rt, view, n))
+    }
     /// Actual viewport/row observations using the runner's versioned LE wire.
     func collectionFeedback(_ bytes: Data, now: Double) -> Batch {
         let n = write(bytes)

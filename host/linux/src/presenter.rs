@@ -1193,6 +1193,25 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5): the runner's
+    /// request, committed, then every report it asks for.
+    pub fn into_view(
+        &mut self,
+        id: ViewId,
+        key: &str,
+        block: &str,
+        inline: &str,
+    ) -> Result<String, String> {
+        self.host.scroll_into_view(id, key, block, inline)?;
+        if let Some(e) = self.after_commit() {
+            return Err(e);
+        }
+        if let Some(e) = self.settle_collections() {
+            return Err(e);
+        }
+        Ok(format!("{{\"tapped\":{id},\"into\":true}}"))
+    }
+
     /// The executor's replies into the runner (LLP 1016 D2), each a
     /// commit: the display loop calls this when the executor's fd is
     /// readable, the agent when it waits. `None` when nothing was queued.

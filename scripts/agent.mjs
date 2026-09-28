@@ -6,7 +6,7 @@
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
-//   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
+//   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -973,6 +973,12 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', ...(opts.dblclick ? ['macos', 'mac'] : [])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
+      // @ref LLP 1070.000 §5 — a virtualized list's row brought into view by
+      // key: the runner's request, the same on every carrier, not an input.
+      if (opts.into) {
+        const r = await s.op({ op: 'tap', id: node.id, into: opts.into });
+        return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
+      }
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
@@ -1322,6 +1328,15 @@ async function main(argv) {
           else if (args[1] === 'history') r = await s.tap(args[0], { history: Number(args[2]) });
           else if (args[1] === 'pinch') r = await s.tap(args[0], { pinch: Number(args[2]), ...(args[3] === 'at' ? { at: [Number(args[4]), Number(args[5])] } : {}) });
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
+          else if (args[1] === 'into') {
+            // tap <list> into <key> [block <v>] [inline <v>]
+            const into = { key: String(args[2] ?? '') };
+            for (let i = 3; i + 1 < args.length; i += 2) {
+              if (!['block', 'inline'].includes(args[i])) throw new Error(`tap … into: unknown option ${args[i]}; block <start|center|end|nearest> and inline <…>`);
+              into[args[i]] = args[i + 1];
+            }
+            r = await s.tap(args[0], { into });
+          }
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;

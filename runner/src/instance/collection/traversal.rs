@@ -172,7 +172,7 @@ impl Tree {
                 total_extent: c.index.total_height(),
                 rows,
                 correction: c.correction,
-                pending: c.pending,
+                pending: c.pending || c.target.is_some(),
             });
             Ok(())
         })?;

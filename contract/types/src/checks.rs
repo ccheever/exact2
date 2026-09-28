@@ -698,6 +698,8 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "showOpenFilePicker",
     "showDirectoryPicker",
     "showSaveFilePicker",
+    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
+    "scrollIntoView",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -829,6 +831,80 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
+/// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)` (LLP
+/// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
+/// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
+/// inner list's outer row. Whether the list exists is the runner's to find.
+fn into_view_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    const USAGE: &str = "`scrollIntoView(\"list-id\", key, block=\"start\", inline=\"nearest\", behavior=\"auto\", row=outerKey)`";
+    let positional: Vec<_> = args
+        .iter()
+        .filter(|a| !matches!(a, Expr::NamedArg(..)))
+        .collect();
+    let [list, key] = positional.as_slice() else {
+        return err(
+            "type-scroll-into-view",
+            format!("{USAGE}: a list's `id` and a row's key, then options by name"),
+            span,
+        );
+    };
+    if !matches!(list, Expr::Str(..)) {
+        return err(
+            "type-scroll-into-view",
+            format!("the list is named by its literal `id`: {USAGE}"),
+            list.span(),
+        );
+    }
+    infer(key, scope, shapes)?;
+    let mut seen = BTreeSet::new();
+    for arg in args {
+        let Expr::NamedArg(name, value, at) = arg else {
+            continue;
+        };
+        if !seen.insert(name.as_str()) {
+            return err(
+                "type-scroll-into-view",
+                format!("`{name}` is given twice"),
+                *at,
+            );
+        }
+        let allowed: &[&str] = match name.as_str() {
+            "block" | "inline" => &["start", "center", "end", "nearest"],
+            "behavior" => &["auto", "instant"],
+            "row" => {
+                infer(value, scope, shapes)?;
+                continue;
+            }
+            _ => {
+                return err(
+                    "type-scroll-into-view",
+                    format!("`scrollIntoView` has no option `{name}`: {USAGE}"),
+                    *at,
+                )
+            }
+        };
+        match value.as_ref() {
+            Expr::Str(s, _) if allowed.contains(&s.as_str()) => {}
+            Expr::Str(s, _) if name == "behavior" && s == "smooth" => {
+                return err("type-scroll-into-view", "`behavior=\"smooth\"` is not built yet (LLP 1070.000 §6): a long smooth traversal needs its own fill policy; use `auto` or `instant`", *at);
+            }
+            _ => {
+                return err(
+                    "type-scroll-into-view",
+                    format!("`{name}` is one of {}", allowed.join(", ")),
+                    *at,
+                )
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Check an action body's statements through every branch (LLP 1017 P2).
 /// Check each statement, recording a refusal and moving on to the next.
 pub(super) fn check_stmts(
@@ -913,6 +989,9 @@ fn check_stmt(
                 }
                 if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
                     return picker_args(name, args, scope, shapes, *span);
+                }
+                if name == "scrollIntoView" {
+                    return into_view_args(args, scope, shapes, *span);
                 }
                 for arg in args {
                     infer(arg, scope, shapes)?;

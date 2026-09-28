@@ -210,6 +210,23 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let Some(id) = id() else {
                 return error("tap needs an id");
             };
+            if let Some(into) = request.get("into") {
+                let text = |name: &str, default: &str| {
+                    into.get(name)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(default)
+                        .to_string()
+                };
+                return match p.into_view(
+                    id,
+                    &text("key", ""),
+                    &text("block", "start"),
+                    &text("inline", "nearest"),
+                ) {
+                    Ok(reply) => reply,
+                    Err(e) => error(&e),
+                };
+            }
             let r = match field_pair(line, "wheel") {
                 Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
                 None if field_bool(line, "hover") => p.hover(id),

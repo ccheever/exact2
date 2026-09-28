@@ -536,6 +536,19 @@ impl<D: DataSource> Runner<D> {
                 s
             })
             .collect();
+        // `scrollIntoView` is the runner's own (LLP 1070.000): it runs in
+        // this commit, after the update, and never reaches a host.
+        let stated: Vec<Command> = self.commands.drain(first_command..).collect();
+        for command in stated {
+            if command.name != "scrollIntoView" {
+                self.commands.push(command);
+                continue;
+            }
+            match crate::instance::collection::IntoView::from_command(&command.args) {
+                Ok(request) => self.into_view.push(request),
+                Err(why) => self.log(format!("scrollIntoView refused: {why}")),
+            }
+        }
         let result = self.update();
         // Commands are journaled only once the update committed: a failure
         // there poisons the runner and clears them.

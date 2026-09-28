@@ -418,6 +418,25 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
+    pub fn scroll_into_view(
+        &mut self,
+        view: ViewId,
+        key: &str,
+        block: &str,
+        inline: &str,
+    ) -> Result<(), String> {
+        let receipt = self
+            .runner
+            .scroll_into_view_at(view, key, block, inline)
+            .map_err(|e| format!("scrollIntoView: {e:?}"))?;
+        let timed = Timed {
+            at_ms: self.now_ms,
+            receipt,
+        };
+        self.commit(&[timed], None).map_or(Ok(()), Err)
+    }
+
     /// The motion engine.
     pub fn engine(&self) -> &Engine {
         &self.engine

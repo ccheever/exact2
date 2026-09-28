@@ -770,6 +770,23 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
+    pub fn scroll_into_view(
+        &mut self,
+        view: ViewId,
+        key: &str,
+        block: &str,
+        inline: &str,
+    ) -> String {
+        match self.runner.scroll_into_view_at(view, key, block, inline) {
+            Ok(receipt) => {
+                let at_ms = self.now_ms;
+                self.commit(&[Timed { at_ms, receipt }], None)
+            }
+            Err(error) => self.finish(Batch::new(), Some(format!("scrollIntoView: {error:?}"))),
+        }
+    }
+
     /// A presenter's line for the runner's journal (LLP 1012 §3): a refused
     /// intent — a focus that could not be delivered, a route key that names
     /// no route, a presentation the owner refused — with its reason.

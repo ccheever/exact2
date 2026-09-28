@@ -158,6 +158,8 @@ public final class Agent {
                 #else
                 r = ["error": "unsupported: resize input requires a macOS window or Linux presenter"]
                 #endif
+            } else if let into = req["into"] as? [String: Any] {
+                r = intoView(req, into)
             } else { r = session.canvases.releaseContact(req) ?? tap(req) }
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
@@ -309,6 +311,17 @@ public final class Agent {
                           "prefers-color-scheme": systemDark ? "dark" : "light"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                          "online": PageFacts.onLine, "can-share": PageFacts.canShare, "root-font-size": PageFacts.rootFontSize]]
+    }
+
+    /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a
+    /// mounted list, committed, then settled as `clock settle` settles it.
+    func intoView(_ req: [String: Any], _ into: [String: Any]) -> [String: Any] {
+        guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let key = into["key"] as? String ?? (into["key"].map { "\($0)" } ?? "")
+        session.apply(session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
+                                               inline: into["inline"] as? String ?? "nearest"))
+        presenter.settlePump()
+        return ["tapped": Int(v.id), "into": into]
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {

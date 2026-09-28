@@ -678,6 +678,20 @@ impl NodeInst {
         Ok(inst)
     }
 
+    /// The value a style binding last emitted.
+    pub(super) fn bound_style(&self, plan: &Plan, style: exact_kernel::StyleId) -> Option<&Value> {
+        plan.node(self.node)
+            .bindings
+            .iter()
+            .enumerate()
+            .find_map(|(i, b)| {
+                let b = plan.binding(b);
+                (b.kind == BindingKind::Style && b.id == style as u16)
+                    .then(|| self.last[i].as_ref())
+                    .flatten()
+            })
+    }
+
     /// The value a prop binding last emitted.
     pub(super) fn bound_prop(&self, plan: &Plan, prop: exact_kernel::PropId) -> Option<&Value> {
         plan.node(self.node)

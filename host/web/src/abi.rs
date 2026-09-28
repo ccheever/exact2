@@ -712,6 +712,22 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5).
+    pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();
+        let mut parts = text.split('\n');
+        let (key, block, inline) = (
+            parts.next().unwrap_or(""),
+            parts.next().unwrap_or("start"),
+            parts.next().unwrap_or("nearest"),
+        );
+        let out = match self.host.as_mut() {
+            Some(host) => host.scroll_into_view(view, key, block, inline),
+            None => crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+        };
+        self.emit(out)
+    }
+
     /// Fixed 48-byte LE motion request: version/op/view/property u32,
     /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
     pub fn motion(&mut self, len: usize) -> u32 {
@@ -1211,6 +1227,12 @@ macro_rules! list_exports {
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
+        }
+
+        /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
+        #[no_mangle]
+        pub extern "C" fn exact_into_view(view: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().into_view(view, len as usize))
         }
     };
 }

@@ -786,6 +786,9 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     // count, its offset's extent and its mounted rows (LLP 1070 G3).
     s.push_str(",\"collections\":");
     s.push_str(&runner.collections_json());
+    // Each list's latest scrollIntoView and how it stands (LLP 1070.000).
+    s.push_str(",\"scrollIntoView\":");
+    s.push_str(&runner.into_view_json());
     // Where each inner list's reader was when its outer row left (Q1).
     s.push_str(",\"kept\":");
     s.push_str(&runner.kept_positions_json());

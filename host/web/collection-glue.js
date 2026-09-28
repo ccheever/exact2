@@ -405,6 +405,7 @@ export function collectionController({ root, views, report, settled=()=>{},
             // Relative conversion also handles a list below siblings in its port.
             port[name] += correction.offset - g.raw;
             s.offset = port[name]; // consume the programmatic scroll echo
+            s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
           }
         }
         observe(s);

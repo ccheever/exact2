@@ -342,7 +342,8 @@ final class Presenter {
     /// A collection's clip view moved (`NodeView.clipScrolled`): its travel
     /// first, so the rescue or the slice that follows leads the right way.
     func collectionScrolled(_ id: UInt32) {
-        if collections.owns(id) { sampleListTravel(only: id) }
+        // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
+        if collections.owns(id), !collections.correcting { sampleListTravel(only: id) }
         collections.changed(id, user: true)
     }
 

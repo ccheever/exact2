@@ -453,6 +453,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_feedback(len, now_ms), |n| n)
         }
 
+        /// `key\nblock\ninline` in the input buffer: the agent's `tap <list>
+        /// into <key>` (LLP 1070.000 §5); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_into_view(rt: u32, view: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
+        }
+
         /// A motion frame; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_tick(rt: u32, now_ms: f64) -> u32 {

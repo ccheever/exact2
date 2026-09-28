@@ -853,6 +853,23 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
+    pub fn scroll_into_view(
+        &mut self,
+        view: ViewId,
+        key: &str,
+        block: &str,
+        inline: &str,
+    ) -> String {
+        match self.runner.scroll_into_view_at(view, key, block, inline) {
+            Ok(receipt) => {
+                let at_ms = self.runner.now_ms();
+                self.batch_for(&[Timed { at_ms, receipt }], None)
+            }
+            Err(error) => self.batch_for(&[], Some(&format!("scrollIntoView: {error:?}"))),
+        }
+    }
+
     /// Activate deferred logic after the page's first rendering opportunity.
     pub fn data_ready(&mut self) -> String {
         if let Err(error) = self.runner.data().activate() {

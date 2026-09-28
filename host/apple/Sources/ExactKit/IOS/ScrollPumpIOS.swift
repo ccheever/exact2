@@ -93,7 +93,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
         armRest(after: Self.restDelay)
-        if let node, p.collections.owns(node.id) { sample(node, now: lastScroll) }
+        // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
+        if let node, p.collections.owns(node.id), !p.collections.correcting { sample(node, now: lastScroll) }
         // What this frame shows has its text before it commits.
         p.paintVisibleText()
         textPending = true
