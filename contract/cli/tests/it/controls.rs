@@ -289,3 +289,60 @@ fn option_and_select_keep_htmls_content_model() {
     let e = refused("      select value=v type=\"x\"\n        option \"A\"\n");
     assert!(e.contains("lower-attr-tag"), "{e}");
 }
+
+const VOLUME: &str = r#"component App
+  state volume = 40
+  state scale = 1
+  state preview = 0
+  action setVolume(value: number) writes volume
+    volume = value
+  action hear(value: number) writes preview
+    preview = value
+  action setScale(value: number) writes scale
+    scale = value
+  view
+    column
+      input type="range" min=0 max=100 step=5 value=volume input=hear change=setVolume testId="volume" aria-label="Volume"
+      input type="range" min=0.85 max=1.25 step=0.01 value=scale input=setScale testId="scale" aria-label="Text size" width="100%"
+      text `${preview}` testId="preview"
+"#;
+
+#[test]
+fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
+    let mut r = boot(VOLUME);
+    let volume = view_of(&r, "volume");
+    let node = r.kernel().node(volume).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("range"));
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("slider"));
+    assert_eq!(node.props.str(PropId::Min), Some("0"));
+    assert_eq!(node.props.str(PropId::Step), Some("5"));
+    assert_eq!(node.props.str(PropId::Value), Some("40"));
+    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(2.0));
+    // `input` moves, `change` commits; each payload a number on the step.
+    r.dispatch(volume, Event::Input("62".into())).unwrap();
+    let preview = r.kernel().node(view_of(&r, "preview")).unwrap();
+    assert_eq!(preview.props.str(PropId::Text), Some("60"));
+    r.dispatch(volume, Event::Change("140".into())).unwrap();
+    let node = r.kernel().node(volume).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("100"));
+    let scale = view_of(&r, "scale");
+    r.dispatch(scale, Event::Input("1.1234".into())).unwrap();
+    let node = r.kernel().node(scale).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("1.12"));
+    assert_eq!(node.props.str(PropId::Min), Some("0.85"));
+    match r
+        .dispatch(volume, Event::Change("loud".into()))
+        .unwrap_err()
+    {
+        RunnerError::InvalidValue { reason, .. } => assert!(reason.contains("not a number")),
+        other => panic!("{other:?}"),
+    }
+    // A range's handler takes a number, not the text a field's does.
+    let e = contract::compile(
+        &VOLUME.replace("action hear(value: number)", "action hear(value: string)"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("number"), "{e}");
+}

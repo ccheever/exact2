@@ -94,6 +94,46 @@ impl super::Painter {
         }
     }
 
+    /// A range (LLP 1069.001 D7): Chrome's track, filled with the accent to
+    /// a 16 px thumb at the value.
+    pub(super) fn range_control(&mut self, node: &NodeRef<'_>, content: Rect4, ts: Transform) {
+        if node.style.appearance == Appearance::None {
+            return;
+        }
+        let dark = self.dark;
+        let disabled = node.props.bool(PropId::Disabled) == Some(true);
+        let alpha = |mut c: [u8; 4]| {
+            if disabled {
+                c[3] /= 2;
+            }
+            c
+        };
+        let range = exact_kernel::Range::of(node.props);
+        let value = range.shown(node.props);
+        let t = if range.max > range.min {
+            ((value - range.min) / (range.max - range.min)) as f32
+        } else {
+            0.0
+        };
+        let (x, y, w, h) = content;
+        let d = 16f32.min(h).min(w);
+        let cy = y + h / 2.0;
+        let tx = x + (w - d) * t;
+        let track =
+            |from: f32, to: f32| Shape::new((from, cy - 2.0, (to - from).max(0.0), 4.0), [2.0; 4]);
+        let rest = if dark {
+            [0x78, 0x78, 0x80, 0x5c]
+        } else {
+            [0x78, 0x78, 0x80, 0x33]
+        };
+        self.backend.fill(&track(x, x + w), alpha(rest), ts);
+        let accent = accent(node, dark).unwrap_or(ACCENT);
+        self.backend
+            .fill(&track(x, tx + d / 2.0), alpha(accent), ts);
+        let thumb = Shape::new((tx, cy - d / 2.0, d, d), [d / 2.0; 4]);
+        self.backend.fill(&thumb, alpha(accent), ts);
+    }
+
     /// A select's open menu, over everything (LLP 1069.001 D7).
     pub(super) fn menu(&mut self, menu: &MenuPaint) {
         let ts = Transform::identity();

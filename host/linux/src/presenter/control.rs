@@ -115,6 +115,32 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
+    /// A press on a range moves its thumb to the pointer (D7): the value
+    /// there, `input` then `change`. False when `id` is not a range.
+    pub(crate) fn press_range(&mut self, id: ViewId, x: f32) -> bool {
+        let Some(node) = self.host.kernel().node(id) else {
+            return false;
+        };
+        if node.node_type != NodeType::Control || node.props.str(PropId::Type) != Some("range") {
+            return false;
+        }
+        let range = exact_kernel::Range::of(node.props);
+        let Some(b) = self.boxes.iter().find(|b| b.id == id).copied() else {
+            return true;
+        };
+        let (bx, _, bw, _) = b.rect;
+        let t = if bw > 16.0 {
+            ((x - bx - 8.0) / (bw - 16.0)).clamp(0.0, 1.0) as f64
+        } else {
+            0.5
+        };
+        let value = range.min + t * (range.max - range.min);
+        if let Err(e) = self.set_control_value(id, &value.to_string()) {
+            self.host.log(format!("range: {e}"));
+        }
+        true
+    }
+
     /// The open menu's rows and panel, under its select's painted box (above
     /// it when it would leave the viewport), as wide as the widest label.
     fn menu_geometry(&self) -> Option<(ViewId, crate::paint::control::MenuPaint)> {

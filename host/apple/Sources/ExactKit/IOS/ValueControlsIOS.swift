@@ -9,6 +9,7 @@ import UIKit
 
 extension ControlHost {
     func makeValueControl(_ kind: String, _ id: UInt32) -> UIControl {
+        if kind == "range" { return makeRange() }
         var config = UIButton.Configuration.plain()
         config.indicator = .popup
         config.contentInsets = .zero
@@ -19,6 +20,7 @@ extension ControlHost {
     }
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
+        if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
         guard let button = control as? UIButton else { return }
         button.tintColor = accent
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
@@ -34,6 +36,8 @@ extension ControlHost {
 
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
+        // A slider has no natural width; Chrome's range is 129 wide.
+        if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
         guard let button = control as? UIButton, let config = button.configuration else { return control.intrinsicContentSize }
         let probe = UIButton(configuration: config)
         var size = CGSize.zero
@@ -62,6 +66,10 @@ extension ControlHost {
     /// chooses (LLP 1069.001 D9, as a held contact is refused in LLP 1035.003).
     func openValue(_ control: UIControl) -> Bool { control.window != nil }
     func unopened(_ node: NodeView) -> [String: Any]? {
+        if controls[node.id] is UISlider {
+            return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
+                    "reason": "the iOS carrier drags no thumb (UIKit moves one under a finger); `type <id> <value>` sets it"]
+        }
         guard controls[node.id] is UIButton else { return nil }
         return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                 "reason": "the iOS carrier opens no menu (UIKit presents one under a finger); `type <id> <value>` chooses"]
@@ -69,6 +77,10 @@ extension ControlHost {
 
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
+        if let slider = controls[node.id] as? UISlider {
+            guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
+            return typeRange(slider, node, value)
+        }
         guard let control = controls[node.id], control is UIButton else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
         if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
@@ -77,6 +89,9 @@ extension ControlHost {
     }
 
     func valueObservation(_ control: UIControl) -> [String: Any]? {
+        if let slider = control as? UISlider {
+            return ["view": "UISlider", "value": Double(slider.value), "min": Double(slider.minimumValue), "max": Double(slider.maximumValue)]
+        }
         guard let button = control as? UIButton else { return nil }
         let menu = menus[UInt32(button.tag)]
         return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": button.currentTitle as Any,

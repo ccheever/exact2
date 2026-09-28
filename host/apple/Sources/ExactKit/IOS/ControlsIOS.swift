@@ -69,6 +69,8 @@ final class ControlHost: NSObject {
     private var reported: [UInt32: CGSize] = [:]
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
     var menus: [UInt32: SelectMenu] = [:]
+    /// A range's last reported value while it moves, so each is sent once.
+    var lastRange: [UInt32: String] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -126,8 +128,11 @@ final class ControlHost: NSObject {
             control.accessibilityIdentifier = owner.props["testId"]
             let natural = naturalSize(control, owner)
             let box = owner.contentBox()
-            control.frame = CGRect(x: box.midX - natural.width / 2, y: box.midY - natural.height / 2,
-                                   width: natural.width, height: natural.height)
+            // A slider's track spans its box, as the web's does; the others
+            // keep their own size, centred.
+            let width = control is UISlider ? box.width : natural.width
+            control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                                   width: width, height: natural.height)
             if reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))

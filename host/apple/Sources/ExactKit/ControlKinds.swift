@@ -5,13 +5,46 @@ import Foundation
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
-    static let indexed = ["type:checkbox", "type:select"]
+    static let indexed = ["type:checkbox", "type:select", "type:range"]
     /// `switch`, `checkbox` or the `type` prop's value.
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
         case "select": return "select"
+        case "range": return "range"
         default: return props["accessibilityRole"] == "switch" ? "switch" : "checkbox"
         }
+    }
+}
+
+/// A range's `min`, `max` and `step` by HTML's rules, and its value
+/// clamped and snapped as HTML sanitizes it (`exact_kernel::Range`).
+struct RangeSpec {
+    var min = 0.0, max = 100.0
+    var step: Double? = 1
+
+    init(_ props: [String: String]) {
+        let number = { (s: String?) in s.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        min = number(props["min"]) ?? 0
+        max = Swift.max(number(props["max"]) ?? 100, min)
+        step = props["step"]?.trimmingCharacters(in: .whitespaces).lowercased() == "any" ? nil : (number(props["step"]).flatMap { $0 > 0 ? $0 : nil } ?? 1)
+    }
+
+    func sanitize(_ value: Double) -> Double {
+        let clamped = Swift.min(Swift.max(value, min), max)
+        guard let step else { return clamped }
+        var snapped = min + ((clamped - min) / step + 0.5).rounded(.down) * step
+        if snapped > max { snapped -= step }
+        return Swift.min(Swift.max((snapped * 1e9).rounded() / 1e9, min), max)
+    }
+
+    /// The value it shows: its `value`, or the midpoint as HTML's default.
+    func shown(_ props: [String: String]) -> Double {
+        sanitize(props["value"].flatMap { Double($0) } ?? (min + (max - min) / 2))
+    }
+
+    /// A number as HTML writes one: no trailing `.0`.
+    static func format(_ v: Double) -> String {
+        v == v.rounded() && abs(v) < 1e15 ? String(Int64(v)) : String(v)
     }
 }
 

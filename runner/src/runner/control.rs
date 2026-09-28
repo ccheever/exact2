@@ -44,6 +44,18 @@ impl<D: DataSource> Runner<D> {
                     ))),
                 }
             }
+            // A range reports a number, clamped and snapped as HTML does,
+            // whatever a host sent (LLP 1069.001 D4).
+            (Some(ControlKind::Range), ControlValue::Text(text)) => {
+                let node = self.kernel.node(view).expect("a control");
+                let number = exact_num::parse_f64(text.trim())
+                    .ok()
+                    .filter(|n| n.is_finite())
+                    .ok_or_else(|| invalid(format!("{text:?} is not a number")))?;
+                Ok(Value::Number(
+                    exact_kernel::Range::of(node.props).sanitize(number),
+                ))
+            }
             _ => Err(mismatch()),
         }
     }

@@ -8,6 +8,7 @@ import AppKit
 
 extension ControlHost {
     func makeValueControl(_ kind: String) -> NSControl {
+        if kind == "range" { return makeRange() }
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         // Each item's own `disabled`, never AppKit's validation.
         popup.autoenablesItems = false
@@ -15,6 +16,7 @@ extension ControlHost {
     }
 
     func configureValue(_ control: NSControl, _ owner: NodeView, accent: NSColor?) {
+        if let slider = control as? NSSlider { configureRange(slider, owner); return }
         guard let popup = control as? NSPopUpButton else { return }
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
@@ -34,11 +36,14 @@ extension ControlHost {
     /// select (D3), which its cell measures and its intrinsic size may not.
     func naturalSize(_ control: NSControl) -> CGSize {
         let natural = control.intrinsicContentSize
+        // A slider has no natural width; Chrome's range is 129 wide.
+        if control is NSSlider { return CGSize(width: 129, height: ceil(natural.height)) }
         guard control is NSPopUpButton, let cell = control.cell else { return natural }
         return CGSize(width: ceil(max(natural.width, cell.cellSize.width)), height: natural.height)
     }
 
     @objc func valueChanged(_ sender: NSControl) {
+        if let slider = sender as? NSSlider { rangeChanged(slider); return }
         guard let popup = sender as? NSPopUpButton, let value = popup.selectedItem?.representedObject as? String else { return }
         chose(UInt32(sender.tag), value)
     }
@@ -65,6 +70,10 @@ extension ControlHost {
 
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
+        if let slider = controls[node.id] as? NSSlider {
+            guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
+            return typeRange(slider, node, value)
+        }
         guard let control = controls[node.id], let popup = control as? NSPopUpButton else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
         if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
@@ -75,6 +84,9 @@ extension ControlHost {
     }
 
     func valueObservation(_ control: NSControl) -> [String: Any]? {
+        if let slider = control as? NSSlider {
+            return ["view": "NSSlider", "value": slider.doubleValue, "min": slider.minValue, "max": slider.maxValue]
+        }
         guard let popup = control as? NSPopUpButton else { return nil }
         let menu = menus[UInt32(popup.tag)]
         return ["view": "NSPopUpButton", "value": menu?.chosenValue as Any, "title": popup.titleOfSelectedItem as Any,

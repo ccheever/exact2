@@ -685,6 +685,7 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
         .and_then(|a| match &a.value {
             Expr::Str(t, _) if t == "checkbox" => Some("checkbox"),
             Expr::Str(t, _) if t == "file" => Some("file"),
+            Expr::Str(t, _) if t == "range" => Some("range"),
             _ => None,
         })
 }

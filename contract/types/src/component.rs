@@ -352,6 +352,8 @@ fn refine_params_from_view(
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
+                // A range's carry its number (LLP 1069.001 D4).
+                let range = control == Some("range");
                 // A bound `type` is lowering's refusal (`lower-input-type`),
                 // not a payload guessed here.
                 let bound_type = tag == "input"
@@ -416,6 +418,7 @@ fn refine_params_from_view(
                             let payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
+                                "change" | "input" if range => vec![Ty::Number],
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }

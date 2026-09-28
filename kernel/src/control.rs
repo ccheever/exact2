@@ -22,6 +22,8 @@ pub enum ControlKind {
     File,
     /// `select`, its options the node's children.
     Select,
+    /// `input type="range"`.
+    Range,
 }
 
 impl ControlKind {
@@ -33,6 +35,7 @@ impl ControlKind {
         Some(match props.str(PropId::Type) {
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
+            Some("range") => ControlKind::Range,
             _ if props.str(PropId::AccessibilityRole) == Some("switch") => ControlKind::Switch,
             _ => ControlKind::Checkbox,
         })
@@ -40,14 +43,71 @@ impl ControlKind {
 
     /// The content size a host that reports none shows (LLP 1069.001 D3):
     /// Chrome's 13×13 checkbox, Safari's 38×22 desktop switch, and a select
-    /// one line of Chrome's 13.33 px control font tall. A host that knows
-    /// its control's size reports it.
+    /// one line of Chrome's 13.33 px control font tall, Chrome's 129×16
+    /// range. A host that knows its control's size reports it.
     pub fn default_size(self) -> (f32, f32) {
         match self {
             ControlKind::Checkbox | ControlKind::File => (13.0, 13.0),
             ControlKind::Switch => (38.0, 22.0),
             ControlKind::Select => (64.0, 19.0),
+            ControlKind::Range => (129.0, 16.0),
         }
+    }
+}
+
+/// A range's `min`, `max` and `step` by HTML's rules (the value
+/// sanitization algorithm of `input type=range`): `min` 0 and `max` 100 by
+/// default, a `max` below `min` is `min`, `step` 1 by default and none for
+/// `any`, an unusable one the default.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Range {
+    /// The least value.
+    pub min: f64,
+    /// The greatest value.
+    pub max: f64,
+    /// The step from `min`; `None` for `any`.
+    pub step: Option<f64>,
+}
+
+fn number(s: Option<&str>) -> Option<f64> {
+    s.and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|n| n.is_finite())
+}
+
+impl Range {
+    /// A range's bounds from its props.
+    pub fn of(props: &PropList) -> Range {
+        let min = number(props.str(PropId::Min)).unwrap_or(0.0);
+        let max = number(props.str(PropId::Max)).unwrap_or(100.0).max(min);
+        let step = match props.str(PropId::Step) {
+            Some(s) if s.trim().eq_ignore_ascii_case("any") => None,
+            s => Some(number(s).filter(|n| *n > 0.0).unwrap_or(1.0)),
+        };
+        Range { min, max, step }
+    }
+
+    /// `value` clamped and snapped as HTML sanitizes it: to the nearest
+    /// step from `min` (half up), within `min` and `max`.
+    pub fn sanitize(&self, value: f64) -> f64 {
+        let clamped = value.clamp(self.min, self.max);
+        let Some(step) = self.step else {
+            return clamped;
+        };
+        let mut snapped = self.min + ((clamped - self.min) / step + 0.5).floor() * step;
+        if snapped > self.max {
+            snapped -= step;
+        }
+        // Tidy the float: a step of 0.01 lands on 0.85, not 0.8500000000000001.
+        let tidy = (snapped * 1e9).round() / 1e9;
+        tidy.clamp(self.min, self.max)
+    }
+
+    /// The value a range shows: its `value` sanitized, or with none (or an
+    /// unreadable one) the midpoint, as HTML's default is.
+    pub fn shown(&self, props: &PropList) -> f64 {
+        let value =
+            number(props.str(PropId::Value)).unwrap_or(self.min + (self.max - self.min) / 2.0);
+        self.sanitize(value)
     }
 }
 
@@ -175,6 +235,32 @@ mod tests {
         ops.push(Op::AttachRoot { id: 1 });
         k.apply(0, 1, &ops).unwrap();
         k
+    }
+
+    #[test]
+    fn a_range_clamps_and_snaps_as_html_does() {
+        let mut props = PropList::default();
+        let r = Range::of(&props);
+        assert_eq!((r.min, r.max, r.step), (0.0, 100.0, Some(1.0)));
+        assert_eq!(r.shown(&props), 50.0);
+        assert_eq!(r.sanitize(40.5), 41.0);
+        assert_eq!(r.sanitize(140.0), 100.0);
+        props.set(PropId::Min, PropValue::Str("0.85".into()));
+        props.set(PropId::Max, PropValue::Str("1.25".into()));
+        props.set(PropId::Step, PropValue::Str("0.01".into()));
+        let r = Range::of(&props);
+        assert_eq!(r.sanitize(1.123), 1.12);
+        assert_eq!(r.sanitize(0.1), 0.85);
+        props.set(PropId::Step, PropValue::Str("any".into()));
+        assert_eq!(Range::of(&props).sanitize(1.123), 1.123);
+        props.set(PropId::Step, PropValue::Str("0.3".into()));
+        props.set(PropId::Min, PropValue::Str("0".into()));
+        props.set(PropId::Max, PropValue::Str("1".into()));
+        assert_eq!(
+            Range::of(&props).sanitize(1.0),
+            0.9,
+            "a step past max steps back"
+        );
     }
 
     #[test]

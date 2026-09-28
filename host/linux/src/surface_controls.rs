@@ -509,7 +509,7 @@ impl<D: DataSource> Presenter<D> {
             }
             self.queue_collections();
         }
-        if self.toggle_control(hit, now_ms) {
+        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
         }
         let Some(target) = self.handler_target(hit, EventKind::Press) else {

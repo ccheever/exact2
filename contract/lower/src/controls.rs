@@ -177,8 +177,52 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
             positional: None,
         },
+        // A range: Chrome's UA margin (`2px`) and ARIA's role.
+        "range" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[
+                (StyleId::MarginTop, "2"),
+                (StyleId::MarginRight, "2"),
+                (StyleId::MarginBottom, "2"),
+                (StyleId::MarginLeft, "2"),
+            ],
+            fixed_props: &[(PropId::AccessibilityRole, "slider")],
+            positional: None,
+        },
         _ => t,
     }
+}
+
+/// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
+/// literal is written as one, a bound number through `toString` (LLP
+/// 1069.001 D4: the props are strings on the wire, typed per control).
+/// `None` when nothing needs rewriting.
+pub(crate) fn range_attrs(
+    control: Option<&str>,
+    attrs: &[contract_syntax::Attr],
+) -> Option<Vec<contract_syntax::Attr>> {
+    let numeric = |a: &contract_syntax::Attr| {
+        matches!(a.name.as_str(), "value" | "min" | "max" | "step")
+            && !matches!(a.value, Expr::Str(..))
+    };
+    if control != Some("range") || !attrs.iter().any(numeric) {
+        return None;
+    }
+    Some(
+        attrs
+            .iter()
+            .map(|a| {
+                if !numeric(a) {
+                    return a.clone();
+                }
+                let value = match &a.value {
+                    Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
+                    e => Expr::Call("toString".into(), vec![e.clone()], e.span()),
+                };
+                contract_syntax::Attr { value, ..a.clone() }
+            })
+            .collect(),
+    )
 }
 
 /// `option` belongs in a `select`, and a `select` holds only `option`s

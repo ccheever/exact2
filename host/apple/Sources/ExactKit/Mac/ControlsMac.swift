@@ -15,6 +15,8 @@ final class ControlHost: NSObject {
     private var reported: [UInt32: CGSize] = [:]
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
     var menus: [UInt32: SelectMenu] = [:]
+    /// A range's last reported value while it moves, so each is sent once.
+    var lastRange: [UInt32: String] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -82,8 +84,11 @@ final class ControlHost: NSObject {
             control.setAccessibilityIdentifier(owner.props["testId"])
             let natural = naturalSize(control)
             let box = owner.contentBox()
-            control.frame = CGRect(x: box.midX - natural.width / 2, y: box.midY - natural.height / 2,
-                                   width: natural.width, height: natural.height)
+            // A slider's track spans its box, as the web's does; the others
+            // keep their own size, centred.
+            let width = control is NSSlider ? box.width : natural.width
+            control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                                   width: width, height: natural.height)
             if reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
@@ -106,6 +111,13 @@ final class ControlHost: NSObject {
     func activate(_ node: NodeView) -> Bool? {
         guard let control = controls[node.id] else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert, !control.isHiddenOrHasHiddenAncestor else { return false }
+        // A click at a slider's middle moves its knob there, as a click
+        // does; AppKit's own tracking loop would wait for a mouse-up the
+        // agent's synthesized click never hands it.
+        if let slider = control as? NSSlider {
+            _ = typeRange(slider, node, String((slider.minValue + slider.maxValue) / 2))
+            return true
+        }
         if kinds[node.id] != "checkbox" && kinds[node.id] != "switch" { return openValue(control) }
         if let b = control as? NSButton { b.performClick(nil) } else {
             setOn(control, !isOn(control))

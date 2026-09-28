@@ -380,6 +380,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's `cancel` when its picker is dismissed.
         "accept" => AttrTarget::Prop(p("accept")),
         "multiple" => AttrTarget::Prop(p("multiple")),
+        // @ref LLP 1069.001 D1 — a range's and a date's bounds, HTML's.
+        "min" => AttrTarget::Prop(p("min")),
+        "max" => AttrTarget::Prop(p("max")),
+        "step" => AttrTarget::Prop(p("step")),
         "cancel" => AttrTarget::Handler("cancel"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),

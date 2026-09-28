@@ -710,6 +710,8 @@ impl<'a> Lowerer<'a> {
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 controls::check_nesting(tag, parent_tag, *span)?;
+                let numeric = controls::range_attrs(control, expanded);
+                let expanded = numeric.as_deref().unwrap_or(expanded);
                 tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 // A row list is a flex item of its column like any carousel;

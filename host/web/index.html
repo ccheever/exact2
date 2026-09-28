@@ -41,7 +41,7 @@
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* A checkbox is the platform's control again (LLP 1069.001 D3, D6): its
      size is the UA's; `appearance: none` on the node hands it to the author. */
-  input[type="checkbox"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
+  input[type="checkbox"], input[type="range"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */

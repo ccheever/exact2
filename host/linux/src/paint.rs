@@ -1035,6 +1035,9 @@ impl Painter {
                 let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
+            NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
+                self.range_control(node, content, ts)
+            }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
                 node,

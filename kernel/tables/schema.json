@@ -1206,6 +1206,24 @@
       "name": "multiple",
       "kind": "bool",
       "_comment": "@ref LLP 1069.002 D1: HTML's `multiple` on `input type=file`: the picker may return more than one file."
+    },
+    {
+      "id": 211,
+      "name": "min",
+      "kind": "str",
+      "_comment": "@ref LLP 1069.001 D1: HTML's `min` on `input type=range` (a number) and the date types (an ISO value), as HTML writes it."
+    },
+    {
+      "id": 212,
+      "name": "max",
+      "kind": "str",
+      "_comment": "@ref LLP 1069.001 D1: HTML's `max`, as `min`."
+    },
+    {
+      "id": 213,
+      "name": "step",
+      "kind": "str",
+      "_comment": "@ref LLP 1069.001 D1: HTML's `step` on `input type=range` (a number, or `any`)."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
