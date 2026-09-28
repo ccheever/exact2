@@ -362,6 +362,58 @@ fn a_page_is_the_shell_around_the_document() {
         .replace(" data-wasm=\"./app.wasm\"", "");
     assert!(!rest.contains("app.wasm"));
     assert!(!rest.contains("navigation.js"));
+    a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(interaction);
+}
+
+/// The same document over the JavaScript runtime's shell (one render for
+/// both: the render tests share an executor's limits).
+fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: Rendered) {
+    // @ref LLP 1071 D6
+    r.activate = exact_plan::ActivatePolicy::Inferred;
+    // The shell as host/web3/build.mjs writes it.
+    let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./shared-1.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+    let html = exact_render::page(shell, &r).unwrap();
+    // Undeclared is eager: the runtime downloads from the head, before the
+    // stylesheet and the document, while the page streams.
+    assert!(html.contains("data-activate=\"eager\""), "{html}");
+    let head = &html[..html.find("<style>").unwrap()];
+    assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\">\n"));
+    assert!(head.contains("<link rel=\"modulepreload\" href=\"./shared-1.js\">\n"));
+    // First paint runs nothing of the app's: no module script is in the
+    // page (the checkpoint takes the entry's place), and the one script
+    // that runs is the capture script, in the head, which imports the entry
+    // after the first paint entry, once the document is parsed.
+    assert!(!html.contains("<script type=\"module\""), "{html}");
+    let scripts: Vec<&str> = html
+        .match_indices("<script")
+        .map(|(at, _)| &html[at..])
+        .collect();
+    assert_eq!(scripts.len(), 2, "{html}");
+    let capture = exact_render::capture_js();
+    assert!(scripts[0].starts_with(&format!("<script>{capture}</script>")));
+    assert!(html.find(capture) < html.find("<div id=\"exact-root\""));
+    assert!(html.ends_with(&format!(
+        "<div id=\"exact-root\">{}</div>\n<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"eager\">{}</script>\n",
+        r.document.root, r.digest, r.checkpoint
+    )));
+    for part in [
+        "import(\"./app.js\")",
+        "observe({type:\"paint\",buffered:!0})",
+        "DOMContentLoaded",
+        "requestIdleCallback",
+    ] {
+        assert!(capture.contains(part), "the capture script lacks {part}");
+    }
+    // `idle` keeps the preloads (the runtime runs when the browser is idle
+    // after `load`); `interaction` fetches nothing before intent.
+    r.activate = exact_plan::ActivatePolicy::Idle;
+    let html = exact_render::page(shell, &r).unwrap();
+    assert!(html.contains("data-activate=\"idle\""));
+    assert_eq!(html.matches("rel=\"modulepreload\"").count(), 2);
+    r.activate = exact_plan::ActivatePolicy::Interaction;
+    let html = exact_render::page(shell, &r).unwrap();
+    assert!(html.contains("data-activate=\"interaction\""));
+    assert!(!html.replace(capture, "").contains(".js"), "{html}");
 }
 
 #[test]

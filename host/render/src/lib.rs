@@ -27,7 +27,7 @@ mod serve;
 mod source;
 
 pub use executor::Executor;
-pub use page::{capture, page};
+pub use page::{capture, capture_js, page};
 pub use pages::pages;
 pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;
@@ -206,7 +206,8 @@ pub fn render<D: DataSource + 'static>(
     let mut activation = route_at(plan, location)
         .map_or(exact_plan::ActivatePolicy::Inferred, |route| route.activate);
     // A partial document needs to finish without waiting for an action. Gesture,
-    // media and other continuous handlers likewise need the ordinary idle boot;
+    // media and other continuous handlers likewise need the host's ordinary
+    // boot (undeclared: idle on the wasm host, eager on the JavaScript one);
     // interaction activation only replays discrete form and press semantics.
     if activation == exact_plan::ActivatePolicy::Interaction
         && (!state.pending.is_empty()
@@ -223,7 +224,7 @@ pub fn render<D: DataSource + 'static>(
                 )
             }))
     {
-        activation = exact_plan::ActivatePolicy::Idle;
+        activation = exact_plan::ActivatePolicy::Inferred;
     }
     Ok(Rendered {
         document,

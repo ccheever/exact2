@@ -45,10 +45,13 @@ export function renderer(dist) {
     const interaction = out.activate === 'interaction';
     const checkpoint = JSON.stringify({ location: url.pathname + url.search, time: out.time, logic: null, answers: out.answers, pending: out.pending });
     const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
+    // The capture script imports the entry by the policy; an interaction
+    // page drops the head's modulepreloads (page.rs `page_js`).
     let html = shell.replace(/<html[^>]*>/, `<html lang="en" dir="ltr">`)
       .replace(/<title>[\s\S]*?<meta name="viewport"[^>]*>\n/, () => `${head}\n<script>${capture}</script>\n`)
+      .replace(interaction ? /<link rel="modulepreload" href="[^"]*">\n/g : /(?!)/, '')
       .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${out.root}</div>`)
-      .replace('<script type="module" src="./app.js"></script>', () => `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${out.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>\n${interaction ? '' : '<script type="module" src="./app.js"></script>'}`);
+      .replace('<script type="module" src="./app.js"></script>', () => `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${out.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>`);
     return { html, status: out.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: out.policy };
   };
 }

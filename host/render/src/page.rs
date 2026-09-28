@@ -109,15 +109,32 @@ const JS_ENTRY: &str = "<script type=\"module\" src=\"./app.js\"></script>";
 
 /// The JavaScript runtime's capture script (LLP 1048.001 D5, as
 /// `capture()`): presses and edits before activation, replayed after
-/// adoption; an interaction page's runtime loads at the first of them.
+/// adoption. It also starts the runtime, by the page's policy
+/// ([`activate_js`]): an `eager` page's after its first paint, once the
+/// document is parsed; an `idle` page's when the browser is idle after
+/// `load`; an `interaction` page's at the first press or edit, as every
+/// page's at a press that comes first.
 pub fn capture_js() -> &'static str {
     include_str!("../../web3/capture.js").trim_end()
 }
 
+/// A route's activation on the JavaScript runtime (LLP 1071 D6): what it
+/// declared, with an undeclared one `eager`, the default (preloaded from
+/// the head, run after first paint).
+fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str {
+    match activate {
+        exact_plan::ActivatePolicy::Inferred => "eager",
+        declared => declared.name(),
+    }
+}
+
 /// [`page`] over the JavaScript runtime's shell (the exact3 web target,
 /// LLP 1071): the same document, head and checkpoint; the shell's title and
-/// viewport give way to the head and its capture script; an interaction
-/// page drops the entry, which the capture script imports at intent.
+/// viewport give way to the head and its capture script, which imports the
+/// entry when the page's policy says (the checkpoint takes the entry's
+/// place). The shell's `modulepreload`s for the entry and its static
+/// imports stay, so the runtime downloads while the document streams; an
+/// `interaction` page drops them: it fetches nothing before intent.
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let mut html = shell.to_string();
     let lacks = |what: &str| format!("the JavaScript shell has no `{what}`");
@@ -143,23 +160,33 @@ fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
         title..stop,
         &format!("{}\n<script>{}</script>\n", rendered.head, capture_js()),
     );
+    let activate = activate_js(rendered.activate);
+    if activate == "interaction" {
+        while let Some(at) = html.find(MODULE_PRELOAD) {
+            let stop = html[at..]
+                .find(">\n")
+                .ok_or_else(|| lacks(MODULE_PRELOAD))?
+                + at
+                + 2;
+            html.replace_range(at..stop, "");
+        }
+    }
     let root = "<div id=\"exact-root\"></div>";
     let at = html.find(root).ok_or_else(|| lacks(root))?;
     html.replace_range(
         at..at + root.len(),
         &format!("<div id=\"exact-root\">{}</div>", rendered.document.root),
     );
-    let interaction = rendered.activate == exact_plan::ActivatePolicy::Interaction;
-    let entry = if interaction { "" } else { JS_ENTRY };
     let at = html.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
     html.replace_range(
         at..at + JS_ENTRY.len(),
         &format!(
-            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>\n{entry}",
-            rendered.digest,
-            rendered.activate.name(),
-            rendered.checkpoint
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{activate}\">{}</script>",
+            rendered.digest, rendered.checkpoint
         ),
     );
     Ok(html)
 }
+
+/// A `modulepreload` in the JavaScript shell's head (`host/web3/build.mjs`).
+const MODULE_PRELOAD: &str = "<link rel=\"modulepreload\" href=\"";

@@ -6,7 +6,10 @@
 // 2. Bun's bundler joins it with `rt.js`, tree-shaken and minified: one
 //    module, everything needed to be interactive.
 // 3. `index.html` carries the web host's own base stylesheet (from
-//    `host/web/index.html`), the app's static classes, and the module.
+//    `host/web/index.html`), the app's static classes, and the module, with a
+//    `modulepreload` in the head for it and its static imports, so a served
+//    page (host/render/src/page.rs `page_js`) fetches its runtime while the
+//    document streams.
 // A data module loaded after first pixel (`rust-data.js`) and the agent
 // adapter (`agent.js`, only under `?agent`) are separate files.
 import { spawnSync } from 'node:child_process';
@@ -72,9 +75,9 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  app();',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
-  '  const route = routeAt(location.pathname + location.search), [render, activate] = pages[route] ?? ["build", "idle"];',
+  '  const route = routeAt(location.pathname + location.search), [render, activate] = pages[route] ?? ["build", "inferred"];',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: activate === "interaction" ? "interaction" : "idle", policy: render, notfound: !!pages[route]?.[2], render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: ["idle", "interaction", "never"].includes(activate) ? activate : "eager", policy: render, notfound: !!pages[route]?.[2], render: performance.now() - t0 };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
@@ -87,13 +90,17 @@ const base = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};:,>])\s*/g, '$1').replace(/;}/g, '}');
 const css = readFileSync(resolve(gen, 'app.css'), 'utf8');
 const viewport = existsSync(resolve(gen, 'viewport.txt')) ? readFileSync(resolve(gen, 'viewport.txt'), 'utf8') : 'width=device-width, initial-scale=1';
+// The entry and the chunks it imports statically (none, unless a split
+// shares one with a loaded piece): what a page preloads from its head.
+const statics = ['app.js', ...new Set([...readFileSync(resolve(out, 'app.js'), 'utf8').matchAll(/(?:^|[;}\s])import(?:[^"'();]*?from)?\s*["']\.\/([^"']+\.js)["']/g)].map(m => m[1]))];
+const preloads = args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join('');
 writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <base href="/">
 <title>${manifest.name}</title>
 <meta name="viewport" content="${viewport}">
-<style>${base}${css}</style>
+${preloads}<style>${base}${css}</style>
 <div id="exact-root"></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);

@@ -89,7 +89,11 @@ const STATE_KEYS = ['slots', 'derives', 'resources'];
 async function target(t, report) {
   const fail = (step, what) => report.failures.push({ target: t.name, step, what });
   const dir = resolve(out, t.name); mkdirSync(dir, { recursive: true });
-  if (t.urls) return drive(t, report, fail, dir, { url: t.urls[0], close() {} }, { url: t.urls[1], close() {} });
+  if (t.urls) {
+    await drive(t, report, fail, dir, { url: t.urls[0], close() {} }, { url: t.urls[1], close() {} });
+    for (const url of new Set(t.urls)) await activation(t, report, fail, url);
+    return;
+  }
   const build = spawnSync('bun', ['host/web3/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact3-dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
@@ -166,6 +170,53 @@ async function drive(t, report, fail, dir, ws, js) {
     const [lw, lj] = [lines(rw), lines(rj)];
     report.targets[t.name].tests = { wasm: rw.trim().split('\n').at(-1), js: rj.trim().split('\n').at(-1) };
     diffLists(lw, lj, 'app.test.contract').forEach(x => fail('tests', x));
+  }
+}
+
+// ---------------------------------------------------------------- activation (LLP 1071 D6)
+// A served page as a reader opens it (no `?agent`, no input): first paint
+// runs no module script; `eager` (undeclared) preloads the entry from the
+// head and adopts after the first paint, `idle` after `load`; an
+// `interaction` page fetches no script until a press, which it replays.
+async function activation(t, report, fail, url) {
+  const step = `activation ${url}`;
+  let S;
+  try {
+    S = await open({ host: 'web', app: t.app, url });
+    const ev = S.carrier.evaluate, page = new URL(url);
+    page.searchParams.delete('agent');
+    await ev(`location.href = ${JSON.stringify(page.href)}`).catch(() => {});
+    const read = () => ev(`(() => { const c = document.querySelector('script[type="application/vnd.exact.checkpoint"]'), r = document.getElementById('exact-root');
+      return c && document.readyState === 'complete' && !/[?&]agent=/.test(location.search) ? { policy: c.dataset.activate, boot: r?.dataset.bootMs == null ? null : Number(r.dataset.bootMs),
+        paint: performance.getEntriesByType('paint')[0]?.startTime ?? null, load: performance.getEntriesByType('navigation')[0]?.loadEventStart ?? null,
+        modules: document.querySelectorAll('script[type=module]').length, preload: !!document.head.querySelector('link[rel=modulepreload][href="./app.js"]'),
+        fetched: performance.getEntriesByType('resource').filter(e => e.initiatorType !== 'fetch' && e.name.endsWith('.js')).length,
+        adopted: (globalThis.exact?.journal ?? []).some(l => l.endsWith('adopted the document')) } : null; })()`).catch(() => null);
+    const until = async (ok, ms) => { const end = Date.now() + ms; let r; while (!(r = await read()) || !ok(r)) { if (Date.now() > end) return r; await new Promise(z => setTimeout(z, 50)); } return r; };
+    let r = await until(() => true, 10000);
+    if (!r) return fail(step, 'the page never loaded');
+    const out = [];
+    if (r.modules) out.push(`${r.modules} module script(s) in the page: first paint must run none`);
+    if (r.policy === 'interaction') {
+      await new Promise(z => setTimeout(z, 1000));
+      r = await read();
+      if (r.boot != null || r.fetched) out.push(`interaction: runtime up (${r.boot}) or ${r.fetched} script(s) fetched before any input`);
+      if (r.preload) out.push('interaction: the head preloads the entry');
+      await ev(`document.querySelector('[data-exact-on~=press]:not(a)')?.click()`);
+    } else if (!r.preload) out.push(`${r.policy}: the head does not preload ./app.js`);
+    r = await until(x => x.boot != null, 10000);
+    if (r.boot == null) out.push(`${r.policy}: the runtime never came up${r.policy === 'interaction' ? ' after a press' : ' without input'}`);
+    else {
+      if (!r.adopted) out.push(`${r.policy}: the document was built afresh, not adopted`);
+      if (r.paint == null || r.boot < r.paint) out.push(`${r.policy}: runtime up at ${r.boot} ms, before first paint (${r.paint})`);
+      if (r.policy === 'idle' && r.boot < r.load) out.push(`idle: runtime up at ${r.boot} ms, before load (${r.load})`);
+    }
+    out.forEach(x => fail(step, x));
+    report.steps.push({ target: t.name, step, policy: r.policy, paint: r.paint, boot: r.boot, differences: out.length });
+  } catch (e) {
+    fail(step, e.message.split('\n')[0]);
+  } finally {
+    await S?.close?.();
   }
 }
 
