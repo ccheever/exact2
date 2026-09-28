@@ -232,10 +232,14 @@ const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
 /** Run a request after the commit publishes; `land(outcome)` on reply. */
+/** Requests in flight, for the agent's `clock settle`. */
+export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
-    if (t.req) data.fetch(t.req).then(land, e => land({ failed: 1, message: String(e?.message ?? e) }));
-    else t.promise.then(v => land({ v }), e => land({ error: String(e?.message ?? e) }));
+    inflight.n++;
+    const done = o => { inflight.n--; land(o); };
+    if (t.req) data.fetch(t.req).then(done, e => done({ failed: 1, message: String(e?.message ?? e) }));
+    else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });
 }
 function ask(source, args) {
@@ -244,10 +248,17 @@ function ask(source, args) {
   return a;
 }
 /** A resource: its value, the arguments it settled with, one ticket in flight. */
-export function res(name, source, args, initial, initialArgs, type) {
+export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const r = { value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
+  // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
+  const hold = () => {
+    if (r.value !== undefined) return;
+    const v = typeof ph === "function" ? ph() : ph;
+    if (v === undefined) throw new Refusal(`${name} answers later and has nothing to show; give it an \`else\``);
+    r.value = v;
+  };
   const take = (v, a) => {
     if (type && !conforms(v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
     r.value = v; r.settled = a;
@@ -287,7 +298,7 @@ export function res(name, source, args, initial, initialArgs, type) {
       return r.value;
     }
     if (ans && (ans.req || ans.promise)) {
-      if (r.value === undefined) throw new Refusal(`${name} answers later and has no value to keep`);
+      hold();
       const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise };
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
@@ -295,7 +306,7 @@ export function res(name, source, args, initial, initialArgs, type) {
     }
     // The source is not ready: the compiled value stands, stale, and the
     // resource is asked again, forced, when it is (LLP 1027 D4).
-    if (r.value === undefined) throw new Refusal(`${name}: no value at boot and the source is not ready`);
+    hold();
     flag(pend, true);
     if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
     return r.value;
@@ -402,7 +413,8 @@ export function S(e, prop, unit, f) {
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
   switch (kind) {
-    case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); f(); });
+    // A link with a press is the app's navigation: the browser's is prevented.
+    case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
     case "change": return l("change", () => f(e.value));
     case "input": return l("input", () => f(e.value));
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
@@ -416,15 +428,19 @@ export function on(e, kind, f) {
     default: return l(kind, () => f());
   }
 }
-/** The page's `<head>` fields (LLP 1048.003 D1). */
+/** The page's `<head>` fields (LLP 1048.003 D1); a field bound to state
+ * follows it while its head is in the tree. */
 export function hd(p, fields) {
   // The head's node, as the kernel keeps it: an inert element in the tree.
   p.append(document.createElement("template"));
-  if (fields.headTitle) document.title = fields.headTitle;
-  if (fields.headDescription) {
+  for (const [k, v] of Object.entries(fields)) effect(() => head(k, typeof v === "function" ? v() : v));
+}
+function head(k, v) {
+  if (k === "headTitle") document.title = v;
+  else if (k === "headDescription") {
     let m = document.querySelector('meta[name="description"]');
     if (!m) { m = document.createElement("meta"); m.name = "description"; document.head.append(m); }
-    m.content = fields.headDescription;
+    m.content = v;
   }
 }
 
@@ -541,3 +557,144 @@ export function x_formatTime(ms, off) {
 export const x_formatCountdownMinutes = (at, now) => String(Math.max(0, Math.ceil((at - now) / 6e4)));
 export const x_formatDistance = m => (m /= 1609.344) < 0.1 ? "nearby" : `${(Math.round(m * 10) / 10).toFixed(1)} mi`;
 export const x_formatWalk = m => `${Math.max(1, Math.ceil(m / 80))} min walk`;
+
+// ---------------------------------------------------------------- the router (LLP 1038; route/src)
+// A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
+// [id, name, url, tab, params], params positional in the table's
+// first-declaration order of distinct `:names`.
+let Routes = [], Names = [];
+const names = p => p.split("/").filter(s => s[0] === ":").map(s => s.slice(1));
+/** The plan's route table: [name, pattern, parent, tab, notfound] rows. */
+export function routes(table) {
+  Routes = table.map(([name, pattern, parent, tab, notfound]) => ({ name, pattern, parent, tab, notfound }));
+  Names = [];
+  for (const r of Routes) if (!r.notfound) for (const n of names(r.pattern)) if (!Names.includes(n)) Names.push(n);
+}
+const HEX = "0123456789ABCDEF", utf8 = new TextEncoder();
+const enc = (s, esc) => { let o = ""; for (const b of utf8.encode(s)) o += esc(b) ? "%" + HEX[b >> 4] + HEX[b & 15] : String.fromCharCode(b); return o; };
+const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
+const clean = s => s.replace(/^[\0- ]+|[\0- ]+$/g, "").replace(/[\t\n\r]/g, "");
+/** `canonical` (route/src/location.rs): path and query, dot segments resolved, escaped. */
+export function canonical(location) {
+  let input = clean(location[0] === "/" ? location : "/" + location).split("#")[0];
+  let [path, ...q] = input.split("?"); const query = q.join("?");
+  path = path.replace(/\\/g, "/").replace(/^\//, "");
+  const segs = [], parts = path.split("/");
+  parts.forEach((seg, i) => {
+    const d = seg.toLowerCase(), last = i === parts.length - 1;
+    if (d === "." || d === "%2e") { if (last) segs.push(""); }
+    else if (["..", ".%2e", "%2e.", "%2e%2e"].includes(d)) { segs.pop(); if (last) segs.push(""); }
+    else segs.push(enc(seg, b => b < 0x21 || b > 0x7e || '"#<>?^`{}|'.includes(String.fromCharCode(b))));
+  });
+  return "/" + segs.join("/") + (query ? "?" + enc(query, b => b < 0x21 || b > 0x7e || "\"#<>'".includes(String.fromCharCode(b))) : "");
+}
+const empty = () => Names.map(() => "");
+const segments = p => p === "/" ? [] : p.replace(/^\//, "").split("/");
+function matchRoute(url) {
+  const path = url.split("?")[0], parts = segments(path);
+  if (path === "/" || !path.endsWith("/")) for (let i = 0; i < Routes.length; i++) {
+    const r = Routes[i]; if (r.notfound) continue;
+    const pat = segments(canonical(r.pattern)); if (pat.length !== parts.length) continue;
+    const params = empty();
+    if (pat.every((s, k) => s[0] === ":" ? parts[k] !== "" && (params[Names.indexOf(s.slice(1))] = dec(parts[k], false), true) : s === parts[k])) return [i, params];
+  }
+  const nf = Routes.findIndex(r => r.notfound);
+  return nf < 0 ? null : [nf, empty()];
+}
+const roots = () => { const r = Routes.map((x, i) => x.tab ? i : -1).filter(i => i >= 0); return r.length || !Routes.length ? r : [0]; };
+function rootFor(i) {
+  const rs = roots();
+  if (!Routes[i].notfound) for (let c = i, k = 0; c != null && c >= 0 && k <= Routes.length; c = Routes[c].parent, k++) if (rs.includes(c)) return c;
+  return rs[0];
+}
+const segmentOf = v => { if (["", ".", ".."].includes(v)) throw new Refusal("a path parameter cannot be empty, `.` or `..`"); return enc(v, b => !/[A-Za-z0-9\-_.!~*'()]/.test(String.fromCharCode(b))); };
+const path = (r, values) => r.pattern.split("/").map(s => s[0] === ":" ? segmentOf(values.shift() ?? "") : s).join("/");
+function chain(location) {
+  const url = canonical(location), m = matchRoute(url);
+  if (!m) return [];
+  const [index, params] = m, root = rootFor(index);
+  if (root == null) return [];
+  const idx = [index];
+  if (!Routes[index].notfound) for (let p = Routes[index].parent; idx.at(-1) !== root && p != null && p >= 0; p = Routes[p].parent) { if (idx.includes(p)) return []; idx.push(p); }
+  if (!idx.includes(root)) idx.push(root);
+  return idx.reverse().map(i => {
+    const r = Routes[i], own = empty();
+    for (const n of names(r.pattern)) own[Names.indexOf(n)] = params[Names.indexOf(n)];
+    return { name: r.name, url: i === index ? url : canonical(path(r, names(r.pattern).map(n => params[Names.indexOf(n)]))), tab: Routes[root].name, params: own };
+  });
+}
+const entry = (id, d) => [id, d.name, d.url, d.tab, d.params];
+function refuse(r, why) { say(`router: ${why}`); return r; }
+function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
+const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
+const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
+export const launch = location => x_open(["", [], 0], location);
+export function x_open(r, location) {
+  const c = chain(location);
+  if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
+  const out = copy(r);
+  if (!out[1].length) for (const i of roots()) out[1].push([Routes[i].name, [mint(out, { name: Routes[i].name, url: canonical(Routes[i].pattern), tab: Routes[i].name, params: empty() })]]);
+  const t = out[1].find(t => t[0] === c[0].tab);
+  if (!t) return refuse(r, `unknown tab ${c[0].tab}`);
+  t[1] = c.map((d, k) => t[1][k]?.[2] === d.url ? entry(t[1][k][0], d) : mint(out, d));
+  out[0] = c[0].tab;
+  return out;
+}
+function dest(r, location) { const url = canonical(location), m = matchRoute(url); return m && { name: Routes[m[0]].name, params: m[1], url, tab: r[0] }; }
+export function x_push(r, location) {
+  if (!r[1].length) return x_open(r, location);
+  const d = dest(r, location), i = sel(r);
+  if (!d) return refuse(r, `no route matches ${canonical(location)}`);
+  if (i < 0) return refuse(r, "router has no selected stack");
+  const out = copy(r); out[1][i][1].push(mint(out, d)); return out;
+}
+export function x_replace(r, location) {
+  if (!r[1].length) return x_open(r, location);
+  const d = dest(r, location), i = sel(r);
+  if (!d) return refuse(r, `no route matches ${canonical(location)}`);
+  if (i < 0) return refuse(r, "router has no selected stack");
+  if (r[1][i][1].length === 1 && d.name !== r[1][i][0]) return refuse(r, "replace cannot change the tab's root route");
+  const out = copy(r), s = out[1][i][1]; s[s.length - 1] = entry(s.at(-1)[0], d); return out;
+}
+export function x_back(r) { const i = sel(r); if (i < 0 || r[1][i][1].length < 2) return r; const out = copy(r); out[1][i][1].pop(); return out; }
+export function x_select(r, name) {
+  const i = r[1].findIndex(t => t[0] === name && t[1].length);
+  if (i < 0) return refuse(r, `unknown tab ${name}`);
+  const out = copy(r); if (r[0] === name) out[1][i][1].length = 1; out[0] = name; return out;
+}
+export function x_go(r, location) {
+  const url = canonical(location);
+  if (!matchRoute(url)) return refuse(r, `no route matches ${url}`);
+  const s = x_stack(r), at = s.map(e => e[2]).lastIndexOf(url);
+  if (at >= 0) { const i = sel(r); if (i < 0) return r; const out = copy(r); out[1][i][1].length = at + 1; return out; }
+  const other = r[1].find(t => t[0] !== r[0] && t[1].at(-1)?.[2] === url);
+  return other ? x_select(r, other[0]) : x_push(r, location);
+}
+export const x_stack = r => r[1].find(t => t[0] === r[0])?.[1] ?? [];
+export const x_top = r => x_stack(r).at(-1) ?? [0, "", "", "", empty()];
+export const x_depth = r => x_stack(r).length;
+export const x_params = (r, name) => x_stack(r).map(e => e[4][Names.indexOf(name)]).filter(v => v);
+export function x_searchParam(e, name) {
+  const q = e[2].split("?")[1]; if (!q) return "";
+  for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
+  return "";
+}
+export const x_encodeRouteSegment = segmentOf;
+export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);
+/** The router slot's changes, to the browser's history (`navigation.js`,
+ * the web host's own), and a popstate back as the navigation root's
+ * `navigate` (LLP 1038 D7, D11). */
+let RouterSlot = null, Shown = null, Navigate = null;
+export function router(slot, history) {
+  RouterSlot = slot;
+  history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
+  effect(() => {
+    const r = slot(); if (!r || !r[1].length) return;
+    const top = x_top(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0])));
+    const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
+    Shown = r;
+    history.apply({ top: top[0], url: top[2], removed });
+    queueMicrotask(() => history.project(document.getElementById("exact-root"), say));
+  });
+}
+export const navigateTo = f => { Navigate = f; };

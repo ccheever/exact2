@@ -1,0 +1,13 @@
+# RealWorld against the hosted API: tags, an article, history, a failed sign-in.
+wheel 1 1400
+tap tag-javascript
+tap tab-global
+tap page-2
+tap brand
+tap nav-login
+type email nobody@example.invalid
+type password wrong-password
+tap submit
+back 1
+tap nav-register
+tap nav-home

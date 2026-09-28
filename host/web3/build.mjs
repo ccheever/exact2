@@ -35,12 +35,15 @@ const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // from the DataSource its web build bakes with (host/web3/module.mjs).
 const bakes = existsSync(resolve(appDir, 'web/build.rs')) && /contract::bake\(\s*plan,/.test(readFileSync(resolve(appDir, 'web/build.rs'), 'utf8'));
 const rust = !!manifest.rust?.module || bakes;
+// A TypeScript source (`app.ts`) runs in the page, bundled with it.
+const ts = !rust && existsSync(resolve(appDir, 'app.ts'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
-  "import { data, journal, clock, advance, commit } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight } from './rt.js';",
+  ...(ts ? ["import { install as ts } from './ts-data.js';", 'ts(data);'] : []),
   "const start = () => {",
   "  const state = app();",
-  "  globalThis.exact = { ready: true, journal, clock, advance, commit, data, state };",
+  "  globalThis.exact = { ready: true, journal, clock, advance, commit, data, state, inflight };",
   // The agent adapter, only when the agent drives the page.
   "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
   "};",
@@ -52,6 +55,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
 ].join('\n'));
 for (const f of ['agent.js', 'rust-data.js']) cpSync(resolve(here, f), resolve(gen, f));
+cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
+if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')));
 const bundled = spawnSync('bun', ['build', resolve(gen, 'main.js'), '--minify', '--format=esm', '--splitting', '--outdir', out, '--entry-naming', 'app.js', '--chunk-naming', '[name]-[hash].js'], { cwd: root, stdio: 'inherit' });
 if (bundled.status !== 0) process.exit(bundled.status ?? 1);
 

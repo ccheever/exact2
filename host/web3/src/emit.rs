@@ -196,21 +196,40 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         ..Scope::default()
     };
     let mut body = String::new();
+    // The route table, and the router slot filled from the location before
+    // any initializer (LLP 1038 D5).
+    if let Some(slot) = plan.router {
+        let rows: Vec<String> = plan
+            .routes
+            .iter()
+            .map(|r| {
+                format!(
+                    "[{},{},{},{},{}]",
+                    serde_json::to_string(plan.str(r.name)).unwrap(),
+                    serde_json::to_string(plan.str(r.pattern)).unwrap(),
+                    r.parent.map_or(-1, |p| p.0 as i64),
+                    r.tab as u8,
+                    r.notfound as u8
+                )
+            })
+            .collect();
+        let (routes, launch, sig) = (em.uses.rt("routes"), em.uses.rt("launch"), em.uses.rt("sig"));
+        let _ = write!(
+            body,
+            "{routes}([{}]);const s_{}={sig}({launch}(location.pathname+location.search));",
+            rows.join(","),
+            slot.0
+        );
+    }
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
-        if r.owner.is_some() {
-            continue; // a row slot lives on its row
+        if r.owner.is_some() || plan.router == Some(exact_plan::SlotsId(i as u32)) {
+            continue; // a row slot lives on its row; the router is launched above
         }
         let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
         let sig = em.uses.rt("sig");
         let _ = write!(body, "const s_{i}={sig}({init},{});", serde_json::to_string(&type_code(plan, r.ty)).unwrap());
-        if plan.router.map(|s| s.0 as usize) == Some(i) {
-            em.warnings.push(format!(
-                "slot {} is the router: its launch value is the initializer's, not `Router::launch` (no router in the spike)",
-                plan.str(r.name)
-            ));
-        }
     }
     for (i, r) in plan.derives.iter().enumerate() {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
@@ -225,6 +244,16 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
                 .map_err(|e| format!("resource {}: {e}", plan.str(r.name)))?;
             args.push(f);
         }
+        // What it shows while it waits with nothing kept (LLP 1048.003 D6,
+        // 1054.000.002): an `else source()` row's value, a declared
+        // `else empty(…)`, or the type's zero; a placeholder row has none.
+        let is_placeholder = plan.resources.iter().any(|o| o.placeholder.map(|p| p.0 as usize) == Some(i));
+        let placeholder = match (r.placeholder, plan.bytes(r.placeholder_value)) {
+            (Some(p), _) => format!("()=>r_{}()", p.0),
+            (None, b) if !b.is_empty() => value_js(&Value::from_bytes(b).map_err(|e| e.to_string())?),
+            _ if is_placeholder => "void 0".into(),
+            _ => zero(plan, r.ty),
+        };
         let initial = plan.bytes(r.initial);
         let initial = if initial.is_empty() {
             "void 0".to_string()
@@ -240,7 +269,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let res = em.uses.rt("res");
         let _ = write!(
             body,
-            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{});",
+            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{},{placeholder});",
             serde_json::to_string(plan.str(r.name)).unwrap(),
             serde_json::to_string(plan.str(r.source)).unwrap(),
             args.join(","),
@@ -286,6 +315,10 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let view = std::mem::take(&mut em.out);
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
+    if let Some(slot) = plan.router {
+        let router = em.uses.rt("router");
+        let _ = write!(body, "{router}(s_{},$navigation);", slot.0);
+    }
     // The state's getters, for the agent (names live in `names.js`).
     let list = |p: &str, n: usize| {
         (0..n)
@@ -350,13 +383,25 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         types(plan.derives.iter().map(|r| r.ty).collect()),
         types(plan.resources.iter().map(|r| r.ty).collect())
     );
+    // Each source's parameter and result types, by field name, for a
+    // TypeScript module (records are objects there).
+    let source_types: Vec<String> = plan
+        .sources
+        .iter()
+        .map(|r| {
+            let params: Vec<String> = r.params.iter().map(|p| type_json(plan, plan.source_params[p.0 as usize].ty)).collect();
+            format!("{}:[[{}],{}]", serde_json::to_string(plan.str(r.name)).unwrap(), params.join(","), type_json(plan, r.ty))
+        })
+        .collect();
+    let names_js = format!("{names_js}export const sourceTypes={{{}}};\n", source_types.join(","));
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let js = format!(
-        "// Generated by exact-web3 from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
+        "// Generated by exact-web3 from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
         imports.join(","),
+        if plan.router.is_some() { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
         sources.join(","),
         // A resource with no compiled value: the page waits for its source.
-        plan.resources.iter().any(|r| plan.bytes(r.initial).is_empty() && !exact_plan::runner_owned_source(plan.str(r.source)))
+        false
     );
     let mut css = String::from("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
@@ -370,6 +415,22 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         viewport,
         warnings: em.warnings,
     })
+}
+
+/// The type's zero, as the runner's `zero` makes it.
+fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
+    let t = &plan.types[ty.0 as usize];
+    match t.kind {
+        exact_plan::TypeKind::Number => "0".into(),
+        exact_plan::TypeKind::Bool => "!1".into(),
+        exact_plan::TypeKind::String => "\"\"".into(),
+        exact_plan::TypeKind::Unit | exact_plan::TypeKind::Option => "null".into(),
+        exact_plan::TypeKind::List => "[]".into(),
+        exact_plan::TypeKind::Record => format!(
+            "[{}]",
+            t.fields.iter().map(|f| zero(plan, plan.fields[f.0 as usize].ty)).collect::<Vec<_>>().join(",")
+        ),
+    }
 }
 
 /// A type for the agent's typed JSON: `"n"`, `"b"`, `"s"`, `"u"`,
@@ -528,10 +589,10 @@ impl Em<'_> {
                         serde_json::to_string(prop.name()).unwrap(),
                         serde_json::to_string(&*s).unwrap()
                     )),
-                    _ => self.warnings.push(format!(
-                        "head {}: a dynamic head field is not in the spike",
-                        prop.name()
-                    )),
+                    _ => {
+                        let f = self.f(b.expr, scope)?;
+                        fields.push(format!("{}:{f}", serde_json::to_string(prop.name()).unwrap()));
+                    }
                 }
             }
             let hd = self.uses.rt("hd");
@@ -636,7 +697,8 @@ impl Em<'_> {
                 args.push(f);
             }
             match h.event {
-                EventKind::Press
+                EventKind::Navigate
+                | EventKind::Press
                 | EventKind::Change
                 | EventKind::Input
                 | EventKind::Hover
@@ -679,6 +741,11 @@ impl Em<'_> {
                 args.push("...v".into());
                 format!("(...v)=>a_{}({})", h.action.0, args.join(","))
             };
+            if h.event == EventKind::Navigate {
+                let nav = self.uses.rt("navigateTo");
+                let _ = write!(self.out, "{nav}({handler});");
+                continue;
+            }
             let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
         }
         self.children(self.sites.of_node(i), &e, scope)?;

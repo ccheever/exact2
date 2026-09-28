@@ -48,10 +48,19 @@ export function install(exact) {
         return { nodes, ...tags() };
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
-      case 'tap': case 'type': return {};
+      case 'tap':
+        // The browser's own traversal (LLP 1038 D11); popstate reaches the app.
+        if (req.history) { history.go(req.history); await new Promise(r => setTimeout(r, 300)); return { history: req.history, delivery: 'platform' }; }
+        return {};
+      case 'type': return {};
       case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
       case 'clock': {
-        if (req.settle) { await new Promise(r => setTimeout(r, 50)); return { clock: exact.clock.now, settled: true }; }
+        if (req.settle) {
+          // Settled: no request in flight and no commit pending, within 20 s.
+          const end = performance.now() + 20000;
+          do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
+          return { clock: exact.clock.now, settled: !exact.inflight.n };
+        }
         exact.advance(req.to);
         await new Promise(r => requestAnimationFrame(() => r()));
         return { clock: exact.clock.now };
