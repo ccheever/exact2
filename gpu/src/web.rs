@@ -3,6 +3,7 @@
 
 use crate::{json, Frame, Module, Registry};
 use std::cell::RefCell;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -107,7 +108,7 @@ pub async fn recover(
             inst.surface.device_ready(gpu.device.features());
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, config.format);
-            inst.presentation = Some(target);
+            inst.presentation = Some(Arc::new(target));
         }
         if module
             .device_lost

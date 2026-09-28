@@ -438,6 +438,18 @@ pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
 }
 
+/// Whether a canvas's last render went without a drawable.
+pub fn starved(id: u32) -> bool {
+    with(|m| m.starved(id)).unwrap_or(false)
+}
+
+/// Register the presenter's callback for a starved canvas's drawable: it
+/// runs on the thread that acquired it, and asks for a render on the main
+/// thread. `None` removes it.
+pub fn on_acquire(callback: Option<extern "C" fn()>) {
+    crate::acquire::on_acquire(callback);
+}
+
 /// Drop a canvas's surface.
 pub fn destroy(id: u32) {
     with(|m| m.destroy(id));
@@ -783,6 +795,20 @@ macro_rules! module {
             u32::from($crate::native::dirty(id))
         }
 
+        /// Whether a canvas's last render went without a drawable: render it
+        /// again after `gpu_on_acquire`'s callback.
+        #[no_mangle]
+        pub extern "C" fn gpu_starved(id: u32) -> u32 {
+            u32::from($crate::native::starved(id))
+        }
+
+        /// The presenter's callback for a starved canvas's drawable, called on
+        /// the acquiring thread; null removes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_on_acquire(callback: Option<extern "C" fn()>) {
+            $crate::native::on_acquire(callback)
+        }
+
         /// Drop a canvas's surface.
         #[no_mangle]
         pub extern "C" fn gpu_destroy(id: u32) {
@@ -907,6 +933,37 @@ mod placement_abi_tests {
                 Some([0.; 9])
             );
         }
+        unload();
+    }
+
+    /// A drawable acquired off the main thread and never taken is discarded
+    /// through its surface, so it must go before the surface does. On the
+    /// iPad a list retiring a row dropped it after the canvas's handle and
+    /// the acquiring thread's were gone, and wgpu's discard panicked. Here
+    /// in that order: the `Acquire` keeps the surface until the channel goes.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_untaken_acquired_texture_is_discarded_while_its_surface_exists() {
+        #[link(name = "QuartzCore", kind = "framework")]
+        extern "C" {}
+        assert_eq!(load(&REGISTRY), 0);
+        // SAFETY: retained layer outlives the module's presentation target.
+        let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
+            unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
+        let ptr = objc2::rc::Retained::as_ptr(&layer) as *mut std::ffi::c_void;
+        let id = unsafe { super::create("sign", ptr, 16, 16) };
+        assert_ne!(id, 0);
+        let target = with(|m| m.instances[&id].presentation.clone().unwrap()).unwrap();
+        let mut acquire = crate::acquire::Acquire::default();
+        acquire.request(&target);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        // The canvas's handle goes, then the thread's; the texture has landed.
+        drop(target);
+        super::destroy(id);
+        let answer = acquire.hang_up().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        drop(answer);
+        drop(acquire);
         unload();
     }
 

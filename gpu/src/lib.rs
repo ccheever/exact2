@@ -29,6 +29,8 @@ use std::sync::{
 pub use exact_plan::Value;
 pub use wgpu;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod acquire;
 mod binding;
 mod children;
 mod input;
@@ -353,8 +355,11 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
-    presentation: Option<wgpu::Surface<'static>>,
+    presentation: Option<Arc<wgpu::Surface<'static>>>,
     config: Option<wgpu::SurfaceConfiguration>,
+    /// The next texture, acquired off the presenter's thread (`acquire`).
+    #[cfg(not(target_arch = "wasm32"))]
+    acquire: acquire::Acquire,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
@@ -591,7 +596,7 @@ impl Module {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
-            (Some(target), Some(config))
+            (Some(Arc::new(target)), Some(config))
         });
         self.instances.insert(
             id,
@@ -601,6 +606,8 @@ impl Module {
                 published: None,
                 presentation,
                 config,
+                #[cfg(not(target_arch = "wasm32"))]
+                acquire: Default::default(),
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
@@ -619,6 +626,10 @@ impl Module {
     pub fn lose_device(&mut self) {
         for inst in self.instances.values_mut() {
             inst.presentation = None;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                inst.acquire = Default::default();
+            }
             inst.surface.device_lost();
             inst.answered.clear();
             inst.outstanding.clear();
@@ -889,17 +900,41 @@ impl Module {
         if !inst.bound {
             return Some(false);
         }
-        let target = inst.presentation.as_mut()?;
+        let target = inst.presentation.as_ref()?;
         let config = inst.config.as_mut()?;
         inst.surface
             .prepare_assets(&gpu.device, &gpu.queue, config.format);
+        // Off the presenter's thread (`acquire`) unless the clock is the
+        // agent's, whose frames are rendered when asked for.
+        #[cfg(not(target_arch = "wasm32"))]
+        let off_thread = acquire::Acquire::ENABLED && !self.seekable;
         if config.width != w || config.height != h {
+            // The texture in flight was acquired at the old size.
+            #[cfg(not(target_arch = "wasm32"))]
+            drop(inst.acquire.take(true));
             config.width = w;
             config.height = h;
             target.configure(&gpu.device, config);
         }
         use wgpu::CurrentSurfaceTexture as Current;
-        let texture = match target.get_current_texture() {
+        #[cfg(not(target_arch = "wasm32"))]
+        let current = if off_thread {
+            inst.acquire.request(target);
+            match inst.acquire.take_or_starve() {
+                Some(current) => current,
+                // Not released by the compositor yet: this canvas keeps its
+                // last frame, and its inputs stay dirty.
+                None => return Some(true),
+            }
+        } else {
+            match inst.acquire.take(true) {
+                Some(current) => current,
+                None => target.get_current_texture(),
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let current = target.get_current_texture();
+        let texture = match current {
             Current::Success(t) => t,
             Current::Suboptimal(t) => {
                 target.configure(&gpu.device, config);
@@ -933,8 +968,22 @@ impl Module {
             return None;
         }
         gpu.queue.present(texture);
+        // The next drawable, waited for while this frame is composited.
+        #[cfg(not(target_arch = "wasm32"))]
+        if off_thread && wants {
+            if let Some(target) = &inst.presentation {
+                inst.acquire.request(target);
+            }
+        }
         inst.dirty = false;
         Some(wants)
+    }
+
+    /// Whether a canvas's last render went without a drawable (`acquire`):
+    /// the presenter renders it again when the module says one arrived.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn starved(&self, id: u32) -> bool {
+        self.instances.get(&id).is_some_and(|i| i.acquire.starved())
     }
 
     /// Every command submitted to the device so far, complete (LLP 1008 §9):

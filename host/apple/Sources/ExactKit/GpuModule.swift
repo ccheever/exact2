@@ -118,6 +118,11 @@ final class GpuModule {
     private let outPtr: ErrorPtrFn?
 
     var recover: LoadFn?
+    /// Whether a canvas's last render went without a drawable (iOS: the
+    /// module acquires off the main thread and says when one arrives).
+    var starved: WantsFn?
+    typealias AcquiredFn = @convention(c) () -> Void
+    typealias OnAcquireFn = @convention(c) (AcquiredFn?) -> Void
     let canvases = NSHashTable<Canvases>.weakObjects()
     private var recovering = false
     private var deviceObserver: NSObjectProtocol?
@@ -257,6 +262,10 @@ final class GpuModule {
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
+        #if os(iOS)
+        module.starved = sym("gpu_starved", WantsFn.self)
+        if module.starved != nil { sym("gpu_on_acquire", OnAcquireFn.self)?(gpuAcquired) }
+        #endif
         return .success(module)
     }
 
@@ -265,6 +274,15 @@ final class GpuModule {
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.childrenMode = childrenMode; self.readback = readback
         self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
+
+    #if os(iOS)
+    /// A starved canvas's drawable arrived: every session's starved canvases render.
+    static func acquired() {
+        for case .success(let module) in shared.values {
+            for owner in module.canvases.allObjects { owner.renderStarved() }
+        }
+    }
+    #endif
 
     /// A loaded module validates candidate shaders without changing its registry.
     /// Runtime shader assets (LLP 1030 D8) are the primary's; a declared
@@ -354,3 +372,11 @@ struct DisplayPeriod {
         }
     }
 }
+
+#if os(iOS)
+/// The module's callback on the thread that acquired a starved canvas's
+/// drawable (gpu/src/acquire.rs): the render belongs on the main thread.
+private let gpuAcquired: GpuModule.AcquiredFn = {
+    DispatchQueue.main.async { GpuModule.acquired() }
+}
+#endif

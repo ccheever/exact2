@@ -45,7 +45,7 @@ impl Module {
             inst.surface.device_ready(gpu.device.features());
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, config.format);
-            inst.presentation = Some(target);
+            inst.presentation = Some(std::sync::Arc::new(target));
         }
         Ok(())
     }
