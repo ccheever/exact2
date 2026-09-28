@@ -22,6 +22,11 @@
 //! Presence (LLP 1063) has no browser oracle: [`PRESENCE_SOURCE`] and
 //! [`PRESENCE_STEPS`] drive one recorded timeline through the agent on each
 //! host. `parity.mjs --presence` compares their presented surfaces and opacity.
+//!
+//! Nor do geometry reads (LLP 1051.000 D4): each host answers
+//! [`GEOMETRY_SOURCE`]'s `frame` and `measure` reads, and `parity.mjs
+//! --geometry` holds them to [`GEOMETRY_EXPECTED`], which fixed boxes make
+//! exact.
 
 use crate::css::transition_css;
 use exact_motion::{Animations, Change, Engine, Property, TimingFunction, Transitions, Value};
@@ -86,6 +91,57 @@ pub const PRESENCE_STEPS: &str = r#"[
   {"name":"exit-ended","advance":201},
   {"name":"settled","advance":600}
 ]"#;
+
+/// Geometry reads from actions (LLP 1051.000). The bay is moved and scaled,
+/// which neither read sees; `measure` is the sheet at `height: auto` (240 of
+/// content and 20 of padding); and two timers that fall due in one advance
+/// both see the layout from before it (D1), then the bay laid out at 700.
+pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
+  state bayPx = 500
+  state room = 0
+  state top = 0
+  state left = 0
+  state natural = 0
+  state sized = 0
+  state answered = false
+  state missing = false
+  state seenA = 0
+  state seenB = 0
+  action read writes room, top, left, natural, sized, answered, missing
+    room = frame("bay").height
+    top = frame("sheet").y
+    left = frame("sheet").x
+    natural = measure("sheet").height
+    sized = frame("sheet").height
+    answered = not frame("bay").unavailable and not measure("sheet").unavailable
+    missing = frame("nowhere").unavailable
+  action first writes seenA, bayPx
+    seenA = frame("bay").height
+    bayPx = bayPx + 100
+  action second writes seenB, bayPx
+    seenB = frame("bay").height
+    bayPx = bayPx + 100
+  task a mount
+    every(100, first)
+  task b mount
+    every(100, second)
+  view
+    column
+      column id="bay" height=bayPx transform="translateX(40px) scale(0.5)"
+        column height=20
+        column id="sheet" height=100 margin-left=30 padding-top=10 padding-bottom=10 box-sizing="border-box"
+          column height=240
+      button press=read testId="read" height=40
+        text "read"
+"##;
+
+/// What every host answers: after `read` at the start, after both timers
+/// (`+100`), and after `read` again.
+pub const GEOMETRY_EXPECTED: &str = r#"{
+  "read": {"room":500,"top":20,"left":30,"natural":260,"sized":100,"answered":true,"missing":true},
+  "timers": {"seenA":500,"seenB":500,"bayPx":700},
+  "reread": {"room":700,"top":20,"natural":260,"sized":100,"answered":true}
+}"#;
 
 /// One step of a case's script, at a time in seconds.
 #[derive(Debug, Clone, PartialEq)]

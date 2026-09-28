@@ -8,6 +8,10 @@
 // --presence drives the corpus's Contract fixture on web, macOS and Linux.
 // --hosts selects hosts; --record-presence <host> deliberately replaces the
 // shared recording. It is an observation, not a ruling that that host is right.
+// --geometry drives LLP 1051.000's geometry fixture on each host over the
+// interaction gallery's artifacts, which link geometry because its sheet reads
+// it (build them first: its web dist, its Linux host, its macOS app), and
+// holds every answer to the fixture's own.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
@@ -110,6 +114,41 @@ async function presenceParity() {
   process.exitCode = failures.length ? 1 : 0;
 }
 
+async function geometryParity() {
+  process.env.EXACT_APP_DIR ??= resolve(root, 'apps/interaction-gallery');
+  const { open } = await import('../../scripts/agent.mjs');
+  const args = process.argv.slice(2), option = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+  const hosts = (option('--hosts') ?? 'web,macos,linux').split(',');
+  const dir = resolve(root, 'target/geometry-parity');
+  mkdirSync(dir, { recursive: true });
+  const plan = resolve(dir, 'geometry.plan'), c = run(['geometry', plan]);
+  if (c.status !== 0) throw new Error(c.stderr);
+  const expected = JSON.parse(c.stdout), failures = [];
+  for (const host of hosts) {
+    let s;
+    try {
+      s = await open({ host, plan, size: [400, 800], app: 'interaction-gallery' });
+      const slots = async () => { const state = await s.state(); return state.slots ?? state.state ?? state; };
+      await s.tap('read');
+      const got = { read: await slots() };
+      await s.clock('+100');
+      got.timers = await slots();
+      await s.tap('read');
+      got.reread = await slots();
+      const errors = Object.entries(expected).flatMap(([step, want]) => Object.entries(want)
+        .filter(([name, value]) => got[step][name] !== value)
+        .map(([name, value]) => `${step}: ${name} is ${JSON.stringify(got[step][name])}, expected ${JSON.stringify(value)}`));
+      writeFileSync(resolve(dir, `${host}.json`), JSON.stringify({ host, got, logs: await s.logs() }, null, 2) + '\n');
+      failures.push(...errors.map(error => `${host}: ${error}`));
+      console.log(`geometry ${host}: ${errors.length ? `${errors.length} disagreements` : 'every answer matches'}`);
+    } catch (error) { failures.push(`${host}: ${error.message}`); }
+    finally { await s?.close(); }
+  }
+  for (const error of failures) console.error(`  ${error}`);
+  console.log(`geometry parity: ${failures.length ? `${failures.length} failure(s)` : 'ok'}; answers in target/geometry-parity`);
+  process.exitCode = failures.length ? 1 : 0;
+}
+
 async function browserParity() {
   const cases = run(['cases']);
   if (cases.status !== 0) { console.error(cases.stderr); process.exit(1); }
@@ -164,5 +203,6 @@ async function browserParity() {
 
 if (import.meta.main) {
   if (process.argv.includes("--presence")) await presenceParity();
+  else if (process.argv.includes("--geometry")) await geometryParity();
   else await browserParity();
 }
