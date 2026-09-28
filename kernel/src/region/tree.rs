@@ -115,6 +115,7 @@ impl Derived {
             .filter_map(|&s| {
                 if !arena.node_type(s).is_measured_leaf()
                     || arena.node_type(s) == NodeType::Image
+                    || arena.node_type(s) == NodeType::Control
                     || arena.is_inline_run(s)
                 {
                     return None;

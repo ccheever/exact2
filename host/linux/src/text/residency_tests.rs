@@ -183,6 +183,7 @@ fn paint(painter: &mut Painter, kernel: &Kernel) -> Result<crate::paint::Frame, 
             images: &BTreeMap::new(),
             focus: None,
             pointer: None,
+            controls: &BTreeMap::new(),
         },
         (400., 400.),
     )

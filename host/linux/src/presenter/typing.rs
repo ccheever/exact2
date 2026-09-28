@@ -2,8 +2,9 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
-    /// Set an input's value as typing does: focused, the value replaced,
-    /// one `change` heard by the runner.
+    /// Set an input's value as typing does and commit it: focused, the
+    /// value replaced, an `input` then a `change` heard by the runner, each
+    /// where the node has a handler for it (LLP 1069.001 D4).
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
@@ -40,9 +41,16 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
-        let error = self
-            .host
-            .dispatch_at(id, Event::Change(text.to_string()), now);
+        let mut error = None;
+        for (event, kind) in [
+            (Event::Input(text.into()), EventKind::Input),
+            (Event::Change(text.into()), EventKind::Change),
+        ] {
+            if self.host.runner().handlers_of(id).contains(&kind) {
+                error = error.or(self.host.dispatch_at(id, event, now));
+            }
+        }
+        self.edited = None;
         let e = self.after_commit();
         if let Some(e) = error.or(e) {
             return Err(e);
@@ -200,6 +208,9 @@ impl<D: DataSource> Presenter<D> {
         let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
         match name {
             "Enter" if !textarea => {
+                if let Some(Some(e)) = self.commit_text(id, now_ms) {
+                    eprintln!("exact: {e}");
+                }
                 if let Some(e) = self.submit_event(id, now_ms) {
                     eprintln!("exact: {e}");
                 }
@@ -214,11 +225,50 @@ impl<D: DataSource> Presenter<D> {
             s if s.chars().count() == 1 => value.push_str(s),
             _ => return,
         }
-        if let Some(e) = self.host.dispatch_at(id, Event::Change(value), now_ms) {
-            eprintln!("exact: {e}");
+        self.edited = Some(id);
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Input)
+        {
+            if let Some(e) = self
+                .host
+                .dispatch_at(id, Event::Input(value.into()), now_ms)
+            {
+                eprintln!("exact: {e}");
+            }
+            if let Some(e) = self.after_commit() {
+                eprintln!("exact: {e}");
+            }
         }
-        if let Some(e) = self.after_commit() {
-            eprintln!("exact: {e}");
+    }
+
+    /// Commit a field typed into since it took the focus: HTML's `change`,
+    /// on blur or Enter (LLP 1069.001 D4). `None` when nothing was
+    /// dispatched; else the dispatch's error, if any.
+    pub(crate) fn commit_text(&mut self, id: ViewId, now_ms: f64) -> Option<Option<String>> {
+        if self.edited != Some(id) {
+            return None;
         }
+        self.edited = None;
+        if !self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Change)
+        {
+            return None;
+        }
+        let value = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
+            .unwrap_or_default();
+        Some(
+            self.host
+                .dispatch_at(id, Event::Change(value.into()), now_ms),
+        )
     }
 }

@@ -15,7 +15,14 @@ impl<D: DataSource> Presenter<D> {
         }
         self.focus = next;
         self.dirty = true;
-        let (mut error, mut dispatched) = (None, false);
+        // A typed field commits as it loses the focus, before its `blur`.
+        let (mut error, mut dispatched) = match previous {
+            Some(id) => match self.commit_text(id, now_ms) {
+                Some(result) => (result, true),
+                None => (None, false),
+            },
+            None => (None, false),
+        };
         for (id, event, kind) in [
             (previous, Event::Blur, EventKind::Blur),
             (next, Event::Focus, EventKind::Focus),

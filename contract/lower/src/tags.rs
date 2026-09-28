@@ -301,6 +301,62 @@ pub fn tag(name: &str) -> Option<Tag> {
     })
 }
 
+/// The form control an `input` is (LLP 1069.001 D1), refusing a bound
+/// `type`: the node type is chosen when the view compiles, from the literal.
+pub(crate) fn input_control(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+) -> Result<Option<&'static str>, super::LowerError> {
+    use contract_syntax::Expr;
+    if tag != "input" {
+        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+            return super::err(
+                "lower-attr-tag",
+                format!("`checked` belongs to `input type=\"checkbox\"`, not `{tag}`"),
+                a.span,
+            );
+        }
+        return Ok(None);
+    }
+    if let Some(a) = attrs.iter().find(|a| a.name == "type") {
+        if !matches!(a.value, Expr::Str(..)) {
+            return super::err(
+                "lower-input-type",
+                "`input`'s `type` is a literal (`type=\"text\"`, `\"password\"`, `\"checkbox\"`, …): it picks the kind of node when the view compiles",
+                a.span,
+            );
+        }
+    }
+    let control = contract_syntax::input_control(tag, attrs);
+    if control.is_none() {
+        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+            return super::err(
+                "lower-attr-tag",
+                "`checked` belongs to `input type=\"checkbox\"`; a text field's is `value`",
+                a.span,
+            );
+        }
+    }
+    Ok(control)
+}
+
+/// A checkbox: the kernel's `Control`, with the margins Chrome's UA sheet
+/// gives `input[type=checkbox]` (`3px 3px 3px 4px`) and ARIA's role; `switch`
+/// or `role="switch"` replaces the role (LLP 1069.001 D1, D3).
+pub(crate) fn control_tag() -> Tag {
+    Tag {
+        node_type: NodeType::Control,
+        fixed_styles: &[
+            (StyleId::MarginTop, "3"),
+            (StyleId::MarginRight, "3"),
+            (StyleId::MarginBottom, "3"),
+            (StyleId::MarginLeft, "4"),
+        ],
+        fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
+        positional: None,
+    }
+}
+
 /// What a prop attribute's value must be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropTy {
@@ -349,7 +405,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "error" => AttrTarget::Handler("error"),
         "canplay" => AttrTarget::Handler("canplay"),
         "press" => AttrTarget::Handler("press"),
+        // @ref LLP 1069.001 D4 — HTML's two: `input` as the value moves (a
+        // text field's every keystroke), `change` when it is committed.
         "change" => AttrTarget::Handler("change"),
+        "input" => AttrTarget::Handler("input"),
+        "checked" => AttrTarget::Prop(p("checked")),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
@@ -677,6 +737,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
         "caret-color" => styles(&[StyleId::CaretColor]),
+        // @ref LLP 1069.001 D6 — a form control's tint and whether the
+        // platform draws it.
+        "accent-color" => styles(&[StyleId::AccentColor]),
+        "appearance" => styles(&[StyleId::Appearance]),
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
         // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
@@ -872,7 +936,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
-        "onChange" | "onChangeText" => "change",
+        "onChange" | "onChangeText" | "onInput" => "input",
         "className" | "class" | "style" => return None,
         _ => return None,
     })

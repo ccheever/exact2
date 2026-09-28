@@ -184,7 +184,7 @@ fn changing_station_re_requests_the_boards_and_search_filters_by_key() {
     );
     assert_eq!(nearest.len(), 3 + caltrain_data::STATIONS.len());
 
-    r.dispatch(view_of(&r, "station-search"), Event::Change("san".into()))
+    r.dispatch(view_of(&r, "station-search"), Event::Input("san".into()))
         .unwrap();
     let matches = ids_with_prefix(&r, "station-");
     assert_eq!(matches, ["station-sf", "station-sanmateo", "station-sj"]);

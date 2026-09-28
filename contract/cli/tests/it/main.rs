@@ -12,6 +12,7 @@ mod collection_bounds;
 mod collection_edge_async;
 mod collection_edges;
 mod compose;
+mod controls;
 mod corpus;
 mod delivery;
 mod diagnostics;

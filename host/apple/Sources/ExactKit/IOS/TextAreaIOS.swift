@@ -253,7 +253,7 @@ extension NodeView {
     func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
-        if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }
+        if !disabled { presenter?.typed(id, textView.text ?? "", input: handlers.contains("input")) }
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
         configureMarkup()
         restyleMarkup()
@@ -274,6 +274,7 @@ extension NodeView {
     }
     func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
+        presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
 }

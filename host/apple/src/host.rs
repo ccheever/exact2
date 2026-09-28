@@ -1248,7 +1248,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Image => "image",
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
-        NodeType::Toggle => "toggle",
+        NodeType::Control => "control",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
         NodeType::Video => "video",

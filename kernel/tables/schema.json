@@ -36,7 +36,8 @@
     },
     {
       "id": 8,
-      "name": "Toggle"
+      "name": "Control",
+      "_comment": "@ref LLP 1069.001 D2: a form control (`input type=checkbox`, with `switch`), a measured leaf whose size the host reports; its `type` prop says which widget it is."
     },
     {
       "id": 9,
@@ -194,7 +195,7 @@
     },
     {
       "id": 4,
-      "name": "toggleValue",
+      "name": "checked",
       "kind": "bool"
     },
     {
@@ -1569,6 +1570,13 @@
       ],
       "default": "auto"
     },
+    "Appearance": {
+      "values": [
+        "auto",
+        "none"
+      ],
+      "default": "auto"
+    },
     "PointerEvents": {
       "values": [
         "auto",
@@ -2631,6 +2639,20 @@
       "codec": "f32",
       "default": 1,
       "_comment": "@ref LLP 1061 D1: the uniform scale a node shows while a pointer holds it pressed, about `transform-origin`; 1 is none. Not CSS: the host owns the feedback (no runner round trip), eased in 120 ms, and keeps it under reduced motion. It composes with, never replaces, the `scale` row."
+    },
+    {
+      "bit": 148,
+      "field": "accent_color",
+      "codec": "auto-color",
+      "inherited": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's."
+    },
+    {
+      "bit": 149,
+      "field": "appearance",
+      "codec": "enum:Appearance",
+      "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

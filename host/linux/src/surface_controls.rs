@@ -505,6 +505,9 @@ impl<D: DataSource> Presenter<D> {
             }
             self.queue_collections();
         }
+        if self.toggle_control(hit, now_ms) {
+            return Some(hit);
+        }
         let Some(target) = self.handler_target(hit, EventKind::Press) else {
             return self.surface_pointer(hit, x, y, now_ms);
         };

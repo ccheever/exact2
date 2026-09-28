@@ -36,6 +36,7 @@ mod arrange_geometry;
 mod clock;
 mod collection;
 mod contact;
+mod control;
 mod delivery;
 mod display_frame;
 mod events;
@@ -92,6 +93,12 @@ pub struct Presenter<D: DataSource> {
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,
     pub(crate) focus: Option<ViewId>,
+    /// The text field typed into since it took the focus: its `change`
+    /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
+    pub(crate) edited: Option<ViewId>,
+    /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
+    /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
+    pub(crate) controls: BTreeMap<ViewId, bool>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
@@ -372,6 +379,8 @@ impl<D: DataSource> Presenter<D> {
             assets,
             compat: String::new(),
             focus: None,
+            edited: None,
+            controls: BTreeMap::new(),
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),

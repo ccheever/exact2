@@ -30,6 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
+mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
@@ -324,6 +325,8 @@ pub struct Scene<'a> {
     pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
+    /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
+    pub controls: &'a BTreeMap<ViewId, bool>,
     /// The pointer, in viewport points, when the host draws one.
     pub pointer: Option<(f32, f32)>,
 }
@@ -1023,6 +1026,14 @@ impl Painter {
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Control => control::paint(
+                self.backend.as_mut(),
+                node,
+                content,
+                ts,
+                self.dark,
+                walk.scene.controls.get(&node.id).copied(),
+            ),
             _ => {}
         }
         // Children: clipped by this box when its overflow is not visible,

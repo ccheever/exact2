@@ -190,7 +190,8 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
     let text = |rng: &mut Rng| rng.pick(&["", "a", "ab", "hello", "/", "#fff"]).to_string();
     Some(match kind {
         EventKind::Press => Event::Press,
-        EventKind::Change => Event::Change(text(rng)),
+        EventKind::Change => Event::Change(text(rng).into()),
+        EventKind::Input => Event::Input(text(rng).into()),
         EventKind::Hover => Event::Hover(rng.below(2) == 0),
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,

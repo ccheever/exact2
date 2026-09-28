@@ -11,7 +11,7 @@ mod commit;
 mod event;
 mod reorder;
 mod reorder_codec;
-pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
+pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,

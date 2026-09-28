@@ -34,7 +34,7 @@ fn kernel() -> Kernel {
             },
             Op::CreateView {
                 id: 12,
-                node_type: NodeType::Toggle,
+                node_type: NodeType::Control,
             },
             Op::SetStyle {
                 id: 10,
@@ -56,7 +56,7 @@ fn kernel() -> Kernel {
             },
             Op::SetProp {
                 id: 12,
-                prop: PropId::ToggleValue,
+                prop: PropId::Checked,
                 value: true.into(),
             },
             Op::SetProp {
@@ -181,7 +181,7 @@ fn envelope_round_trips_rows_styles_and_props() {
 
     assert_eq!(snap.props[1].str(PropId::Text), Some("hi"));
     assert_eq!(snap.props[1].str(PropId::TestId), Some("greeting"));
-    assert_eq!(snap.props[2].bool(PropId::ToggleValue), Some(true));
+    assert_eq!(snap.props[2].bool(PropId::Checked), Some(true));
     assert_eq!(
         snap.props[2].get(PropId::TabIndex).and_then(|v| v.as_int()),
         Some(-1)
@@ -340,7 +340,7 @@ fn malformed_envelope_scalars_and_topology_are_refused_exactly() {
     );
 
     let mut boolean = bytes.clone();
-    let (_, value) = prop_entry(&boolean, 2, PropId::ToggleValue);
+    let (_, value) = prop_entry(&boolean, 2, PropId::Checked);
     boolean[value] = 2;
     refresh_checksum(&mut boolean, export::SECTION_PROPS);
     assert_eq!(

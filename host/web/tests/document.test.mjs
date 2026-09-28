@@ -393,7 +393,7 @@ test('interaction documents stay readable, then replay edits and actions once', 
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="navigate">
       <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>
-      <input data-view="2" data-exact-on="change submit" name="title">
+      <input data-view="2" data-exact-on="input submit" name="title">
       <button data-view="3" data-exact-on="press">Save</button>
     </div></div>
     <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
@@ -431,7 +431,7 @@ test('interaction documents stay readable, then replay edits and actions once', 
       el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
       document.querySelector('button').click(); })()`);
     await live.until('!exact.documentPage.holding && __events.length === 3', 'semantic replay');
-    expect(await live('__events')).toEqual([[2,1,'東京'],[2,7,''],[3,0,'']]);
+    expect(await live('__events')).toEqual([[2,23,'東京'],[2,7,''],[3,0,'']]);
     expect(await live('__logs')).toEqual([]);
     expect(await live("[document.querySelector('input').value,document.querySelector('input').selectionStart,document.activeElement.localName]")).toEqual(['東京',1,'input']);
     expect(await live('__loads')).toBe(1);

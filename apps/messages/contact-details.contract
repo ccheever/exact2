@@ -16,7 +16,7 @@ component ContactDetails
     personPath: string
     callPath: string
     createContact: action
-    toggleMute: action
+    setMuted: action
     blockThread: action
     closeDetails: action
   view
@@ -154,32 +154,22 @@ component ContactDetails
                   display="flex" flex-direction="row"
                   align-items="center"
                   text "Add to Existing Contact" font-size=17 class=AccentText
-            button press=toggleMute
-              testId="details-hide-alerts"
-              role="switch"
-              aria-label="Hide Alerts"
-              aria-checked=chat.muted
+            row testId="details-hide-alerts-row"
               height=52
               border-radius=28
               class=ContactGroupSurface
-              display="flex" flex-direction="row"
               align-items="center"
               justify-content="space-between"
               padding-left=16
               padding-right=14
               text "Hide Alerts" font-size=17
-              box width=64
-                height=28
-                border-radius=14
-                background-color=(chat.muted ? "#34c759": "#bababc")
-                box testId="details-alerts-thumb"
-                  position="absolute"
-                  left=(chat.muted ? 26: 2)
-                  top=2
-                  width=36
-                  height=24
-                  border-radius=12
-                  background-color="#ffffff"
+              input type="checkbox" switch
+                testId="details-hide-alerts"
+                aria-label="Hide Alerts"
+                checked=chat.muted
+                change=setMuted
+                accent-color="#34c759"
+                margin=0
             when chat.contactAddress != ""
               when chat.blocked
                 button press=blockThread(false)

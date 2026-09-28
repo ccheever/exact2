@@ -230,7 +230,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::Image => "img",
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
-        NodeType::Toggle => "input",
+        NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
         NodeType::Video => "video",
@@ -555,7 +555,7 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
 
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
-            PropId::ToggleValue => "checked",
+            PropId::Checked => "checked",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
@@ -631,8 +631,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if node.node_type == NodeType::Toggle {
+    if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
+        // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
+        // draws a checkbox that ARIA still hears as a switch.
+        if node.props.str(PropId::AccessibilityRole) == Some("switch") {
+            out.insert("switch".into(), String::new());
+        }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {

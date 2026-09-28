@@ -1113,7 +1113,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         event(
             &mut runner,
             "note-body",
-            Event::Change("Must not replace the loading note".into()),
+            Event::Input("Must not replace the loading note".into()),
         );
         // A plan-only reload can cancel a pending mutation. No loaded value
         // exists yet, so offer an explicit retry instead of a blank dead editor.
@@ -1137,7 +1137,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["openInterrupted"], false);
         assert_eq!(state(&runner)["derives"]["body"], "Original body");
-        event(&mut runner, "note-body", Event::Change("Draft".into()));
+        event(&mut runner, "note-body", Event::Input("Draft".into()));
         for target in ["note-2", "new-note"] {
             let key = runner.kernel().find_by_test_id(target)[0];
             let view = runner.kernel().node_by_key(key).unwrap().id;
@@ -1147,7 +1147,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         }
         assert_eq!(state(&runner)["derives"]["editingId"], "1");
         assert_eq!(state(&runner)["derives"]["body"], "Draft");
-        event(&mut runner, "search", Event::Change("second".into()));
+        event(&mut runner, "search", Event::Input("second".into()));
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["body"], "Draft");
         event(&mut runner, "discard", Event::Press);
@@ -1155,20 +1155,24 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         event(
             &mut runner,
             "note-body",
-            Event::Change("Saved snapshot".into()),
+            Event::Input("Saved snapshot".into()),
         );
         event(&mut runner, "save-note", Event::Press);
         event(
             &mut runner,
             "note-body",
-            Event::Change("Typed during save".into()),
+            Event::Input("Typed during save".into()),
         );
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["body"], "Typed during save");
         assert_eq!(state(&runner)["derives"]["dirty"], true);
         event(&mut runner, "discard", Event::Press);
         assert_eq!(state(&runner)["derives"]["body"], "Saved snapshot");
-        event(&mut runner, "note-title", Event::Change("x".repeat(161)));
+        event(
+            &mut runner,
+            "note-title",
+            Event::Input("x".repeat(161).into()),
+        );
         event(&mut runner, "save-note", Event::Press);
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["dirty"], true);
@@ -1179,7 +1183,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         event(
             &mut runner,
             "note-body",
-            Event::Change("Carried draft".into()),
+            Event::Input("Carried draft".into()),
         );
         let carried = runner.carry();
         drop(runner);
@@ -1202,13 +1206,17 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         event(
             &mut runner,
             "note-body",
-            Event::Change("New saved note".into()),
+            Event::Input("New saved note".into()),
         );
         event(&mut runner, "save-note", Event::Press);
         settle_runner(&mut runner);
         let new_id = state(&runner)["derives"]["editingId"].clone();
         assert_eq!(new_id, "3");
-        event(&mut runner, "note-title", Event::Change("x".repeat(161)));
+        event(
+            &mut runner,
+            "note-title",
+            Event::Input("x".repeat(161).into()),
+        );
         event(&mut runner, "save-note", Event::Press);
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["editingId"], new_id);

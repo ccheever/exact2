@@ -47,6 +47,7 @@ final class Presenter {
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
     lazy var segments = SegmentHost(self)
+    lazy var controls = ControlHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
@@ -278,6 +279,8 @@ final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
+        controls.reset()
+        edited = nil
         menus.reset()
         swipeActions.reset()
         pool.reset()
@@ -480,6 +483,24 @@ final class Presenter {
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
+    /// A text field typed into since it took the focus: its `change` fires
+    /// when the editing ends or Enter commits it, HTML's `change` (LLP
+    /// 1069.001 D4); every keystroke is its `input`.
+    var edited: UInt32?
+    var onInput: ((UInt32, String) -> Void)?
+    /// A checkbox's new state, reported as HTML's `input` then `change`.
+    var onChecked: ((UInt32, Bool) -> Void)?
+    func typed(_ id: UInt32, _ value: String, input: Bool) {
+        edited = id
+        if input { onInput?(id, value) }
+    }
+    func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
+        guard edited == id else { return }
+        edited = nil
+        if change { onChange?(id, value) }
+    }
+    func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
     /// window; the browser fires no blur on removal, so neither does this
@@ -752,6 +773,7 @@ final class Presenter {
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         navigation.sync(batch)
         segments.sync()
+        controls.sync()
         menus.sync()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)

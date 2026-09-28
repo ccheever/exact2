@@ -113,7 +113,7 @@ component NewMessageSheet
               autocorrect="off"
               spellcheck="false"
               value=recipientQuery
-              change=searchRecipient
+              input=searchRecipient
               key=recipientKey
               aria-label="To"
               font-size=17
@@ -226,7 +226,7 @@ component NewMessageSheet
                 testId="new-composer"
                 disabled=(not editable)
                 value=newDraft
-                change=writeNew
+                input=writeNew
                 focus=clearRecipientSelection
                 placeholder=(contacts.target == "" ? "": "iMessage")
                 aria-label="New message"

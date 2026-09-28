@@ -378,6 +378,7 @@ extension Agent {
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let control = presenter.controls.observation(host) { native["control"] = control }
         var responder: UIResponder? = host
         while let current = responder {
             if let vc = current as? UIViewController { native["controller"] = String(describing: Swift.type(of: vc)); break }
@@ -424,6 +425,12 @@ extension Agent {
            let activated = presenter.menus.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
                 : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.controls.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
+                : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,

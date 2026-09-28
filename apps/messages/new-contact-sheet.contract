@@ -189,7 +189,7 @@ component NewContactSheet
                     placeholder="Phone"
                     inputmode="tel"
                     value=contactPhone
-                    change=writeContactPhone
+                    input=writeContactPhone
                     font-size=17
                     height=22
                     flex=1
@@ -251,7 +251,7 @@ component NewContactSheet
                     placeholder="Email"
                     type="email"
                     value=contactEmail
-                    change=writeContactEmail
+                    input=writeContactEmail
                     font-size=17
                     height=22
                     flex=1
@@ -330,7 +330,7 @@ component NewContactSheet
                 testId="contact-notes"
                 aria-label="Notes"
                 value=contactNotes
-                change=writeContactNotes
+                input=writeContactNotes
                 font-size=17
                 line-height="22px"
                 field-sizing="content"

@@ -704,6 +704,13 @@ impl<'a> Lowerer<'a> {
                     },
                     _ => t,
                 };
+                // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
+                // type is a text field, `checkbox` a form control.
+                let control = tags::input_control(tag, expanded)?;
+                let t = match control {
+                    Some(_) => tags::control_tag(),
+                    None => t,
+                };
                 tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 // A row list is a flex item of its column like any carousel;
@@ -808,6 +815,23 @@ impl<'a> Lowerer<'a> {
                         });
                         &[][..]
                     }
+                    // @ref LLP 1069.001 D1 — HTML's `switch`: the checkbox is
+                    // drawn as a switch, and ARIA hears one either way.
+                    [word] if contract_syntax::is_input_switch(tag, word) => {
+                        if control.is_none() {
+                            return err(
+                                "lower-attr-tag",
+                                "`switch` belongs to `input type=\"checkbox\"`",
+                                word.span(),
+                            );
+                        }
+                        bindings.push(BindingsRow {
+                            kind: BindingKind::Prop,
+                            id: exact_kernel::PropId::AccessibilityRole as u16,
+                            expr: self.fixed(false, "switch"),
+                        });
+                        &[][..]
+                    }
                     all => all,
                 };
                 if let Some(first) = positional.first() {
@@ -865,6 +889,26 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                // @ref LLP 1069.001 D8 — a control's checked state is its
+                // accessibility state on every host.
+                if control.is_some() {
+                    let checked = exact_kernel::PropId::Checked as u16;
+                    if let Some(b) = bindings
+                        .iter()
+                        .rev()
+                        .find(|b| b.kind == BindingKind::Prop && b.id == checked)
+                    {
+                        let expr = b.expr;
+                        bindings.push(BindingsRow {
+                            kind: BindingKind::Prop,
+                            id: exact_kernel::PropId::AccessibilityChecked as u16,
+                            expr,
+                        });
+                        if let Some(origins) = &mut origins {
+                            origins.resize(bindings.len(), Origin::Own);
+                        }
                     }
                 }
                 if t.node_type == NodeType::NativeView {
@@ -1391,7 +1435,7 @@ impl<'a> Lowerer<'a> {
                             match event {
                                 "hover" => " plus whether the pointer is over",
                                 "key" => " plus the key's name",
-                                "change" => " plus the new value",
+                                "change" | "input" => " plus the new value",
                                 "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",

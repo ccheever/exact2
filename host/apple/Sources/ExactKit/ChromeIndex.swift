@@ -11,7 +11,8 @@ struct ChromeIndex {
     /// Props a pass reads for one value. Every list row has a role and every
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.
-    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog")]
+    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog"),
+                         ("type:checkbox", "type", "checkbox")]
     private var byKey: [String: Set<UInt32>] = [:]
     /// The views carrying each `id` value, and the values whose carriers
     /// changed since `takeChangedNames` — what resolves a name without

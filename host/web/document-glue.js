@@ -71,7 +71,7 @@ function documentBoot(options) {
     const event = { at: identity(el), kind, value };
     const previous = events.at(-1);
     // Consecutive edits carry their latest value; action ordering is preserved.
-    if (kind === "change" && previous?.kind === kind && previous.at.id === event.at.id) events.pop();
+    if (kind === "input" && previous?.kind === kind && previous.at.id === event.at.id) events.pop();
     events.push(event); start();
   };
   const record = event => {
@@ -82,9 +82,11 @@ function documentBoot(options) {
       if (event.button > 0 || event.target.closest("a[href]")) return;
       const el = els.find(el => hears(el, "press"));
       if (el) enqueue(el, "press");
-    } else if (event.type === "input") {
-      const el = els.find(el => hears(el, "change"));
-      if (el) enqueue(el, "change", el.value);
+    } else if (event.type === "input" || event.type === "change") {
+      // HTML's two (LLP 1069.001 D4): `input` as the value moves, `change`
+      // when it is committed; a checkbox's value is whether it is checked.
+      const el = els.find(el => hears(el, event.type));
+      if (el) enqueue(el, event.type, el.type === "checkbox" ? String(el.checked) : el.value);
     } else if (event.type === "focusin" || event.type === "focusout") {
       const kind = event.type === "focusin" ? "focus" : "blur";
       if (hears(event.target, kind)) enqueue(event.target, kind);
@@ -105,9 +107,9 @@ function documentBoot(options) {
   };
   const intent = event => {
     if (!holding || !usable(event.target) || event.target.closest("a[href]")) return;
-    if (chain(event.target).some(el => ["press", "change", "focus", "blur", "key", "submit"].some(kind => hears(el, kind)))) start();
+    if (chain(event.target).some(el => ["press", "input", "change", "focus", "blur", "key", "submit"].some(kind => hears(el, kind)))) start();
   };
-  const kinds = ["click", "input", "focusin", "focusout", "keydown", "compositionstart", "compositionend"];
+  const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
   for (const event of options.early?.splice(0) ?? []) record(event);
@@ -127,7 +129,8 @@ function documentBoot(options) {
     const at = event.at;
     const el = at && views.get(at.id);
     if (matches(el, at) && el.exactHandlers?.includes(event.kind) && usable(el)) {
-      dispatch(at.id, { press: 0, change: 1, focus: 4, blur: 5, key: 6, submit: 7 }[event.kind], event.value ?? "");
+      const box = at.type === "checkbox";
+      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, submit: 7 }[event.kind], event.value ?? "");
     } else log(`document: an early ${event.kind} was dropped (view ${at.id} is not what received it)`);
   };
   const page = {
@@ -167,7 +170,7 @@ function documentBoot(options) {
       queueMicrotask(() => {
         for (const edit of edits) {
           const el = views.get(edit.at.id);
-          if (matches(el, edit.at) && events.some(event => event.kind === "change" && event.at.id === edit.at.id)) el.value = edit.value;
+          if (matches(el, edit.at) && events.some(event => (event.kind === "input" || event.kind === "change") && event.at.id === edit.at.id)) el.value = edit.value;
         }
         for (const event of events.splice(0)) replay(event);
         for (const edit of edits) {

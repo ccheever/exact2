@@ -122,8 +122,9 @@ transform about the box's centre, CSS's `translate · rotate · scale`, and a
 composites once (a vello layer; on the CPU a viewport-sized pixmap per
 node — fine for a transition, a cost for a hundred translucent cards).
 `display: none`
-paints nothing. `Canvas`, `Toggle`, `Svg`, `NativeView`, and `Pressable`
-are boxes: background, borders, children. Colors are the kernel's
+paints nothing. `Canvas`, `Svg`, `NativeView`, and `Pressable`
+are boxes: background, borders, children. A `Control` (LLP 1069.001 D7)
+is painted: a checkbox, or a switch, in `accent-color`. Colors are the kernel's
 `0xRRGGBBAA` straight into tiny-skia.
 
 **The walk also records every node's painted box** — the transformed

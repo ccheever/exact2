@@ -340,13 +340,26 @@ fn refine_params_from_view(
             Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
             Node::Children { .. } => {}
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
+                // A checkbox's `change` and `input` carry whether it is
+                // checked (LLP 1069.001 D4); a text field's, its text.
+                let checkbox = contract_syntax::input_control(tag, attrs).is_some();
+                // A bound `type` is lowering's refusal (`lower-input-type`),
+                // not a payload guessed here.
+                let bound_type = tag == "input"
+                    && attrs
+                        .iter()
+                        .any(|a| a.name == "type" && !matches!(a.value, Expr::Str(..)));
                 for a in attrs {
                     if matches!(
                         a.name.as_str(),
                         "press"
                             | "change"
+                            | "input"
                             | "select"
                             | "hover"
                             | "focus"
@@ -392,10 +405,14 @@ fn refine_params_from_view(
                                     }
                                 }
                             }
-                            // Event payloads: change/key/message are strings;
-                            // hover is whether the pointer is over.
+                            // Event payloads: change/input/key/message are
+                            // strings (a checkbox's are bools); hover is
+                            // whether the pointer is over.
                             let payload = match a.name.as_str() {
-                                "change" | "key" | "message" | "navigate" | "error" => {
+                                "change" | "input" if bound_type => vec![],
+                                "change" | "input" if checkbox => vec![Ty::Bool],
+                                "input" if checkbox => vec![Ty::Bool],
+                                "change" | "input" | "key" | "message" | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],

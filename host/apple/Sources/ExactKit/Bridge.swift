@@ -212,6 +212,16 @@ final class Runtime {
         let n = write(value)
         return read(exact_dispatch(rt, view, 1, n, now))
     }
+    /// A text field's value as it moves: HTML's `input` (LLP 1069.001 D4).
+    func input(_ view: UInt32, _ value: String, now: Double) -> Batch {
+        let n = write(value)
+        return read(exact_dispatch(rt, view, 23, n, now))
+    }
+    /// A checkbox's state: `change` when `commit`, else `input`.
+    func checked(_ view: UInt32, _ on: Bool, commit: Bool, now: Double) -> Batch {
+        let n = write(on ? "true" : "false")
+        return read(exact_dispatch(rt, view, commit ? 24 : 25, n, now))
+    }
     /// Shared Markdown selection facts; the editor retains its own range.
     func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
         guard let data = json.data(using: .utf8),

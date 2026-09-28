@@ -24,7 +24,7 @@ use taffy::TraversePartialTree;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
-use crate::generated::{FieldSizing, NodeType};
+use crate::generated::{FieldSizing, NodeType, PropId};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::kernel::PresentedHeight;
 use crate::style::taffy_style;
@@ -855,6 +855,27 @@ impl LayoutTree {
                             return Size {
                                 width,
                                 height: known.height.unwrap_or(width / ratio),
+                            };
+                        }
+                        if arena.node_type(slot) == NodeType::Control {
+                            // @ref LLP 1069.001 D3 — the platform's size for its
+                            // control (CSS leaves it to the UA), each axis
+                            // overridden by a known one. Until the host
+                            // reports: Chrome's 13×13 checkbox, and Safari's
+                            // 38×22 desktop switch (Linux paints these).
+                            let switch = arena
+                                .props(slot)
+                                .get(PropId::AccessibilityRole)
+                                .and_then(|v| v.as_str())
+                                == Some("switch");
+                            let (iw, ih) = arena.intrinsic(slot).unwrap_or(if switch {
+                                (38.0, 22.0)
+                            } else {
+                                (13.0, 13.0)
+                            });
+                            return Size {
+                                width: known.width.unwrap_or(iw),
+                                height: known.height.unwrap_or(ih),
                             };
                         }
                         if arena.node_type(slot).is_replaced() {

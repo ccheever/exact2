@@ -496,9 +496,10 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
 
     // Search flips the `when`; the timer ticks under the clock.
     let search = ids(&r, "search")[0].1;
-    r.dispatch(search, Event::Change("pal".into())).unwrap();
+    r.dispatch(search, Event::Input("pal".into())).unwrap();
     assert_eq!(text_of(&r, "searching").as_deref(), Some("searching"));
-    r.dispatch(search, Event::Change(String::new())).unwrap();
+    r.dispatch(search, Event::Input(String::new().into()))
+        .unwrap();
     assert_eq!(ids(&r, "dep-").len(), 3);
     assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
     assert_eq!(r.slot("nowMs"), Some(&Value::Number(2_000.0)));
@@ -604,7 +605,7 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
   view
     column width=200 height=400 testId="root"
       textarea value=draft field-sizing="fixed" width=70 testId="fixed-composer"
-      textarea value=draft change=write field-sizing="content" font-size=16 line-height="20px" width=160 min-height=28 max-height=88 testId="composer"
+      textarea value=draft input=write field-sizing="content" font-size=16 line-height="20px" width=160 min-height=28 max-height=88 testId="composer"
 "#;
     let mut r = Runner::boot(
         contract::compile(source).unwrap(),
@@ -633,13 +634,17 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
     let empty = height(&mut r);
     let fixed = r.kernel().find_by_test_id("fixed-composer")[0];
     let fixed_height = r.kernel().node_by_key(fixed).unwrap().frame.height;
-    r.dispatch(input, Event::Change("one\ntwo\nthree".into()))
+    r.dispatch(input, Event::Input("one\ntwo\nthree".into()))
         .unwrap();
     let lines = height(&mut r);
     assert!(lines > empty, "{empty} -> {lines}");
     r.dispatch(
         input,
-        Event::Change("A long message that must wrap onto several lines. ".repeat(12)),
+        Event::Input(
+            "A long message that must wrap onto several lines. "
+                .repeat(12)
+                .into(),
+        ),
     )
     .unwrap();
     assert_eq!(height(&mut r), 88.0);
@@ -647,7 +652,8 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         r.kernel().node_by_key(fixed).unwrap().frame.height,
         fixed_height
     );
-    r.dispatch(input, Event::Change(String::new())).unwrap();
+    r.dispatch(input, Event::Input(String::new().into()))
+        .unwrap();
     assert_eq!(height(&mut r), empty);
 }
 

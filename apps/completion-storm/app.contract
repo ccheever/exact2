@@ -229,7 +229,7 @@ component CompletionStorm
         text "1. Choose the next wave" font-size=18 font-weight=600
         row gap=8 align-items="center"
           text "Concurrent lanes (1–128)" font-size=13
-          input value=requested change=setCount testId="concurrency" width=80 padding=8 background-color="#edf2f7" aria-label="Concurrent requests"
+          input value=requested input=setCount testId="concurrency" width=80 padding=8 background-color="#edf2f7" aria-label="Concurrent requests"
         row gap=8
           button press=setCount("6") testId="count-6" padding=9 background-color="#dfebf7" border-radius=6
             text "6"
@@ -239,7 +239,7 @@ component CompletionStorm
             text "128"
         row gap=8 align-items="center"
           text "Injected errors (0–100%)" font-size=13
-          input value=errors change=setErrors testId="error-percent" width=80 padding=8 background-color="#edf2f7" aria-label="Error percentage"
+          input value=errors input=setErrors testId="error-percent" width=80 padding=8 background-color="#edf2f7" aria-label="Error percentage"
         row gap=8
           button press=setErrors("0") testId="errors-0" padding=9 background-color="#dfebf7" border-radius=6
             text "All succeed"
@@ -274,7 +274,7 @@ component CompletionStorm
             text "Inspect for a server-side snapshot; counters are separate from accepted results." font-size=12
       column padding=16 gap=10 background-color="#ffffff" border-radius=12 flex-shrink=0
         text "3. Keep interacting during settlement" font-size=18 font-weight=600
-        input value=note change=editNote testId="stress-input" aria-label="Type during completions" placeholder="Type here while replies land" padding=10 background-color="#edf2f7" width="100%" box-sizing="border-box"
+        input value=note input=editNote testId="stress-input" aria-label="Type during completions" placeholder="Type here while replies land" padding=10 background-color="#edf2f7" width="100%" box-sizing="border-box"
         text note testId="stress-echo" font-size=16
         button press=interact testId="interact" padding=10 background-color="#dfebf7" border-radius=6
           text `Still interactive: ${clicks} clicks` testId="interaction-count"

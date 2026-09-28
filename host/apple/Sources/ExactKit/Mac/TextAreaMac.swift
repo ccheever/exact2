@@ -187,7 +187,7 @@ extension NodeView {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
         f.needsDisplay = true
-        if !disabled, handlers.contains("change") { presenter?.change(id, f.string) }
+        if !disabled { presenter?.typed(id, f.string, input: handlers.contains("input")) }
         if !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
         configureMarkup()
         restyleMarkup()
@@ -204,6 +204,10 @@ extension NodeView {
         restyleMarkup()
         publishMarkupSelection()
     }
-    func textDidEndEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
+    func textDidEndEditing(_ notification: Notification) {
+        presenter?.collections.pinsChanged()
+        presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
+        if handlers.contains("blur") { presenter?.blur(id) }
+    }
 }
 #endif

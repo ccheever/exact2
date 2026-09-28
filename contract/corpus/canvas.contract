@@ -21,4 +21,4 @@ component Map
         column padding=12 gap=8
           button press=zoomIn aria-label="Zoom in the sky" testId="sky-zoom"
             text "Zoom" color="#ffffff"
-          input value=label change=setLabel placeholder="Label" aria-label="Label" testId="sky-label" color="#ffffff"
+          input value=label input=setLabel placeholder="Label" aria-label="Label" testId="sky-label" color="#ffffff"

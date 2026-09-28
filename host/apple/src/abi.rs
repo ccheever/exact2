@@ -840,12 +840,27 @@ impl<D: DataSource> Bridge<D> {
     /// 8 = load, 9 = message (the payload — a change's text, a key's name,
     /// or a guest message — is the input buffer's first `len` bytes, UTF-8).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
+    /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
+    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
             0 => Event::Press,
-            1 => Event::Change(payload),
+            1 => Event::Change(payload.into()),
+            // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and
+            // 25 a checkbox's `change` and `input`, the payload `true`/`false`.
+            23 => Event::Input(payload.into()),
+            24 | 25 => {
+                let Some(on) = Event::checked_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid checked state"}"#.into());
+                };
+                if kind == 24 {
+                    Event::Change(on)
+                } else {
+                    Event::Input(on)
+                }
+            }
             2 => Event::Hover(true),
             3 => Event::Hover(false),
             4 => Event::Focus,

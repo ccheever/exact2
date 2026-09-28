@@ -306,7 +306,7 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
 ///           text formatCountdownMinutes(d.at, nowMs)
 ///     else
 ///       text "searching" testId="searching"
-///     input value=query change=setQuery testId="search"
+///     input value=query input=setQuery testId="search"
 ///     match stationId
 ///       case some(id) => text `at ${id}` testId="selected"
 ///       case none => text "nearest" testId="nearest"
@@ -525,7 +525,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         None,
         2,
         &[prop("value", value), prop("testId", search_tid)],
-        &[(EventKind::Change, set_query, &[])],
+        &[(EventKind::Input, set_query, &[])],
         None,
     );
 
@@ -714,8 +714,7 @@ fn a_text_change_flips_the_when_region_and_back() {
     let mut r = boot();
     let search = r.kernel().find_by_test_id("search")[0];
     let search_view = r.kernel().node_by_key(search).unwrap().id;
-    r.dispatch(search_view, Event::Change("pal".into()))
-        .unwrap();
+    r.dispatch(search_view, Event::Input("pal".into())).unwrap();
     assert_eq!(r.slot("query"), Some(&Value::str("pal")));
     assert_eq!(
         text_by_test_id(&r, "searching").as_deref(),
@@ -724,13 +723,13 @@ fn a_text_change_flips_the_when_region_and_back() {
     assert!(test_ids(&r, "dep-").is_empty(), "the rows were torn down");
     let input = r.kernel().node_by_key(search).unwrap();
     assert_eq!(input.props.str(PropId::Value), Some("pal"));
-    r.dispatch(search_view, Event::Change(String::new()))
+    r.dispatch(search_view, Event::Input(String::new().into()))
         .unwrap();
     assert_eq!(text_by_test_id(&r, "searching"), None);
     assert_eq!(test_ids(&r, "dep-").len(), 2, "fresh rows");
     // Unchanged rows are not re-sent: a no-op change produces no ops.
     let before = r.kernel().epoch();
-    r.dispatch(search_view, Event::Change(String::new()))
+    r.dispatch(search_view, Event::Input(String::new().into()))
         .unwrap();
     assert_eq!(
         r.kernel().epoch(),

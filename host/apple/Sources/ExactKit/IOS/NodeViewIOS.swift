@@ -326,15 +326,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         default: break
         }
     }
-    /// A text field's Enter as a key (its characters are its `change`);
-    /// the editing goes on, as on the web.
+    /// A text field's Enter as a key (its characters are its `input`, the
+    /// Enter commits its `change`); the editing goes on, as on the web.
     func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
     func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         guard !disabled, !inert, props["editable"] != "false" else { return false }
         if props["emojiPicker"] == "true" {
-            if EmojiSelection.accepts(string), handlers.contains("change") { presenter?.change(id, string) }
+            if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
             return false
         }
         return true
@@ -342,6 +342,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard !disabled else { return false }
+        presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         // Enter in an input with a `submit` handler is the web's implicit
         // submission; a `key` handler hears it as Enter as well.
         if handlers.contains("submit") { presenter?.submit(id) }
@@ -1344,14 +1345,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if field.markedTextRange == nil, let held = pendingValue { writeValue(held, into: field) }
             let value = field.text ?? ""
             field.text = ""
-            if !disabled, handlers.contains("change"), EmojiSelection.accepts(value) { presenter?.change(id, value) }
+            if !disabled, EmojiSelection.accepts(value) { presenter?.typed(id, value, input: handlers.contains("input")) }
             return
         }
         // The textarea's order (`textViewDidChange`): the text the field now
         // holds is reported first, and only then does a value held while
         // composing apply. Writing it first reported the composing text —
         // 你好 committed as "nihao".
-        if !disabled, handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
+        if !disabled { presenter?.typed(id, field?.text ?? "", input: handlers.contains("input")) }
         if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
@@ -1372,6 +1373,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func textFieldDidEndEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         if presenter?.editing === self { presenter?.editing = nil }
+        presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
 }

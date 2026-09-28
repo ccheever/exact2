@@ -40,7 +40,7 @@ component Now
             text formatCountdownMinutes(d.at, nowMs)
       else
         text "searching" testId="searching"
-      input value=query change=setQuery testId="search"
+      input value=query input=setQuery testId="search"
       match stationId
         case some(id)
           text `at ${id}` testId="selected"

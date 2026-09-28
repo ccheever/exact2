@@ -52,7 +52,7 @@ is untouched.
 
 Tags: node type → element (`View`→`div`, `Text`→`div`, or `span` for an
 inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
-`Pressable`→`button`, `Image`→`img`, `Toggle`→`input[type=checkbox]`), refined
+`Pressable`→`button`, `Image`→`img`, `Control`→`input[type=checkbox]` (LLP 1069.001)), refined
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
 `h1`–`h6` (deeper: a `div` with `role="heading"`); a `Pressable` is a

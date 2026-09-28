@@ -65,6 +65,7 @@ final class Presenter {
     let svg = SvgHost()
     let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
+    lazy var controls = ControlHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
     /// The head's title goes to the window the app attached, through the
@@ -522,6 +523,8 @@ final class Presenter {
         toolbar.reset()
         navigation.reset()
         segments.reset()
+        controls.reset()
+        edited = nil
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
         views.values.forEach { $0.forget() }
@@ -664,6 +667,24 @@ final class Presenter {
         menus.pressed(id)
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
+    /// A text field typed into since it took the focus: its `change` fires
+    /// when the editing ends or Enter commits it, HTML's `change` (LLP
+    /// 1069.001 D4); every keystroke is its `input`.
+    var edited: UInt32?
+    var onInput: ((UInt32, String) -> Void)?
+    /// A checkbox's new state, reported as HTML's `input` then `change`.
+    var onChecked: ((UInt32, Bool) -> Void)?
+    func typed(_ id: UInt32, _ value: String, input: Bool) {
+        edited = id
+        if input { onInput?(id, value) }
+    }
+    func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
+        guard edited == id else { return }
+        edited = nil
+        if change { onChange?(id, value) }
+    }
+    func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
     /// window; the browser fires no blur on removal, so neither does this
@@ -902,6 +923,7 @@ final class Presenter {
         }
         pendingScrolls.removeAll()
         segments.sync()
+        controls.sync()
         menus.sync()
         positionContexts()
         toolbar.sync()

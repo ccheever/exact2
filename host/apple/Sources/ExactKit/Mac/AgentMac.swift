@@ -276,6 +276,7 @@ extension Agent {
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let control = presenter.controls.observation(host) { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
             // The kernel frame is authored fallback geometry, not the native
@@ -386,6 +387,12 @@ extension Agent {
         }
         if let node = view(req), presenter.toolbar.suppresses(node) {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.controls.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
+                : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,

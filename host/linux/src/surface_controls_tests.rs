@@ -39,7 +39,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     removed = true
   view
     column
-      input testId="editor" value=text change=change width=100 height=30
+      input testId="editor" value=text input=change width=100 height=30
       canvas testId="a" width=100 height=100
         when !removed
           button testId="a-jump" action="jump" width=100 height=100

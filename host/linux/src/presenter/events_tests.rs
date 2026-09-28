@@ -45,7 +45,7 @@ const APP: &str = r#"component App
     send kept = keep()
   view
     column width=400 height=400
-      input value=text change=edit submit=sent focus=focused blur=blurred key=keyed testId="field" height=32
+      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" height=32
       button "Other" press=pressed testId="other" height=32
       box opacity=0 width=200 height=40
         button "Ghost" press=pressed testId="ghost" width=200 height=40

@@ -40,10 +40,11 @@ impl NodeType {
         matches!(self, NodeType::Text | NodeType::TextInput)
     }
 
-    /// Whether the node's size comes from a measure — text, or a replaced
-    /// element (`Image`) with an intrinsic size the host reported.
+    /// Whether the node's size comes from a measure — text, a replaced
+    /// element (`Image`) with an intrinsic size the host reported, or a form
+    /// control whose size the platform decides (LLP 1069.001 D3).
     pub fn is_measured_leaf(self) -> bool {
-        self.is_text_leaf() || self.is_replaced()
+        self.is_text_leaf() || self.is_replaced() || self == NodeType::Control
     }
 
     /// An image, video or `svg` whose content has an intrinsic size. An
@@ -96,6 +97,10 @@ mod tests {
         assert!(NodeType::Image.is_measured_leaf());
         assert!(!NodeType::Image.is_text_leaf());
         assert!(!NodeType::Image.can_hold_children());
+        // A form control is a measured leaf with no natural ratio.
+        assert!(NodeType::Control.is_measured_leaf());
+        assert!(!NodeType::Control.is_replaced());
+        assert!(!NodeType::Control.can_hold_children());
         assert!(NodeType::ScrollView.scrolls_by_default());
         // A canvas holds children (LLP 1014 D1) and is never measured: its
         // size is its rows', never its content's.

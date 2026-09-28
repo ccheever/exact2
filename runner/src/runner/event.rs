@@ -119,6 +119,44 @@ fn scalar_kind(kind: TypeKind) -> bool {
     )
 }
 
+/// What an `input` or `change` event carries, typed by its control (LLP
+/// 1069.001 D4): a text field's text, or whether a checkbox is checked.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ControlValue {
+    /// A text field's text.
+    Text(String),
+    /// A checkbox's (or switch's) checked state.
+    Checked(bool),
+}
+
+impl ControlValue {
+    /// The value as the action receives it.
+    fn value(&self) -> Value {
+        match self {
+            Self::Text(text) => Value::str(text),
+            Self::Checked(on) => Value::Bool(*on),
+        }
+    }
+}
+
+impl From<&str> for ControlValue {
+    fn from(text: &str) -> Self {
+        Self::Text(text.to_owned())
+    }
+}
+
+impl From<String> for ControlValue {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
+}
+
+impl From<bool> for ControlValue {
+    fn from(on: bool) -> Self {
+        Self::Checked(on)
+    }
+}
+
 /// A host event aimed at a view.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -131,8 +169,12 @@ pub enum Event {
     },
     /// A press on the view.
     Press,
-    /// A text input changed to `value`.
-    Change(String),
+    /// A control's value moved (HTML's `input`): a text field's every
+    /// keystroke, a checkbox's toggle (LLP 1069.001 D4).
+    Input(ControlValue),
+    /// A control's value was committed (HTML's `change`): a text field on
+    /// blur or Enter, a checkbox as it toggles (LLP 1069.001 D4).
+    Change(ControlValue),
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -324,6 +366,16 @@ impl Event {
             {
                 Some("transformrelease")
             }
+            _ => None,
+        }
+    }
+
+    /// A checkbox's reported state, exactly `true` or `false` (LLP 1069.001
+    /// D4), as the payload of an `input` or `change`.
+    pub fn checked_payload(payload: &str) -> Option<ControlValue> {
+        match payload {
+            "true" => Some(ControlValue::Checked(true)),
+            "false" => Some(ControlValue::Checked(false)),
             _ => None,
         }
     }
@@ -684,6 +736,7 @@ impl<D: DataSource> Runner<D> {
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",
                 Event::Press => "press",
+                Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Select { .. } => "select",
                 Event::Hover(true) => "hover in",
@@ -724,10 +777,28 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::InvalidEvent { event });
         }
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
+        // @ref LLP 1069.001 D4 — a checkbox reports a bool, a text field its
+        // text; the other is refused by name, never coerced.
+        if let Event::Input(value) | Event::Change(value) = &event {
+            let control = self
+                .kernel
+                .node(view)
+                .is_some_and(|n| n.node_type == exact_kernel::NodeType::Control);
+            if control != matches!(value, ControlValue::Checked(_)) {
+                return Err(RunnerError::InvalidEvent {
+                    event: if matches!(event, Event::Input(_)) {
+                        "input"
+                    } else {
+                        "change"
+                    },
+                });
+            }
+        }
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::Press => (EventKind::Press, None, "press"),
-            Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
+            Event::Input(value) => (EventKind::Input, Some(value.value()), "input"),
+            Event::Change(value) => (EventKind::Change, Some(value.value()), "change"),
             Event::Select {
                 formats,
                 mixed,

@@ -321,12 +321,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     /// The editing commands of a text field's editor as key names (the
-    /// characters themselves are its `change`): Enter is taken here, so it
-    /// does not end the editing as AppKit would.
+    /// characters themselves are its `input`; Enter commits its `change`):
+    /// Enter is taken here, so it does not end the editing as AppKit would.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         let name: String
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
+            presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
             // Enter in an input with a `submit` handler is the web's implicit
             // submission; a `key` handler hears it as Enter as well.
             if handlers.contains("submit") { presenter?.submit(id) }
@@ -350,7 +351,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         if handlers.contains("focus") { presenter?.focus(id) }
     }
-    func controlTextDidEndEditing(_ obj: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
+    func controlTextDidEndEditing(_ obj: Notification) {
+        presenter?.collections.pinsChanged()
+        presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
+        if handlers.contains("blur") { presenter?.blur(id) }
+    }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -1340,10 +1345,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if props["emojiPicker"] == "true", let field {
             let value = field.stringValue
             field.stringValue = ""
-            if !disabled, handlers.contains("change"), EmojiSelection.accepts(value) { presenter?.change(id, value) }
+            if !disabled, EmojiSelection.accepts(value) { presenter?.typed(id, value, input: handlers.contains("input")) }
             return
         }
-        if !disabled, handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
+        if !disabled { presenter?.typed(id, field?.stringValue ?? "", input: handlers.contains("input")) }
     }
 }
 #endif

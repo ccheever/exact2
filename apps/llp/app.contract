@@ -177,7 +177,7 @@ component Llp
               // The node every open route ends at: ⌘O, a Finder double-click,
               // `llpview llp/`, a followed cross-reference, a sidebar row.
               input value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
-              input value=query change=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
+              input value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
               when searching
                 button press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
                   text `${index.shown} of ${index.total}` font-size=12 color=theme.softInk

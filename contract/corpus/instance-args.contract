@@ -35,6 +35,6 @@ component Screen
     editName = value
   view
     column
-      input value=profileName change=edit placeholder="name" testId="profile-name"
+      input value=profileName input=edit placeholder="name" testId="profile-name"
       button press=save(profileName) testId="save-profile"
         text "save"

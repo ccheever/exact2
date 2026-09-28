@@ -85,6 +85,7 @@ impl<D: DataSource> Presenter<D> {
             images: &self.images.bitmaps,
             focus: self.focus,
             pointer: self.pointer,
+            controls: &self.controls,
         };
         let region = host.content_region();
         let feedback_before = region.is_some_and(|r| r.publication_painted());

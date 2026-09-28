@@ -24,7 +24,7 @@ component Branch
         seen = "nothing"
   view
     column testId="root"
-      input value=query change=setQuery key=typed testId="q"
+      input value=query input=setQuery key=typed testId="q"
       text `${submitted}` testId="submitted"
       text seen testId="seen"
       button press=pick("mv") testId="pick"

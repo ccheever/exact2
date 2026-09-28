@@ -423,10 +423,11 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 }
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
-/// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 37] = [
+/// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
+pub const HANDLERS: [&str; 38] = [
     "press",
     "change",
+    "input",
     "select",
     "hover",
     "focus",
@@ -464,12 +465,13 @@ pub const HANDLERS: [&str; 37] = [
     "reachend",
 ];
 
-/// What a handler's event carries as its action's last argument: `change`
-/// the new text, `hover` whether the pointer is over, `key` the key's name,
-/// `message` the posted string; the others nothing.
+/// What a handler's event carries as its action's last argument: `input`
+/// and `change` the new value (a text field's text, a checkbox's checked
+/// state: LLP 1069.001 D4), `hover` whether the pointer is over, `key` the
+/// key's name, `message` the posted string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "key" | "message" | "navigate" | "error" => Some("string"),
+        "change" | "input" | "key" | "message" | "navigate" | "error" => Some("string"),
         "timeupdate" | "durationchange" => Some("number"),
         "hover" => Some("bool"),
         "select" => Some("MarkdownSelection"),

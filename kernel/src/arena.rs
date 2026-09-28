@@ -920,6 +920,7 @@ mod tests {
         let samples = [
             (StyleId::Direction, text("rtl")),
             (StyleId::CaretColor, text("light-dark(#ffffff, #112233)")),
+            (StyleId::AccentColor, text("light-dark(#ff9500, #0a84ff)")),
             (StyleId::FontSize, number(24.0)),
             (StyleId::FontWeight, number(700.0)),
             (StyleId::FontStyle, text("italic")),

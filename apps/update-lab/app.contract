@@ -62,7 +62,7 @@ component UpdateLab
             text "+1" font-size=16 color="#233d62"
           button press=reset testId="reset" padding=12 border-radius=8 background-color="#f3f5f9"
             text "Reset" font-size=14 color="#63718a"
-        input value=note change=editNote testId="note" aria-label="Note to watch during updates" width="100%" box-sizing="border-box" padding=12 font-size=14 border-width=1 border-style="solid" border-color="#ccd5e2" border-radius=8
+        input value=note input=editNote testId="note" aria-label="Note to watch during updates" width="100%" box-sizing="border-box" padding=12 font-size=14 border-width=1 border-style="solid" border-color="#ccd5e2" border-radius=8
         text "Change the counter and note before editing a source file." font-size=12 color="#63718a"
         row gap=12 align-items="center" flex-wrap="wrap"
           text (live ? "Live probes · every 250 ms" : "Live probes paused") testId="live-status" font-size=12 color="#63718a"

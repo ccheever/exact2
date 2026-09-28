@@ -869,8 +869,11 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 for p in positional {
-                    // `scroll document` is a word, not a name (LLP 1048.003 D4).
-                    if !contract_syntax::is_scroll_document(tag, p) {
+                    // `scroll document` and `input switch` are words, not names
+                    // (LLP 1048.003 D4, LLP 1069.001 D1).
+                    if !contract_syntax::is_scroll_document(tag, p)
+                        && !contract_syntax::is_input_switch(tag, p)
+                    {
                         sink.keep(infer(p, scope, shapes));
                     }
                 }

@@ -29,7 +29,7 @@ component VideoPlayer
       column gap=10 flex-shrink=0
         text "Keep watching. Leave a thought." font-size=16 font-weight=600
         row gap=10 align-items="center"
-          input id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note change=edit submit=done flex=1 min-width=0 padding=14 box-sizing="border-box" font-size=16 border-radius=12 background-color="#202938" color="#f5f7fa"
+          input id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note input=edit submit=done flex=1 min-width=0 padding=14 box-sizing="border-box" font-size=16 border-radius=12 background-color="#202938" color="#f5f7fa"
           button id="done" testId="done" press=done padding=14 background-color="#bed6ff" border-radius=12
             text "Done" color="#102540" font-weight=600
         text "The picture makes room while you type." font-size=12 color="#94a3b8"

@@ -185,6 +185,11 @@ component Messages
   action muteThread(id: string) writes change, swipedThread
     swipedThread = ""
     send change = muteConversation(id)
+  // The details switch is controlled: it asks for a state, and only a
+  // different one is sent (LLP 1069.001 D4).
+  action setThreadMuted(muted: bool) writes change
+    if muted != chat.muted
+      send change = muteConversation(thread)
   action blockThread(value: bool) writes change
     send change = blockConversation(thread, value)
   action readThread(id: string, unread: bool) writes change, swipedThread
@@ -555,7 +560,7 @@ component Messages
                 row margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0
                   row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
                     image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 class=PrimaryIcon
-                    input id="search" testId="search" value=query change=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
+                    input id="search" testId="search" value=query input=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
                     button disabled=true testId="search-dictation" aria-label="Dictate search" width=28 height=40 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                       image "symbol:microphone" font-size=17 font-weight=400 class=PrimaryIcon
                   button press=newMessage testId="new-message" aria-label="New message" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
@@ -756,7 +761,7 @@ component Messages
                   button press=showAttachments retainFocus=true testId="add" aria-label="Add attachment" width=40 height=40 display="flex" flex-direction="row" justify-content="center" align-items="center" border-radius=20 backgroundMaterial="glass"
                     image "symbol:add" font-size=22 font-weight=400 rotate=(attachments ? 45 : 0) class=PrimaryIcon
                   row testId="composer-surface" flex=1 min-width=0 min-height=40.333333 max-height="100%" align-self="stretch" box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6.333333 padding-top=6 padding-bottom=6 gap=5
-                    textarea id="composer" testId="composer" value=draft change=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
+                    textarea id="composer" testId="composer" value=draft input=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
                     button press=sendDraft retainFocus=true disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=38 height=28 box-sizing="border-box" padding-left=(draft == "" ? 10 : 0) border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" flex-direction="row" align-items="center" justify-content="center"
                       when draft == ""
                         image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
@@ -814,7 +819,7 @@ component Messages
                               box width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=22 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true change=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
                                     box width=14 height=14
@@ -834,7 +839,7 @@ component Messages
                               box width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=-46 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true change=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
                                     box width=14 height=14
@@ -872,7 +877,7 @@ component Messages
             personPath=personPath,
             callPath=callPath,
             createContact=createContact,
-            toggleMute=muteThread(thread),
+            setMuted=setThreadMuted,
             blockThread=blockThread,
             closeDetails=closeDetails,
           )

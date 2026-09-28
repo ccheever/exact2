@@ -71,6 +71,7 @@ fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> 
         images: &BTreeMap::new(),
         focus: None,
         pointer: None,
+        controls: &BTreeMap::new(),
     };
     let mut painter = Painter::new(p.text().clone(), 1.0, backend);
     painter.dark = dark;
@@ -244,6 +245,7 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         images: &BTreeMap::new(),
         focus: None,
         pointer: None,
+        controls: &BTreeMap::new(),
     };
     for (dark, colors) in [
         (false, [[255, 0, 0, 255], [0, 0, 255, 255]]),

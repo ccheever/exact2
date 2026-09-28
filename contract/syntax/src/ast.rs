@@ -652,6 +652,29 @@ pub fn is_scroll_document(tag: &str, positional: &Expr) -> bool {
     tag == "scroll" && matches!(positional, Expr::Ident(word, _) if word == "document")
 }
 
+/// Whether `positional` is the word `switch` in `input type="checkbox"
+/// switch`: HTML's boolean attribute, a checkbox drawn as a switch (LLP
+/// 1069.001 D1). A word like `scroll document`, never a name in scope.
+pub fn is_input_switch(tag: &str, positional: &Expr) -> bool {
+    tag == "input" && matches!(positional, Expr::Ident(word, _) if word == "switch")
+}
+
+/// The form control an `input` is, by its literal `type` (LLP 1069.001 D1):
+/// `Some("checkbox")` for a checkbox (a switch is one too), `None` for a
+/// text field or any other element. Its `change` and `input` carry a bool.
+pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
+    if tag != "input" {
+        return None;
+    }
+    attrs
+        .iter()
+        .find(|a| a.name == "type")
+        .and_then(|a| match &a.value {
+            Expr::Str(t, _) if t == "checkbox" => Some("checkbox"),
+            _ => None,
+        })
+}
+
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {

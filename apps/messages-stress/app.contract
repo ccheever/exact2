@@ -209,7 +209,7 @@ component MessagesStress
               text "Cancel" font-size=12 color="#2668d8"
         text "Composer · 512 Unicode characters max · one local echo retained" font-size=11 color="#53637b"
         row gap=8 width="100%" align-items="center"
-          input value=draft change=editDraft testId="stress-input" aria-label="Type while messages update" placeholder="Type while messages update…" flex=1 min-width=0 padding=10 border-radius=10 border-width=1 border-color="#b7c5da" background-color="#f8faff" color="#17283f" font-size=14
+          input value=draft input=editDraft testId="stress-input" aria-label="Type while messages update" placeholder="Type while messages update…" flex=1 min-width=0 padding=10 border-radius=10 border-width=1 border-color="#b7c5da" background-color="#f8faff" color="#17283f" font-size=14
           button press=sendDraft testId="send" padding=10 border-radius=8 background-color="#2668d8"
             text "Local echo" color="#ffffff" font-size=12
         text draft testId="stress-echo" font-size=12 color="#53637b"

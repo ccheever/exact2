@@ -418,7 +418,7 @@ function applyProps(el, set, clear) {
     }
     else if (name === "text") el.textContent = "";
     else if (name === "value") writeValue(el, "");
-    else if (name === "checked") el.checked = false;
+    else if (name === "checked") { el.exactChecked = undefined; el.checked = false; }
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
     else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
     else if (name === "inert") { el.authoredInert = false; el.inert = false; }
@@ -438,7 +438,7 @@ function applyProps(el, set, clear) {
     } else if (name === "value") {
       writeValue(el, value);
     } else if (name === "checked") {
-      el.checked = value === "true";
+      el.exactChecked = value === "true"; el.checked = el.exactChecked;
     } else if (name === "inert") {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
@@ -545,7 +545,17 @@ function attach(el, id, handlers) {
         e.preventDefault(); e.stopPropagation();
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
       });
+    } else if ((kind === "input" || kind === "change") && el.type === "checkbox") {
+      // @ref LLP 1069.001 D4 — the platform flips the box at once; the
+      // action decides, and a refusal snaps it back to the committed state.
+      on(kind, () => {
+        const n = writeIn(String(el.checked)); send(wasm.exact_dispatch(id, kind === "change" ? 24 : 25, n, now()));
+        if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked;
+      });
     } else if (kind === "change") {
+      // HTML's `change`: a text field's value committed, on blur or Enter.
+      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
+    } else if (kind === "input") {
       on("input", (e) => {
         const value = el.value;
         if (el.getAttribute("emojiPicker") === "true") {
@@ -555,7 +565,7 @@ function attach(el, id, handlers) {
           if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 1, n, now()));
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now()));
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.

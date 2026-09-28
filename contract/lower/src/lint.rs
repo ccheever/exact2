@@ -21,7 +21,7 @@ pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
 
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
-        Some(new @ ("press" | "change")) => format!(
+        Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
         ),

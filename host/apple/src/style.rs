@@ -318,7 +318,7 @@ pub fn style_json_presented(
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
-        NodeType::Text | NodeType::TextInput | NodeType::Image
+        NodeType::Text | NodeType::TextInput | NodeType::Image | NodeType::Control
     ) {
         StyleMask::INHERITED
     } else {

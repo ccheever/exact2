@@ -633,19 +633,19 @@ component AuthPage
         column
           when signup
             input value=username
-              change=setUsername
+              input=setUsername
               placeholder="Username"
               aria-label="Username"
               class=FieldLg
               testId="username"
           input value=email
-            change=setEmail
+            input=setEmail
             placeholder="Email"
             aria-label="Email"
             class=FieldLg
             testId="email"
           input value=password
-            change=setPassword
+            input=setPassword
             type="password"
             placeholder="Password"
             aria-label="Password"
@@ -707,32 +707,32 @@ component SettingsPage
           case none
             box
         input value=shownImage
-          change=setImage
+          input=setImage
           placeholder="URL of profile picture"
           aria-label="URL of profile picture"
           class=Field
           testId="image"
         input value=shownName
-          change=setName
+          input=setName
           placeholder="Your Name"
           aria-label="Your Name"
           class=FieldLg
           testId="username"
         textarea value=shownBio
-          change=setBio
+          input=setBio
           placeholder="Short bio about you"
           aria-label="Short bio about you"
           class=FieldLg
           height=200
           testId="bio"
         input value=shownEmail
-          change=setEmail
+          input=setEmail
           placeholder="Email"
           aria-label="Email"
           class=FieldLg
           testId="email"
         input value=password
-          change=setPassword
+          input=setPassword
           type="password"
           placeholder="New Password"
           aria-label="New Password"
@@ -796,26 +796,26 @@ component EditorPage
           case none
             box
         input value=shownTitle
-          change=setTitle
+          input=setTitle
           placeholder="Article Title"
           aria-label="Article Title"
           class=FieldLg
           testId="title"
         input value=shownDescription
-          change=setDescription
+          input=setDescription
           placeholder="What's this article about?"
           aria-label="What's this article about?"
           class=Field
           testId="description"
         textarea value=shownBody
-          change=setBody
+          input=setBody
           placeholder="Write your article (in markdown)"
           aria-label="Write your article (in markdown)"
           class=Field
           height=200
           testId="body"
         input value=tagInput
-          change=setTagInput
+          input=setTagInput
           key=tagKey
           placeholder="Enter tags"
           aria-label="Enter tags"
@@ -978,7 +978,7 @@ component ArticlePage
                   margin-bottom=12
                   overflow="hidden"
                   textarea value=draft
-                    change=setDraft
+                    input=setDraft
                     placeholder="Write a comment..."
                     aria-label="Write a comment"
                     height=90

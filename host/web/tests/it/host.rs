@@ -215,7 +215,7 @@ fn later_batches_carry_only_what_changed() {
     );
     assert!(batch.contains("\"data-testid\":\"stations-screen\""));
     assert!(batch.contains("\"tag\":\"input\""));
-    assert!(batch.contains("\"handlers\":[\"change\",\"focus\",\"blur\",\"key\"]"));
+    assert!(batch.contains("\"handlers\":[\"input\",\"focus\",\"blur\",\"key\"]"));
     assert!(batch.contains("\"op\":\"children\",\"id\":"));
     assert!(
         !batch.contains("\"data-testid\":\"caltrain-main\""),
@@ -224,7 +224,7 @@ fn later_batches_carry_only_what_changed() {
     assert!(batch.contains("\"error\":null"));
 
     let search = view_with_test_id(&host, "station-search");
-    let batch = host.dispatch(search, Event::Change("san".into()));
+    let batch = host.dispatch(search, Event::Input("san".into()));
     assert!(
         batch.contains("\"op\":\"props\",\"id\":"),
         "the input's value prop changed"

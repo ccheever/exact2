@@ -80,7 +80,7 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
         r.dispatch(
             view(&r, "profile-name"),
-            Event::Change("Edited Alice".into()),
+            Event::Input("Edited Alice".into()),
         )
         .unwrap();
         r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
