@@ -659,8 +659,7 @@ function apply(batch) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
           el.insertBefore(child, cursor);
         }
-        while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; }
-        settleValue(el); // a select shows its committed value among its new options
+        while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; } settleValue(el); // a select shows its committed value among its new options
         break;
       }
       case "animate": { motion.animate(op); break; }
@@ -1182,8 +1181,7 @@ function agentReply(request) {
           const batch = globalThis.exact.navigate(request.text ?? "");
           return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
         }
-        if (valuedControl(frame) && request.key == null) return typeControl(frame, request); // LLP 1069.001 D9
-        return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
+        return valuedControl(frame) && request.key == null ? typeControl(frame, request) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
         return clock(request).then((r) => { if (!r.error && wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(agentClock))))); return tagged(r); });
