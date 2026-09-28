@@ -26,6 +26,9 @@ pub fn capture() -> &'static str {
 /// built); an interaction page's are removed: it fetches nothing before a
 /// handler's intent. Refuses a shell that no longer has those places.
 pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
+    if shell.contains(JS_ENTRY) {
+        return page_js(shell, rendered);
+    }
     let mut html = shell.to_string();
     // From `start` through the first `end` after it.
     let cut = |html: &mut String, start: &str, end: &str, with: &str| -> Result<(), String> {
@@ -98,5 +101,48 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     if viewports != 1 || preloads != expected || !html.contains(&rendered.head) {
         return Err("the shell no longer has the places a document goes".into());
     }
+    Ok(html)
+}
+
+/// The JavaScript runtime's entry in its shell (`host/web3/build.mjs`).
+const JS_ENTRY: &str = "<script type=\"module\" src=\"./app.js\"></script>";
+
+/// The JavaScript runtime's capture script (LLP 1048.001 D5, as
+/// `capture()`): presses and edits before activation, replayed after
+/// adoption; an interaction page's runtime loads at the first of them.
+pub fn capture_js() -> &'static str {
+    include_str!("../../web3/capture.js").trim_end()
+}
+
+/// [`page`] over the JavaScript runtime's shell (the exact3 web target,
+/// LLP 1071): the same document, head and checkpoint; the shell's title and
+/// viewport give way to the head and its capture script; an interaction
+/// page drops the entry, which the capture script imports at intent.
+fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
+    let mut html = shell.to_string();
+    let lacks = |what: &str| format!("the JavaScript shell has no `{what}`");
+    let lang = rendered.document.lang.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
+    let open = html.find("<html").ok_or_else(|| lacks("<html"))?;
+    let end = html[open..].find('>').ok_or_else(|| lacks("<html>"))? + open + 1;
+    html.replace_range(open..end, &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir));
+    let title = html.find("<title>").ok_or_else(|| lacks("<title>"))?;
+    let meta = html[title..].find("<meta name=\"viewport\"").ok_or_else(|| lacks("viewport"))? + title;
+    let stop = html[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
+    html.replace_range(title..stop, &format!("{}\n<script>{}</script>\n", rendered.head, capture_js()));
+    let root = "<div id=\"exact-root\"></div>";
+    let at = html.find(root).ok_or_else(|| lacks(root))?;
+    html.replace_range(at..at + root.len(), &format!("<div id=\"exact-root\">{}</div>", rendered.document.root));
+    let interaction = rendered.activate == exact_plan::ActivatePolicy::Interaction;
+    let entry = if interaction { "" } else { JS_ENTRY };
+    let at = html.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
+    html.replace_range(
+        at..at + JS_ENTRY.len(),
+        &format!(
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>\n{entry}",
+            rendered.digest,
+            rendered.activate.name(),
+            rendered.checkpoint
+        ),
+    );
     Ok(html)
 }

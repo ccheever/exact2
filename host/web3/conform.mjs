@@ -27,7 +27,7 @@ const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1
 const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
 const out = resolve(opt('--out', '/tmp/exact3-conform'));
 const maxSteps = Number(opt('--steps', 10));
-const named = argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps'].includes(argv[i - 1]));
+const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
 process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
 
@@ -89,10 +89,15 @@ const STATE_KEYS = ['slots', 'derives', 'resources'];
 async function target(t, report) {
   const fail = (step, what) => report.failures.push({ target: t.name, step, what });
   const dir = resolve(out, t.name); mkdirSync(dir, { recursive: true });
+  if (t.urls) return drive(t, report, fail, dir, { url: t.urls[0], close() {} }, { url: t.urls[1], close() {} });
   const build = spawnSync('bun', ['host/web3/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact3-dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
   const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
+  await drive(t, report, fail, dir, ws, js);
+}
+
+async function drive(t, report, fail, dir, ws, js) {
   let W, J;
   try {
     try { W = await open({ host: 'web', app: t.app, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
@@ -120,7 +125,7 @@ async function target(t, report) {
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
     // a line — `tap <target>`, `type <target> <text…>`, `clock <+ms|settle>`,
     // `back` (the browser's history) — each compared after both settle.
-    const script = resolve(here, 'conformance', `${t.name}.steps`);
+    const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name}.steps`);
     const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
     await settle();
     let tree = await compare('boot');
@@ -152,7 +157,7 @@ async function target(t, report) {
   }
   // The app's own tests, on both.
   const tests = resolve(root, 'apps', t.app, 'app.test.contract');
-  if (!t.contract && existsSync(tests)) {
+  if (!t.contract && !t.urls && existsSync(tests)) {
     const run = url => { const r = spawnSync('bun', ['scripts/agent.mjs', 'web', '--app', t.app, '--url', url, '--test', tests], { cwd: root, encoding: 'utf8' }); return r.stdout + r.stderr; };
     const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
     const [rw, rj] = [run(w2.url), run(j2.url)];
@@ -166,8 +171,12 @@ async function target(t, report) {
 
 // ---------------------------------------------------------------- the run
 const report = { at: new Date().toISOString(), targets: {}, steps: [], failures: [] };
-const apps = named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
+// `--urls <app> <a> <b>`: two served pages of one app, compared the same way
+// (a fresh JavaScript render against an adopted one, one renderer against another).
+const urls = argv.indexOf('--urls');
+const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
+if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (argv.includes('--synthetic')) {
   const sdir = resolve(here, 'conformance');
   for (const f of readdirSync(sdir).filter(f => f.endsWith('.contract'))) {

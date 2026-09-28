@@ -57,6 +57,26 @@ writeFileSync(resolve(gen, 'main.js'), [
 for (const f of ['agent.js', 'rust-data.js']) cpSync(resolve(here, f), resolve(gen, f));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')));
+// The server bundle a JavaScript render runs (render.mjs), one script per VM context.
+writeFileSync(resolve(gen, 'main-server.js'), [
+  `import app${rust ? ', { sources }' : ''} from './app.js';`,
+  "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
+  "import { types, sourceTypes, pages } from './names.js';",
+  "import { answers } from './checkpoint.js';",
+  ...(ts ? ["import { install } from './ts-data.js';"] : rust ? ["import { install } from './rust-data.js';"] : []),
+  'globalThis.__render = async deadline => {',
+  '  const t0 = performance.now();',
+  ...(ts ? ['  install(data);'] : rust ? ['  await install(data, sources, async p => __files(p));'] : []),
+  '  app();',
+  '  const end = t0 + deadline;',
+  '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
+  '  const route = routeAt(location.pathname + location.search), [render, activate] = pages[route] ?? ["build", "idle"];',
+  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), activate: activate === "interaction" ? "interaction" : "idle", render: performance.now() - t0 };',
+  '};',
+].join('\n'));
+cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
+if (spawnSync('bun', ['build', resolve(gen, 'main-server.js'), '--format=iife', '--outfile', resolve(gen, 'server.js')], { cwd: root, stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) process.exit(1);
 const bundled = spawnSync('bun', ['build', resolve(gen, 'main.js'), '--minify', '--format=esm', '--splitting', '--outdir', out, '--entry-naming', 'app.js', '--chunk-naming', '[name]-[hash].js'], { cwd: root, stdio: 'inherit' });
 if (bundled.status !== 0) process.exit(bundled.status ?? 1);
 

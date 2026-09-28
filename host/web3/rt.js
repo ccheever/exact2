@@ -94,7 +94,7 @@ function scope(f, parent = Owner) {
   const o = Owner; Owner = parent;
   const n = node(null);
   Owner = n;
-  try { f(); } finally { Owner = o; }
+  try { f(); } catch (e) { dispose(n); throw e; } finally { Owner = o; }
   return n;
 }
 function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
@@ -228,7 +228,8 @@ export const Store = {
   persist() { for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem("exact.secret." + k) : localStorage.setItem("exact.secret." + k, v); } catch {} },
   load() { try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("exact.secret.")) this.map.set(k.slice(13), localStorage.getItem(k)); } } catch {} },
 };
-const Resources = [];
+/** Every resource, in plan order: the checkpoint a render writes reads them. */
+export const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
 /** Run a request after the commit publishes; `land(outcome)` on reply. */
@@ -250,7 +251,9 @@ function ask(source, args) {
 /** A resource: its value, the arguments it settled with, one ticket in flight. */
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
-  const r = { value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
+  const kept = checkpoint().kept?.get(name);
+  if (kept) [initialArgs, initial] = kept;
+  const r = { name, source, type, value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
@@ -367,6 +370,7 @@ export function M(m, source, args) { Sends.push([m, source, args]); }
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
 export function h(p, tag, cls, attrs, text) {
+  if (Adopt) return adopt(p, tag, cls, attrs);
   const e = /^(svg|g|path|circle|rect|line|polyline|polygon|ellipse)$/.test(tag) ? document.createElementNS(SVG, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -376,11 +380,37 @@ export function h(p, tag, cls, attrs, text) {
 }
 /** A canvas: the host's surface element under its children (`glue.js`). */
 export function cv(e) {
+  if (Adopt) { const s = at(e); if (s?.dataset?.surface !== undefined) { e.$n = s.nextSibling; return; } }
   const s = document.createElement("canvas");
   s.dataset.surface = "";
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
-  e.append(s);
+  if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
+
+// ---------------------------------------------------------------- adoption (LLP 1048.000 D6)
+// A page rendered ahead (by the Rust render host or by this runtime under
+// Bun) is adopted, not rebuilt: construction walks the document with a
+// cursor per parent, takes each element whose tag matches, gives it the
+// class it would have had and drops the renderer's inline style and view
+// ids, and inserts the region anchors a fresh build would have made. A
+// mismatch abandons adoption and builds afresh.
+let Adopt = false;
+class Mismatch extends Refusal {}
+// The next node of the document to adopt under `p`; what adoption inserts
+// goes before it and never moves it.
+const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
+function adopt(p, tag, cls, attrs) {
+  let e = at(p);
+  while (e && e.nodeType !== 1) e = e.nextSibling;
+  if (!e || e.localName !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
+  p.$n = e.nextSibling;
+  e.removeAttribute("style"); e.removeAttribute("data-view");
+  if (cls !== 0) e.setAttribute("class", "c" + cls);
+  if (attrs) for (const k in attrs) if (e.getAttribute(k) !== attrs[k]) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
+
 const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 export function P(e, name, f) {
@@ -432,10 +462,14 @@ export function on(e, kind, f) {
  * follows it while its head is in the tree. */
 export function hd(p, fields) {
   // The head's node, as the kernel keeps it: an inert element in the tree.
-  p.append(document.createElement("template"));
+  const t = document.createElement("template");
+  if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   for (const [k, v] of Object.entries(fields)) effect(() => head(k, typeof v === "function" ? v() : v));
 }
+/** The head's fields as last set, for a renderer. */
+export const Head = {};
 function head(k, v) {
+  Head[k] = v;
   if (k === "headTitle") document.title = v;
   else if (k === "headDescription") {
     let m = document.querySelector('meta[name="description"]');
@@ -446,6 +480,7 @@ function head(k, v) {
 
 // ---------------------------------------------------------------- regions
 function range(p) {
+  if (Adopt) return [mark(p), null];
   const a = document.createComment(""), b = document.createComment("");
   p.append(a, b);
   return [a, b];
@@ -457,20 +492,23 @@ function build(b, f, own) {
   b.before(frag);
   return s;
 }
+/** A region's first arm while adopting: built in place, then its end anchor. */
+function adoptArm(p, f, own) { const s = f ? scope(() => f(p), own) : null; return [s, mark(p)]; }
 /** `when`: arm 0 while the subject holds, else arm 1 (or nothing). */
 export function when(p, subject, a0, a1) {
-  const [a, b] = range(p), own = Owner;
+  let [a, b] = range(p), own = Owner;
   let arm = -1, s = null;
   effect(() => {
     const want = subject() ? 0 : a1 ? 1 : -1;
     if (want === arm) return;
     arm = want;
+    if (!b) return untracked(() => { [s, b] = adoptArm(p, want < 0 ? null : want ? a1 : a0, own); });
     untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : a0, own); });
   });
 }
 /** `match`: arm 0 with the bound value while the subject is `some`, else arm 1. */
 export function match(p, subject, a0, a1) {
-  const [a, b] = range(p), own = Owner;
+  let [a, b] = range(p), own = Owner;
   let arm = -1, s = null;
   const bound = sig(null);
   effect(() => {
@@ -478,13 +516,14 @@ export function match(p, subject, a0, a1) {
     if (v != null) write(bound.n, v);
     if (want === arm) return;
     arm = want;
+    if (!b) return untracked(() => { [s, b] = adoptArm(p, want < 0 ? null : want ? a1 : p2 => a0(p2, bound), own); });
     untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : p2 => a0(p2, bound), own); });
   });
 }
 /** `each`: rows by key in item order; a kept row keeps its elements, its
  * item and position are signals its bindings read. */
 export function each(p, list, key, row) {
-  const [a, b] = range(p), own = Owner;
+  let [a, b] = range(p), own = Owner;
   let rows = new Map();
   effect(() => {
     const items = list();
@@ -497,6 +536,12 @@ export function each(p, list, key, row) {
         if (n) { k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
         if (r) { rows.delete(k); write(r.item.n, item); write(r.index.n, i); }
+        else if (!b) {
+          // Adopting: the row's elements are in place, in item order.
+          r = { item: sig(item), index: sig(i), start: mark(p) };
+          r.s = scope(() => row(p, r.item, r.index), own);
+          r.end = mark(p);
+        }
         else {
           r = { item: sig(item), index: sig(i), start: document.createComment(""), end: document.createComment("") };
           const frag = document.createDocumentFragment();
@@ -520,6 +565,7 @@ export function each(p, list, key, row) {
         at = r.end;
       }
       rows = next;
+      b ??= mark(p);
     });
   });
 }
@@ -529,12 +575,61 @@ export function each(p, list, key, row) {
 export function mount(f) {
   const root = document.getElementById("exact-root");
   start = performance.now();
-  clock.agent = new URLSearchParams(location.search).has("agent");
+  // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
+  clock.agent = !!globalThis.__exactRender || new URLSearchParams(location.search).has("agent");
   Store.load();
   let built = false;
-  commit(() => { scope(() => f(root)); built = true; }, "boot");
+  Adopt = !!(checkpoint().kept && root.firstElementChild);
+  const adopting = Adopt;
+  commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Adopt = false;
+  const adopted = adopting && built;
+  if (!built && adopting) {
+    // The document isn't this plan's projection: build afresh (and say so).
+    say(`adoption abandoned: ${journal.at(-1)}`);
+    root.textContent = "";
+    commit(() => { scope(() => f(root)); built = true; }, "boot");
+  }
   if (!built) throw new Error("boot refused: " + journal.at(-1));
+  if (adopted) say("adopted the document");
   root.dataset.bootMs = String(Math.round(performance.now()));
+  // What the reader did before the runtime ran (the capture script),
+  // replayed once, in order, on the same elements (LLP 1048.001 D5).
+  for (const t of globalThis.exact?.taps?.() ?? []) if (t.target.isConnected) t.type === "input" ? t.target.dispatchEvent(new Event("input", { bubbles: true })) : t.target.click();
+}
+
+/** The page's checkpoint (LLP 1048.000 D4): the answers its document used,
+ * by resource name, so a resource admits the rendered value while its
+ * arguments match, and the time the render stopped at. */
+let Checkpoint = null;
+export function checkpoint() {
+  if (Checkpoint) return Checkpoint;
+  Checkpoint = { kept: null };
+  const el = typeof document !== "undefined" && document.querySelector('script[type="application/vnd.exact.checkpoint"]');
+  if (!el) return Checkpoint;
+  const cp = JSON.parse(el.textContent);
+  const bytes = Uint8Array.from(atob(cp.answers), c => c.charCodeAt(0));
+  const list = decodeValue(bytes);
+  Checkpoint.kept = new Map(list.map(([name, , args, value]) => [name, [args, value]]));
+  Checkpoint.time = cp.time;
+  clock.now = cp.time || 0;
+  return Checkpoint;
+}
+/** A plan value's canonical bytes (plan/src/value.rs) as a runtime value. */
+export function decodeValue(b) {
+  const d = new DataView(b.buffer, b.byteOffset, b.byteLength), text = new TextDecoder();
+  let i = 0;
+  const u32 = () => { const v = d.getUint32(i, true); i += 4; return v; };
+  const value = () => {
+    const tag = b[i++];
+    if (tag === 0) { const v = d.getFloat64(i, true); i += 8; return v; }
+    if (tag === 1) return b[i++] === 1;
+    if (tag === 2) { const n = u32(), s = text.decode(b.subarray(i, i + n)); i += n; return s; }
+    if (tag === 3 || tag === 4) return null;
+    if (tag === 5) return value();
+    const out = []; for (let n = u32(); n--;) out.push(value()); return out;
+  };
+  return value();
 }
 
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
@@ -698,3 +793,5 @@ export function router(slot, history) {
   });
 }
 export const navigateTo = f => { Navigate = f; };
+/** The route a location matches: its row index (renderers pick a policy by it). */
+export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
