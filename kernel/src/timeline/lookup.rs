@@ -51,6 +51,13 @@ impl crate::kernel::Kernel {
     pub fn timeline_of(&self, consumer: NodeKey) -> Option<NamedTimeline> {
         self.arena().timelines.resolved(consumer)
     }
+
+    /// Whether any node bears a timeline row: a source, a scope or a
+    /// consumer. A host whose page seeks consumers itself (the web's glue)
+    /// follows every commit while one does.
+    pub fn has_timelines(&self) -> bool {
+        !self.arena().timelines.slots.is_empty()
+    }
 }
 
 /// After a commit, the consumers whose timeline now resolves differently,

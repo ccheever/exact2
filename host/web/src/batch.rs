@@ -416,6 +416,13 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"timelines"}` — a boot or commit while drag timelines are
+    /// bound (LLP 1057.003 D4): the page seeks their consumers again once
+    /// the batch is applied.
+    pub fn timelines(&mut self) {
+        self.ops.push("{\"op\":\"timelines\"}".into());
+    }
+
     /// End a property's ownership, including a held presentation override.
     pub fn retire_motion(&mut self, id: u32, property: &str) {
         let mut s = text!("{{\"op\":\"retire-motion\",\"id\":{},\"property\":", id);

@@ -164,6 +164,7 @@ let agentClock = agentMode ? 0 : null;
 const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
+let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
 let bootAttempt = 0;
 let devAssets = null;
 let installedFonts = [];
@@ -665,6 +666,7 @@ function apply(batch) {
         break;
       }
       case "animate": { motion.animate(op); break; }
+      case "timelines": { timelinesMoved = true; break; }
       case "retire-motion": { motion.retire(op.id, op.property, op.token, op.runtime); break; }
       case "height-drag": { motion.heightBinding(op); break; }
       case "transform-drag": { motion.transformBinding(op); break; }
@@ -887,7 +889,8 @@ function applyBatch(batch) {
     register(agentClock);
     if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
     seek(agentClock);arrange.commit();
-  } else motion.followTimelines(); // a commit can move a timeline's scope (LLP 1057.003 D4); the agent's seek follows them
+  } else if (timelinesMoved) motion.followTimelines(); // a boot or commit while drag timelines are bound (LLP 1057.003 D4); the agent's seek follows them
+  timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };
   } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }

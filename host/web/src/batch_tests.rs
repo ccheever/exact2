@@ -174,6 +174,7 @@ fn cases() -> Vec<(&'static str, String)> {
             }),
         ),
         ("retire-motion", one(|b| b.retire_motion(11, "transform"))),
+        ("timelines", one(|b| b.timelines())),
         ("surface", one(|b| b.surface(&surface))),
         ("request", one(|b| b.request(&request(41, http, true)))),
         (
@@ -329,6 +330,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "retire-motion",
         r#"{"ops":[{"op":"retire-motion","id":11,"property":"transform"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "timelines",
+        r#"{"ops":[{"op":"timelines"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "surface",

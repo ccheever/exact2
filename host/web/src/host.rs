@@ -518,6 +518,10 @@ impl<D: DataSource> Host<D> {
             host.emit_children(*id, &mut batch);
         }
         host.springs.adopt(host.runner.kernel(), &order);
+        // A boot's consumers are sought as a commit's are (LLP 1057.003 D4).
+        if host.runner.kernel().has_timelines() {
+            batch.timelines();
+        }
         let roots = host.page_roots();
         host.roots = roots.clone();
         batch.roots(&roots);
@@ -1307,6 +1311,7 @@ impl<D: DataSource> Host<D> {
                 Lowered::Retire { view, property } => {
                     batch.retire_motion(view, property.name());
                 }
+                Lowered::Timelines => batch.timelines(),
             }
         }
     }

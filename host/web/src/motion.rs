@@ -60,6 +60,10 @@ pub enum Lowered {
         /// Only this property is retired.
         property: Property,
     },
+    /// A commit while drag timelines are bound, or one that unbound the
+    /// last (LLP 1057.003 D4): the page's glue, which seeks consumers
+    /// itself, follows them again.
+    Timelines,
 }
 
 /// Springs and holds: the motion capability's seam (LLP 1047 D3). The host
@@ -541,6 +545,12 @@ impl Motion for Springs {
         let now = now.max(self.engine.now());
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        // @ref LLP 1057.003 D4 — the browser gives a consumer a fresh CSS
+        // animation for changes the kernel records on other nodes (an
+        // ancestor's `display`, a move) as well as for its own rows and its
+        // name's resolution, so while any node bears a timeline every commit
+        // is followed; pages without one never are.
+        let mut timelines = !receipts.is_empty() && kernel.has_timelines();
         for receipt in receipts {
             let sync = kernel.motion_sync(receipt);
             // Engine::remove also erases dirty entries, so frame() will never
@@ -551,10 +561,17 @@ impl Motion for Springs {
                     self.playing.remove(&(*node, property));
                 }
             }
+            // Before it applies: the last consumer, unbound here, was bound.
+            timelines |= sync.timelines.iter().any(|(node, source, binding)| {
+                source.is_some() || binding.is_some() || self.engine.timeline_bound(*node)
+            });
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         }
         let mut out = Vec::new();
+        if timelines {
+            out.push(Lowered::Timelines);
+        }
         // Ancestor hide/detach does not touch the owner's receipt key. This
         // checks only its ancestor path, never all mounted numeric heights.
         self.reconcile_height(kernel, &mut out);
