@@ -215,48 +215,22 @@ impl DataSource for Returning {
 
 #[test]
 fn fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit() {
-    // Use ordinary platform bindings, isolated from an agent-mode parent
-    // and its process-global environment. Never touch an app's own names.
-    const CHILD: &str = "EXACT_PREPARE_SECRET_FIXTURE";
-    if std::env::var(CHILD).as_deref() != Ok("1") {
-        // Security.framework discovers executable identity by walking its directory.
-        // Cargo's enormous deps directory is not an app bundle; isolate the same binary.
-        let directory =
-            std::env::temp_dir().join(format!("exact-keychain-fixture-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let executable = directory.join("keychain-fixture");
-        std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
-        let output = std::process::Command::new(executable)
-            .args(["--exact", "abi::tests::fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit"])
-            .env(CHILD, "1")
-            .env_remove("EXACT_AGENT")
-            .env_remove("EXACT_STORE")
-            .output()
-            .unwrap();
-        std::fs::remove_dir_all(directory).unwrap();
-        assert!(
-            output.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return;
-    }
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let name = Box::leak(format!("exact.prepare.{}.{nonce}", std::process::id()).into_boxed_str());
-    let grants = Box::leak(format!("secret.keep {name}\n").into_boxed_str());
-    let bindings = endow(grants).unwrap();
-    struct Cleanup(ibex2::host::Secrets, &'static str);
-    impl Drop for Cleanup {
+    // The platform's secret store as launches share it, stood in for on this
+    // thread (`store::PLATFORM`): hermetic, whatever the environment's
+    // `EXACT_AGENT`/`EXACT_STORE` say and whether its keychain is unlocked.
+    let platform = Arc::new(ibex2::secrets::MemoryStore::new());
+    crate::store::PLATFORM.with(|p| *p.borrow_mut() = Some(platform));
+    struct Restore;
+    impl Drop for Restore {
         fn drop(&mut self) {
-            self.0.forget(self.1).unwrap();
+            crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
         }
     }
+    let _restore = Restore;
+    let name = "exact.prepare.returning";
+    let grants = "secret.keep exact.prepare.returning\n";
+    let bindings = endow(grants).unwrap();
     assert_eq!(bindings.secrets.get(name).unwrap(), None);
-    let _cleanup = Cleanup(bindings.secrets.clone(), name);
     bindings.secrets.set(name, "returning").unwrap();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let data = Returning {

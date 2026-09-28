@@ -31,7 +31,40 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
             .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
             .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
     }
+    #[cfg(test)]
+    if let Some(secrets) = PLATFORM.with(|p| p.borrow().clone()) {
+        host = host
+            .with_secret_store(Box::new(Shared(secrets)))
+            .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
+    }
     endow_in(host, grants)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The platform's secret store as this thread's test stands it in: every
+    /// `endow` on the thread shares it, as launches share the Keychain, so a
+    /// test reads and writes the same store the bridge does without a
+    /// developer's (possibly locked) keychain. The Keychain itself is
+    /// `ibex2`'s `secrets::darwin` test.
+    pub(crate) static PLATFORM: std::cell::RefCell<Option<std::sync::Arc<ibex2::secrets::MemoryStore>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct Shared(std::sync::Arc<ibex2::secrets::MemoryStore>);
+
+#[cfg(test)]
+impl ibex2::secrets::SecretStore for Shared {
+    fn get(&self, name: &str) -> Result<Option<String>, HostError> {
+        self.0.get(name)
+    }
+    fn set(&self, name: &str, value: &str) -> Result<(), HostError> {
+        self.0.set(name, value)
+    }
+    fn forget(&self, name: &str) -> Result<(), HostError> {
+        self.0.forget(name)
+    }
 }
 
 fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
