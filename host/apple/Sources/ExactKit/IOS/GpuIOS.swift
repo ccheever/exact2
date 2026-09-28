@@ -420,11 +420,14 @@ final class Canvases {
     /// Whether the app can be seen (LLP 1009 D4: the host judges what is on
     /// screen). A backgrounded app's Metal layer hands out no drawables, and
     /// asking blocks the main thread for a frame nobody gets; so nothing
-    /// renders and nothing wants a frame until the app is active again,
-    /// when the scene delegate asks `Frames` to run.
+    /// renders and nothing wants a frame until the app is in the foreground
+    /// again, when the lifecycle's notifications ask `Frames` to run. An
+    /// inactive app is still on screen — under a system alert, Control
+    /// Center or the app switcher, as a page is still `visible` in a window
+    /// without focus (`PageFacts.hidden`) — and still draws.
     var visible: Bool {
         // A backgrounded app, or an unmounted view (LLP 1031 D3), wants no frames.
-        UIApplication.shared.applicationState == .active && session?.presenter.viewport.window != nil
+        UIApplication.shared.applicationState != .background && session?.presenter.viewport.window != nil
     }
 
     /// Whether any surface has something to render — or an edit is under a
