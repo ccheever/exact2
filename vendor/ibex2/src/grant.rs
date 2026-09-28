@@ -64,8 +64,12 @@ impl PathPrefix {
     /// because admitting either would mean deciding traversal semantics here,
     /// where the answer cannot be checked against the real filesystem.
     pub fn new(path: &str) -> Option<Self> {
+        // `doc:/` names the documents a person chose (Exact patch: LLP
+        // 1069.010 D1), a namespace beside `app:/` resolved by the host.
         let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
             ("app:", path)
+        } else if let Some(path) = path.strip_prefix("doc:/") {
+            ("doc:", path)
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -201,7 +205,7 @@ impl GrantSet {
     /// (`stdlib::fs::realize`). Other families are unchanged.
     pub fn realized_fs(&self) -> GrantSet {
         let realize = |prefix: &PathPrefix| {
-            if prefix.0.first().is_some_and(|p| p == "app:") {
+            if prefix.0.first().is_some_and(|p| p == "app:" || p == "doc:") {
                 return prefix.clone();
             }
             let spelt = format!("/{}", prefix.0[1..].join("/"));

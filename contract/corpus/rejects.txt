@@ -913,6 +913,15 @@ component A
     button press=go
       text "a"
 ---
+== type-file-picker-argument
+# `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
+component A
+  action go
+    showSaveFilePicker("out")
+  view
+    button press=go
+      text "a"
+---
 == type-save-file-argument
 # `saveFile` takes (id, from, suggestedName), three strings (LLP 1069.010 D3).
 component A

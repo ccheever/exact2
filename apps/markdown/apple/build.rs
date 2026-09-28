@@ -43,8 +43,8 @@ fn main() {
         format!(
             "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
             contract::rust_entry(
-                "markdown_data::Markdown",
-                "markdown_data::Markdown::new()",
+                "exact_data_host::Storage<markdown_data::Markdown>",
+                "exact_data_host::Storage::new(markdown_data::Markdown::new())",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
             .unwrap()

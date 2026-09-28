@@ -45,6 +45,7 @@ pub mod compare;
 mod conform;
 pub mod delivery;
 pub mod device;
+pub mod file_pickers;
 pub mod head;
 pub mod held;
 pub mod instance;

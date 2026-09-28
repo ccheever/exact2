@@ -26,6 +26,9 @@ public enum ExactDocuments {
     /// The node an opened path is delivered to.
     public static let testId = "open-file"
 
+    /// URLs ⌘O's panel returned, kept under their security scope.
+    nonisolated(unsafe) static var scoped: [URL] = []
+
     /// Whether this app declares that it opens anything at all.
     public static var declared: Bool { !types.isEmpty }
 
@@ -119,6 +122,10 @@ public enum ExactDocuments {
         }
         panel.prompt = "Open"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        // The URL the person chose, under its security scope while this
+        // process runs: a no-op unsandboxed, what a sandboxed build needs
+        // (LLP 1069.010 D1; ruled: the Mac App Store stays possible).
+        if url.startAccessingSecurityScopedResource() { scoped.append(url) }
         let path = url.standardizedFileURL.path
         if let route { route([path]) } else if let session { deliver([path], to: session) }
     }

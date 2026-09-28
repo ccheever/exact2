@@ -31,8 +31,8 @@ fn main() {
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     let entry = contract::rust_entry(
-        "markdown_data::Markdown",
-        "markdown_data::Markdown::new()",
+        "exact_data_host::Storage<markdown_data::Markdown>",
+        "exact_data_host::Storage::new(markdown_data::Markdown::new())",
         contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();

@@ -128,6 +128,32 @@ impl<D: DataSource> Runner<D> {
                 }
                 "answered: a file".to_owned()
             }
+            // A picker's answer is what the person would have chosen (LLP
+            // 1069.010 D2): absolute paths, one unless `multiple`.
+            HoldAnswer::Value(v)
+                if matches!(
+                    hold.capability.as_str(),
+                    "open-file" | "open-directory" | "save-file"
+                ) =>
+            {
+                let paths = crate::file_pickers::answer_paths(v);
+                let multiple = hold.args.contains("\"multiple\":true");
+                if paths.is_empty() || paths.iter().any(|p| !p.starts_with('/')) {
+                    return Err(format!(
+                        "@{ticket} ({}): type an absolute path",
+                        hold.capability
+                    ));
+                }
+                if paths.len() > 1 && !multiple {
+                    return Err(format!(
+                        "@{ticket} ({}): one path, not {}",
+                        hold.capability,
+                        paths.len()
+                    ));
+                }
+                let n = paths.len();
+                format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(

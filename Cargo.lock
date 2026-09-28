@@ -2087,6 +2087,7 @@ dependencies = [
  "contract",
  "exact-apple",
  "exact-bake",
+ "exact-data-host",
  "exact-logic",
  "markdown-data",
 ]
@@ -2095,9 +2096,11 @@ dependencies = [
 name = "markdown-data"
 version = "0.1.0"
 dependencies = [
+ "exact-data",
  "exact-plan",
  "exact-runner",
  "markdown-parse",
+ "serde_json",
 ]
 
 [[package]]
@@ -2158,6 +2161,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-bake",
+ "exact-data-host",
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",

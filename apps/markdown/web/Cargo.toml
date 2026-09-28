@@ -12,6 +12,7 @@ name = "markdown_web"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+exact-data-host = { path = "../../../data/host" }
 exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
 exact-web-capabilities = { path = "../../../host/web-capabilities" }

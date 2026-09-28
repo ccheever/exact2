@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
-fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
+pub(super) fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v[k].as_str()
         .ok_or_else(|| format!("storage: {k} must be a string"))
 }
@@ -190,7 +190,15 @@ fn execute(
         }),
     })
 }
-pub(super) fn run(paths: &Directories, grants: &str, payload: &[u8]) -> Outcome {
+/// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
+pub(super) fn document(payload: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(payload).is_ok_and(|r| {
+        r["args"]["path"]
+            .as_str()
+            .is_some_and(exact_data::documents::is_document)
+    })
+}
+pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
     let result = (|| {
         if payload.len() > exact_data::storage::MAX_BYTES {
             return Err("storage request exceeds its byte limit".into());
@@ -201,6 +209,18 @@ pub(super) fn run(paths: &Directories, grants: &str, payload: &[u8]) -> Outcome 
         }
         let op = text(&request, "op")?;
         let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
+        let args = &request["args"];
+        if args["path"]
+            .as_str()
+            .is_some_and(exact_data::documents::is_document)
+        {
+            let data = match op {
+                "fs.writeFile" | "fs.atomicWriteFile" | "fs.appendFile" => Some(bytes(args)?),
+                _ => None,
+            };
+            return super::documents::execute(&grants, op, args, data);
+        }
+        let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             std::fs::create_dir_all(path).map_err(error)?;
         }

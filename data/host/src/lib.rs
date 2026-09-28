@@ -9,6 +9,8 @@ use std::{
     path::PathBuf,
 };
 #[cfg(not(target_arch = "wasm32"))]
+mod documents;
+#[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
@@ -89,7 +91,9 @@ impl<D: DataSource> Storage<D> {
                     .map_err(|_| unavailable("storage request must be UTF-8"))?;
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if self.directories.is_none() {
+                    // A chosen document is not app storage: it needs no app
+                    // directories (LLP 1069.010 D1).
+                    if self.directories.is_none() && !native::document(payload) {
                         return Err(unavailable(
                             "storage is unavailable in an unconfigured host",
                         ));
@@ -317,7 +321,7 @@ impl<D: DataSource> DataSource for Storage<D> {
             Pending::Child(token) => self.source.continuation(token),
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
-                let paths = self.directories.clone()?;
+                let paths = self.directories.clone();
                 let alive = self.alive.clone();
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
@@ -326,7 +330,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                             message: "storage source unloaded".into(),
                         };
                     }
-                    native::run(&paths, &grants, &payload)
+                    native::run(paths.as_ref(), &grants, &payload)
                 }))
             }
         }

@@ -1,6 +1,6 @@
 //! The Markdown reader on the web: the host's five exports over the app's
-//! data source and its baked plan. A browser has no filesystem to open, so
-//! the reader shows the welcome document and says so for anything else.
+//! data source and its baked plan. It opens what the File System Access
+//! API's pickers chose (LLP 1069.010 D2), read through storage.
 
 #![deny(missing_docs)]
 

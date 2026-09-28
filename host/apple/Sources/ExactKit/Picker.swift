@@ -42,11 +42,16 @@ final class Picker: NSObject {
     unowned let session: ExactSession
     /// Inputs whose picker is showing: a second `showPicker` does nothing.
     private var open: Set<UInt32> = []
+    /// Chosen documents under `startAccessingSecurityScopedResource`, until
+    /// the session ends (LLP 1069.010 D1).
+    var scoped: [URL] = []
     #if canImport(UIKit)
     private var requests: [ObjectIdentifier: Request] = [:]
     /// Exporting document pickers showing (LLP 1069.010 D3): the element
     /// the outcome goes to, and the scratch directory to remove.
     var exports: [ObjectIdentifier: (UInt32, URL)] = [:]
+    /// Document pickers showing (LLP 1069.010 D2): the element, the command.
+    var documentRequests: [ObjectIdentifier: (UInt32, String)] = [:]
     #endif
     init(session: ExactSession) { self.session = session }
 
@@ -241,13 +246,13 @@ extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        if exportFinished(controller, urls: urls) { return }
+        if exportFinished(controller, urls: urls) || documentFinished(controller, urls: urls) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
         deliver(r.view, accept: r.accept, files: urls.map { ($0, $0.lastPathComponent) })
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        if exportFinished(controller, urls: nil) { return }
+        if exportFinished(controller, urls: nil) || documentFinished(controller, urls: nil) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
         cancel(r.view)
     }

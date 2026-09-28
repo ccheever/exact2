@@ -694,7 +694,64 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "share",
     // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
+    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
+    "showOpenFilePicker",
+    "showDirectoryPicker",
+    "showSaveFilePicker",
 ];
+
+/// The three pickers' positional arguments (LLP 1069.010 D2): an element
+/// id, then `multiple` (a bool) for `showOpenFilePicker` or
+/// `suggestedName` (a string) for `showSaveFilePicker`.
+fn picker_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let (usage, second) = match name {
+        "showOpenFilePicker" => (
+            "showOpenFilePicker(id) or showOpenFilePicker(id, multiple)",
+            Some((Ty::Bool, false)),
+        ),
+        "showSaveFilePicker" => (
+            "showSaveFilePicker(id, suggestedName)",
+            Some((Ty::String, true)),
+        ),
+        _ => ("showDirectoryPicker(id)", None),
+    };
+    let wrong = |at| {
+        err(
+            "type-file-picker-argument",
+            format!("`{name}` takes `{usage}`"),
+            at,
+        )
+    };
+    let most = if second.is_some() { 2 } else { 1 };
+    let least = match second {
+        Some((_, true)) => 2,
+        _ => 1,
+    };
+    if args.len() < least
+        || args.len() > most
+        || args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
+    {
+        return wrong(span);
+    }
+    for (i, arg) in args.iter().enumerate() {
+        let want = if i == 0 {
+            Ty::String
+        } else {
+            second.as_ref().map_or(Ty::String, |(t, _)| t.clone())
+        };
+        let t = infer(arg, scope, shapes)?;
+        if want.unify(&t).is_none() {
+            return wrong(arg.span());
+        }
+    }
+    Ok(())
+}
 
 /// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
 /// positional. Whether `from` is granted is the host's to refuse.
@@ -853,6 +910,9 @@ fn check_stmt(
                 }
                 if name == "saveFile" {
                     return save_file_args(args, scope, shapes, *span);
+                }
+                if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
+                    return picker_args(name, args, scope, shapes, *span);
                 }
                 for arg in args {
                     infer(arg, scope, shapes)?;

@@ -1,10 +1,15 @@
-//! Markdown's data source: a path in, a document out.
+//! Markdown's data source: a document path in, a document out.
 //!
-//! The runner does no I/O (LLP 1016 D1), so opening a file is a request the
-//! host runs: `answer` hands back a continuation token, the host's worker
-//! reads *and parses* the file, and `parse` picks up the result. Parsing on
-//! the worker and not here is the point — a 100 kB document is milliseconds
-//! of work, and milliseconds on the thread that lays out is a dropped frame.
+//! The runner does no I/O (LLP 1016 D1), so opening a file is a series of
+//! storage requests the host runs (LLP 1027.001): `fs.stat` the path, the
+//! README beside it when it is a folder, `fs.readFile`, and `fs.readdir`
+//! for the Markdown files beside it. What it opens is a `doc:` path (LLP
+//! 1069.010 D1): the file or folder the person chose, minted by the host,
+//! read under `fs.read doc:/`. A path the host never minted is not the
+//! app's to read, on any host. Parsing then runs on the host's worker, not
+//! here: a 100 kB document is milliseconds of work, and milliseconds on the
+//! thread that lays out is a dropped frame. A browser has no such worker,
+//! so there the parse is inline.
 //!
 //! This source owns *the open document*, which is why a file that will not
 //! open does not lose the one being read: a refusal comes back as the
@@ -16,13 +21,14 @@
 #![deny(missing_docs)]
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use exact_data::storage;
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Response, Store};
 use markdown_parse::{parse, Document};
+use serde_json::{json, Value as Json};
 
 mod welcome;
 
@@ -34,19 +40,39 @@ pub use welcome::WELCOME;
 /// prose, and reading it would stall the worker for no one's benefit.
 pub const LIMIT: u64 = 4 * 1024 * 1024;
 
+/// What the reader may reach: the documents the person chose, to read.
+pub const GRANTS: &str = "fs.read doc:/";
+
 /// A file the reader opened, or could not.
-type Opened = Result<(PathBuf, Document), String>;
+type Opened = Result<(String, Document), String>;
+
+/// Where an open is, between the storage requests it makes.
+enum Step {
+    /// `fs.stat` of what was asked for.
+    Stat,
+    /// `fs.readdir` of a folder, for its README.
+    Readme,
+    /// `fs.readFile` of the file.
+    Read { file: String },
+    /// `fs.readdir` of the file's folder, for the list beside it.
+    Siblings { file: String, text: String },
+}
 
 /// The Markdown reader's data source.
 #[derive(Default)]
 pub struct Markdown {
     /// The document value being read now, shared with the runner. A refusal
     /// reuses its blocks rather than retaining the parser's second text copy.
-    open: Option<(PathBuf, Value)>,
+    open: Option<(String, Value)>,
     /// Results the worker has finished, by the path that was asked for.
     done: Arc<Mutex<HashMap<String, (u64, Opened)>>>,
-    /// Paths handed out as continuation tokens and not yet taken.
-    inflight: HashMap<u64, String>,
+    /// Texts handed to the worker as continuation tokens and not yet taken:
+    /// the path asked for, the file, its text.
+    inflight: HashMap<u64, (String, String, String)>,
+    /// The open in progress: its generation, what was asked, its step.
+    step: Option<(u64, String, Step)>,
+    /// The list beside the file being parsed, attached when it is done.
+    beside: Value,
     next: u64,
     /// Newest open, published before its continuation joins the ordered lane.
     generation: Arc<AtomicU64>,
@@ -59,38 +85,38 @@ impl Markdown {
     }
 
     /// `shape Document`: the file, what is beside it, and any refusal.
-    fn value(path: &Path, doc: Document, message: &str) -> Value {
+    fn value(path: &str, doc: Document, message: &str, siblings: Value) -> Value {
         Value::record(vec![
-            Value::str(&path.to_string_lossy()),
+            Value::str(path),
             Value::str(&name_of(path)),
             Value::str(&doc.title),
             Value::str(message),
             Value::Bool(!message.is_empty()),
             Value::Number(doc.blocks.len() as f64),
             markdown_parse::value::into_blocks(doc),
-            siblings(path),
+            siblings,
         ])
     }
 
     /// The value of `open(path)` once the file is in hand.
     fn opened(&mut self, asked: &str, result: Opened) -> Value {
+        let siblings = std::mem::replace(&mut self.beside, Value::list(Vec::new()));
         match result {
             Ok((path, doc)) => {
-                let value = Self::value(&path, doc, "");
+                let value = Self::value(&path, doc, "", siblings);
                 self.open = Some((path, value.clone()));
                 value
             }
             // The refusal, over the document still being read (never over
             // nothing: losing the page you were on is the worse failure).
             Err(message) => match &self.open {
-                Some((path, Value::Record(fields))) => {
+                Some((_, Value::Record(fields))) => {
                     let mut fields = fields.to_vec();
                     fields[3] = Value::str(&message);
                     fields[4] = Value::Bool(!message.is_empty());
-                    fields[7] = siblings(path);
                     Value::record(fields)
                 }
-                _ => Self::value(Path::new(asked), Document::default(), &message),
+                _ => Self::value(asked, Document::default(), &message, siblings),
             },
         }
     }
@@ -99,31 +125,150 @@ impl Markdown {
     /// surface that cannot reach a filesystem can still show.
     fn welcome(&mut self) -> Value {
         let doc = parse(WELCOME, &|target: &str| target.to_string());
-        let value = Self::value(Path::new("Markdown"), doc, "");
+        let value = Self::value("Markdown", doc, "", Value::list(Vec::new()));
         self.open = None;
         value
     }
+
+    /// The next storage request of an open, with the step it answers.
+    fn request(&mut self, asked: &str, step: Step, op: &str, path: &str) -> Answer {
+        self.step = Some((self.next, asked.to_owned(), step));
+        Answer::Later(storage::request(op, json!({ "path": path })))
+    }
+
+    /// A refusal ends the open.
+    fn refuse(&mut self, asked: &str, message: String) -> Answer {
+        self.step = None;
+        Answer::Now(self.opened(asked, Err(message)))
+    }
+
+    /// One storage reply, for the step it answers.
+    fn advance(&mut self, asked: &str, step: Step, outcome: Outcome) -> Answer {
+        let reply = storage::response(outcome);
+        match step {
+            Step::Stat => {
+                let stat = match reply {
+                    Ok(stat) => stat,
+                    Err(message) => return self.refuse(asked, message),
+                };
+                if stat["isDirectory"] == Json::Bool(true) {
+                    return self.request(asked, Step::Readme, "fs.readdir", asked);
+                }
+                let size = stat["size"].as_u64().unwrap_or(0);
+                if size > LIMIT {
+                    return self.refuse(asked, too_large(asked, size));
+                }
+                let file = asked.to_owned();
+                self.request(
+                    asked,
+                    Step::Read { file: file.clone() },
+                    "fs.readFile",
+                    &file,
+                )
+            }
+            Step::Readme => {
+                let names = match reply {
+                    Ok(names) => names,
+                    Err(message) => return self.refuse(asked, message),
+                };
+                let readme = ["README.md", "readme.md", "index.md", "README.markdown"]
+                    .into_iter()
+                    .find(|n| names.as_array().is_some_and(|a| a.iter().any(|m| m == n)));
+                let Some(readme) = readme else {
+                    let message = format!("{} is a folder with no README.md in it", name_of(asked));
+                    return self.refuse(asked, message);
+                };
+                let file = format!("{}/{readme}", asked.trim_end_matches('/'));
+                self.request(
+                    asked,
+                    Step::Read { file: file.clone() },
+                    "fs.readFile",
+                    &file,
+                )
+            }
+            Step::Read { file } => {
+                let bytes = match reply.and_then(|r| {
+                    r["base64"]
+                        .as_str()
+                        .and_then(exact_data::envelope::unbase64)
+                        .ok_or_else(|| format!("{} was not read", name_of(&file)))
+                }) {
+                    Ok(bytes) => bytes,
+                    Err(message) => return self.refuse(asked, message),
+                };
+                if bytes.len() as u64 > LIMIT {
+                    return self.refuse(asked, too_large(&file, bytes.len() as u64));
+                }
+                // Text, not bytes: a file that is not UTF-8 is not this
+                // reader's, and saying so is better than showing
+                // replacement characters.
+                let Ok(text) = String::from_utf8(bytes) else {
+                    return self.refuse(asked, format!("{} is not UTF-8 text", name_of(&file)));
+                };
+                match folder_of(&file) {
+                    Some(folder) => {
+                        let folder = folder.to_owned();
+                        self.request(asked, Step::Siblings { file, text }, "fs.readdir", &folder)
+                    }
+                    None => self.finish(asked, file, text, Value::list(Vec::new())),
+                }
+            }
+            // A folder that will not list is a document without a list.
+            Step::Siblings { file, text } => {
+                let siblings = match reply {
+                    Ok(names) => siblings(&file, &names),
+                    Err(_) => Value::list(Vec::new()),
+                };
+                self.finish(asked, file, text, siblings)
+            }
+        }
+    }
+
+    /// The text is in hand: parse it on the host's worker, or here where
+    /// there is none (a browser).
+    fn finish(&mut self, asked: &str, file: String, text: String, siblings: Value) -> Answer {
+        self.step = None;
+        self.beside = siblings;
+        if cfg!(target_arch = "wasm32") {
+            let result = parse_text(&file, &text, &|| false);
+            return Answer::Now(self.opened(asked, result));
+        }
+        self.inflight
+            .insert(self.next, (asked.to_owned(), file, text));
+        Answer::Later(Request::continuation(self.next))
+    }
+}
+
+fn too_large(path: &str, size: u64) -> String {
+    format!(
+        "{} is {} MB — larger than this reader opens",
+        name_of(path),
+        size / (1024 * 1024)
+    )
+}
+
+/// The folder a document path's file is in, when that folder is one the
+/// person chose (`doc:/<n>/<folder>/…`); `None` for a file chosen alone,
+/// whose handle holds nothing else.
+fn folder_of(file: &str) -> Option<&str> {
+    let (folder, _) = file.rsplit_once('/')?;
+    let inside = folder.strip_prefix("doc:/")?;
+    (inside.split('/').count() >= 2).then_some(folder)
 }
 
 /// The Markdown files beside this one, in name order, the open one marked —
 /// the only navigation a one-document reader needs, and the reason opening
 /// a file in a folder of notes is not a dead end.
-fn siblings(path: &Path) -> Value {
-    let Some(folder) = path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+fn siblings(file: &str, names: &Json) -> Value {
+    let Some(folder) = folder_of(file) else {
         return Value::list(Vec::new());
     };
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return Value::list(Vec::new());
-    };
-    let mut found: Vec<PathBuf> = entries
+    let mut found: Vec<&str> = names
+        .as_array()
+        .into_iter()
         .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            matches!(
-                p.extension().and_then(|e| e.to_str()),
-                Some("md") | Some("markdown")
-            )
-        })
+        .filter_map(Json::as_str)
+        .filter(|n| n.ends_with(".md") || n.ends_with(".markdown"))
         .collect();
     found.sort();
     Value::list(
@@ -131,75 +276,50 @@ fn siblings(path: &Path) -> Value {
             .iter()
             .take(500)
             .enumerate()
-            .map(|(i, p)| {
+            .map(|(i, name)| {
+                let path = format!("{folder}/{name}");
                 Value::record(vec![
                     Value::str(&i.to_string()),
-                    Value::str(&name_of(p)),
-                    Value::str(&p.to_string_lossy()),
-                    Value::Bool(p == path),
+                    Value::str(name),
+                    Value::str(&path),
+                    Value::Bool(path == file),
                 ])
             })
             .collect(),
     )
 }
 
-/// What to put in the window for this path.
-pub fn name_of(path: &Path) -> String {
-    path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+/// What to put in the window for this path: its last name.
+pub fn name_of(path: &str) -> String {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or(path)
+        .to_string()
 }
 
-/// Read and parse one path on the host's worker. A directory opens the
-/// README beside it, the way a repository page does on the web.
-pub fn read(asked: &str) -> Opened {
-    read_cancellable(asked, &|| false)
-}
-
-fn read_cancellable(asked: &str, cancel: &dyn Fn() -> bool) -> Opened {
+/// Parse a file's text, its links resolved beside it; `cancel` stops a
+/// scan a newer open superseded.
+pub fn parse_text(file: &str, text: &str, cancel: &dyn Fn() -> bool) -> Opened {
     if cancel() {
         return Err("file open superseded".into());
     }
-    let path = PathBuf::from(asked);
-    let path = if path.is_dir() {
-        ["README.md", "readme.md", "index.md", "README.markdown"]
-            .iter()
-            .map(|n| path.join(n))
-            .find(|p| p.is_file())
-            .ok_or_else(|| format!("{asked} is a folder with no README.md in it"))?
-    } else {
-        path
-    };
-    let size = std::fs::metadata(&path)
-        .map_err(|e| format!("{}: {e}", path.display()))?
-        .len();
-    if size > LIMIT {
-        return Err(format!(
-            "{} is {} MB — larger than this reader opens",
-            name_of(&path),
-            size / (1024 * 1024)
-        ));
-    }
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if cancel() {
-        return Err("file open superseded".into());
-    }
-    // Text, not bytes: a file that is not UTF-8 is not this reader's, and
-    // saying so is better than showing replacement characters.
-    let text =
-        String::from_utf8(bytes).map_err(|_| format!("{} is not UTF-8 text", name_of(&path)))?;
-    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let base = file.rsplit_once('/').map_or("", |(folder, _)| folder);
     let doc =
-        markdown_parse::parse_cancellable(&text, &|target: &str| resolve(&base, target), cancel)
+        markdown_parse::parse_cancellable(text, &|target: &str| resolve(base, target), cancel)
             .ok_or_else(|| "file open superseded".to_string())?;
-    Ok((path, doc))
+    Ok((file.to_owned(), doc))
 }
 
 /// A link target as the app should act on it: a page stays a URL, an anchor
-/// stays an anchor, and a relative path becomes the absolute one it names —
-/// resolved here, beside the document, because nothing downstream knows
-/// where the document came from.
-pub fn resolve(base: &Path, target: &str) -> String {
+/// stays an anchor, and a relative path becomes the document path it names
+/// beside this one — resolved here, because nothing downstream knows where
+/// the document came from. Resolution is lexical: a link to a file that
+/// does not exist yet still comes out as the path it names, so the refusal
+/// can say so, and a link out of the chosen folder leaves the `doc:`
+/// namespace and is refused on open.
+pub fn resolve(base: &str, target: &str) -> String {
     if target.is_empty()
         || target.starts_with('#')
         || target.starts_with("mailto:")
@@ -208,34 +328,33 @@ pub fn resolve(base: &Path, target: &str) -> String {
         return target.to_string();
     }
     let without_anchor = target.split('#').next().unwrap_or(target);
-    let path = Path::new(without_anchor);
-    let joined = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
+    if without_anchor.starts_with('/') {
+        return without_anchor.to_string();
+    }
+    let (scheme, rest) = match base.strip_prefix("doc:/") {
+        Some(rest) => ("doc:/", rest),
+        None => ("", base),
     };
-    // Lexical, not `canonicalize`: a link to a file that does not exist yet
-    // must still come out as the path it names, so the refusal can say so.
-    let mut parts: Vec<std::ffi::OsString> = Vec::new();
-    for part in joined.components() {
+    let mut parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+    for part in without_anchor.split('/') {
         match part {
-            std::path::Component::ParentDir => {
+            "" | "." => {}
+            ".." => {
                 parts.pop();
             }
-            std::path::Component::CurDir => {}
-            other => parts.push(other.as_os_str().to_os_string()),
+            other => parts.push(other),
         }
     }
-    let mut out = PathBuf::new();
-    for part in parts {
-        out.push(part);
-    }
-    out.to_string_lossy().into_owned()
+    format!("{scheme}{}", parts.join("/"))
 }
 
 impl DataSource for Markdown {
     fn app_id(&self) -> &str {
         "com.exact.markdown"
+    }
+
+    fn grants(&self) -> &str {
+        GRANTS
     }
 
     fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
@@ -271,23 +390,27 @@ impl DataSource for Markdown {
         self.next += 1;
         self.generation.store(self.next, Ordering::Release);
         self.inflight.clear();
+        self.step = None;
         if let Ok(mut done) = self.done.lock() {
             done.clear();
         }
         if asked.is_empty() {
             return Ok(Answer::Now(self.welcome()));
         }
-        self.inflight.insert(self.next, asked);
-        Ok(Answer::Later(Request::continuation(self.next)))
+        if !asked.starts_with("doc:/") {
+            let message = format!("{asked} is not a document you opened");
+            return Ok(Answer::Now(self.opened(&asked, Err(message))));
+        }
+        Ok(self.request(&asked, Step::Stat, "fs.stat", &asked))
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
-        let asked = self.inflight.remove(&token)?;
+        let (asked, file, text) = self.inflight.remove(&token)?;
         let done = Arc::clone(&self.done);
         let generation = Arc::clone(&self.generation);
         Some(Box::new(move || {
             let cancel = || generation.load(Ordering::Acquire) != token;
-            let result = read_cancellable(&asked, &cancel);
+            let result = parse_text(&file, &text, &cancel);
             if let Ok(mut map) = done.lock() {
                 // Check while holding the result lock: a superseding answer
                 // clears it under the same lock. A→B→A must not accept old A.
@@ -325,6 +448,13 @@ impl DataSource for Markdown {
             Some(Value::Str(s)) => s.to_string(),
             _ => String::new(),
         };
+        // A storage reply to the open in progress takes its next step.
+        if let Some((generation, open, step)) = self.step.take() {
+            if generation == self.next && open == asked {
+                return Ok(self.advance(&asked, step, outcome));
+            }
+            self.step = Some((generation, open, step));
+        }
         let result = self
             .done
             .lock()
@@ -334,9 +464,6 @@ impl DataSource for Markdown {
             .map(|(_, result)| result);
         let result = match (result, outcome) {
             (Some(result), _) => result,
-            // The worker never ran it: a surface with no filesystem (a
-            // browser) is the ordinary case, so it reads as a refusal and
-            // not as a defect.
             (None, Outcome::Failed { kind, message }) => Err(match kind {
                 FailureKind::Unsupported => "this surface cannot open local files".to_string(),
                 _ => message,
@@ -354,183 +481,4 @@ impl DataSource for Markdown {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn refusals_share_the_open_value_and_switching_releases_it() {
-        use std::rc::Rc;
-        let directory =
-            std::env::temp_dir().join(format!("exact-markdown-retain-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("first.md");
-        std::fs::write(&path, "# First\n\nRead **this** [link](next.md).").unwrap();
-        let mut source = Markdown::new();
-        let opened = source.opened(path.to_str().unwrap(), read(path.to_str().unwrap()));
-        let Value::Record(fields) = &opened else {
-            panic!("expected document");
-        };
-        let Value::List(blocks) = &fields[6] else {
-            panic!("expected blocks");
-        };
-        let weak = Rc::downgrade(blocks);
-        let original = opened.to_bytes();
-        let next = directory.join("next.md");
-        std::fs::write(&next, "# Next\n\nAnother page.").unwrap();
-        for message in ["not UTF-8", "too large", "missing"] {
-            let refused = source.opened("/missing.md", Err(message.into()));
-            let Value::Record(refusal) = &refused else {
-                panic!("expected refusal over document");
-            };
-            let Value::List(retained) = &refusal[6] else {
-                panic!("expected retained blocks");
-            };
-            assert!(Rc::ptr_eq(blocks, retained));
-            assert_eq!(refusal[3].as_str(), Some(message));
-            assert_eq!(refusal[4].as_bool(), Some(true));
-            for i in [0, 1, 2, 5, 6] {
-                assert_eq!(refusal[i], fields[i]);
-            }
-            assert_eq!(refusal[7], siblings(&path), "refresh the folder on refusal");
-            assert_ne!(refusal[7], fields[7]);
-            assert_eq!(opened.to_bytes(), original, "never mutate a reader's value");
-        }
-        drop(opened);
-        assert!(
-            weak.upgrade().is_some(),
-            "the fallback owns the open blocks"
-        );
-        let latest = source.opened(next.to_str().unwrap(), read(next.to_str().unwrap()));
-        assert!(
-            weak.upgrade().is_none(),
-            "a successful switch releases old blocks"
-        );
-        let Value::Record(fields) = latest else {
-            panic!("expected new document");
-        };
-        assert_eq!(fields[2].as_str(), Some("Next"));
-        source.welcome();
-        let Value::Record(empty) = source.opened("/missing.md", Err("missing".into())) else {
-            panic!("expected refusal without a file");
-        };
-        assert_eq!(empty[5].as_number(), Some(0.0));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn a_running_scan_releases_the_lane_for_the_newest_file() {
-        use std::sync::mpsc::sync_channel;
-        let directory =
-            std::env::temp_dir().join(format!("exact-markdown-cancel-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let old = directory.join("old.md");
-        let new = directory.join("new.md");
-        std::fs::write(&old, "[x".repeat(512 * 1024)).unwrap();
-        std::fs::write(&new, "# Latest\n\nReady.").unwrap();
-        let mut source = Markdown::new();
-        let token = open(&mut source, old.to_str().unwrap());
-        let generation = Arc::clone(&source.generation);
-        let (started, checkpoint) = sync_channel(0);
-        let (resume, resumed) = sync_channel(0);
-        let (queued, next) = sync_channel::<Box<dyn FnOnce() -> Outcome + Send>>(0);
-        // One worker, just as in the host's ordered continuation lane. Pause
-        // at a real scanner checkpoint so the supersession is deterministic.
-        let worker = std::thread::spawn(move || {
-            let calls = std::cell::Cell::new(0);
-            let result = read_cancellable(old.to_str().unwrap(), &|| {
-                calls.set(calls.get() + 1);
-                if calls.get() == 8 {
-                    started.send(()).unwrap();
-                    resumed.recv().unwrap();
-                }
-                generation.load(Ordering::Acquire) != token
-            });
-            assert_eq!(result.unwrap_err(), "file open superseded");
-            assert_eq!(
-                calls.get(),
-                8,
-                "the stopped scan must not resume visiting input"
-            );
-            next.recv().unwrap()()
-        });
-        checkpoint.recv().unwrap();
-        let latest = open(&mut source, new.to_str().unwrap());
-        resume.send(()).unwrap();
-        queued.send(source.continuation(latest).unwrap()).unwrap();
-        let outcome = worker.join().unwrap();
-        source
-            .parse(
-                &mut Store::default(),
-                "open",
-                &[Value::str(new.to_str().unwrap())],
-                outcome,
-            )
-            .unwrap();
-        let Value::Record(fields) = &source.open.as_ref().unwrap().1 else {
-            panic!("expected document");
-        };
-        assert_eq!(fields[2].as_str(), Some("Latest"));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    fn open(source: &mut Markdown, path: &str) -> u64 {
-        let answer = source
-            .answer(&mut Store::default(), "open", &[Value::str(path)])
-            .unwrap();
-        let Answer::Later(request) = answer else {
-            panic!("expected continuation")
-        };
-        request.continuation.unwrap()
-    }
-
-    #[test]
-    fn superseded_continuations_abort_even_when_the_path_is_reopened() {
-        let mut source = Markdown::new();
-        let first = open(&mut source, "/missing/A.md");
-        let first = source.continuation(first).unwrap();
-        let second = open(&mut source, "/missing/B.md");
-        let second = source.continuation(second).unwrap();
-        let latest = open(&mut source, "/missing/A.md");
-        let latest = source.continuation(latest).unwrap();
-        for stale in [first, second] {
-            assert!(matches!(
-                stale(),
-                Outcome::Failed {
-                    kind: FailureKind::Aborted,
-                    ..
-                }
-            ));
-            assert!(source.done.lock().unwrap().is_empty());
-        }
-        assert!(matches!(latest(), Outcome::Response(_)));
-        let mut done = source.done.lock().unwrap();
-        let (generation, result) = done.remove("/missing/A.md").unwrap();
-        assert_eq!(generation, source.next);
-        assert!(
-            result.is_err(),
-            "the current file's I/O refusal is still delivered"
-        );
-    }
-
-    #[test]
-    fn welcome_supersedes_pending_reads_and_releases_completed_results() {
-        let mut source = Markdown::new();
-        let token = open(&mut source, "/missing/A.md");
-        let stale = source.continuation(token).unwrap();
-        source
-            .answer(&mut Store::default(), "open", &[Value::str("")])
-            .unwrap();
-        assert!(matches!(
-            stale(),
-            Outcome::Failed {
-                kind: FailureKind::Aborted,
-                ..
-            }
-        ));
-        let token = open(&mut source, "/missing/A.md");
-        source.continuation(token).unwrap()();
-        assert_eq!(source.done.lock().unwrap().len(), 1);
-        open(&mut source, "/missing/B.md");
-        assert!(source.done.lock().unwrap().is_empty());
-    }
-}
+mod tests;

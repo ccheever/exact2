@@ -1,0 +1,41 @@
+// The File System Access API's pickers (LLP 1069.010 D2): each chosen file
+// or folder arrives as a `doc:` handle, `change` on the element the command
+// names (one per line under `multiple`); a dismissed picker is `cancel`.
+component App
+  state opened = "none"
+  state folder = "none"
+  state saved = "none"
+  state cancels = 0
+  action open
+    showOpenFilePicker("opened")
+  action openMany
+    showOpenFilePicker("opened", true)
+  action chooseFolder
+    showDirectoryPicker("folder")
+  action saveAs
+    showSaveFilePicker("saved", "notes.md")
+  action gotFile(value) writes opened
+    opened = value
+  action gotFolder(value) writes folder
+    folder = value
+  action gotSave(value) writes saved
+    saved = value
+  action cancelled writes cancels
+    cancels = cancels + 1
+  view
+    column padding=16 gap=8
+      input id="opened" display="none" change=gotFile cancel=cancelled
+      input id="folder" display="none" change=gotFolder cancel=cancelled
+      input id="saved" display="none" change=gotSave cancel=cancelled
+      button press=open testId="open"
+        text "Open…"
+      button press=openMany testId="open-many"
+        text "Open several…"
+      button press=chooseFolder testId="choose-folder"
+        text "Folder…"
+      button press=saveAs testId="save-as"
+        text "Save as…"
+      text opened testId="opened-value"
+      text folder testId="folder-value"
+      text saved testId="saved-value"
+      text `${cancels}` testId="cancels"

@@ -394,6 +394,15 @@ suggested name into a scratch directory and presents
 `UIDocumentPickerViewController(forExporting:asCopy:)`. `change` carries the
 chosen name; a dismissed panel is `cancel`.
 
+Documents (LLP 1069.010 D1, D2) are `ExactKit/DocumentPickers.swift`: a real
+path arriving at an `open-file` node becomes the `doc:` path the library
+mints for the session (`openDocument`; a file beneath a handle to its
+folder), a picker's choice is minted exactly (`mintDocument`), and
+`destroy` forgets the session's handles (`forgetDocuments`). The three
+pickers are `NSOpenPanel`/`NSSavePanel` sheets on macOS and document pickers
+opening in place on iOS; every chosen URL stays under its security scope
+while the session lives.
+
 `copyText(text)` (2026-09-10, Messages) is also handled inside the session,
 after its committed batch. Exactly one string is required. iOS assigns it to
 `UIPasteboard.general.string`; macOS clears the general pasteboard and writes

@@ -403,6 +403,13 @@ handle's `name`. Where the browser has no save picker (Safari, Firefox) the
 copy is a download (`<a download>`) under the suggested name. `AbortError`
 fires `cancel`. Under `?agent` the answer's bytes go back to the driver.
 
+The three File System Access pickers (LLP 1069.010 D2) rule through the
+same door, then `documents-glue.js` calls the browser's own picker with the
+manifest's `file_handlers` as `types` and keeps each handle, minting its
+`doc:/<n>/<name>` path; `storage-request.js` runs a `doc:` storage request
+on the handle under `fs.read doc:/` / `fs.write doc:/`. A browser without
+the picker refuses and fires `cancel`.
+
 `selectText("html-id")` uses the same post-batch target and eligibility checks
 as `focus`, then focuses the input/textarea and calls its native `select()`.
 It selects the complete value, including UTF-16 surrogate pairs, and reads no

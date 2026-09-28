@@ -2,6 +2,7 @@
 //! @ref LLP 1027.001 — the same operation behind either language's data seam.
 
 pub mod crypto;
+pub mod documents;
 pub mod envelope;
 mod mixed;
 pub mod placed;

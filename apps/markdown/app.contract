@@ -1,13 +1,14 @@
 // Markdown — a reader for Markdown files.
 //
-// The document is data: `apps/markdown/data` reads a file on the host's
-// worker and `apps/markdown/parse` turns it into the ordered blocks and
-// styled runs below. Nothing here parses anything, and no file content is
+// The document is data: `apps/markdown/data` reads the file the person
+// chose through storage (a `doc:` handle, LLP 1069.010 D1) and
+// `apps/markdown/parse` turns it into the ordered blocks and styled runs
+// below. Nothing here parses anything, and no file content is
 // ever Contract source (LLP 1033).
 //
 // One field carries every way of opening a document: `⌘O`, a Finder
-// double-click, `mdview README.md`, a link followed inside a document, a
-// name in the folder beside this one. They are all a value arriving at
+// double-click, `mdview README.md`, the Open… and Folder… pickers, a link
+// followed inside a document, a name in the folder beside this one. They are all a value arriving at
 // `open-file`, which is why there is one code path and not five.
 
 shape Theme
@@ -98,6 +99,12 @@ component Markdown
     asked = value
   action toggleFolder writes folder
     folder = not folder
+  // The File System Access API's pickers, on every host that has them; the
+  // handle arrives at `open-file` like every other way in (LLP 1069.010 D2).
+  action chooseFile
+    showOpenFilePicker("open-file")
+  action chooseFolder
+    showDirectoryPicker("open-file")
   action chooseScheme(name: string) writes scheme
     scheme = name
     setScheme(name)
@@ -123,7 +130,11 @@ component Markdown
                 text "Files" font-size=12 font-weight=600 color=theme.ink
               // The one node every open route ends at. A path typed here and
               // a path delivered by Launch Services are the same event.
-              input value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
+              input id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
+              button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
+                text "Open…" font-size=12 font-weight=600 color=theme.ink
+              button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control
+                text "Folder…" font-size=12 font-weight=600 color=theme.ink
               text doc.name font-size=12 font-weight=600 color=theme.softInk testId="document-name"
               // Appearance: system, light, dark — the icons exact1's blog used
               // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised

@@ -129,6 +129,57 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`
+    /// (LLP 1069.010 D2): the runner's rule, with no picker.
+    pub(crate) fn document_picker(&mut self, name: &str, args: &[exact_plan::Value]) {
+        use exact_runner::file_pickers::{arm, Arm, Kind, Picker};
+        let Some(kind) = Kind::of(name) else {
+            return;
+        };
+        let request = Picker::from_args(kind, args);
+        let agent = crate::picker::agent();
+        if let Arm::Refused(_, Some(view)) =
+            arm(self.host.runner_mut(), kind, request, agent, false)
+        {
+            self.deliver_picker(view, Event::Cancel);
+        }
+        self.dirty = true;
+    }
+
+    /// The agent's answer to a held picker: each path minted as a handle
+    /// the person chose (D1), one per line in `change`, or `cancel`.
+    pub(crate) fn answer_document(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        let name = match r["capability"].as_str() {
+            Some("open-file") => "showOpenFilePicker",
+            Some("open-directory") => "showDirectoryPicker",
+            Some("save-file") => "showSaveFilePicker",
+            _ => return,
+        };
+        let Some(view) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        if r["answered"] == "cancel" {
+            self.host.log(format!("{name}: cancelled"));
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let docs: Vec<String> =
+            exact_runner::file_pickers::answer_paths(q["text"].as_str().unwrap_or(""))
+                .into_iter()
+                .filter_map(|p| exact_data::documents::mint(std::path::Path::new(p), 0))
+                .collect();
+        if docs.is_empty() {
+            self.host.log(format!("{name}: refused: nothing to open"));
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        self.host.log(format!("{name}: chosen"));
+        let value = ControlValue::Text(docs.join("\n"));
+        self.deliver_picker(view, Event::Change(value));
+    }
+
     fn deliver_picker(&mut self, view: ViewId, event: Event) {
         let now = self.host.now();
         if let Some(e) = self.host.dispatch_at(view, event, now) {

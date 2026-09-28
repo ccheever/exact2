@@ -301,6 +301,11 @@ or an unknown `id` (the host then fires `cancel` there), holds `export` for the
 agent, or says present. The chosen name arrives as `change` on the element
 `id` names, a dismissed panel as `cancel`, which any element may now take.
 Hosts reach both rulings through one door, `commands::request`.
+`showOpenFilePicker(id[, multiple])`, `showDirectoryPicker(id)` and
+`showSaveFilePicker(id, suggestedName)` (LLP 1069.010 D2) rule through the
+same door (`file_pickers::arm`): held as `open-file`, `open-directory`,
+`save-file` for the agent; the chosen `doc:` handles arrive as `change` on
+the element `id` names, one per line.
 `selectText(html-id)` focuses and selects an editor after commit using the
 host’s native selection API; it accepts one string (LLP 1007 §4, 1008 §5).
 Linux reports this unsupported; it does not emulate a text selection surface.

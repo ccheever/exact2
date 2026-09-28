@@ -3,6 +3,7 @@
 import { createFileSystem } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 import { agentStorageRefusal, storageKey } from './storage-environment.js';
+import './documents-glue.js';
 const maxBytes = 16 << 20;
 const encoder = new TextEncoder();
 const bytes = args => {
@@ -36,12 +37,19 @@ export function createStorageRequests(appId, admitted) {
     async run(payload, scope = null) {
       try {
         check();
-        if (key == null) throw new Error(agentStorageRefusal);
         if (encoder.encode(payload).length > maxBytes) throw new Error('storage request exceeds its byte limit');
         const request=JSON.parse(payload), {op,args}=request;
-        if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
         scope ??= admitted;
         if (typeof scope!=='string' || scope.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!lines.includes(s))) throw new Error("source scope exceeds the app's admitted grants");
+        // A document the person chose is not app storage (LLP 1069.010 D1).
+        if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/')) {
+          const data=['fs.writeFile','fs.atomicWriteFile','fs.appendFile'].includes(op)?bytes(args):null;
+          const encoded=encoder.encode(JSON.stringify(await globalThis.exact.documents.run(op,args,data,scope)??null));
+          if(encoded.length>maxBytes)throw new Error('storage result exceeds its byte limit');
+          return encoded;
+        }
+        if (key == null) throw new Error(agentStorageRefusal);
+        if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
         if (!services.has(scope)) services.set(scope,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});
         const {fs,sqlite}=services.get(scope); let value;
         if (op==='sqlite' || op==='sqlite.transaction') {

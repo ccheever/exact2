@@ -493,7 +493,7 @@ fn invalid_utf8_is_never_repaired_into_an_effectful_request() {
         .answer(&mut Store::default(), "operation", &[])
         .is_err());
     assert!(storage::response(super::native::run(
-        host.directories.as_ref().unwrap(),
+        host.directories.as_ref(),
         GRANTS,
         payload
     ))
@@ -583,4 +583,64 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
     ));
     host.forgotten(&[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
+}
+
+/// LLP 1069.010 D1: a `doc:` path reads and writes the chosen file under
+/// the existing grants over the namespace, with no app directories, and a
+/// path never minted, or outside the grant, is refused.
+#[test]
+fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
+    let dir = std::env::temp_dir().join(format!("exact-doc-storage-{}", std::process::id()));
+    let folder = dir.join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.md"), "# A").unwrap();
+    let doc =
+        exact_data::documents::open_route(folder.join("a.md").to_str().unwrap(), 9001).unwrap();
+    let run = |grants: &str, op: &str, args: serde_json::Value| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
+        storage::response(super::native::run(None, grants, &payload))
+    };
+    let read = run(
+        "fs.read doc:/",
+        "fs.readFile",
+        serde_json::json!({"path": doc}),
+    )
+    .unwrap();
+    assert_eq!(read["base64"], exact_runner::agent::base64(b"# A"));
+    let folder_doc = doc.rsplit_once('/').unwrap().0;
+    let names = run(
+        "fs.read doc:/",
+        "fs.readdir",
+        serde_json::json!({"path": folder_doc}),
+    );
+    assert_eq!(names.unwrap(), serde_json::json!(["a.md"]));
+    let stat = run("fs.read doc:/", "fs.stat", serde_json::json!({"path": doc})).unwrap();
+    assert_eq!(stat["size"], 3);
+    let refused = run(
+        "fs.read app:/data",
+        "fs.readFile",
+        serde_json::json!({"path": doc}),
+    );
+    assert!(refused.unwrap_err().contains("not granted"));
+    let write = serde_json::json!({"path": doc, "text": "# B"});
+    let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
+    assert!(refused.unwrap_err().contains("fs.write doc:/"));
+    run("fs.read doc:/\nfs.write doc:/", "fs.atomicWriteFile", write).unwrap();
+    assert_eq!(std::fs::read_to_string(folder.join("a.md")).unwrap(), "# B");
+    let escape = format!("{folder_doc}/../secret");
+    assert!(run(
+        "fs.read doc:/",
+        "fs.readFile",
+        serde_json::json!({"path": escape})
+    )
+    .is_err());
+    exact_data::documents::forget(9001);
+    let gone = run(
+        "fs.read doc:/",
+        "fs.readFile",
+        serde_json::json!({"path": doc}),
+    );
+    assert!(gone.unwrap_err().contains("no such document"));
+    let _ = std::fs::remove_dir_all(dir);
 }

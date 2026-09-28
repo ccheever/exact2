@@ -76,6 +76,8 @@ final class Adapter: ExactSessionDelegate {
     /// registered for that scheme (LLP 0382 — fail closed, loudly).
     private func open(_ target: String, from session: ExactSession) {
         guard !target.isEmpty else { return }
+        // A link beside a document the person chose (LLP 1069.010 D1).
+        if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil

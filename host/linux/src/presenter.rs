@@ -475,6 +475,11 @@ impl<D: DataSource> Presenter<D> {
                 // @ref LLP 1069.010 D3 — no save panel here: refused with
                 // `cancel`, or held for the agent like every host.
                 "saveFile" => self.save_file(&c.args),
+                // @ref LLP 1069.010 D2 — no picker here either: refused with
+                // `cancel`, or held for the agent.
+                name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
+                    self.document_picker(name, &c.args)
+                }
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

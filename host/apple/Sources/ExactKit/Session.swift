@@ -518,7 +518,7 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
-        presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
+        presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
         presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
@@ -792,6 +792,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.picker.save(args) }
                     continue
                 }
+                if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker"].contains(name) {
+                    app.deliver { [weak self] in self?.picker.document(name, args) }
+                    continue
+                }
                 if name == "format" {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue
@@ -953,7 +957,7 @@ public final class ExactSession {
         guard state != .destroyed, booted else { return false }
         let matches = presenter.views.values.filter { $0.props["testId"] == testId && $0.handlers.contains("change") }
         guard matches.count == 1, let node = matches.first else { return false }
-        let batch = runtime.change(node.id, value, now: now())
+        let batch = runtime.change(node.id, documentValue(node.id, value), now: now())
         apply(batch)
         return batch.error == nil
     }
@@ -1034,6 +1038,7 @@ public final class ExactSession {
         PageFacts.forget(pageObservers)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
+        forgetDocuments()
         rasters.shutdown()
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()

@@ -1356,6 +1356,49 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   rmSync(tmp, {recursive:true, force:true});
 }
 
+// The File System Access API's pickers (LLP 1069.010 D2): under the agent each
+// is held; `type @N <path>` mints a `doc:` handle that arrives as `change`
+// on the named element (one per line under `multiple`); `tap @N cancel`
+// fires `cancel`; a second path for a single file is refused by name.
+if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-pickers-')), plan = resolve(tmp, 'pickers.plan');
+  const folder = resolve(tmp, 'notes');
+  mkdirSync(folder); writeFileSync(resolve(folder, 'a.md'), '# A\n'); writeFileSync(resolve(folder, 'b.md'), '# B\n');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/file-pickers.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  check(c.status === 0, 'pickers fixture compiles: ' + c.stderr);
+  if (c.status === 0) {
+    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    const held = async (capability) => (await f.state()).pending?.find((p) => p.device?.capability === capability);
+    const text = async (id) => byTestId(await f.tree(), id)?.props.text;
+    try {
+      await f.tap('open');
+      let h = await held('open-file');
+      check(h?.device.args.id === 'opened' && h.device.args.multiple === false, `showOpenFilePicker is held: ${JSON.stringify(h)}`);
+      let refused = null;
+      try { await f.type(`@${h?.ticket}`, `${folder}/a.md\n${folder}/b.md`); } catch (e) { refused = e.message; }
+      check(/one path, not 2/.test(refused ?? ''), `two paths for one file are refused: ${refused}`);
+      await f.type(`@${h?.ticket}`, `${folder}/a.md`); await f.clock('settle');
+      check(/^doc:\/\d+\/a\.md$/.test(await text('opened-value') ?? ''), `the chosen file is a doc: handle: ${await text('opened-value')}`);
+      await f.tap('open-many'); h = await held('open-file');
+      await f.type(`@${h?.ticket}`, `${folder}/a.md\n${folder}/b.md`); await f.clock('settle');
+      check((await text('opened-value'))?.split('\n').length === 2, `multiple: one handle per line: ${JSON.stringify(await text('opened-value'))}`);
+      await f.tap('choose-folder'); h = await held('open-directory');
+      await f.type(`@${h?.ticket}`, folder); await f.clock('settle');
+      check(/^doc:\/\d+\/notes$/.test(await text('folder-value') ?? ''), `showDirectoryPicker: ${await text('folder-value')}`);
+      await f.tap('save-as'); h = await held('save-file');
+      check(h?.device.args.suggestedName === 'notes.md', `showSaveFilePicker is held with its name: ${JSON.stringify(h)}`);
+      await f.type(`@${h?.ticket}`, `${folder}/saved.md`); await f.clock('settle');
+      check(/^doc:\/\d+\/saved\.md$/.test(await text('saved-value') ?? ''), `showSaveFilePicker: ${await text('saved-value')}`);
+      await f.tap('open'); h = await held('open-file');
+      await f.tap(`@${h?.ticket}`, { choice: 'cancel' }); await f.clock('settle');
+      check(await text('cancels') === '1', `tap @N cancel fires cancel: ${await text('cancels')}`);
+    } catch (error) {
+      failures.push(`the pickers fixture stopped: ${error.message}`);
+    } finally { await f.close(); }
+  }
+  rmSync(tmp, {recursive:true, force:true});
+}
+
 // 13. The resolved app's own tests (LLP 1017 P7), when it declares them:
 // its `test` blocks driven through a fresh session by the same operations.
 const appTests = resolve(app.dir, 'app.test.contract');
@@ -1392,7 +1435,9 @@ if (host === 'macos' && [app.manifest.launch_handler?.client_mode].flat()[0] ===
       d.session = w.session;
       const tree = await d.tree();
       const head = tree.nodes.find((n) => n.type === 'Head')?.props.headTitle;
-      check(w.document === docs[i] && byTestId(tree, 'open-file')?.props.value === docs[i], `documents: session ${w.session} shows ${byTestId(tree, 'open-file')?.props.value}, not ${docs[i]}`);
+      // The field holds the document path the host minted (LLP 1069.010 D1).
+      const shown = byTestId(tree, 'open-file')?.props.value;
+      check(w.document === docs[i] && /^doc:\/\d+\//.test(shown ?? '') && shown.endsWith('/' + docs[i].split('/').pop()), `documents: session ${w.session} shows ${shown}, not ${docs[i]}`);
       check(head && w.title === head, `documents: window ${w.session} is titled ${JSON.stringify(w.title)}, its head ${JSON.stringify(head)}`);
     }
     const names = docs.map((p) => p.split('/').pop());

@@ -679,9 +679,33 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
+    /// A real path arriving at the `open-file` field becomes the document
+    /// path, for an app granted `fs.read doc:/` (LLP 1069.010 D1): this
+    /// host's one route in besides `EXACT_LAUNCH_URL`.
+    fn document_value(&self, view: ViewId, event: Event) -> Event {
+        let Event::Change(exact_runner::ControlValue::Text(path)) = &event else {
+            return event;
+        };
+        let open_file = self
+            .runner
+            .kernel()
+            .node(view)
+            .is_some_and(|n| n.props.str(exact_kernel::PropId::TestId) == Some("open-file"));
+        let granted =
+            exact_runner::save_file::covered(self.runner.data_ref().grants(), "fs.read", "doc:/");
+        match open_file && granted {
+            true => match exact_data::documents::open_route(path, 0) {
+                Some(doc) => Event::Change(exact_runner::ControlValue::Text(doc)),
+                None => event,
+            },
+            false => event,
+        }
+    }
+
     /// Deliver an event at the app's clock (milliseconds). A refusal is the
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
+        let event = self.document_value(view, event);
         if matches!(event, Event::Press)
             && crate::navigation::popover_invoker(self.runner.kernel(), view)
         {

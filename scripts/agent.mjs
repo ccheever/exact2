@@ -20,7 +20,7 @@ export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 const WORLD_LIMIT = 256 * 1024 * 1024;
 function worldFile(path) {
   if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
@@ -1033,6 +1033,20 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
         const r = await s.op({ op, ticket, text: to });
         if (typeof r.bytes === 'string') { writeFileSync(to, Buffer.from(r.bytes, 'base64')); delete r.bytes; }
         return r;
+      }
+      // A document picker's answer is paths on this machine (LLP 1069.010
+      // D2), minted as the person's choice; the browser is handed each
+      // file's bytes, or a folder's tree, or a name to save to.
+      const documents = ['open-file', 'open-directory', 'save-file'];
+      if (documents.includes(held?.device?.capability)) {
+        const paths = String(value).split('\n').map((p) => p.trim()).filter(Boolean).map((p) => resolve(p));
+        const req = { op, ticket, text: paths.join('\n') };
+        if (host === 'web') {
+          const tree = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? tree(resolve(dir, e.name), `${prefix}${e.name}/`) : e.isFile() ? [{ path: `${prefix}${e.name}`, bytes: readFileSync(resolve(dir, e.name)).toString('base64') }] : []);
+          req.files = paths.map((p) => held.device.capability === 'open-directory' ? { name: basename(p), files: tree(p) }
+            : held.device.capability === 'save-file' ? { name: basename(p), bytes: '' } : { name: basename(p), bytes: readFileSync(p).toString('base64') });
+        }
+        return s.op(req);
       }
       if (held?.device?.capability !== 'pick') return s.op({ op, ticket, text: String(value) });
       const paths = String(value).split(/\s+/).filter(Boolean).map(p => resolve(p));

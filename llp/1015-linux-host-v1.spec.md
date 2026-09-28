@@ -426,7 +426,9 @@ It has no share sheet either: `share` is journaled `share: refused:
 unavailable`, and held for the agent like every host's (LLP 1069.003).
 Nor a save panel: `saveFile` is `saveFile: refused: unavailable` with
 `cancel`, and held as `export` for the agent, whose `type @t <path>` gets
-the `app:/` file copied there (LLP 1069.010 D3).
+the `app:/` file copied there (LLP 1069.010 D3). The three document
+pickers (D2) likewise: refused with `cancel`, or held, and the agent's paths
+minted as `doc:` handles; a path typed into `open-file` becomes one too.
 
 **Closed popovers** keep their inspectable logical tree but are hidden and inert
 on Linux (2026-09-20). Linux has no top-layer popover presenter: tapping an invoker

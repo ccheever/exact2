@@ -12,6 +12,7 @@ name = "markdown_apple"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+exact-data-host = { path = "../../../data/host" }
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 markdown-data = { path = "../data" }

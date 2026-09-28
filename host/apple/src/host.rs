@@ -486,6 +486,13 @@ impl<D: DataSource> Host<D> {
             let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
             return Some(crate::picker::app_file(&path));
         }
+        // The documents a person chose (LLP 1069.010 D1), minted for the
+        // session that asks: `openDocument` for a host route, `mintDocument`
+        // for what a picker returned, `forgetDocuments` as the session ends.
+        if let Some(op @ ("openDocument" | "mintDocument" | "forgetDocuments")) = op.as_deref() {
+            let grants = self.runner.data_ref().grants().to_owned();
+            return Some(crate::picker::documents(op, request, &grants));
+        }
         let picked = op.as_deref() == Some("pickedPath");
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| {
             if picked {
