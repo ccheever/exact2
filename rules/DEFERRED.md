@@ -310,6 +310,13 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   permanent bug annuity LLP 0559 F1 describes. Scroll always wins.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
+  **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
+  offered):** presentation timelines. A node's keyframes are held at the progress of
+  another node's presented value (a drag's translate, a scroll offset), evaluated by
+  the engine, with no app code per frame and nothing flowing back into app state;
+  paint-only rows in v1. Unblocks derived presentation: a backdrop fading with a
+  dismiss drag, a card's rotation with its throw, a header collapsing with its list.
+  Every other derived value stays out.
 - **General layout transitions.** LLP 1041 §8.12's measured projection admits
   one explicitly registered numeric-height sheet (Charlie’s four-interaction
   campaign, 2026-09-17). Take: other animated layout properties and decorative
