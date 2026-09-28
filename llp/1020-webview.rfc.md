@@ -530,6 +530,16 @@ inner frame remain only where one document cannot keep that parity:
   None of the fixtures (Caltrain's deck, the Extra Heavy feed's pages) do
   any of these. A consumer that does needs the wrapper back for it, which
   is one condition in `WebArm.serve`.
+- **Measured** on the Extra Heavy feed's web view rows (bundled pages with a
+  device-width `<meta>`, so direct on both devices). fling fps, then fps at
+  12k pt/s, against origin/main and SwiftUI:
+  - iPhone 13 Pro Max: 86.6 → 92.0, 47 → 70 at 12k (SwiftUI 97.5, 103).
+    Main thread 306 → 271 ms/s (SwiftUI 280).
+  - M1 iPad Pro: 87.8 → 93.5, 52 → 83 at 12k (SwiftUI 95.9, 99).
+
+  What is left is not main-thread CPU. In a trace the iPhone's main thread
+  ran 250 ms/s against SwiftUI's 310, and the fling still made more web
+  views than SwiftUI's (one WebContent process each).
 - **The document read.** A local `src` is read once per `src`, off the main
   thread (`WebViews.update`). It used to be read on the main thread at every
   update of the row.
