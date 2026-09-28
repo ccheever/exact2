@@ -337,6 +337,11 @@ private final class VideoArm: NSObject {
         if controller == nil && needsController {
             let native = AVPlayerViewController()
             native.player = player
+            // Its gravity before it is on screen: AVKit animates a later
+            // change, and on iOS 17 that animation's mirrored
+            // `sublayerTransform.scale.y` carries a CGSize, which
+            // `renderInContext` throws on (object-fit does not animate in CSS).
+            native.videoGravity = gravity
             controller = native
             container.insertSubview(native.view, belowSubview: poster)
             inline?.playerLayer.player = nil
@@ -347,6 +352,7 @@ private final class VideoArm: NSObject {
             let surface = VideoLayerView(frame: container.bounds)
             surface.isUserInteractionEnabled = false
             surface.playerLayer.player = player
+            surface.playerLayer.videoGravity = gravity
             inline = surface
             container.insertSubview(surface, belowSubview: poster)
         }
@@ -360,18 +366,24 @@ private final class VideoArm: NSObject {
         }
     }
     #endif
+    /// CSS `object-fit` as AVFoundation's gravity.
+    var gravity: AVLayerVideoGravity {
+        let fit = props["objectFit"] ?? "contain"
+        return fit == "contain" || fit == "scale-down" ? .resizeAspect : fit == "cover" ? .resizeAspectFill : .resize
+    }
     func layout() {
         guard !invalidated else { return }
         #if os(iOS)
         attach()
         #endif
-        let fit = props["objectFit"] ?? "contain"
-        let gravity: AVLayerVideoGravity = fit == "contain" || fit == "scale-down" ? .resizeAspect : fit == "cover" ? .resizeAspectFill : .resize
+        let fit = props["objectFit"] ?? "contain", gravity = self.gravity
         #if os(macOS)
         presentation.videoGravity = gravity
         #else
-        controller?.videoGravity = gravity
-        inline?.playerLayer.videoGravity = gravity
+        if let controller, controller.videoGravity != gravity {
+            UIView.performWithoutAnimation { controller.videoGravity = gravity }
+        }
+        if let layer = inline?.playerLayer, layer.videoGravity != gravity { layer.videoGravity = gravity }
         guard let presentation else { poster.frame = container.bounds; return }
         #endif
         var frame = container.bounds
