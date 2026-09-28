@@ -113,6 +113,20 @@ shape Control
   received: number
   issued: number
   held: number
+shape JobLog
+  wave: number
+  status: string
+  count: number
+  received: number
+  held: number
+  finished: number
+  entries: number
+  seq: number
+  messages: number
+  coalesced: number
+  gaps: number
+  reasks: number
+  last: string
 
 component ExactLive
   resource viewport = exactViewport() as shape Viewport
@@ -274,6 +288,7 @@ component ExactLive
   resource r125 = completion(waveId, 125, waveCount, active) as shape Reply
   resource r126 = completion(waveId, 126, waveCount, active) as shape Reply
   resource r127 = completion(waveId, 127, waveCount, active) as shape Reply
+  resource jobLog = jobEvents(waveId) as shape JobLog
   derive pending0 = (pending(r0) ? 1 : 0) + (pending(r1) ? 1 : 0) + (pending(r2) ? 1 : 0) + (pending(r3) ? 1 : 0) + (pending(r4) ? 1 : 0) + (pending(r5) ? 1 : 0) + (pending(r6) ? 1 : 0) + (pending(r7) ? 1 : 0) + (pending(r8) ? 1 : 0) + (pending(r9) ? 1 : 0) + (pending(r10) ? 1 : 0) + (pending(r11) ? 1 : 0) + (pending(r12) ? 1 : 0) + (pending(r13) ? 1 : 0) + (pending(r14) ? 1 : 0) + (pending(r15) ? 1 : 0)
   derive pending1 = (pending(r16) ? 1 : 0) + (pending(r17) ? 1 : 0) + (pending(r18) ? 1 : 0) + (pending(r19) ? 1 : 0) + (pending(r20) ? 1 : 0) + (pending(r21) ? 1 : 0) + (pending(r22) ? 1 : 0) + (pending(r23) ? 1 : 0) + (pending(r24) ? 1 : 0) + (pending(r25) ? 1 : 0) + (pending(r26) ? 1 : 0) + (pending(r27) ? 1 : 0) + (pending(r28) ? 1 : 0) + (pending(r29) ? 1 : 0) + (pending(r30) ? 1 : 0) + (pending(r31) ? 1 : 0)
   derive pending2 = (pending(r32) ? 1 : 0) + (pending(r33) ? 1 : 0) + (pending(r34) ? 1 : 0) + (pending(r35) ? 1 : 0) + (pending(r36) ? 1 : 0) + (pending(r37) ? 1 : 0) + (pending(r38) ? 1 : 0) + (pending(r39) ? 1 : 0) + (pending(r40) ? 1 : 0) + (pending(r41) ? 1 : 0) + (pending(r42) ? 1 : 0) + (pending(r43) ? 1 : 0) + (pending(r44) ? 1 : 0) + (pending(r45) ? 1 : 0) + (pending(r46) ? 1 : 0) + (pending(r47) ? 1 : 0)
@@ -390,6 +405,8 @@ component ExactLive
   action releaseJobs writes fixture
     if waveId > 0
       send fixture = releaseWave(waveId)
+  action reconnectEvents
+    refresh jobLog
 
   task liveProducer mount
     every(250, tick)
@@ -494,6 +511,12 @@ component ExactLive
                 CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
         column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
           text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=11 color=theme.muted
+          when waveId > 0
+            row gap=8 align-items="center" flex-wrap="wrap"
+              text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=11 color=theme.muted
+              button press=reconnectEvents disabled=(jobLog.status == "live") testId="reconnect-events" padding=4 border-width=0 border-radius=6
+                text "Reconnect" font-size=11
+            text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=10 color=theme.muted
           when fixtureMessage != ""
             text fixtureMessage testId="fixture-status" font-size=10 color=theme.muted
 

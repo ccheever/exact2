@@ -44,3 +44,53 @@ test('ordered HTTP defaults to the native ceiling and cancels oversized bodies',
   assert.equal(cancelled, true);
   assert.equal(pulls, 65);
 });
+
+test('the event-stream parser reads lines, fields and cursors as HTML does (LLP 1016.000)', async () => {
+  const { eventStream } = await import('./http-body.js');
+  const parse = eventStream(1024), enc = (s) => new TextEncoder().encode(s);
+  const got = [
+    ...parse(enc('﻿: a comment\r')),
+    ...parse(enc('\nretry: 10\nevent: progress\nid: 7\ndata: {"a":\r\n')),
+    ...parse(enc('data: 1}\r\r')),
+    ...parse(enc('data\n\nid\ndata: x\n\n')),
+    ...parse(enc('data: no end yet')),
+  ];
+  assert.deepEqual(got, [
+    { event: 'progress', id: '7', data: '{"a":\n1}' },
+    { event: '', id: '7', data: '' },
+    { event: '', id: '', data: 'x' },
+  ]);
+  assert.throws(() => eventStream(4)(enc('data: 12345\n')), /ceiling/);
+  // A multi-byte character split across reads is one character.
+  const split = eventStream(64), bytes = enc('data: é\n\n');
+  assert.deepEqual([...split(bytes.slice(0, 7)), ...split(bytes.slice(7))], [{ event: '', id: '', data: 'é' }]);
+});
+
+test('a stream delivers each read as its newest event, then its end', async () => {
+  const { request } = await import('./http-body.js');
+  let push;
+  const body = new ReadableStream({ start(c) { push = c; } });
+  const sent = [];
+  const op = { method: 'GET', url: 'https://example.test/events', headers: [], body: '', stream: true, maxResponseBytes: 64 };
+  const done = request(op, {
+    grants: ['net.fetch https://example.test'], granted: () => true, controllers: new Set(),
+    moduleLoader: { claim: (url, init) => { sent.push(init.headers); return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } })); } },
+    message: (m) => sent.push(m),
+  });
+  const enc = (s) => new TextEncoder().encode(s);
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  await tick();
+  push.enqueue(enc('id: 1\ndata: a\n\n'));
+  await tick();
+  push.enqueue(enc('id: 2\ndata: b\n\nid: 3\ndata: c\n\nid: 4\ndata: d\n\n'));
+  await tick();
+  push.close();
+  const end = await done;
+  assert.deepEqual(sent, [
+    [['accept', 'text/event-stream']],
+    { event: '', id: '1', data: 'a', coalesced: 0 },
+    { event: '', id: '4', data: 'd', coalesced: 2 },
+  ]);
+  assert.equal(end.kind, 1);
+  assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
+});

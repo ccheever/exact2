@@ -897,13 +897,14 @@ impl<D: DataSource> Runner<D> {
             error,
         })? {
             Answer::Now(value) => value,
-            Answer::Later(_) if message => {
-                // A message commits as its own settlement; one more round
-                // would replace the stream's ticket (LLP 1016.000 D1).
+            Answer::Later(request) if message && !request.stream => {
+                // A message commits as its own settlement; a request that is
+                // not a stream would replace the stream's ticket with one
+                // answer (LLP 1016.000 D1).
                 return Err(RunnerError::Data {
                     resource: name,
                     error: DataError::Unavailable(
-                        "a stream's message must answer now, not ask again".into(),
+                        "a stream's message answers now, or reopens the stream".into(),
                     ),
                 });
             }

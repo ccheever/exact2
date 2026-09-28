@@ -8,7 +8,25 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
   dist=resolve(import.meta.dir, 'target/dist')} = {}) {
   const waves = new Map();
   let nextWave = 1, received = 0, issued = 0, rejected = 0, abandoned = 0;
-  const headers = {'access-control-allow-origin':'*', 'access-control-allow-methods':'GET, POST, OPTIONS', 'access-control-allow-headers':'cache-control, content-type', 'cache-control':'no-store'};
+  const headers = {'access-control-allow-origin':'*', 'access-control-allow-methods':'GET, POST, OPTIONS', 'access-control-allow-headers':'cache-control, content-type, last-event-id', 'cache-control':'no-store'};
+  // A wave's progress as server-sent events (LLP 1016.000): every change is
+  // one log entry with a sequence number, sent as one event carrying the
+  // wave's counts and the entries since the reader's cursor. A reader that
+  // reconnects with Last-Event-ID gets every entry after it in one event,
+  // so a coalescing client can re-ask across a gap and stay whole.
+  // The last 16 waves stay readable (and resumable) after they finish.
+  const events = {sent:0, opened:0, resumed:0, dropped:0}, known = new Map();
+  const counts = (wave) => ({wave:wave.id, count:wave.count, received:wave.seen.size, held:wave.held.size, finished:wave.finished, released:wave.released});
+  const sendEvent = (res, wave, entries) => {
+    events.sent++;
+    res.write(`id: ${wave.log.length}\ndata: ${JSON.stringify({...counts(wave), entries})}\n\n`);
+  };
+  const note = (wave, lane, what) => {
+    const entry = {seq:wave.log.length + 1, lane, what};
+    wave.log.push(entry);
+    for (const res of wave.readers) sendEvent(res, wave, [entry]);
+  };
+  const endReaders = (wave) => { for (const res of wave.readers) res.end(); wave.readers.clear(); };
   const heldCount = () => [...waves.values()].reduce((n, w) => n + w.held.size, 0);
   const snapshot = (message='Fixture snapshot') => ({message, received, issued, held:heldCount(), rejected, abandoned, waves:waves.size});
   const json = (res, status, body) => { res.writeHead(status, {...headers,'content-type':'application/json'}); res.end(JSON.stringify(body)); };
@@ -26,6 +44,7 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     wave.held.delete(lane);
     wave.finished++;
     issued++;
+    note(wave, lane, timeout ? 'expired' : (lane*37)%100 < wave.errors ? 'failed' : 'done');
     if (timeout) json(res,408,{message:'Held wave expired after 30 seconds'});
     else if ((lane*37)%100 < wave.errors) {
       switch (lane%4) {
@@ -46,6 +65,7 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     for (const [lane,res] of [...wave.held]) finish(wave,lane,res,true);
     clearTimeout(wave.timer);
     waves.delete(wave.id);
+    endReaders(wave);
   };
   const dataServer = createServer((req,res) => {
     if (req.method==='OPTIONS') { res.writeHead(204,headers); res.end(); return; }
@@ -61,8 +81,9 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     received++;
     if (wave.released) return finish(wave,lane,res);
     wave.held.set(lane,res);
+    note(wave, lane, 'held');
     const disconnected = () => {
-      if (wave.held.delete(lane)) { abandoned++; wave.finished++; cleanup(wave); }
+      if (wave.held.delete(lane)) { abandoned++; wave.finished++; note(wave, lane, 'abandoned'); cleanup(wave); }
     };
     req.once('aborted',disconnected);
     res.once('close',disconnected);
@@ -74,9 +95,10 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
       const count=integer(url,'count',1,128), errors=integer(url,'errors',0,100);
       if (count===null || errors===null) return reject(res,400,'count: 1–128; errors: 0–100; integers only');
       if (waves.size>=maxWaves) return reject(res,429,'Fixture wave limit reached; release or wait for expiry');
-      const wave={id:nextWave++,count,errors,released:false,seen:new Set(),held:new Map(),finished:0};
+      const wave={id:nextWave++,count,errors,released:false,seen:new Set(),held:new Map(),finished:0,log:[],readers:new Set()};
       wave.timer=setTimeout(()=>expire(wave),holdMs);
-      waves.set(wave.id,wave);
+      waves.set(wave.id,wave); known.set(wave.id,wave);
+      for (const [id,old] of known) if (known.size>16 && !waves.has(id)) { for (const r of old.readers) r.destroy(); known.delete(id); }
       return json(res,200,{id:wave.id,count});
     }
     if (url.pathname==='/api/release' && req.method==='POST') {
@@ -86,11 +108,33 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
       let released=0;
       for (const wave of selected) {
         wave.released=true;
+        note(wave, -1, 'released');
         for (const [lane,reply] of [...wave.held]) { released++; finish(wave,lane,reply); }
       }
       return json(res,200,{...snapshot(`Released ${released} held responses; ${selected.length} wave gates opened`),released});
     }
     if (url.pathname==='/api/stats' && req.method==='GET') return json(res,200,snapshot());
+    if (url.pathname==='/api/events' && req.method==='GET') {
+      const wave=known.get(integer(url,'wave',1,Number.MAX_SAFE_INTEGER));
+      if (!wave) return reject(res,410,'Unknown or expired wave');
+      const raw=req.headers['last-event-id'];
+      const cursor=/^\d+$/.test(raw ?? '') ? Math.min(Number(raw), wave.log.length) : 0;
+      events.opened++; if (raw !== undefined) events.resumed++;
+      res.writeHead(200,{...headers,'content-type':'text/event-stream'});
+      res.write(': open\n\n');
+      sendEvent(res, wave, wave.log.slice(cursor));
+      wave.readers.add(res);
+      res.once('close',()=>wave.readers.delete(res));
+      return;
+    }
+    // Drop every open event stream, as a network would: the reader sees
+    // its stream end and re-asks from its cursor.
+    if (url.pathname==='/api/drop-events' && req.method==='POST') {
+      let dropped=0;
+      for (const wave of known.values()) for (const reader of wave.readers) { reader.destroy(); dropped++; }
+      events.dropped+=dropped;
+      return json(res,200,{dropped});
+    }
     if (url.pathname.startsWith('/api/')) return reject(res,404,'Unknown control endpoint or method');
     if (dist===null) { res.writeHead(404,headers); res.end('API-only fixture'); return; }
     serveStatic(dist,req,res);
@@ -98,6 +142,7 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
   const listen = server => new Promise((ok,fail) => { server.once('error',fail); server.listen(server===dataServer?port:controlPort,'127.0.0.1',ok); });
   const close = async () => {
     for (const wave of [...waves.values()]) expire(wave);
+    for (const wave of known.values()) for (const reader of wave.readers) reader.destroy();
     await Promise.all([dataServer,controlServer].map(server=>new Promise(ok=> { server.close(ok); server.closeAllConnections(); })));
   };
   try { await listen(dataServer); await listen(controlServer); }
@@ -105,6 +150,9 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
   return {
     data:`http://127.0.0.1:${dataServer.address().port}`,
     control:`http://127.0.0.1:${controlServer.address().port}`,
+    events,
+    log:(id)=>known.get(id)?.log.length ?? null,
+    readers:(id)=>known.get(id)?.readers.size ?? 0,
     close,
   };
 }

@@ -9,6 +9,68 @@ export async function boundedHttpBody(response, limit) {
   const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
 }
 
+// A `text/event-stream` parser (HTML's "Parsing an event stream"), the same
+// rules as the native executor's: lines end at CR, LF or CRLF even across
+// chunks; `data` lines join with LF; `id` persists as the cursor; comments
+// and `retry` are dropped (the host never reconnects, LLP 1069.004). One
+// event or line over `limit` bytes is refused, never truncated.
+export function eventStream(limit) {
+  const decoder = new TextDecoder();
+  let line = '', afterCr = false, started = false, event = '', data = '', hasData = false, id = '';
+  const done = (out) => {
+    if (!started) { started = true; if (line.startsWith('\ufeff')) line = line.slice(1); }
+    const text = line; line = '';
+    if (text === '') {
+      const type = event; event = '';
+      if (!hasData) { data = ''; return; }
+      hasData = false;
+      out.push({ event: type, id, data: data.endsWith('\n') ? data.slice(0, -1) : data });
+      data = '';
+      return;
+    }
+    if (text.startsWith(':')) return;
+    const colon = text.indexOf(':');
+    const field = colon < 0 ? text : text.slice(0, colon);
+    let value = colon < 0 ? '' : text.slice(colon + 1);
+    if (value.startsWith(' ')) value = value.slice(1);
+    if (field === 'data') {
+      if (data.length + value.length + 1 > limit) throw Error('an event exceeds the response ceiling');
+      data += value + '\n'; hasData = true;
+    } else if (field === 'event') event = value;
+    else if (field === 'id' && !value.includes('\0')) id = value;
+  };
+  return (bytes, end = false) => {
+    const text = decoder.decode(bytes, { stream: !end }), out = [];
+    for (const c of text) {
+      if (afterCr) { afterCr = false; if (c === '\n') continue; }
+      if (c === '\r' || c === '\n') { afterCr = c === '\r'; done(out); }
+      else { if (line.length >= limit + 64) throw Error('an event exceeds the response ceiling'); line += c; }
+    }
+    return out;
+  };
+}
+
+// Read an event stream to its end (LLP 1016.000): each read's events are
+// delivered as one message, the newest, carrying how many it replaced — the
+// runner has taken nothing in between, so display data coalesces (D4) and
+// a log sees the gap. What ends the body is the stream's last outcome.
+async function readEvents(response, limit, message, controller) {
+  const parse = eventStream(limit), reader = response.body.getReader(), encoder = new TextEncoder();
+  const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return failed(1, 'the event stream ended');
+      const events = parse(value);
+      if (events.length) message({ ...events[events.length - 1], coalesced: events.length - 1 });
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    if (controller.signal.aborted) return failed(4, 'request aborted');
+    return failed(/ceiling/.test(error?.message) ? 2 : 1, String(error?.message ?? error));
+  } finally { reader.releaseLock?.(); }
+}
+
 // `waiting()` is the work still counted; a promise it drops (a ticket the
 // runner let go of) stops holding the wait at the next commit or settle.
 export async function waitForInflight(waiting, deadline) {
@@ -28,7 +90,7 @@ export async function waitForInflight(waiting, deadline) {
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true }) {
+export async function request(op, { grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {} }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -55,8 +117,12 @@ export async function request(op, { grants, granted, loadPageNative, moduleLoade
   controllers.add(controller);
   const init = { method, headers, redirect: 'error', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
   if (decodedBody) init.body = decodedBody;
+  if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    // A stream reads its body as events; anything else is its one answer.
+    if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
+      return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
     return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
   } catch (error) { return failed(controller.signal.aborted ? 4 : 1, error); }
   finally { controllers.delete(controller); }

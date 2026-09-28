@@ -111,6 +111,11 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "refused": return refused();
     case "refusedLater": return refusedLater();
     case "parallel": return parallel();
+    // An answer that keeps coming (LLP 1016.000): each event, and the end.
+    case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
+      exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
+    } as RequestInit);
     case "scheduled": return fetch("https://api.castle.xyz/search/" + args[0], {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),

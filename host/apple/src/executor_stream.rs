@@ -10,11 +10,54 @@ use super::{
 use exact_runner::{FailureKind, HttpScheduling, Message, Outcome, Request, Response};
 use ibex2::stdlib::{abort::AbortController, fetch::StreamingResponse};
 
+/// A stream's own thread: it opens with a transport of its own (so it never
+/// waits behind held replies for a worker or a lease), then reads to the end.
+pub(super) fn run(
+    shared: &Shared,
+    ticket: u64,
+    request: Request,
+    forced: bool,
+    grants: &str,
+    host: &dyn Fn() -> ibex2::host::Host,
+    abort: AbortController,
+) {
+    // Retirement aborts every stream, as it does every job.
+    let _retiring = {
+        let abort = abort.clone();
+        shared.abort.signal().register(move || abort.abort())
+    };
+    if shared.abort.signal().aborted() {
+        abort.abort();
+    }
+    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // A source's scope narrows the app's grants, as on the workers.
+        let admitted = match request.grants.as_deref() {
+            Some(scope) => exact_data::storage::scope(grants, Some(scope)).map(str::to_string),
+            None => Ok(grants.to_string()),
+        };
+        let bindings = admitted.and_then(|g| {
+            ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&g))
+                .map(|g| host().endow(g))
+                .map_err(|e| format!("the app's grants did not parse: {e}"))
+        });
+        match bindings {
+            Ok(b) => open(Ok(&b), request, forced, &abort).map(|(r, limit)| (r, limit, b)),
+            Err(message) => Err(failed(FailureKind::Refused, message)),
+        }
+    }))
+    .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
+    match opened {
+        // The bindings live as long as the body they opened.
+        Ok((response, limit, _bindings)) => read_events(shared, ticket, response, limit, abort),
+        Err(outcome) => complete(shared, ticket, outcome),
+    }
+}
+
 /// Open `request` as a stream. `Ok` is an event stream to read, with its
 /// per-message ceiling; anything else is the stream's one answer, whole:
 /// a status that is not 2xx, a body that is not `text/event-stream`, or
 /// the failure that kept it from opening.
-pub(super) fn open(
+fn open(
     bindings: Result<&ibex2::host::Bindings, &str>,
     request: Request,
     forced: bool,
@@ -73,21 +116,13 @@ pub(super) fn open(
 /// Read the open stream `ticket` to its end, delivering each event. It ends
 /// when the far side closes, the connection drops, an event is over the
 /// ceiling, or the runner lets the ticket go (forgetting aborts the read).
-pub(super) fn read_events(
+fn read_events(
     shared: &Shared,
     ticket: u64,
     response: StreamingResponse,
     limit: usize,
     abort: AbortController,
 ) {
-    // Retirement aborts every stream, as it does every job.
-    let _retiring = {
-        let abort = abort.clone();
-        shared.abort.signal().register(move || abort.abort())
-    };
-    if shared.abort.signal().aborted() {
-        abort.abort();
-    }
     let mut body = response.body;
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut events = EventStream::new(limit);

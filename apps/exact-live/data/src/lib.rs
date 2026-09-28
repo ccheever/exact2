@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod crew;
+mod events;
 mod jobs;
 mod runbook;
 
@@ -17,6 +18,7 @@ pub struct Live {
     crew: crew::Crew,
     history: ReusableMessagesStress,
     jobs: Jobs,
+    events: events::Events,
     runbook: runbook::Runbook,
 }
 
@@ -56,6 +58,7 @@ impl Default for Live {
             crew: crew::Crew::default(),
             history: ReusableMessagesStress::default(),
             jobs: Jobs::default(),
+            events: events::Events::default(),
             runbook: runbook::Runbook::default(),
         }
     }
@@ -109,6 +112,12 @@ impl DataSource for Live {
                 self.gallery.query(source, args)
             }
             name if job_source(name) => self.jobs.query(source, args),
+            "jobEvents" => match self.events.answer(args)? {
+                Answer::Now(value) => Ok(value),
+                Answer::Later(_) => Err(DataError::Unavailable(
+                    "jobEvents streams; ask it with answer".into(),
+                )),
+            },
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
@@ -121,6 +130,9 @@ impl DataSource for Live {
     ) -> Result<Answer, DataError> {
         if job_source(source) {
             self.jobs.answer(store, source, args)
+        } else if source == "jobEvents" {
+            let answer = self.events.answer(args)?;
+            self.jobs.relay(answer)
         } else if source == "runbook" {
             self.runbook.answer(store, args)
         } else {
@@ -137,6 +149,9 @@ impl DataSource for Live {
     ) -> Result<Answer, DataError> {
         if job_source(source) {
             self.jobs.parse(store, source, args, outcome)
+        } else if source == "jobEvents" {
+            let answer = self.events.parse(args, outcome)?;
+            self.jobs.relay(answer)
         } else if source == "runbook" {
             self.runbook.parse(store, args, outcome)
         } else {

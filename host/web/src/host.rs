@@ -40,9 +40,26 @@ mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
 
-/// A reply as the ABI carries it, as the runner's `Outcome`.
+/// A reply as the ABI carries it, as the runner's `Outcome`. Kind 8 is one
+/// message of a stream: `event`, `id` and `coalesced` as header lines, the
+/// data as the body (LLP 1016.000).
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
     match kind {
+        8 => {
+            let field = |name: &str| {
+                headers
+                    .lines()
+                    .find_map(|l| l.strip_prefix(name)?.strip_prefix(": "))
+                    .unwrap_or("")
+                    .to_string()
+            };
+            Outcome::Message(exact_runner::Message {
+                event: field("event"),
+                id: field("id"),
+                coalesced: field("coalesced").parse().unwrap_or(0),
+                data: String::from_utf8_lossy(&body).into_owned(),
+            })
+        }
         5 => Outcome::Storage(body),
         6 if body.len() <= exact_runner::MAX_HOST_WORK_BYTES => {
             Outcome::Surface(SurfaceOutcome::Captured(body))
@@ -1166,8 +1183,8 @@ impl<D: DataSource> Host<D> {
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
     /// `kind` 0 is a response with `status`, `headers` as `name: value`
-    /// lines, and `body`; 1–4 are failures, 5 is storage, and 6/7 are a
-    /// captured/restored surface. The batch is the commit
+    /// lines, and `body`; 1–4 are failures, 5 is storage, 6/7 are a
+    /// captured/restored surface, and 8 is a stream's message. The batch is the commit
     /// the reply made — or nothing, for a ticket no longer held.
     pub fn fulfill_at(
         &mut self,

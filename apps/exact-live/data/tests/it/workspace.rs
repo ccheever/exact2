@@ -127,8 +127,14 @@ fn real_job_tickets_survive_navigation_resize_and_scene_reset() {
         }),
     )
     .unwrap();
-    let requests = r.take_requests();
+    // 128 held lanes, and the wave's progress stream (LLP 1069.004).
+    let (streams, requests): (Vec<_>, Vec<_>) = r
+        .take_requests()
+        .into_iter()
+        .partition(|q| q.request.stream);
     assert_eq!(requests.len(), 128);
+    assert_eq!(streams.len(), 1);
+    assert!(streams[0].request.url.contains("/api/events?wave=7"));
     let mut tickets = requests.iter().map(|q| q.ticket).collect::<Vec<_>>();
     tickets.sort();
     tickets.dedup();
@@ -138,7 +144,7 @@ fn real_job_tickets_survive_navigation_resize_and_scene_reset() {
     }
     r.set_viewport(1280., 844.).unwrap();
     r.act("resetScene", vec![]).unwrap();
-    assert_eq!(r.pending().len(), 128);
+    assert_eq!(r.pending().len(), 129, "the lanes and the stream");
     assert!(r.take_requests().is_empty());
     assert_eq!(r.derive("waveId"), Some(&Value::Number(7.)));
     let lane = requests
@@ -157,7 +163,7 @@ fn real_job_tickets_survive_navigation_resize_and_scene_reset() {
         .unwrap()
         .is_some());
     assert_eq!(r.derive("validCount"), Some(&Value::Number(1.)));
-    assert_eq!(r.pending().len(), 127);
+    assert_eq!(r.pending().len(), 128);
 }
 
 #[test]

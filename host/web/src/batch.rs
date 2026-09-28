@@ -546,7 +546,13 @@ impl Batch {
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
         s.push_str(if r.forced { "reload" } else { "default" });
-        s.push_str("\"}");
+        s.push('"');
+        // An answer that keeps coming (LLP 1016.000): the page reads the
+        // body as events and delivers each as a message (kind 8).
+        if r.request.stream {
+            s.push_str(",\"stream\":true");
+        }
+        s.push('}');
         self.ops.push(s);
     }
 

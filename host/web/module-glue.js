@@ -123,7 +123,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     throw new Error('the browser answers no native call at once; use native.later');
   }
     if (op === 1) {
-      const request = JSON.parse(value), drop = fetchEarly(request, admitted.grants);
+      // A stream is the page's to open (LLP 1016.000), never fetched early.
+      const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grants);
       context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
@@ -154,7 +155,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       }
     }
     if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
-    const pending = new Map();
+    const pending = new Map(), streams = new Map();
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
@@ -167,7 +168,9 @@ export async function prepare(payload, admitted, id = nextId++) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
         context.requests.delete(answer.ticket);
-        pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
+        // A stream's call is mapped per message, never resumed (LLP 1016.000).
+        if (result.request.stream) streams.set(key(request), {call:answer.call,owner:context.owner});
+        else pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
       if (answer.tag !== 1) storage.retire(context.owner);
       context = null;
@@ -224,6 +227,19 @@ export async function prepare(payload, admitted, id = nextId++) {
         // The host may run continuation tokens in a different order from calls.
         return defer(request);
       },
+      // One message of a stream, or its end: the source's `exactStream`
+      // maps it now, in this call — a mapper never awaits (LLP 1016.000 D1).
+      message(request) {
+        if (disposed) return { error: 'module environment disposed' };
+        const k = key(request), open = streams.get(k);
+        if (!open) return { error: 'a message for a stream not open' };
+        context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()};
+        try {
+          const answer = JSON.parse(win.__exact_message(String(open.call), JSON.stringify(request.outcome)));
+          if (!request.outcome.message) { streams.delete(k); storage.retire(open.owner); win.__exact_forget(String(open.call)); }
+          return finish(answer, request);
+        } catch (error) { context = null; return { error: String(error?.message ?? error) }; }
+      },
       // The runner let go of every targeted call not in flight (LLP 1016 D5):
       // drop it, its storage owner, and its call in the prelude.
       forget(inFlight) {
@@ -231,6 +247,10 @@ export async function prepare(payload, admitted, id = nextId++) {
         for (const [parkedKey, parked] of pending) {
           if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
           pending.delete(parkedKey); storage.retire(parked.owner); win.__exact_forget(String(parked.call));
+        }
+        for (const [streamKey, open] of streams) {
+          if (JSON.parse(streamKey)[0] === null || keep.has(streamKey)) continue;
+          streams.delete(streamKey); storage.retire(open.owner); win.__exact_forget(String(open.call));
         }
         forgetTurns(id, keep, key);
       },
@@ -319,6 +339,8 @@ export function call(request) {
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
+  // A worker realm answers only through turns; a stream's mapper runs now.
+  if (request.op === 'message') return realm.message ? realm.message(request) : { error: 'a worker-placed module does not stream yet (LLP 1069.004)' };
   return { error: 'unknown browser module operation' };
 }
 export function run(token) {

@@ -16,6 +16,11 @@ const WORKERS: usize = 3;
 const MAX_WORKERS: usize = 48; // Includes retired workers until they actually exit.
 static LIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 const COUNTS: [usize; 2] = [16, 128];
+/// Open streams, bounded apart from the independent lane's count: a stream
+/// holds a transport lease and a reader thread for as long as it is open,
+/// and must neither starve nor be starved by a lane of held replies
+/// (LLP 1016.000 D4; LLP 1069.004 As built). Its bytes stay on the lane.
+const STREAMS: usize = 16;
 const BYTES: [usize; 2] = [512 << 20, 32 << 20];
 const MAX_REQUEST: usize = 4 << 20;
 const MAX_BODY: usize = 64 << 20;
@@ -45,6 +50,7 @@ struct Running {
     /// A safe read's own abort, which forgetting fires; other work has none.
     abort: Option<AbortController>,
     forgotten: bool,
+    stream: bool,
 }
 struct Completed {
     ticket: u64,
@@ -53,6 +59,8 @@ struct Completed {
     /// One message of a stream that is still open (LLP 1016.000): its
     /// reservation stays with the running stream until the stream ends.
     message: bool,
+    /// A stream's last outcome: draining it frees a stream slot.
+    stream: bool,
 }
 #[derive(Default)]
 struct State {
@@ -60,6 +68,8 @@ struct State {
     running: Vec<Running>,
     completed: [VecDeque<Completed>; 2],
     counts: [usize; 2],
+    /// Admitted streams, also counted in `counts[1]`.
+    streams: usize,
     bytes: [usize; 2],
     next: usize,
     ordered: VecDeque<u64>,
@@ -86,7 +96,12 @@ struct Shared {
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
+    /// The app's grants, for a stream's own transport.
+    grants: String,
+    /// A stream's own transport (the platform's; a test's scripted one).
+    stream_host: StreamHost,
 }
+type StreamHost = Arc<dyn Fn() -> ibex2::host::Host + Send + Sync>;
 
 impl Core {
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
@@ -126,6 +141,8 @@ impl Core {
         let mut core = Self {
             shared,
             disabled: !reserved,
+            grants: grants.to_string(),
+            stream_host: Arc::new(ibex2::host::Host::new),
         };
         if !reserved {
             return core;
@@ -172,9 +189,14 @@ impl Core {
             if ordered && state.ordered_barrier {
                 return Err("earlier ordered admission refusal must settle first");
             }
-            if state.counts[lane] >= COUNTS[lane]
-                || charge > BYTES[lane].saturating_sub(state.bytes[lane])
-            {
+            // A stream starts at once, so it is charged its ceiling now.
+            let (full, charge) = if r.request.stream {
+                (state.streams >= STREAMS, limit)
+            } else {
+                let streams = if lane == 1 { state.streams } else { 0 };
+                (state.counts[lane] - streams >= COUNTS[lane], charge)
+            };
+            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane]) {
                 return Err("native executor admission limit reached");
             }
             Ok((lane, charge, limit))
@@ -196,6 +218,35 @@ impl Core {
         }
         state.counts[lane] += 1;
         state.bytes[lane] += charge;
+        if r.request.stream {
+            // Never queued behind held replies: a stream opens on its own
+            // thread with its own transport, and reads there (LLP 1067 D3).
+            state.streams += 1;
+            let abort = AbortController::new();
+            state.running.push(Running {
+                ticket: r.ticket,
+                lane,
+                charge,
+                limit,
+                abort: Some(abort.clone()),
+                forgotten: false,
+                stream: true,
+            });
+            drop(state);
+            let (shared, grants) = (self.shared.clone(), self.grants.clone());
+            let (ticket, request, forced) = (r.ticket, r.request, r.forced);
+            let host = self.stream_host.clone();
+            let spawned = std::thread::Builder::new()
+                .name(format!("exact-stream-{ticket}"))
+                .spawn({
+                    let shared = shared.clone();
+                    move || stream::run(&shared, ticket, request, forced, &grants, &*host, abort)
+                });
+            if let Err(e) = spawned {
+                complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
+            }
+            return Ok(());
+        }
         state.jobs[lane].push_back(Job {
             ticket: r.ticket,
             request: r.request,
@@ -241,6 +292,7 @@ impl Core {
         state.next = 1 - lane;
         if !done.message {
             state.counts[lane] -= 1;
+            state.streams -= usize::from(done.stream);
             state.bytes[lane] -= done.bytes;
         }
         // An ordered job may be waiting for these bytes.
@@ -265,12 +317,14 @@ impl Core {
             let state = &mut *guard;
             for lane in 0..2 {
                 let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
+                let streams = &mut state.streams;
                 state.jobs[lane].retain_mut(|job| {
                     if held(job.ticket) {
                         return true;
                     }
                     if job.work.is_none() && safe(&job.request) {
                         *counts -= 1;
+                        *streams -= usize::from(job.request.stream);
                         *bytes -= job.charge;
                         return false;
                     }
@@ -285,6 +339,7 @@ impl Core {
                     // releases the reservation when its reader ends.
                     if !done.message {
                         *counts -= 1;
+                        *streams -= usize::from(done.stream);
                         *bytes -= done.bytes;
                     }
                     false
@@ -400,6 +455,7 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         limit: job.limit,
         abort: safe(&job.request).then(|| abort.clone()),
         forgotten: job.forgotten,
+        stream: job.request.stream,
     });
     Some((job, abort))
 }
@@ -419,6 +475,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     shared.ready.notify_all();
     if run.forgotten {
         state.counts[lane] -= 1;
+        state.streams -= usize::from(run.stream);
         state.bytes[lane] -= run.charge;
         return;
     }
@@ -433,6 +490,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         outcome,
         bytes,
         message: false,
+        stream: run.stream,
     });
     if has_ready(&state) {
         wake(&mut state);
@@ -475,6 +533,7 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
             // Charged to the running stream: its ceiling covers one message.
             bytes: 0,
             message: true,
+            stream: true,
         }),
     }
     if has_ready(&state) {
@@ -633,42 +692,46 @@ fn worker(
             let abort = abort.clone();
             shared.abort.signal().register(move || abort.abort())
         };
-        let stream = request.stream;
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let scoped = request.grants.as_deref().map(|scope| {
-                exact_data::storage::scope(&grants, Some(scope))
-                    .and_then(|s| {
-                        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s))
-                            .map_err(|e| e.to_string())
-                    })
-                    .map(|g| ibex2::host::Host::new().endow(g))
-            });
-            let bound = match scoped {
-                Some(Err(message)) => return Err(failed(FailureKind::Refused, message)),
-                Some(Ok(ref scoped)) => Ok(scoped),
-                None => bindings.as_ref().ok_or(unbound.as_str()),
-            };
-            if stream {
-                // Opened here, where the transport lives; read on its own
-                // thread, so an open stream holds no I/O worker (LLP 1067 D3).
-                return open(bound, request, forced, &abort).map(Ok);
-            }
-            Ok(Err(execute(bound, request, forced, work, &abort)))
-        }))
-        .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "native work panicked")));
-        match outcome {
-            Ok(Ok((response, limit))) => {
-                let (reader, abort) = (shared.clone(), abort.clone());
-                let read = move || read_events(&reader, ticket, response, limit, abort);
-                if let Err(e) = std::thread::Builder::new()
-                    .name(format!("exact-stream-{ticket}"))
-                    .spawn(read)
-                {
-                    complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match scoped_bindings(&grants, request.grants.as_deref()) {
+                    Some(Err(message)) => failed(FailureKind::Refused, message),
+                    Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort),
+                    None => execute(
+                        bindings.as_ref().ok_or(unbound.as_str()),
+                        request,
+                        forced,
+                        work,
+                        &abort,
+                    ),
                 }
-            }
-            Ok(Err(outcome)) | Err(outcome) => complete(&shared, ticket, outcome),
-        }
+            }))
+            .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
+        complete(&shared, ticket, outcome);
+    }
+}
+
+/// A source's narrower grant scope, as its own bindings; `None` unscoped.
+fn scoped_bindings(
+    grants: &str,
+    scope: Option<&str>,
+) -> Option<Result<ibex2::host::Bindings, String>> {
+    scope.map(|scope| {
+        exact_data::storage::scope(grants, Some(scope))
+            .and_then(|s| {
+                ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s))
+                    .map_err(|e| e.to_string())
+            })
+            .map(|g| ibex2::host::Host::new().endow(g))
+    })
+}
+
+#[cfg(test)]
+impl Core {
+    /// Streams open on `host`'s transport: a test's scripted one.
+    fn streams_on(mut self, host: impl Fn() -> ibex2::host::Host + Send + Sync + 'static) -> Self {
+        self.stream_host = Arc::new(host);
+        self
     }
 }
 
@@ -811,7 +874,6 @@ fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outc
 
 #[path = "executor_stream.rs"]
 mod stream;
-use stream::{open, read_events};
 
 #[cfg(test)]
 #[path = "executor_tests.rs"]

@@ -89,6 +89,13 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
            forget(name: string): void;\n\
          }\n\
          export interface NativeModule { readonly available: boolean; call(request: Record<string, unknown>): Record<string, unknown>; later(request: Record<string, unknown>): Promise<Record<string, unknown>>; watch(topic: string): void }\n\
+         /** One server-sent event of a stream answer, or its end (`type: \"error\"`, LLP 1016.000). */\n\
+         export interface StreamEvent { readonly type: string; readonly data: string; readonly lastEventId: string; readonly coalesced: number; readonly kind?: string; readonly message?: string; readonly status?: number }\n\
+         declare global {\n\
+           interface RequestInit { exactStream?: (event: StreamEvent) => unknown; exactIndependentHttp?: { maxResponseBytes: number } }\n\
+           /** An answer that keeps coming: `exactStream` maps each event, and the end, to the answer. */\n\
+           function fetch<T>(input: string | URL, init: RequestInit & { exactStream: (event: StreamEvent) => T }): Promise<T>;\n\
+         }\n\
          export type Sources = { [S in Source]: (args: Args<S>, store: Store, storage: Storage, native?: NativeModule | null) => Result<S> | Promise<Result<S>> };\n\
          export type Answer = <S extends Source>(source: S, args: Args<S>, store: Store, storage: Storage, native?: NativeModule | null) => Result<S> | Promise<Result<S>>;\n",
     );

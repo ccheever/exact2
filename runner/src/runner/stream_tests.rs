@@ -10,6 +10,7 @@ use exact_plan::{asm::Asm, builder::PlanBuilder, Plan, TypeKind};
 #[derive(Default)]
 struct Scripted {
     bad_message: bool,
+    reopen_on_gap: bool,
 }
 
 impl DataSource for Scripted {
@@ -39,6 +40,10 @@ impl DataSource for Scripted {
             Outcome::Message(_) if self.bad_message => {
                 Err(DataError::Unavailable("not a number".into()))
             }
+            // A gap: reopen from the cursor (LLP 1016.000 D6).
+            Outcome::Message(m) if self.reopen_on_gap && m.coalesced > 0 => Ok(Answer::stream(
+                crate::Request::get("https://example.test/events").header("last-event-id", "1"),
+            )),
             Outcome::Message(m) => Ok(Answer::Now(Value::Number(
                 m.data
                     .parse()
@@ -224,6 +229,32 @@ fn coalesced_messages_are_counted_and_the_newest_lands() {
         "{state}"
     );
     assert!(state.contains("\"pending\":[]"), "{state}");
+}
+
+#[test]
+fn a_gap_reopens_the_stream_from_its_cursor() {
+    let mut r = boot();
+    r.data().reopen_on_gap = true;
+    let first = one_stream(&mut r);
+    r.fulfill(first, message("4", 0)).unwrap();
+    assert!(r.fulfill(first, message("8", 3)).unwrap().is_some());
+    assert!(!r.holds(first), "the gapped stream is let go");
+    let again = r.take_requests();
+    assert_eq!(again.len(), 1);
+    assert!(again[0].request.stream);
+    assert!(again[0]
+        .request
+        .headers
+        .contains(&("last-event-id".into(), "1".into())));
+    assert_eq!(
+        value(&r, "progress"),
+        Value::Number(4.),
+        "keeps its last value"
+    );
+    // The reopened stream is in flight until its first message.
+    assert!(r.has_pending());
+    r.fulfill(again[0].ticket, message("9", 0)).unwrap();
+    assert_eq!(value(&r, "progress"), Value::Number(9.));
 }
 
 #[test]

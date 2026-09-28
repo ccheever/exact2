@@ -127,6 +127,9 @@ pub struct Module {
     ready: bool,
     signatures: Table<(Vec<Shape>, Shape)>,
     waiting: Table<bool>, // true: a browser checkpoint; false: HTTP
+    /// Stream answers (LLP 1016.000): each message is mapped by the realm's
+    /// `exactStream`, synchronously, never resumed as a turn.
+    streams: Table<()>,
     /// Where the loader runs this module's turns (LLP 1027.002 D1): the
     /// page's private iframe realm, or a dedicated Worker.
     placement: Placement,
@@ -145,6 +148,7 @@ impl Module {
             ready: false,
             signatures: Table::new(),
             waiting: Table::new(),
+            streams: Table::new(),
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
         }
@@ -213,6 +217,15 @@ impl Module {
         ]);
         let response = match outcome {
             None => call(input)?,
+            // A stream's message, or its end: mapped now (LLP 1016.000 D1).
+            Some(outcome) if self.streams.get(&key).is_some() => {
+                if !matches!(outcome, Outcome::Message(_)) {
+                    self.streams.remove(&key);
+                }
+                input["op"] = "message".into();
+                input["outcome"] = outcome_json(outcome)?;
+                call(input)?
+            }
             Some(outcome) => {
                 let checkpoint = self
                     .waiting
@@ -240,39 +253,7 @@ impl Module {
                     }
                 } else {
                     input["op"] = "resume".into();
-                    input["outcome"] = match outcome {
-                        Outcome::Storage(_) => {
-                            return Err(unavailable("storage result supplied to fetch"))
-                        }
-                        Outcome::Surface(_) => {
-                            return Err(unavailable("surface result supplied to fetch"))
-                        }
-                        Outcome::Response(r) => object([(
-                            "response",
-                            object([
-                                ("status", r.status.into()),
-                                ("headers", pairs(&r.headers)),
-                                ("body", String::from_utf8_lossy(&r.body).as_ref().into()),
-                                ("bodyBase64", exact_runner::agent::base64(&r.body).into()),
-                            ]),
-                        )]),
-                        Outcome::Failed { kind, message } => object([(
-                            "failed",
-                            object([
-                                ("kind", format!("{kind:?}").into()),
-                                ("message", message.into()),
-                            ]),
-                        )]),
-                        Outcome::Message(m) => object([(
-                            "message",
-                            object([
-                                ("event", m.event.into()),
-                                ("id", m.id.into()),
-                                ("data", m.data.into()),
-                                ("coalesced", m.coalesced.into()),
-                            ]),
-                        )]),
-                    };
+                    input["outcome"] = outcome_json(outcome)?;
                     call(input)?
                 }
             }
@@ -358,7 +339,16 @@ impl Module {
                     unavailable("fetch headers are not an array of [name, value] strings")
                 })?;
                 request.body = r["body"].as_str().unwrap_or("").as_bytes().to_vec();
-                self.waiting.insert(key, false);
+                if r["stream"] == true {
+                    // The page opens it; its events come back as messages.
+                    request = match Answer::stream(request) {
+                        Answer::Later(request) => request,
+                        Answer::Now(_) => unreachable!("a stream is a request"),
+                    };
+                    self.streams.insert(key, ());
+                } else {
+                    self.waiting.insert(key, false);
+                }
                 Answer::Later(request)
             } else if response["tag"] == 0 {
                 let value = reply
@@ -372,6 +362,39 @@ impl Module {
             };
         Ok(answer)
     }
+}
+
+/// A reply as the browser module's `resume` and `message` take it.
+fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
+    Ok(match outcome {
+        Outcome::Storage(_) => return Err(unavailable("storage result supplied to fetch")),
+        Outcome::Surface(_) => return Err(unavailable("surface result supplied to fetch")),
+        Outcome::Response(r) => object([(
+            "response",
+            object([
+                ("status", r.status.into()),
+                ("headers", pairs(&r.headers)),
+                ("body", String::from_utf8_lossy(&r.body).as_ref().into()),
+                ("bodyBase64", exact_runner::agent::base64(&r.body).into()),
+            ]),
+        )]),
+        Outcome::Failed { kind, message } => object([(
+            "failed",
+            object([
+                ("kind", format!("{kind:?}").into()),
+                ("message", message.into()),
+            ]),
+        )]),
+        Outcome::Message(m) => object([(
+            "message",
+            object([
+                ("event", m.event.into()),
+                ("id", m.id.into()),
+                ("data", m.data.into()),
+                ("coalesced", m.coalesced.into()),
+            ]),
+        )]),
+    })
 }
 
 impl DataSource for Module {
@@ -542,10 +565,12 @@ impl DataSource for Module {
                 ("args", Json::Array(args)),
             ]));
         }
-        let before = self.waiting.len();
+        let before = self.waiting.len() + self.streams.len();
         self.waiting
             .retain(|key| !targeted(key) || keep.iter().any(|k| k == key));
-        if self.waiting.len() != before {
+        self.streams
+            .retain(|key| !targeted(key) || keep.iter().any(|k| k == key));
+        if self.waiting.len() + self.streams.len() != before {
             let _ = call(object([
                 ("op", "forget".into()),
                 ("id", self.id.into()),
@@ -780,6 +805,44 @@ mod tests {
                 .is_err());
             assert_eq!(store.get("token"), Some("changed"));
         }
+    }
+
+    /// LLP 1016.000: a turn that ends at a stream's `fetch` answers a stream
+    /// request; its messages go to the realm's mapper, never back as turns.
+    #[test]
+    fn a_stream_answer_maps_its_messages_in_the_realm_until_it_ends() {
+        let mut module = Module::new("test", "", "revision");
+        module.ready = true;
+        module
+            .signatures
+            .insert("feed".into(), (vec![], Shape::String));
+        let mut store = Store::new("", []);
+        let target = Target::Resource(0);
+        let key = call_key(&target_json(Some(target)), "feed", &[]);
+        let turn = br#"{"tag":1,"call":3,"ticket":1,"request":{"method":"GET","url":"https://example.test/e","headers":[],"body":"","stream":true}}"#;
+        let Ok(Answer::Later(request)) = module.step(&mut store, "feed", key, turn) else {
+            panic!("a stream request")
+        };
+        assert!(request.stream);
+        assert!(module.waiting.is_empty() && module.streams.len() == 1);
+        // Off the browser the realm call fails, but by the message path.
+        let message = Outcome::Message(exact_runner::Message::default());
+        let error = module
+            .parse_for(target, &mut store, "feed", &[], message)
+            .unwrap_err();
+        assert_eq!(
+            error,
+            unavailable("the browser module executor requires wasm32")
+        );
+        assert_eq!(module.streams.len(), 1, "a message keeps it open");
+        let end = Outcome::Failed {
+            kind: exact_runner::FailureKind::Network,
+            message: "the event stream ended".into(),
+        };
+        assert!(module
+            .parse_for(target, &mut store, "feed", &[], end)
+            .is_err());
+        assert_eq!(module.streams.len(), 0, "its end closes it");
     }
 
     #[test]

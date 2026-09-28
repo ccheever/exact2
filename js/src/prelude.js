@@ -287,10 +287,19 @@
       if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > 67108864)
         return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864"));
     }
+    // An answer that keeps coming (LLP 1016.000): `exactStream` maps each
+    // server-sent event to the answer, and the end too. The promise never
+    // settles: the answer is what the mapper returns, message by message.
+    var stream = init ? init.exactStream : undefined;
+    if (stream !== undefined && typeof stream !== "function")
+      return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
+    if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
+    if (stream && ceiling === undefined) ceiling = 1048576;
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
+    if (stream) call.stream = stream;
     return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
   };
 
@@ -501,6 +510,25 @@
     calls.delete(call.id);
     for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
     return "";
+  };
+  // One message of the stream answer `id` began, or its end: the mapper's
+  // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
+  // is `{ type: "error" }` with the failure's kind and message, or the
+  // status and body of a reply that was not an event stream.
+  global.__exact_message = function (id, outcomeJson) {
+    var call = calls.get(Number(id));
+    if (!call || !call.stream) return fail(new Error("no stream answer " + id));
+    var o = JSON.parse(outcomeJson), event;
+    if (o.message) event = { type: o.message.event || "message", data: o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
+    else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
+    currentCall = call;
+    try {
+      var value = call.stream(event);
+      if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
+      return ok(value);
+    } catch (e) { return fail(e); }
+    finally { currentCall = null; }
   };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));

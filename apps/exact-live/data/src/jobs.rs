@@ -65,7 +65,10 @@ impl JobOrigins {
             let known = if data {
                 path == "/api/hold"
             } else {
-                matches!(path, "/api/open" | "/api/release" | "/api/stats")
+                matches!(
+                    path,
+                    "/api/open" | "/api/release" | "/api/stats" | "/api/events"
+                )
             };
             (known && !suffix.contains('#') && !suffix.chars().any(char::is_control))
                 .then(|| format!("{new}{suffix}"))
@@ -146,7 +149,8 @@ impl Jobs {
             origins,
         }
     }
-    fn relay(&self, answer: Answer) -> Result<Answer, DataError> {
+    /// Send an answer's request to this build's origins (a stream too).
+    pub fn relay(&self, answer: Answer) -> Result<Answer, DataError> {
         match answer {
             Answer::Now(value) => Ok(Answer::Now(value)),
             Answer::Later(request) => self.origins.request(request).map(Answer::Later),
@@ -155,10 +159,11 @@ impl Jobs {
 }
 impl Default for Jobs {
     fn default() -> Self {
-        Self::new(
-            JobOrigins::parse(include_str!("../../job-origins.txt"))
-                .expect("invalid Exact Live Jobs build configuration"),
-        )
+        // `EXACT_LIVE_JOB_ORIGINS` (the same lines) builds against a local
+        // fixture instead: the smoke's, on loopback (LLP 1069.004 slice 2).
+        let origins =
+            option_env!("EXACT_LIVE_JOB_ORIGINS").unwrap_or(include_str!("../../job-origins.txt"));
+        Self::new(JobOrigins::parse(origins).expect("invalid Exact Live Jobs build configuration"))
     }
 }
 impl DataSource for Jobs {

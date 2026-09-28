@@ -178,6 +178,9 @@ pub struct Module {
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
+    /// Stream answers (LLP 1016.000): each message is mapped by the call's
+    /// `exactStream`, never resumed; forgetting the ticket ends the call.
+    streams: Vec<(Key, Parked)>,
     /// Deferred answers whose dispatch was held, oldest first.
     held: std::collections::VecDeque<u64>,
     next_deferred: u64,
@@ -512,6 +515,7 @@ impl Module {
             plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
+            streams: Vec::new(),
             held: std::collections::VecDeque::new(),
             next_deferred: FIRST_DEFERRED_TOKEN,
             budget_ms: DEFAULT_BUDGET_MS,
@@ -795,7 +799,7 @@ impl Module {
 
     /// Answers awaiting a fetch the host has yet to fulfil.
     pub fn in_flight(&self) -> usize {
-        self.parked.len()
+        self.parked.len() + self.streams.len()
     }
 
     /// Decode once, retaining metadata for async dispatch and the typed answer
@@ -1019,19 +1023,14 @@ impl Module {
                 let replaced: Vec<u64> = self
                     .parked
                     .iter()
+                    .chain(&self.streams)
                     .filter(|(k, _)| *k == key)
                     .map(|(_, parked)| parked.call)
                     .collect();
                 self.parked.retain(|(k, _)| *k != key);
+                self.streams.retain(|(k, _)| *k != key);
                 self.forget_calls(replaced);
-                self.parked.push((
-                    key,
-                    Parked {
-                        call,
-                        ticket,
-                        work_taken: false,
-                    },
-                ));
+                self.park(key, call, ticket, &request);
                 Ok(Answer::Later(request))
             }
         }
@@ -1052,6 +1051,9 @@ impl Module {
             ));
         }
         let key = Module::key(target, source, args);
+        if self.streams.iter().any(|(k, _)| *k == key) {
+            return self.message(store, source, key, outcome);
+        }
         let Some(pos) = self.parked.iter().position(|(k, _)| *k == key) else {
             return Err(DataError::Unavailable(format!(
                 "`{source}`: a reply for an answer not in flight"
@@ -1127,16 +1129,82 @@ impl Module {
                         DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
                     })?
                 };
-                self.parked.push((
-                    key,
-                    Parked {
-                        call,
-                        ticket,
-                        work_taken: false,
-                    },
-                ));
+                self.park(key, call, ticket, &request);
                 Ok(Answer::Later(request))
             }
+        }
+    }
+
+    /// Park a call on the request it waits for. A stream's call is not
+    /// resumed by its reply: each message is mapped (`__exact_message`).
+    fn park(&mut self, key: Key, call: u64, ticket: u64, request: &Request) {
+        let parked = Parked {
+            call,
+            ticket,
+            work_taken: false,
+        };
+        if request.stream {
+            self.streams.push((key, parked));
+        } else {
+            self.parked.push((key, parked));
+        }
+    }
+
+    /// One message of the stream answer `key` began, or its end: the
+    /// source's `exactStream` maps it to the answer, now (LLP 1016.000 D1).
+    fn message(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        key: Key,
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let Some(at) = self.streams.iter().position(|(k, _)| *k == key) else {
+            return Err(DataError::Unavailable(format!(
+                "`{source}`: a message for a stream not open"
+            )));
+        };
+        let call = self.streams[at].1.call;
+        let ended = !matches!(outcome, Outcome::Message(_));
+        let outcome_text = outcome_to_json(&outcome).to_string();
+        self.host.store = Some(store as *mut Store);
+        let started = Instant::now();
+        let result: Result<Step, DataError> = (|| {
+            let engine = self.engine.as_mut().expect("checked by resume");
+            let text = engine
+                .call("__exact_message", [&call.to_string(), &outcome_text, ""])
+                .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            let Some(sig) = self.sigs.get(source) else {
+                engine.clear_reply();
+                return Err(DataError::UnknownSource(source.to_string()));
+            };
+            let reply = Module::decode_reply(sig, engine, source, &text)?;
+            Ok(Module::step(sig, engine, source, reply))
+        })();
+        self.host.store = None;
+        if ended {
+            self.streams.remove(at);
+            self.forget_calls(vec![call]);
+        }
+        let took_ms = started.elapsed().as_secs_f64() * 1e3;
+        if result.is_err() || took_ms > self.budget_ms {
+            self.engine
+                .as_mut()
+                .expect("checked by resume")
+                .clear_reply();
+        }
+        if took_ms > self.budget_ms {
+            self.overruns += 1;
+            return Err(DataError::Unavailable(format!(
+                "`{source}` took {took_ms:.1} ms, over the {} ms budget",
+                self.budget_ms
+            )));
+        }
+        match result? {
+            Step::Done(r) => r.map(Answer::Now),
+            Step::Pending { .. } => Err(DataError::Unavailable(format!(
+                "`{source}`: exactStream answers each event now"
+            ))),
         }
     }
 }
@@ -1270,7 +1338,16 @@ impl DataSource for Module {
             .into_iter()
             .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
         self.parked = kept;
-        self.forget_calls(gone.into_iter().map(|(_, parked)| parked.call).collect());
+        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
+            .into_iter()
+            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+        self.streams = open;
+        self.forget_calls(
+            gone.into_iter()
+                .chain(ended)
+                .map(|(_, parked)| parked.call)
+                .collect(),
+        );
     }
 
     /// Stops the running call, or the next one to start, from any thread:

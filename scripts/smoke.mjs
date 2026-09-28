@@ -27,6 +27,15 @@ const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const appName = argv.includes('--app') ? argv[argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
+// Exact Live's job fixture on loopback, for its stream drive (step 16): the
+// web build below compiles against it; a native build must have been made
+// with the same EXACT_LIVE_JOB_ORIGINS (scripts/smoke-stream.mjs).
+let streamFixture = null;
+if (app.name === 'exact-live' && ['web', 'macos', 'linux'].includes(argv[0])) {
+  const { STREAM_ORIGINS, startStreamFixture } = await import('./smoke-stream.mjs');
+  process.env.EXACT_LIVE_JOB_ORIGINS ??= STREAM_ORIGINS;
+  streamFixture = await startStreamFixture();
+}
 let selectedWebDist = null;
 // Bare-plan host fixtures exercise every capability the host has, so on the
 // web they run on a build that links all of them (LLP 1047 D7); the app and
@@ -1391,6 +1400,15 @@ if (host === 'macos' && [app.manifest.launch_handler?.client_mode].flat()[0] ===
     const second = seen?.windows?.[1];
     console.log(`${host} documents: ${seen?.windows?.map((w) => `${w.session} "${w.title}"`).join(', ')}; the second session's first pixel ${second?.firstPixelMs} ms, footprint ${((seen?.footprint - second?.footprintBefore) / 1048576).toFixed(1)} MB since it was asked for`);
   } catch (error) { check(false, `documents: ${error.message}`); } finally { await d.close(); }
+}
+
+// 17. Answers that keep coming (LLP 1069.004 slice 2): Exact Live's job
+// progress over server-sent events, against the fixture started above.
+if (streamFixture) {
+  const { streamSmoke } = await import('./smoke-stream.mjs');
+  try { await streamSmoke({ host, open, check, fixture: streamFixture }); }
+  catch (error) { check(false, `the stream drive stopped: ${error.message}`); }
+  finally { await streamFixture.close(); }
 }
 
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.

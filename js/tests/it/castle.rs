@@ -190,6 +190,97 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
+    Outcome::Message(exact_runner::Message {
+        event: String::new(),
+        id: id.into(),
+        data: data.into(),
+        coalesced,
+    })
+}
+
+/// LLP 1016.000, TypeScript: `fetch(url, { exactStream })` answers a
+/// stream; each event, and the end, is mapped now by the source's function,
+/// which reads the store like any answer.
+#[test]
+fn a_stream_answer_maps_each_event_and_its_end() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let args = [Value::str("0")];
+    let request = later(m.answer(&mut s, "events", &args).unwrap());
+    assert!(request.stream, "the host is told it streams");
+    assert_eq!(request.url, "https://api.castle.xyz/events?since=0");
+    assert_eq!(
+        request.http,
+        exact_runner::HttpScheduling::Independent {
+            max_response_bytes: 1 << 20
+        }
+    );
+    assert_eq!(m.in_flight(), 1);
+    assert_eq!(
+        now(m
+            .parse(&mut s, "events", &args, event("1", "a", 0))
+            .unwrap()),
+        Value::str("message 1:a:0:-")
+    );
+    s.set("castle.session", "seen").unwrap();
+    assert_eq!(
+        now(m
+            .parse(&mut s, "events", &args, event("4", "d", 2))
+            .unwrap()),
+        Value::str("message 4:d:2:seen")
+    );
+    let ended = Outcome::Failed {
+        kind: FailureKind::Network,
+        message: "the event stream ended".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "events", &args, ended).unwrap()),
+        Value::str("ended: the event stream ended")
+    );
+    assert_eq!(m.in_flight(), 0, "the end lets the call go");
+    assert!(m
+        .parse(&mut s, "events", &args, event("5", "e", 0))
+        .is_err());
+}
+
+/// Through the runner: three events commit three times, the stream stays
+/// held, and a newer argument forgets the stream's call in the module.
+#[test]
+fn a_stream_answer_through_the_runner() {
+    let src = "component App\n  state since = \"0\"\n  resource feed = events(since) as shape string\n  action next writes since\n    since = \"9\"\n  view\n    text feed testId=\"feed\"\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let out = r.take_requests();
+    assert_eq!(out.len(), 1);
+    assert!(out[0].request.stream);
+    let ticket = out[0].ticket;
+    for n in 1..=3 {
+        let receipt = r.fulfill(ticket, event(&n.to_string(), "x", 0)).unwrap();
+        assert!(receipt.is_some());
+        assert_eq!(
+            r.resource("feed"),
+            Some(&Value::str(&format!("message {n}:x:0:-")))
+        );
+        assert!(r.holds(ticket) && !r.has_pending());
+    }
+    r.act("next", vec![]).unwrap();
+    assert!(!r.holds(ticket));
+    assert_eq!(
+        r.data().in_flight(),
+        1,
+        "only the newer stream's call is left"
+    );
+}
+
 #[test]
 fn parallel_fetches_keep_every_request_and_binary_response() {
     let mut m = module();

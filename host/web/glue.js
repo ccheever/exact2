@@ -742,13 +742,17 @@ function apply(batch) {
         // forgot it (`letGo`), as the native executor does: a write that
         // was sent was sent, and runs on, uncounted (LLP 1016 D5).
         const requestIncarnation = incarnation, controller = new AbortController();
+        let p, messages = 0;
         const host = {
           grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
+          // A stream's message (LLP 1016.000): after its first, the stream is
+          // open, not in flight, so `clock settle` stops waiting on it (D5).
+          message: (m) => { if (messages++ === 0) inflight.delete(p); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
         };
         controllers.add(controller);
         if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
-        const p = httpHelpers().then(({ request }) => request(op, host))
+        p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error))));
         track(p, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
