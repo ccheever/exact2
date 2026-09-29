@@ -1,73 +1,121 @@
 # LLP 1071: Building list rows off the main thread
 
 **Type:** RFC
-**Status:** Draft (r1, for a directional review before any build)
-**Systems:** Apple host (`Bridge.swift`'s `Runtime`, `Session.swift`'s `wire`/`apply`/`Frames`, `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `Mac/PresenterMac.swift`'s pump, `Agent.swift`, `Text.swift`, `NativeModule.swift`), Apple Rust library (`abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `markup.rs`, `textflow.rs`; no runner or kernel change), Agent API (LLP 1012: no new operation), Web host (none), Linux host (none)
+**Status:** Draft r2. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folds every P1 and P2 of that review (§0) and records the rulings on r1's questions (§0.1). Nothing is built.
+**Systems:**
+- Apple host: `Bridge.swift`'s `Runtime`, `Session.swift` (`wire`, `apply`, `Frames`, boot, pressure), `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/CollectionIOS.swift`, `Mac/PresenterMac.swift`, `Mac/RegionReaderMac.swift`, `Agent.swift`, `Text.swift`, `NodeText.swift`, `Canvas2D*.swift`, `NativeModule.swift`.
+- Apple Rust library: `abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `abi_collections.rs`, `app_module.rs`, `markup.rs`, `textflow.rs`.
+- Runner: the collection's retiring rows and `CollectionFeedback` v4, §5 only.
+- Agent API: LLP 1012's `clock` result names `owner` as an unsettled reason.
+- Web host and Linux host: none.
+
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Implementer:** unassigned until the review; the `perf/node-cost` lane is the natural one
-**Date:** 2026-09-28
+**Implementer:** the `perf/node-cost` lane (Claude, Opus 5.5), stage 1 first; heavy builds on the M5 mini
+**Date:** 2026-09-28 (r1 and r2)
 **Related:**
-- Charlie's ruling, 2026-09-28 (through the coordinator): "move the mount off the main thread … leaving only the UIKit/CA apply on main. Resumable rows are not chosen."
-- `QUEUE.md` "A heavy list row still mounts as one lump" and its 2026-09-28 diagnosis (commit `ee0f8b70`): the evidence in §1.
-- LLP 1022 (the serial runtime owner, measured and parked 2026-08-30): the precedent this revives in a narrower form; its findings are this RFC's acceptance tests (§9).
-- LLP 1044 F4/F5/§3 (every piece of list work on main, synchronously; "ours has one thread, by design") and 1044.000 §5 item 8 ("the engine stays on the main thread until a physical 120 Hz run under load shows main-thread misses"), §5 item 2 ("CoreText objects stay with the worker that made them"), §8 ("no runtime-owner thread"). This RFC meets item 8's bar (§1) and replaces §8's line.
-- LLP 1050.000 D1 (never blank), D3 (a costly row is never built mid-fling; resumable rows a separate project), §2.4 ("closing it needs owed rows to be built off the frame, either by resumable rows or by moving work off the main thread"), §6 ("the runner stays deterministic and the host owns time").
-- LLP 1068 §4.9 (incarnation tokens on async callbacks), §6.2 (the remaining lump: runner report, host commit, batch decode).
-- LLP 1010 §6.5 (feedback is versioned; stale revisions, sequences and epochs cannot overwrite newer geometry), §6.2 ("AppKit and UIKit settle windows before paint").
-- LLP 1012 (the agent's operations; "the call returned, therefore it settled"), LLP 1016 D2 (replies wake the runner through the host), LLP 1027.002 (worker-placed data sources), LLP 1031 D2 (the `u32` handle ABI).
+- Charlie's ruling, 2026-09-28: "move the mount off the main thread … leaving only the UIKit/CA apply on main. Resumable rows are not chosen."
+- The review: `llp/reviews/1071-building-rows-off-the-main-thread.astra.md`.
+- `QUEUE.md` "A heavy list row still mounts as one lump" and its diagnosis (commit `ee0f8b70`): the evidence in §1.
+- LLP 1022, the serial runtime owner, parked 2026-08-30. This RFC revives it in narrower form. Its findings are acceptance tests here (§10, §11).
+- LLP 1044: F4, F5 and §3 put all list work on main, synchronously.
+- LLP 1044.000: §5 item 8's bar is met (§1) and its §8 "no runtime-owner thread" is replaced. §5 item 2: CoreText objects stay with the thread that made them.
+- LLP 1050.000: D1 (never blank); D3, amended by §9; §2.4 names off-main building as one way to close the gap; §6: the runner stays deterministic and the host owns time.
+- LLP 1068: §4.9 (incarnations), §5.1 (heavy-leaf hold), §6.2 (the remaining lump).
+- LLP 1010 §6.5: stale revisions, sequences and epochs cannot overwrite newer geometry.
+- LLP 1012: the agent's operations and the settle contract.
+- LLP 1016 D2 (replies wake the runner through the host), LLP 1027.002 (worker-placed sources), LLP 1031 D2 (the `u32` handle ABI).
 
 ## Summary
 
 On the iPhone 13 Pro Max's live-only feed, every late frame is one list row's
-mount: 14.7 ms of main-thread work in one runloop turn, of which 8.9 ms is
-Rust and decoding (the runner's report, the host commit with layout, the batch
-decode) and 5.9 ms is the Swift apply. SwiftUI spends more on the main thread
-but never more than 16.7 ms in a turn.
+mount. It is 14.7 ms of main-thread work in one runloop turn: 8.9 ms of Rust
+and decoding, and 5.9 ms of Swift apply (§1). SwiftUI spends more on the main
+thread in total but never more than 16.7 ms in one turn.
 
-This RFC moves the 8.9 ms to one **owner thread** that holds the whole Rust
-runtime for its life. The main thread keeps UIKit, Core Animation and the
-presenter.
+This RFC moves the Rust and decoding to one **owner thread**. That thread
+holds every Rust runtime in the process for its whole life. Main keeps UIKit,
+Core Animation, the presenter and one **apply coordinator**.
 
-- **Every call stays synchronous except one.** Events, timers, replies, boot,
-  the agent and every read block main until the owner answers, exactly as
-  they return today. The runner is never touched from two threads, needs no
-  `Send`, and gains no `unsafe`.
-- **The exception is the collection fill.** While a list moves, the scroll
-  pump posts a fill to the owner and returns. The owner runs the report, the
-  commit, layout and the decode. The decoded batch comes back to main and is
-  applied, in the owner's order, at most one fill per frame.
-- **Rows are asked for earlier.** The lead covers the owner's build time plus
-  one frame. A row the scrollport would show before its batch arrives is
-  **owed**. Main then waits for it, as it does today (LLP 1050.000 D1).
+- **Almost every call is synchronous.** The owner runs it, and main returns
+  only after the call's batch has applied. Events, timers, replies, boot, the
+  agent and reads all work this way.
+- **The runner is touched from one thread only.** It needs no `Send` and
+  gains no `unsafe`.
+- **There are exactly two asynchronous operations.**
+  1. **The collection fill during motion (§3).** Its batch is published to
+     main and applied by the coordinator in owner order.
+  2. **The display-link frame job when a fill is in flight (§7.1).**
+- **Three handshakes keep the asynchrony honest:**
+  - A fill never destroys a row main can still touch (§5).
+  - Main re-checks coverage against current geometry before it presents
+    (§6).
+  - The agent's `clock` drains every kind of pending work to a fixed point,
+    or says it did not (§7.2).
+- **The web and Linux stay synchronous.** They are the scheduling-free
+  reference that the Apple host must equal at every agent boundary.
 
-The web and Linux hosts keep today's single-threaded path. They are the
-synchronous oracle the Apple host must equal under the agent. macOS shares the
-Swift and adopts async fills after iOS (stage 5).
-
-**Recommended decisions** (§10 asks the questions):
+**Decisions:**
 
 | # | Decision |
 |---|---|
-| T1 | One owner thread per process holds every Rust runtime from creation to destruction. The registry, the runner, the kernel, the host, the data source and every Rust thread-local live there. No `Send`, no `unsafe impl` |
-| T2 | Every C call is a synchronous request from main to the owner, except the collection fill (T3) and a display-link tick that meets a fill in flight (T6). Main blocks on the reply and services callbacks the owner sends it while it waits (T7) |
-| T3 | The collection fill is asynchronous during motion. At most one fill is in flight per session. Its decoded batch is published to main |
-| T4 | Main applies batches in the order the owner produced them. A synchronous call first applies every fill batch published before it. Fill batches wait for the pump, one per frame |
-| T5 | Owed rows are never late. A fill whose rows the scrollport needs by the next frame is awaited on main (T4's drain). A hole rescue in the scroll callback is a synchronous fill, as today |
-| T6 | A display-link tick never waits on a fill. If a fill is in flight, the tick is posted, coalesced to one, and its frame applied when it arrives |
-| T7 | Nothing on the owner waits on main while main waits on the owner. Callbacks that need main (`native.call`) are run by main's wait loop |
-| T8 | Batch decode runs on the owner. Main receives a decoded `Batch` |
-| T9 | Under the agent, every carrier request starts with a drain: in-flight fills finish and apply before the operation reads or acts. `clock settle` drains to a fixed point |
-| T10 | Text measurement runs on the owner (CoreText, `UIFont`). `TextEngine`'s measurement side belongs to the owner. What main paints from it crosses as plain values under one lock. macOS's `NSFontManager` conversion is resolved on main ahead of time (§6) |
-| T11 | Web and Linux are unchanged. macOS adopts T3 in stage 5, behind 1022's smoke invariants |
-| T12 | `EXACT_FILL_SYNC=1` runs fills synchronously on the owner. It is the A/B and differential-test switch, not a user setting |
+| T1 | One owner thread per process holds every Rust runtime from `exact_create` to `exact_destroy`. The registry, runners, kernels, hosts, data sources and Rust thread-locals live there. No `Send`, no `unsafe impl` |
+| T2 | Every C entry point has a class in §2.3's table. Owner-class calls run as one indivisible owner job: input write, operation, output copy and decode. That job is synchronous from main unless it is one of T3's two asynchronous operations |
+| T3 | Asynchronous: the collection fill during motion, and the display-link frame job while a fill is in flight. Nothing else |
+| T4 | One non-reentrant apply coordinator on main applies batches in owner sequence. A synchronous call returns after its own batch has applied. Reports that an apply triggers are deferred until the coordinator is empty. Geometry is gathered after the drain, and a report the runner rejects as stale stays dirty and is retried |
+| T5 | Callback service is one-way. The owner reaches main only through `Owner.callMain`. A main callback cannot synchronously re-enter a runtime: that is refused by name. Notifications and logging are deferred as owner jobs. Each callback is claimed once, and locks are released before it runs |
+| T6 | A fill does not retire. The rows it would retire become *retiring*: alive, event-capable, out of the window. The next report retires them only if main acknowledges; main keeps any row touched, focused, selected, composing or accessibility-focused since the fill was posted |
+| T7 | Coverage is verified before presentation. After a drain, main re-reads current geometry, rescues uncovered owed rows synchronously, and checks that the viewport is covered, apart from D3's pending rows and 1068's held leaves |
+| T8 | Text measurement and text painting have separate mutable caches. Measurement publishes immutable line geometry keyed by content, width and font generation. No `CTLine` crosses threads |
+| T9 | Agent settlement is a fixed point over fills, frame jobs, publications, apply-generated reports and the existing conditions. It is re-checked after the request and after native completion turns. When work remains after the bound, it answers `settled: false` with reason `owner` |
+| T10 | Lifecycle: boot and plan swap are owner transactions. Destroy stops admission first. Pressure trims each cache on its own thread. Every job has an autorelease pool. Backgrounding stops speculative admission; foregrounding drains and re-checks coverage before resuming |
+| T11 | Web and Linux are unchanged. macOS adopts asynchronous fills last (stage 5), but runs on the owner from stage 1 |
+| T12 | `EXACT_FILL_SYNC=1` runs fills synchronously through the same owner and coordinator: the A/B and differential-test switch (approved, §0.1) |
 
-## 1. The evidence (why now)
+## 0. What r2 changed (the review)
+
+The review's verdict: "go with named changes. I would choose the
+whole-runtime owner thread." Each finding and where r2 answers it:
+
+| review | finding | r2 |
+|---|---|---|
+| #1 (P2) | Owner thread right; asynchronous ticks are a second exception, not a detail of fill | T3; §7.1 |
+| #2 (P1) | Callback reentrancy: native init logs through `session.log → runtime.log` while the owner waits on main; `.notOnQueue(.main)` does not catch an owner calling `main.sync` | T5; §4 |
+| #3 (P1) | An explicit ABI ownership table. `exact_app_changed` and `installAppModule` enter Rust on main. `exact_app_answer` must stay callable from a serviced callback. Input → op → output is one job | T2; §2.3 |
+| #4 (P1) | FIFO execution is not FIFO application: `Session.apply` re-enters Rust. Geometry must come after the drain; rejected geometry must be retried; committed batches are never discarded | T4; §3.2–3.3 |
+| #5 (P1) | A fill can retire a row UIKit still shows (`collection/mod.rs:708`). A tap in between gets `UnknownView` (`event.rs:789`) | T6; §5 |
+| #6 (P1) | Awaiting the old fill does not prove never-blank. Re-read geometry, rescue, verify. The lead must cover queue, build, publication and apply. Measure uncovered rows and missing area × time | T7; §6 |
+| #7 (P1) | Text: separate measurement and painting caches with immutable publications. Drop the "copy `CTLine`s" fallback. macOS `RegionReaderTiming.begin` asserts main (`RegionReaderMac.swift:59`), reached from `measure`: fix it in stage 1 | T8; §8.1 |
+| #8 (P1) | Ticks and `clock settle` need a settlement protocol. Rust `tick` settles layout, heights and Canvas 2D (`host.rs:1065`). `Frames.tick` advances timers before `tick` (`Session.swift:1157`). Coalesce only unexecuted work across no barrier. Eight rounds must answer "unsettled" | T9; §7 |
+| #9 (P2) | "One fill" is neither one row nor an 8.9 ms bound. Measure distributions and throughput. Bound admission across sessions | §3.4; §11 |
+| #10 (P2) | Lifecycle, pressure and background policy | T10; §8.4 |
+| #11 (P2) | Stage order 1 → 2 → 4 (if profiled) → 3 → 5, with its gates, including 25 µs per round trip in stage 1 | §11 |
+
+**What changed in the architecture.** The owner thread, synchronous calls
+and published batches stand as reviewed. One piece is new: §5's retirement
+handshake needs the runner to keep *retiring* rows. That is a runner change,
+and `CollectionFeedback` goes to v4. r1 said "no runner change". The
+coordinator should judge whether §5 needs its own review.
+
+## 0.1 Rulings on r1's questions (Charlie, 2026-09-28, through the coordinator)
+
+- **Q1: one owner per process.** It stands only if the two-session latency
+  gate holds (§11 stage 1). Per-session owners come only if measured
+  contention needs isolation.
+- **Q2: `EXACT_FILL_SYNC` is approved** (T12). It is a narrowly scoped
+  diagnostic and test switch on the same implementation, not a second path.
+- **Q3: stage 1 lands alone** once its gates pass.
+- **Q4: Linux stays synchronous.** Semantic parity does not require
+  identical scheduling.
+- **Q5: amend LLP 1050.000 D3 explicitly** (§9). Building mid-fling off main
+  is allowed when the row's main-thread work fits the remaining frame budget.
+
+## 1. The evidence
 
 LLP 1044.000 §5 item 8 kept the engine on main "until a physical 120 Hz run
-under load shows main-thread misses". The run was taken on 2026-09-28: System
-Trace on the iPhone 13 Pro Max (120 Hz), live-only feed, fling at 1k–6k pt/s,
-on origin/main `558a5bd8`. Data and scripts are in
-`~/bench/xheavy/results/late/iphone/`.
+under load shows main-thread misses". That run was taken on 2026-09-28:
+- System Trace on the iPhone 13 Pro Max, live-only feed, fling at 1k–6k
+  pt/s, origin/main `558a5bd8`.
+- Data and scripts: `~/bench/xheavy/results/late/iphone/`.
 
 | | exact2 | SwiftUI |
 |---|---|---|
@@ -78,429 +126,595 @@ on origin/main `558a5bd8`. Data and scripts are in
 | what long turns are | 94% one `ScrollPump` slice mounting about one row | CA commit 61%, `TimelineView` display link 36% |
 | probe late frames per s (fling, 3–9 rounds) | 8–9 | 1.1 |
 
-One live row's mount on the main thread (average over 132 long turns):
+The main-thread cost of one mount, averaged over 132 long turns:
 
-| part | ms | moves under this RFC |
+| part | ms | moves |
 |---|---|---|
 | runner report (`apply_document` 1.5, instance creation 1.1) | 2.9 | yes |
 | host commit (layout 1.5, create 0.8, motion 0.9, SVG emit 0.5) | 4.6 | yes |
-| batch decode (`BatchReader`) | 1.4 | yes (T8) |
-| Swift apply (flat leaves 2.1, SVG scene + animations 1.2, pool 0.6, …) | 5.9 | no (§8 stage 4 trims it) |
+| batch decode | 1.4 | yes |
+| Swift apply (flat leaves 2.1, SVG scene and animations 1.2, pool 0.6, …) | 5.9 | stage 4, if profiled |
+
+These are means over turns that mostly hold one row. A fill asks for
+`max(1, fits, needed)` rows. A change in pins or geometry lifts the limit,
+and a data change realizes the whole window. So neither "one fill" nor
+"8.9 ms" is a bound. §11 replaces both with measured distributions.
 
 The live clock is off in the fling, in both apps. With `BENCH_LIVE=1`,
-exact2's late frames do not change (201–205 in 24 s), while SwiftUI's rise to
-50–62, locked to its tick. Keyframes are set up once per mount (0.6 ms) and
-never restarted. The cause is the lump. The 19% per-node cut
-(`perf/node-cost`, landed `558a5bd8`) lowered the lump but did not move the
-late frames.
-
-What moving 8.9 ms buys: the row's main-thread cost falls to about 6 ms plus
-CA commit. That is under the 8.33 ms turn in the common case. Stage 4 targets
-the Swift apply for the rest.
+exact2's late frames do not change (201–205 in 24 s). SwiftUI's rise to
+50–62, locked to its tick. The cause is the lump.
 
 ## 2. What runs where
 
 ### 2.1 The owner thread (T1)
 
-There is one `Thread` named `exact.owner`, at QoS `userInteractive`. It is
-created at the first `exact_create` and lives for the process. Its loop
-drains a FIFO of jobs. It must be a dedicated thread, not a serial
-`DispatchQueue`. A serial queue may run on different pool threads, and the
-registry (`abi/exports.rs:25-27`) and five other thread-locals are keyed by
-thread.
+There is one `Thread`, `exact.owner`, at QoS `userInteractive`. It is created
+at the first `exact_create` and lives for the process. It must be a dedicated
+thread, not a serial queue: the registry (`abi/exports.rs:25-27`) and the
+Rust thread-locals are keyed by thread.
 
 The owner holds:
-- **The registry and everything in it:** `Bridge<D>`, `Host<D>` with its
-  `Runner` and `Kernel`, the motion `Engine`, `SvgState`, the executor's
-  sender, the in/out buffers.
-- **The data source `D`.** It stays on the thread it was created on, so
-  `DataSource` needs no `Send` bound. Worker-placed sources (LLP 1027.002)
-  already hand envelopes back to "the runner's thread"; that is now the
-  owner.
-- **The Rust thread-locals:** `REFUSAL` (`abi.rs:1384`), `markup.rs:59`,
+- each `Bridge<D>` with its `Host<D>`: `Runner`, `Kernel`, motion `Engine`,
+  `SvgState`, the executor sender and the in/out buffers;
+- each data source `D`. Worker-placed sources (LLP 1027.002) already hand
+  envelopes to "the runner's thread", which is now the owner;
+- the Rust thread-locals: `REFUSAL` (`abi.rs:1384`), `markup.rs:59`,
   `textflow.rs:107`, `stdlib.rs:280`'s scratch, and the collection
-  `PinEpoch` (`nest.rs:378`). Each one keeps its meaning because every
-  access is on the owner. §6.4 lists the Swift calls into `markup_*` and
-  `textflow_*` exports that must become owner requests.
+  `PinEpoch` (`nest.rs:378`).
 
-**Why not the runtime moving between threads (a lease).** An exclusive
-hand-off with a `Mutex` would let the fill run on a worker and everything
-else on main. It needs an `unsafe impl Send` over a graph of `Rc`s, and an
-audit that nothing outside the runtime holds a clone. It also needs every
-thread-local above moved into the runtime; `PinEpoch`'s counter would
-otherwise go backwards across threads and the pins cache would hit falsely.
-It buys nothing the owner does not: main is blocked during either model's
-synchronous calls. Rejected.
+Its loop pops jobs from two queues:
+1. **Synchronous requests.**
+2. **Admitted asynchronous work** (fills and frame jobs).
 
-**Why not a second runtime for rows.** A row is built against the session's
-state; a copy would fork it. Rejected, as 1044.000 §8 rejects "a second state
-graph".
+A synchronous request overtakes asynchronous work that has not *started*. An
+unstarted fill has mutated nothing, so running the request first is the same
+as the request arriving first. Started work is never preempted. Each job runs
+inside an autorelease pool.
 
-### 2.2 Main (T2)
+**Why not lend the runtime to a worker per fill.** The review agrees. A
+hand-off would move `Rc` graphs and thread-local state between threads.
+Detached subtree construction would need new rules for ids, local state,
+dependencies, effects and invalidation. Rejected.
+
+### 2.2 Main (T2, T4)
 
 Main keeps:
-- UIKit and AppKit.
-- The presenter, `CollectionHost` (its facts, cursor, snapshots), the scroll
-  pump, `Frames`, the raster loader, the text rasterizer's publication.
-- The agent carrier's execution (it already runs each request on main,
-  `Agent.swift:62-90`).
+- UIKit and AppKit, and the presenter;
+- `CollectionHost` (facts, cursor, snapshots) and the scroll pump;
+- `Frames`, the raster loader, and the publication side of text painting;
+- the agent carrier's execution;
+- the apply coordinator (§3.2).
 
-Every Swift→Rust call in `Bridge.swift`'s `Runtime` becomes
-`owner.sync { … }`. That call does three things:
-1. It enqueues the closure.
-2. It waits on a condition that wakes for the reply *or* for a callback the
-   owner posted for main (T7).
-3. It returns the decoded result.
+`Runtime` in `Bridge.swift` becomes a façade. Each method submits one owner
+job and waits. The waiting is a loop: it wakes for its reply *or* for a
+callback the owner posted (§4). It returns the decoded `Batch` to the
+coordinator, which applies it and any earlier batches. Call sites in
+`Session.wire` keep their shape: `apply(runtime.press(id, now: now()))`.
 
-The call sites in `Session.wire` (`Session.swift:514-560`) do not change
-shape. `apply(runtime.press(id, now: now()))` still reads as a synchronous
-call and still is one.
+### 2.3 The ABI, entry by entry
 
-**The hop costs about two thread wakes.** It is paid about 120 times a
-second while a display-link tick runs, and once per event otherwise. Stage 1
-measures it (§8).
+Every export of `exact.h` is in one of four classes. The façade enforces the
+class, and a debug build asserts it (§10).
 
-### 2.3 The asynchronous fill (T3)
+| class | where it runs | entries |
+|---|---|---|
+| **owner job** (registry, per runtime; input, op and output in one job) | the owner. Synchronous from main, except T3 | `exact_create`, `exact_destroy`, `exact_boot`, `exact_boot_plan`, `exact_prepare_plan`, `exact_commit_plan`, `exact_discard_plan`, `exact_prepare_module`, `exact_dispatch`, `exact_collection_feedback`, `exact_tick`, `exact_advance`, `exact_pump`, `exact_agent`, `exact_resize`, `exact_insets`, `exact_set_time`, `exact_set_root_font_size`, `exact_set_preferences`, `exact_set_place`, `exact_set_page`, `exact_set_launch_location`, `exact_set_measure`, `exact_set_fonts`, `exact_set_canvas_text`, `exact_set_wake`, `exact_set_app_module`, `exact_intrinsics`, `exact_into_view`, `exact_list_index`, `exact_list_text`, `exact_select_options`, `exact_reorder_*`, `exact_hold_*`, `exact_has_hold`, `exact_height_drag_*`, `exact_transform_motion`, `exact_surface_record`, `exact_fulfill_surface`, `exact_canvas_image`, `exact_canvas_display`, `exact_command`, `exact_auth`, `exact_delivery_sync`, `exact_data_ready`, `exact_request_active`, `exact_region_request`, `exact_region_complete`, `exact_text_ready`, `exact_location_of`, `exact_scheme`, `exact_view_scheme`, `exact_baked_compat`, `exact_trim`, `exact_app_changed`, `exact_in`/`exact_out` (only inside a job) |
+| **owner-deferred** (a notification: no result used) | an asynchronous owner job, after the current one | `exact_log`. Also `exact_app_changed` when called from a serviced callback |
+| **owner-local helpers** (thread-local tables, by handle) | directly when already on the owner (from a measure callback, say). As an owner job from main | `exact_markup_*`, `exact_textflow_*` (`prepare`, `flow`, `free`), `exact_text_collapse` |
+| **callback context** (valid only during the call it answers) | on whichever thread services the callback. It never touches the registry or enqueues | `exact_app_answer`: it writes the waiting caller's stack slot (`app_module.rs:55`) |
+| **thread-free** (process-global, locked, or pure) | any thread | `exact_raster_*` (a global `Mutex`, `raster.rs:111`), `exact_app_reply` (a `Send` reply), `exact_gesture_constant`, `exact_material_platform`, `exact_native_abi`, `exact_delivery_api` |
 
-`CollectionHost.flush` (`Collection.swift:362`) gathers facts on main:
-- the scrollport geometry;
-- the focus and interaction owners;
-- the measured sizes of mounted rows, read from applied views (`:390-406`).
+**What moves.**
+- `nativeChangedCallback` called `exact_app_changed` on main
+  (`NativeModule.swift:246`). That becomes an owner job: deferred if it
+  arrives while main services a callback, synchronous otherwise.
+- `installAppModule` called `exact_set_app_module` directly
+  (`NativeModule.swift:378`). That becomes an owner job at session setup.
+- Every other direct `exact_*` call outside `Bridge.swift` is found and
+  classified by the same audit, which is a stage 1 deliverable.
 
-These are plain bytes (`CollectionFacts.encode`). In a *fill* (the scroll
-pump's `fillSlice` during motion) they are posted to the owner with
-`owner.async`. The owner then runs `exact_collection_feedback`: the report,
-the commit, layout with text measurement, `present`, `finish`, the decode.
-It publishes the `Batch`, tagged with:
-- the session's generation (a reboot or destroy bumps it; LLP 1068 §4.9's
-  rule);
-- the owner's sequence number.
+## 3. The asynchronous fill and the apply coordinator
 
-Only one fill is in flight per session. The pump does not post another until
-the batch is applied. A second list's dirty report waits for the same slot.
+### 3.1 Posting a fill (T3)
+
+During motion the scroll pump calls `fillSlice`, and the fill goes to the
+owner.
+
+1. **Drain first.** Main drains the coordinator (§3.2).
+2. **Gather facts.** It reads the scrollport geometry, the focus and
+   interaction owners, the measured sizes of applied rows and the retirement
+   acknowledgements (§5).
+3. **Post.** It posts `exact_collection_feedback` as an asynchronous job,
+   with main's `now` and the session generation.
+4. **Owner side.** The owner runs the report, the commit, layout with text
+   measurement, `present`, `finish` and the decode. It publishes the
+   `Batch`, stamped with the owner sequence and the generation, then wakes
+   main with one `main.async`.
+
+Admission is one fill in flight *per process*, round-robin over sessions and
+lists. A second list's report waits for the slot.
 
 What stays synchronous:
-- Reports that are not fills: at rest, after a batch, a resize, pins
-  changing, `dataReady`.
-- The scroll callback's hole rescue (`Collection.swift:285-290`).
+- reports at rest;
+- reports after a resize or a pin change;
+- `dataReady`;
+- the hole rescue (§6);
+- every report under `EXACT_FILL_SYNC=1`.
 
-Those are rarely large. Keeping them synchronous keeps LLP 1010 §6.2's
-"settle windows before paint" true. Stage 2 counts how many large reports
-remain synchronous.
+### 3.2 The apply coordinator (T4)
 
-## 3. Handing a built row to main (T4)
+One object on main owns application. It holds a queue of batches ordered by
+owner sequence, and one flag, `applying`.
 
-**Published batches.** A batch is an immutable value: `Batch` and its
-`BatchOp`s. Publication is a mutex-guarded queue on the owner side, plus one
-`DispatchQueue.main.async` wake. The payload dictionaries are immutable after
-decode, so the hand-off is safe under the queue's lock. They cross in an
-`@unchecked Sendable` box whose one invariant is "written once before
-publish". `StyleCache` (`BatchReader.swift`) already has its lock; it becomes
-owner-only.
+- **Order.**
+  - A synchronous call's batch goes into the queue.
+  - The coordinator applies everything published before it, then that batch.
+  - The call returns only after its own batch has applied.
+  - A fill's batch waits for the pump, which applies at most one fill batch
+    per frame, at the start of its slice, unless a synchronous call or an
+    owed rescue drains it sooner.
+- **No reentry.** Today `Session.apply` re-enters Rust from inside an apply:
+  it flushes collections (`Session.swift:753`), and the presenter reports
+  intrinsics. Under the coordinator, anything an apply triggers only marks
+  work dirty. That work runs after the queue is empty, as new owner calls,
+  so batch 3 can never overtake batch 2.
+- **A batch is never partial.** It is one runner commit whose ids, children
+  and styles refer to each other.
+- **Discard only dead batches.** A batch is dropped only when its generation
+  is dead (reload, destroy). A committed batch for a live runtime is always
+  applied, even when newer data exists: the runner's state already includes
+  it.
 
-**Order.** Batches are applied in owner sequence, always.
-- Every synchronous call first applies any published but unapplied batches,
-  then its own.
-- A fill batch is therefore never applied after a batch the owner produced
-  later.
-- This is the only ordering rule the presenter needs. Every batch it applies
-  is one the runner committed, in commit order, as today.
+### 3.3 Fresh geometry, and retrying rejected geometry (T4)
 
-**Budget.** The pump (`ScrollPumpIOS.swift:187`) applies at most one fill
-batch per display frame, inside `pump()`. It applies it at the start of the
-slice, before it posts the next fill, so one frame's main-thread work is one
-row's apply. When the owner has published several (a slow main), the rest
-wait for the next frames unless one is owed (T5).
+Today feedback is encoded from the applied snapshot and marked sent
+(`Collection.swift:390`, `:415-416`) before the Rust call. If a fill or a
+data update lands in between, the runner rejects the report wholesale as
+stale: `prepare_feedback` returns `Ok(None)` (`collection/mod.rs:858-893`).
 
-**What main does not do.** It never partially applies a batch. A batch is one
-runner commit: ids, children and styles that refer to each other. Splitting a
-row's apply across frames is resumable rows by another name, and that is not
-chosen.
+Under r2:
+- facts are gathered only after a drain;
+- the Rust host tells a stale rejection apart from an empty success, with a
+  new batch flag `stale`;
+- on `stale`, `CollectionHost` restores the list's dirty bit and clears
+  `lastFacts`/`lastSequence`, so the next turn re-gathers and re-reports.
 
-## 4. Consistency
+LLP 1010 §6.5's revision, sequence and epoch checks stay the arbiter.
 
-The owner is the only place the runtime's state changes, and it changes in
-FIFO order. Every question below is about wall time, not state.
+### 3.4 Throughput and cross-session admission
 
-**An event arrives while a fill is building.** A tap, a key, a text change:
-the event's `owner.sync` queues behind the fill. Main waits for the rest of
-the build (at most one row's 8.9 ms, usually less), applies the fill batch,
-then the event's batch. The runner saw fill-then-event. That is an order the
-synchronous host could also have produced; the fill would have run first had
-the pump's slice come first. Input latency is bounded by one build; today it
-is bounded by one whole mount (14.7 ms).
+Waiting for apply before posting the next fill serializes build and apply.
+At about 9 ms of build and 6 ms of apply, that caps a list near 66 rows/s.
+A 6k pt/s fling of the live feed needs about 18. Faster flings build
+nothing mid-fling (D3, `limit`).
 
-**The row being built cannot be tapped.** It has no views on main until its
-batch applies. A tap on a mounted row names a view id that the fill cannot
-retire. Retirement happens in the owner's commit and reaches main in the
-batch. If a fill's commit retires the tapped row's view, the owner handles
-the event after the fill, against the new tree. The runner
-handles an event on a retired view as it does today, when a
-scroll-triggered report retires a row a moment before a tap. Stage 2's tests
-include that case.
+Stage 2 measures sustained production against demand. If production falls
+short, stage 2b allows one more fill to be posted while the previous batch
+awaits apply. Its facts reuse the last applied geometry and carry no new
+measurements; those come with the next report.
 
-**Data updates, replies and timers.** The executor's wake
-(`Session.swift:503-509`) posts `apply(runtime.pump)` to main, which becomes
-`owner.sync(pump)`. It queues behind a fill like any event. A reply that
-changes a row's data therefore commits after the fill that built the row,
-and its batch updates the row just built. The same holds for timers
-(`SessionClockTimer`, `Session.swift:1075-1080`).
+With one owner per process, a heavy session's fills must not starve another
+session's synchronous calls. Synchronous requests overtake unstarted fills
+(§2.1), and stage 1 has a two-session latency gate (§11).
 
-**Geometry that moved while the row was built.** The facts in a fill are the
-scroll state at post time. By apply time, UIKit has scrolled one or two
-frames further. The runner's window was computed with a lead (T5) that
-covers the build time, so the rows are still ahead of the viewport.
+## 4. Callback service and reentrancy (T5)
 
-**The next report uses the newer state.** The next report carries the new
-offset and the sizes measured from applied views. LLP 1010 §6.5's revision,
-sequence and epoch checks (`prepare_feedback`, `collection/mod.rs:858-893`)
-already drop a report whose revision a batch superseded. Main never posts a
-report while a fill is in flight (§2.3), so a report never races a batch it
-has not seen.
+The owner sometimes needs main during a job:
+- `native.call` does `DispatchQueue.main.sync` when off main
+  (`NativeModule.swift:232-244`);
+- macOS resolves an unseen font variant through `NSFontManager` (§8.1).
 
-**Pins.** Focus and interaction owners are read on main at post time and
-sent in the facts, as today. A focus change during a build dirties the list.
-The next report, after the fill applies, carries it. Pins that must move
-immediately use a synchronous report (`pinsChanged`, `Collection.swift:326`).
+The contract:
 
-**Non-list updates.** Nothing else is asynchronous (T2), so a non-list
-update's batch is always applied in its call. That includes an action's
-batch, a navigation, and a style change from an event.
+1. **One door.** The owner reaches main only through
+   `Owner.callMain(name, body)`. It posts the body to a mailbox and waits
+   for its completion. Main runs the body from:
+   - its wait loop, when main is blocked in a synchronous request; or
+   - a `main.async` hop, when main is free.
+   
+   Each body is claimed once: an atomic `posted → claimed → done` state. The
+   mailbox lock is released before the body runs.
+2. **No synchronous reentry from a serviced body.** While main runs a body,
+   a thread-local depth on main is non-zero. A synchronous owner request
+   made then cannot be served: the owner is suspended inside the job that
+   asked. Such a request answers today's `busy` refusal (`abi.rs:1446`) by
+   name and journals it. Rust also holds a mutable borrow of the runtime
+   across the callback (`abi.rs:1442`), so running the request inline would
+   be unsound too.
+3. **Notifications are deferred.**
+   - `log` (`Session.swift:969`, reached from native init at
+     `NativeModule.swift:318`), `app_changed`, and any other entry whose
+     result is unused become owner-deferred jobs.
+   - They run after the current job, in submission order.
+4. **Answers are direct.** `exact_app_answer` is callback-context (§2.3). It
+   writes the waiting caller's slot from the serviced body without touching
+   the owner.
+5. **Other threads.**
+   - Worker-placed sources and the executor never wait on the owner.
+   - They reach main with `main.async`, or with `Owner.callMain`'s mailbox
+     when the owner is the one asking.
+   - The owner never waits on any thread except through `callMain`.
+6. **Detection.** `dispatchPrecondition(.notOnQueue(.main))` does not catch
+   an owner calling `main.sync`, so r2 does three things instead:
+   - ExactKit's `DispatchQueue.main.sync` sites go through one helper,
+     `Main.sync`. It traps in debug builds when the current thread is the
+     owner, and routes through `callMain` in release.
+   - A source check fails the build on a raw `DispatchQueue.main.sync` in
+     ExactKit.
+   - A debug watchdog dumps both threads' current job names when main has
+     waited more than 250 ms on the owner while the owner is inside
+     `callMain`.
 
-## 5. The agent, the clock and tests (T9)
+## 5. Retirement and interaction (T6)
 
-LLP 1012's contract is "the call returned, therefore it settled". LLP 1022
-failed it because boot, ticks and events all became asynchronous. Its smoke
-flaked on the motion seek across the timer and on canvas captures.
+A fill can retire rows whose UIKit views are still present
+(`collection/mod.rs:708`). Between the fill's post and its batch's apply, the
+user can:
+- touch a row;
+- move focus to it;
+- select text in it;
+- begin IME composition in it;
+- land VoiceOver's focus on it.
 
-Here, every operation except the fill stays synchronous. Fills are drained at
-the carrier boundary:
+The event then reaches the runner after the fill and fails as `UnknownView`
+(`runner/event.rs:789`). This interval is new, so r2 closes it with a
+handshake.
 
-- **Before each carrier request** (`Agent.swift:62-90`), main calls
-  `owner.drain()`. That call:
-  1. waits until no fill is in flight;
-  2. applies every published batch in order;
-  3. repeats if an applied batch scheduled another fill (bounded, as
-     `ScrollPump.settle` is: 8 rounds).
-- **`clock settle`** already runs `presenter.settlePump()`
-  (`IOS/PresenterIOS.swift:472-476`), whose `ScrollPump.settle` fills with an
-  unlimited `fillSlice` (`ScrollPumpIOS.swift:210-218`). Under this RFC
-  `settle` fills are synchronous (T5's owed path). `Agent.clock`'s loop
-  (`Agent.swift:327-406`) gains the drain at the top of each round.
-- **The clock stays virtual.** A fill carries `now` from main
-  (`collectionFeedback(bytes, now:)`), and under the agent `now()` is the
-  agent's clock (`Session.swift:512`). The runner neither presents frames nor
-  reads a clock (LLP 1050.000 §6). A fill built later in wall time is the
-  same fill.
+1. **Retiring, not retired.** An asynchronous report does not retire. The
+   rows it would retire become **retiring** in the runner:
+   - their instances, slots and views stay alive, and events to them are
+     delivered;
+   - they leave the window and are not measured.
+   
+   The batch lists them.
+2. **Main acknowledges.** When the batch applies, main acknowledges every
+   retiring row that has not been interacted with since the fill was
+   posted. Main tracks a per-list set of view ids touched since each posted
+   report. Rows entered through five kinds of interaction count as touched:
+   - touch-down;
+   - a focus change;
+   - accessibility focus;
+   - a selection;
+   - marked text.
+3. **The next report settles each one.** It carries `acked: [view]` and
+   `kept: [view]` (`CollectionFeedback` v4).
+   - The runner retires the acknowledged rows; their destroy ops ride that
+     report's batch.
+   - A kept row becomes an interaction pin until main releases it (LLP 1010
+     §6.2's pin rules).
+4. **Synchronous reports retire at once, as today.** There is no interval
+   to protect.
+5. **The bound.** A retiring row lives at most until the next accepted
+   report. The runner retires any it still holds at rest, in a synchronous
+   report.
 
-With the drains, an agent sees exactly the synchronous host's states at
-every request boundary. The web and Linux hosts, which never go async (T11),
-are the oracle for that claim.
+`TextAreaIOS`'s marked-text protection (`:235`) guards value replacement,
+not the editor's destruction. Under this protocol the editor is kept, never
+destroyed mid-composition.
 
-**Tests:**
-- **Runner and kernel:** unchanged. The runner is not threaded. The
-  incremental differential test (`runner/tests/it/incremental.rs`) keeps
-  covering feedback ordering, including stale reports.
-- **Swift (XCTest), new:**
-  - An `Owner` unit test: FIFO order, sync-after-async ordering (a sync
-    call's batch is applied after every earlier fill's), the callback
-    service under a synchronous wait (a `native.call`-shaped callback during
-    a sync request does not deadlock), and drain.
-  - A host test that runs a scripted scroll over a collection fixture twice,
-    with `EXACT_FILL_SYNC=1` and without. It asserts the same agent `tree`
-    and the same collection `state` at each settle.
-  - The existing collection tests (`CollectionTests.swift`,
-    `CollectionMacTests.swift`, `CollectionFillMacTests.swift`,
-    `NodePoolIOSTests`, `FlatLeavesIOSTests`) run on the owner model. The
-    ones the survey marks as order-sensitive stay green unmodified:
-    `testCorrectionLandsBeforeDeferredAuthoredEvent`,
-    `testFeedbackMembershipCommitsContinueOnLaterTurnsWithoutScroll`,
-    `testCancelledPostScrollSliceCannotConsumeNewWork`.
-- **Smokes:**
-  - `smoke.mjs ios`, `macos`, `host`, `host-ios`, `svg`, `canvas`, `motion`.
-  - 1022's two failure modes are explicit acceptance tests: the motion seek
-    across the timer, and canvas capture counts, each 8 of 8 against a
-    baseline worktree's 8 of 8.
-  - `smoke.mjs` has no virtualized-list step today. The Extra Heavy feed's
-    probe (out of repo) and the differential XCTest cover lists.
+**Tests, with publication held** (a test hook holds a fill before commit,
+before publication, or before apply). For each point:
+- touch-down then click;
+- focus transfer into the retiring row;
+- VoiceOver focus;
+- a selection drag;
+- IME composition.
 
-## 6. What changes for each subsystem
+Each must deliver its event, and the kept row must survive.
 
-### 6.1 Text measurement (T10)
+## 6. Never blank (T7)
 
-`TextEngine.measure` (`Text.swift:1078-1150`) is CoreText:
-`CTTypesetterCreateWithAttributedString`, `SuggestLineBreak`,
-`CreateLine`. It uses `CTFont`s from `TextEngine.font` (`:561-615`). CoreText
-objects are thread-safe to create and use from one thread. `UIFont` objects
-are immutable and usable off main.
+Awaiting the old fill does not prove coverage. Its geometry describes the
+viewport at post time. By completion, the scroll may have:
+- reversed;
+- jumped;
+- met a keyboard or a width change;
+- remeasured rows.
 
-`TextEngine`'s state is unsynchronized: `fonts`, `residency`, the counters.
-It is read on main by painting:
-- `measuredBreaks` (`:715-720`);
-- `TextRaster.render(lines:)`, which asserts main when it reuses cached lines
-  (`TextRaster.swift:53`).
+Another list may need rows too.
 
-The split:
-- Measurement and its caches (the font table, `residency`) are owner-only.
-- What painting needs crosses as plain values, following 1044.000 §5 item 2.
-  These are line ranges and baselines (`measuredBreaks` already returns
-  them) through one small lock around the break cache.
-- Main never touches an owner `CTLine`. The reuse path in `TextRaster`
-  re-shapes from the plain breaks on main, or on the existing text raster
-  workers.
-- Stage 1 measures what this costs painting. If re-shaping is visible, the
-  cached lines are copied into the published batch for the rows it created
-  instead.
+1. **Before presentation.** The rescue runs in the scroll callback
+   (`Collection.swift:285-290`) and the pump's slice:
+   1. drain the coordinator;
+   2. re-read current geometry;
+   3. if the applied rows do not cover the scrollport, run a *synchronous*
+      report limited to the owed rows and apply it;
+   4. verify coverage (§10 counts failures).
+2. **Keep what is coherent.** During a resize, content that the runner
+   accepted stays until its replacement applies. Correction sequence checks
+   (`Collection.swift:43`) and UIKit's momentum (`CollectionIOS.swift:89`)
+   are unchanged.
+3. **The lead covers the whole path.** It is velocity × (p95 queue wait +
+   p95 build + publication delay + p95 apply + one frame). Every term is
+   measured per list, not assumed.
+4. **What "never blank" means here.** No row box in the viewport is
+   missing, except where the rules already allow it: D3's pending rows, and
+   1068's held heavy leaves, whose row box is present and whose leaf content
+   is absent.
+5. **Metrics.** Uncovered rows per second, and missing-content area × time,
+   each split into:
+   - allowed (D3, 1068);
+   - unintended. The gate for this part is zero.
 
-**macOS:** `NSFontManager.shared.convert` (`:613`) is not documented as
-thread-safe. The plan's font variants are a finite set, known at boot. Main
-resolves them into a table the owner reads. An unseen variant is resolved by
-a callback to main (T7).
+## 7. Frames, ticks and settlement
 
-Canvas text (`exact_set_canvas_text`, `Canvas2DText.swift:31-103`) is
-CoreText and "called on the runtime's thread" (`abi/exports.rs:49-57`):
-unchanged, now on the owner.
+### 7.1 The display-link frame (T3's second exception)
 
-### 6.2 SVG, motion, images
+`Frames.tick` (`Session.swift:1142-1164`) does three things in order:
+1. if a timer is due, `advance`;
+2. if motion or a 2D canvas wants a frame, `tick`;
+3. render native canvases with `canvases.tick`.
 
-- **SVG:**
-  - `SvgState::emit` (`svg.rs:184`, from `present`) is Rust: owner.
-  - Building the `CALayer`/`CAShapeLayer` tree and adding
-    `CAKeyframeAnimation`s (`SvgScene.swift:75-121,195`) is the presenter
-    apply: main.
-  - Stage 4 may build `CGPath`s and the animation values on the owner (they
-    are Core Graphics values, not layers) and hand them over in the batch.
-- **Motion:**
-  - The Rust `Engine` (`host.rs:123`) is owner-only. It advances in every
-    commit, fills included.
-  - `Frames.tick` (`Session.swift:1142-1164`) is a synchronous request unless
-    a fill is in flight. Then it is posted, at most one outstanding (T6), and
-    its frame ops apply when published. A Rust-sampled value can therefore
-    lag one frame while a row builds. Today the whole frame is lost.
-  - CA-lowered keyframes are unaffected.
-- **Images:**
-  - Decode is already off main (`RasterWorkers`, `RasterLoader.swift:143-172`)
-    over a process-global `Mutex` core (`raster.rs:111-113`). That is
-    independent of the registry: unchanged.
-  - Intrinsic sizes flow main→Rust after a batch (`Session.swift:539`) as a
-    synchronous request.
+Rust `tick` is not a replaceable sample. It settles layout, runs height
+layout and advances Canvas 2D (`host.rs:1065`).
 
-### 6.3 Native modules and other callbacks (T7)
+The frame job:
+- **No fill in flight:** steps 1 and 2 run as one synchronous owner job, as
+  today.
+- **A fill in flight:** main does not wait. It submits one asynchronous
+  frame job that carries the frame's captured virtual timestamps: the timer
+  check's `now` and the tick's `now`.
+- **Coalescing:**
+  - A frame job that has not started may be replaced by a newer one, only
+    if no event or timer job was submitted after it. Those are barriers.
+  - A frame job that has run is never discarded. Its batch applies in
+    order.
+- **Native canvases** (step 3) render on main after the coordinator has
+  applied everything published by that point. So they draw the latest
+  applied state, never a state newer than what the presenter shows. When
+  the frame job is still pending, they render the previous state with this
+  frame's `frameNow`, as a dropped frame would today.
 
-`nativeCallCallback` runs inline on main or does `DispatchQueue.main.sync`
-from another thread (`NativeModule.swift:232-244`).
-- **During a fill (async):** main is free, and `main.sync` is safe.
-- **During a synchronous request:** main is blocked in `owner.sync`, and
-  `main.sync` would deadlock.
+Under the agent (virtual clock), frame jobs are always synchronous.
 
-The rule: the owner never calls `DispatchQueue.main.sync`. It calls
-`Owner.callMain { … }`. That enqueues the closure for main and waits. Main
-runs it either:
-- in its wait loop, if main is inside `owner.sync`; or
-- from a `main.async` hop, if main is free.
+### 7.2 `clock settle` and every agent request (T9)
 
-`native.call` is changed to use it. The same helper serves macOS's unseen
-font variant (§6.1).
+The carrier runs each request on main (`Agent.swift:62-90`).
 
-A debug build asserts that the owner never calls `main.sync`. It does this
-with `dispatchPrecondition(.notOnQueue(.main))` in the owner's callbacks, and
-a check in `callMain` that the caller is the owner.
+**Before and after every request, and after each native completion turn,**
+it runs the fixed point:
+- drain the coordinator;
+- wait for fills in flight;
+- run any queued frame job;
+- run the reports that applies generated;
+- then the existing conditions:
+  - `fillPending` empty;
+  - no pending replies (`pendingCount`);
+  - text refreshed;
+  - native work not in flight;
+  - holds, and images.
 
-`later` and `changed` already hop with `main.async` (`:217-227,246-253`):
-unchanged.
+**`clock settle`** (`Agent.swift:327-406`) runs that fixed point at the top
+of each round, and again after `settlePump`. Its fills are synchronous (the
+owed path), so the result does not depend on scheduling.
 
-### 6.4 The other ABI entry points
+**When the bound is reached,** 16 rounds or 20 s as today, and any
+condition is still true, the reply is `settled: false`. The reason list
+includes `owner`, naming what remained:
+- fills;
+- frame jobs;
+- publications;
+- reports.
 
-- **`markup_*` and `textflow_*`:** their thread-local tables
-  (`markup.rs:59`, `textflow.rs:107`) are filled by the host's commit and
-  read by Swift. Every Swift call into them becomes an owner request.
-- **The raster ABI:** global `Mutex`: unchanged.
-- **The macOS regions ABI** (`text_ready`, `region_complete`,
-  `abi_collections.rs:17-49`): owner requests.
-- **The executor's `WakeFn`:** already "must enqueue asynchronously"
-  (`executor.rs:9-11`). It keeps waking main, which requests `pump` on the
-  owner.
+LLP 1012's diagnostics shape gains that one reason. Eight or sixteen rounds
+are a bound, never proof of settlement.
 
-### 6.5 Boot, reload, destroy
+**The clock stays virtual.** Fills and frame jobs carry main's captured
+`now`, which is the agent's clock under the agent (`Session.swift:512`). The
+runner reads no clock (LLP 1050.000 §6).
 
-Boot is a synchronous request: main waits, as today. The first frame is the
-whole frame, not a shell. That answers 1022 finding 2, which measured the
-async shell at 11 views where the synchronous boot delivered 275.
-- **Fonts:** installed inside boot, on the owner (`Text.swift:1155`).
-- **Destroy:** a synchronous request queued after any in-flight fill.
-- **A published batch for a dead generation** is dropped on arrival.
-- **The dev loop's reload** keeps its order: boot the new plan, then reset
-  the presenter.
+## 8. Subsystems
 
-1022 finding 3's pre-`UIApplicationMain` prepare overlap becomes possible
-(a one-shot async `prepare` on the owner). It is not part of this RFC.
+### 8.1 Text (T8)
 
-## 7. Failure modes and detection
+Ordinary measurement is CoreText (`Text.swift:855-873`). It uses font
+descriptors, literal colours and locally built attributed strings. It makes
+no view or TextKit calls (`:573`). The hazard is shared mutable state:
+- `measuredBreaks` reads `residency` (`:715-720`);
+- painting calls `paragraph` and `accepted` (`NodeText.swift:24`);
+- Canvas 2D mutates font caches (`Canvas2DImage.swift:99`).
 
-| failure | how it would show | detection |
+r2 splits `TextEngine`:
+- **Measurement (owner).** Its own font table, `residency`, and the
+  `CTTypesetter`s and `CTLine`s it makes. It *publishes* an immutable
+  `LineGeometry`: line ranges, baselines, width, extents, keyed by (content
+  identity, width, font generation). Publication goes into a map under one
+  lock; the lock is held only to insert or look up, never while shaping.
+- **Painting (main and the text raster workers).** Its own font table and
+  its own `CTLine`s, shaped from published `LineGeometry`. Measurement's
+  objects are never read. r1's fallback, copying cached lines into a batch,
+  is dropped: copying an array does not make independently owned `CTLine`s.
+- **Canvas 2D text:** measured by `exact_set_canvas_text` on the owner, with
+  measurement's fonts. `Canvas2DImage`'s drawing-side font cache is
+  painting's.
+- **Font generation:** bumped by an `exact_set_fonts` install or a catalog
+  change. A publication with an old generation is not used.
+
+**macOS, in stage 1:**
+- `readerMeasure` (`RegionReaderMac.swift:428`) runs inside `measure`, now
+  on the owner. `RegionReaderTiming.begin` asserts main (`:59`).
+- The reader's measurement state becomes owner-owned: `readerParagraphs`
+  and `RegionReaderTiming`'s intervals. The assertion becomes an owner
+  assertion.
+- Main-side consumers reach that state through owner jobs:
+  `exact_region_complete`, `exact_text_ready`, and the timing readout.
+- `NSFontManager.shared.convert` (`Text.swift:613`) is resolved on main into
+  a table at font install. An unseen variant goes through `callMain`.
+
+### 8.2 SVG, motion, images
+
+- **SVG.** `SvgState::emit` is owner. Building layers and adding animations
+  (`SvgScene.swift:75-121`, `:195`) is main. Stage 4, if profiled, moves
+  `CGPath` and animation-value construction to the owner as values.
+- **Motion.** The Rust `Engine` is owner. Frames follow §7.1.
+- **Images.** Decode is already off main (`RasterWorkers`) over the
+  thread-free raster core. Intrinsic sizes flow main → owner as synchronous
+  requests after a batch, deferred by the coordinator's no-reentry rule.
+
+### 8.3 Native modules
+
+`native.call` follows §4. `later` and `changed` hop with `main.async` today
+(`NativeModule.swift:217-227`, `:246-253`); `changed` then calls the owner as
+§2.3 says. Native-module views are created by the presenter on main, as
+today.
+
+### 8.4 Lifecycle, pressure, background (T10)
+
+- **Boot and plan swap are owner transactions.**
+  - The font checkpoint, hook installation (measure, fonts, canvas text,
+    wake, app module), candidate preparation (`exact_prepare_plan`,
+    `exact_prepare_module`) and commit or discard
+    (`Session.swift:590`, `:637`) run as one uninterrupted owner job, or as
+    a sequence with no other job interleaved.
+  - Boot stays synchronous: the first frame is the whole frame, never 1022's
+    shell.
+- **Callback contexts** (measure, fonts, wake, canvas text, app module) are
+  retained by the owner facade from installation until the destroy job
+  completes.
+- **Destroy:**
+  1. stop admitting the session's work, and discard its unstarted fills and
+     frame jobs;
+  2. resolve any pending `callMain` of the session with a refusal;
+  3. run `exact_destroy` on the owner;
+  4. release the contexts.
+  
+  Published batches of the dead generation are dropped.
+- **Memory pressure:** the handler (`Session.swift:473`) posts an owner job
+  that trims measurement caches, and trims painting caches on main. The same
+  split applies to rest trimming (`ScrollPump.restDelay`).
+- **Accounting:** `metrics` reports queued batches, bytes, and duplicate
+  text storage (measurement's and painting's).
+- **Background:** on resign-active, admission of fills and frame jobs stops,
+  and in-flight work finishes and is published. On become-active, main
+  drains, re-reads geometry, verifies coverage (§6), then resumes
+  admission.
+- **Cancellation** may discard unstarted work only. It never discards a
+  committed batch of a live runtime.
+
+## 9. Amending LLP 1050.000 D3 (ruled, Q5)
+
+D3 today: "a row may take longer than a frame, but never mid-fling." Amended:
+
+> During user motion a row may be built when the main-thread work it
+> leaves fits the remaining frame budget: its apply, its CA commit share and
+> any callbacks it makes. Where the build runs off the main thread
+> (LLP 1071), the build's own time does not count against the frame; owner
+> occupancy is admission's concern (1071 §3.4), not D3's. A row whose
+> main-thread work does not fit is pending until motion slows, as before.
+
+**Scope, before stage 3 builds anything.**
+- The collection API has no whole-row cost memo today
+  (`runner/src/instance/collection/api.rs:43`). D3's "known cost" is not
+  implemented, so stage 3 introduces it: a per-row-key memo of main-thread
+  apply cost, measured by the coordinator.
+- It is separate from 1068 §5.1's heavy-leaf hold, which stays as ruled
+  (`1068:698`).
+
+The amendment is written into 1050.000's D3 as a dated note pointing here.
+
+## 10. Failure modes and detection
+
+| failure | shows as | detection |
 |---|---|---|
-| deadlock: the owner waits on main while main waits on the owner | the app freezes | T7's rule and debug assertion. A watchdog in debug builds logs any `owner.sync` wait over 250 ms with the owner's current job name |
-| a batch applied out of owner order | a missing parent, a stale style, a view reused under the wrong id | batches carry the owner sequence. Main asserts it is increasing (debug) and logs a gap (release journal) |
-| a stale batch after reload or destroy | views from the old plan appear | the generation tag drops it. The dev-menu reload smoke |
-| main starved of fills (the owner behind) | blank bands or late owed rows | the probe's blank count (must stay 0 under `complete`). A new counter: owed waits per second and their total ms |
-| main waiting on fills (sync behind async) | input latency, late frames on events | a new counter: `owner.sync` wait ms/s on main, split by whether a fill was in flight |
-| an owner-only object touched on main | a crash, or a rare corruption | `dispatchPrecondition(.onQueue)` isn't available for a thread, so `Owner.assertOwner()` compares `pthread_self` in debug builds. A lint (`grep`-level, in `caps.mjs`'s style) that `exact_*` calls appear only in `Owner`-wrapped code in `Bridge.swift` |
-| text measured differently on the owner | layout parity diffs | the SVG, canvas and motion parity smokes, and the web parity oracle (T11) |
-| the hop tax regresses non-list apps | main ms/s up in the Caltrain and Markdown scroll benches | stage 1's gate (§8) |
-| agent flake (1022's) | the seek or capture smokes fail | 8 of 8 A/B against a baseline worktree before any landing |
+| deadlock between owner and main | a frozen app | §4's one door. `Main.sync`'s debug trap and the build-time source check. The 250 ms watchdog with both job names |
+| synchronous reentry from a serviced callback | a refused call | the named `busy` refusal and a journal line. Stage 1 runs native-module apps (the map module) and asserts zero |
+| out-of-order application | a missing parent, a stale style | owner sequence stamped on every batch. The coordinator asserts it increases (debug) and journals a gap (release) |
+| stale geometry dropped for good | a list stops refining | the `stale` flag and dirty retry (§3.3). A counter of stale rejections and retries |
+| an event on a retiring row | `UnknownView` | §5's handshake. A counter of `UnknownView` refusals from list rows; the gate is zero |
+| an unintended gap | a blank band | §6's verification counters. The probe's blank count |
+| a stale batch after reload or destroy | old-plan views | the generation tag. The reload smoke |
+| owner-only state touched on main | a crash or rare corruption | `Owner.assertOwner()` (pthread identity) on owner-only entry points in debug builds. The §2.3 audit |
+| text measured and painted differently | parity diffs | the SVG, canvas and motion parity smokes; the web oracle |
+| hop tax on non-list apps | main ms/s up | stage 1's gate |
+| 1022's flake | seek or capture smokes fail | 8 of 8 A/B against a baseline worktree before landing |
 
-Regression watch after landing: `bun scripts/metrics.mjs --long` gains the
-hop count and cost from a scripted Caltrain run, if the review wants it in
-the repo (it is apparatus: a human's word). The Extra Heavy probe runs stay
-out of repo, as today.
+## 11. Staging and gates
 
-## 8. Staging and the measurement that proves each stage
+Order: **1 → 2 → 4 (if profiling warrants) → 3 → 5**.
 
-All device numbers come from the Extra Heavy probe (`~/bench/xheavy`), 3+
-rounds, iPhone 13 Pro Max and M1 iPad Pro, against SwiftUI in the same
-batch. Each stage lands alone, on its gate.
+- Device numbers come from the Extra Heavy probe: 3+ rounds on the iPhone 13
+  Pro Max and the M1 iPad Pro, against SwiftUI in the same batch.
+- Builds and full checks run on the M5 mini (`mini-verify`). Device runs and
+  local macOS parity run on the main Mac.
+- Each stage lands alone, on its gates.
 
-| stage | what | proves it |
-|---|---|---|
-| 1 | The owner thread with everything synchronous (T1, T2, T7, T8, T10, §6.4). No async fill yet | Behaviour is unchanged: every check and smoke green, 1022's seek/capture 8/8 A/B. The hop's cost is measured: calls/s and main ms/s on the Caltrain and live feeds, iPhone fling within noise of main. Boot time-to-settled-frame within noise (1022's metric). Decode is now off main, so main ms/s should fall by about 1.4 ms per row |
-| 2 | Async fills on iOS (T3–T6, T9, T12), the lead widened by the measured build time | iPhone live fling: late frames per s from 8–9 toward SwiftUI's 1.1 (gate: ≤ 3), main ms/s down by about 8.9 ms per row, blank count 0, owed waits counted. The 19-kind feed and the iPad no worse. The differential XCTest identical. Smokes 8/8 |
-| 3 | 1050.000 D3's cost memo measures the row's main-thread apply, not its build. A row whose apply fits the frame is built mid-fling | Heavy kinds (video, web, map) keep D3's deferral only where their *apply* exceeds the frame. iPad 19-kind ladder and fling |
-| 4 | The Swift apply's movable parts on the owner: SVG `CGPath`s and animation values, flat-leaf geometry (values, not layers) | Main per-row apply from 5.9 ms down; late frames on the 19-kind feed |
-| 5 | macOS adopts async fills in `PresenterMac`'s pump | The Markdown scroll bench of LLP 1044 (hitches/s), macOS smokes 8/8 A/B |
+**Stage 1: the owner, everything synchronous.** It covers T1, T2, T4, T5,
+T8, T10, §8.1's macOS fix and the §2.3 audit.
+- **Paths:** all Apple paths green:
+  - the five checks, the Apple XCTests and `smoke.mjs ios`, `macos`, `host`,
+    `host-ios`, `svg`, `canvas`, `motion`;
+  - the large Markdown reader on macOS (LLP 1044's bench);
+  - a native-module app (the map);
+  - dev-loop reload;
+  - two sessions in the sample host.
+- **1022's invariants:** the motion seek across the timer and the canvas
+  capture counts, 8 of 8 A/B against a baseline worktree.
+- **Boot:** settled first-frame time (1022's metric) within noise on macOS
+  and iOS.
+- **Main-thread CPU and blocked wall, reported separately.** CPU falls,
+  because Rust and decode move. Blocked wall is what the hop costs.
+  - Round trips: count per second, p50 and p99.
+  - Budget: at most 3 ms/s of added blocked wall on the Caltrain scroll and
+    the live feed at rest. At 120 calls/s that is **25 µs per round trip**.
+  - Measured counts and tails decide.
+- **Two-session latency gate** (Q1): in the sample host, one session
+  scrolling a heavy list beside an interactive one. The interactive
+  session's input-to-apply p95 must be within 2 ms of it running alone.
 
-Linux and the web are not staged. §10 Q4 asks whether Linux should follow.
+**Stage 2: asynchronous fills on iOS.** It covers T3, T6, T7, T9, T12,
+`CollectionFeedback` v4 and §5's runner change.
+- iPhone live fling: at most 3 late frames per second (from 8–9; SwiftUI
+  1.1).
+- Unintended gaps (§6): 0.
+- The 19-kind feed and the iPad no worse on any column.
+- **Distributions reported:**
+  - queue wait, build, publication delay and apply;
+  - owed-wait count and duration;
+  - input-to-visible latency, tap to changed pixels, p50 and p95, no worse
+    than stage 1;
+  - presentation cadence: frame interval histogram;
+  - sustained rows/s produced against rows/s needed (§3.4, stage 2b if
+    short).
+- **Forced interleavings, with publication held** (§5's hook) at each hold
+  point: an event, a data reply, a timer, a resize, a pin change and a
+  reload, each against a fill. The tree and state must equal the
+  `EXACT_FILL_SYNC=1` run at the next settle.
+- The differential XCTest (a scripted scroll with and without
+  `EXACT_FILL_SYNC`) identical at every settle.
+- §5's interaction tests pass.
 
-What would stop the lane:
-- Stage 1's hop tax exceeds 3 ms/s on the Caltrain scroll, or boot regresses
-  by more than noise.
-- Stage 2 cannot hold blank 0 at 6k pt/s on the iPhone.
-- 1022's flake reappears and cannot be traced within three fix rounds.
+**Stage 4, if profiling warrants: the Swift apply's movable parts.** SVG
+`CGPath`s and animation values, and flat-leaf geometry, as values built on
+the owner. The gate is a measured fall in main apply plus CA commit per row,
+with pixel parity (the svg and canvas smokes) and motion parity.
 
-## 9. What LLP 1022 found, and how this differs
+**Stage 3: D3 as amended (§9).** Scope first: the per-row-key main-apply
+memo is new. Gate: heavy kinds keep their deferral only where their
+main-thread work exceeds the remaining budget, measured on the iPad 19-kind
+ladder and fling.
+
+**Stage 5: macOS asynchronous fills** in `PresenterMac`'s pump, checked on
+physical Mac scrolling:
+- trackpad and wheel;
+- reversal, jumps, resize, anchors;
+- text input in rows;
+- LLP 1044's hitch counts and the macOS smokes 8 of 8 A/B.
+
+**What stops the lane:**
+- stage 1's blocked-wall budget or the two-session gate is missed and
+  cannot be met in three rounds;
+- stage 2 cannot hold zero unintended gaps at 6k pt/s on the iPhone;
+- 1022's flake returns and cannot be traced in three rounds.
+
+## 12. What LLP 1022 found, and how this differs
 
 | 1022 finding | here |
 |---|---|
-| 1. The macOS smoke failed about 6 of 8 (seek, capture) | Events, ticks at rest, boot and the agent stay synchronous. Only fills go async, and the carrier drains them. Acceptance: those two smokes 8 of 8 |
-| 2. Boot became an 11-view shell | Boot is synchronous (§6.5) |
-| 3. The iOS win was separable | Not claimed. The win here is the fling's late frames, measured (§1) |
-| 5. The wasm is synchronous forever; the agent's contract becomes a tax | The web stays the oracle (T11). The tax is confined to one operation, the fill, and one rule, the drain |
+| 1. The macOS smoke failed about 6 of 8 (seek, capture) | Almost everything stays synchronous. The two asynchronous operations are drained at every agent boundary, frame jobs are synchronous under the agent, and settlement answers `settled: false` rather than pretend. Those smokes are the acceptance test, 8 of 8 |
+| 2. Boot became an 11-view shell | Boot is a synchronous owner transaction (§8.4) |
+| 3. The iOS startup win was separable | Not claimed |
+| 5. The wasm is synchronous forever; the agent's contract becomes a tax | The web and Linux stay the oracle. The tax is confined to two named operations, the coordinator and the fixed point |
 | 6. "The problem it solves has not arrived" | It has (§1) |
 
-The parked branch (`parked/runtime-owner`, `2583be3`) is a reference for the
-FIFO and `barrier()`. It is not rebased. Its keyboard half is independent and
-stays parked.
-
-## 10. Questions for the review
-
-1. **One owner per process or per session?** This RFC says per process:
-   simple, and the brownfield host (LLP 1031) embeds two sessions that would
-   then share one thread. Per session gives two sessions parallelism and
-   costs a thread each.
-2. **Is `EXACT_FILL_SYNC` wanted in the repo** (T12)? It is the differential
-   test's switch and the A/B lever. It is apparatus by the rules' reading.
-3. **Should stage 1 land alone**, a pure refactor with a small cost, or only
-   together with stage 2's win?
-4. **Linux:** stay synchronous (the agent's reference host), or follow
-   stage 5 for parity of behaviour under load?
-5. **1050.000 D3** (stage 3): is "build mid-fling when the apply fits" the
-   right reading of "never mid-fling" once the build is off main?
+The parked branch (`parked/runtime-owner`, `2583be3`) is a reference for its
+FIFO and `barrier()`, not a base. Its keyboard half stays parked.
