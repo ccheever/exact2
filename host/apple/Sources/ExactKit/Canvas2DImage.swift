@@ -155,7 +155,7 @@ final class Canvas2DHost: Canvas2DEnv {
         let lifetime = UInt64(num("lifetime")), generation = UInt32(num("generation"))
         let fresh = (payload["fresh"] as? NSNumber)?.boolValue == true
         let (w, h, scale) = (Int(num("w")), Int(num("h")), num("scale"))
-        let lists = (payload["lists"] as? [Any] ?? []).compactMap { $0 as? String }.map { Data(base64Encoded: $0) }
+        let lists: [Data?] = payload["lists"] as? [Data] ?? []
         let layer = layers[id] ?? {
             let l = CALayer(); l.delegate = Instant.shared; l.contentsGravity = .resize
             l.magnificationFilter = .linear; l.minificationFilter = .linear

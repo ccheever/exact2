@@ -118,6 +118,7 @@ pub struct Host<D: DataSource> {
     /// 2D canvases whose replays the presenter has not caught up with: a
     /// frame request waits for them (`exact_canvas_held`, LLP 1056 D5).
     canvas_held: IdSet<ViewId>,
+    canvas_kept: [Vec<exact_runner::CanvasList>; 2],
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
@@ -380,6 +381,7 @@ impl<D: DataSource> Host<D> {
             inline_runs: IdMap::default(),
             svg: svg::SvgState::new(cfg!(target_os = "ios")),
             canvas_held: IdSet::default(),
+            canvas_kept: Default::default(),
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),

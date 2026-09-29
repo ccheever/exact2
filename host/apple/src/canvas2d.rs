@@ -46,7 +46,8 @@ impl<D: DataSource> Host<D> {
         self.runner.layout_canvases(scale());
         let held = &self.canvas_held;
         self.runner.draw_canvases(&|v| !held.contains(&v));
-        for c in self.runner.take_canvas_lists() {
+        let lists = self.runner.take_canvas_lists();
+        for c in &lists {
             let (content, radii) =
                 self.runner
                     .kernel()
@@ -67,7 +68,13 @@ impl<D: DataSource> Host<D> {
                         .map(|r| (r - inset).max(0.0));
                         (b, radii)
                     });
-            batch.canvas2d(&c, content, radii);
+            batch.canvas2d(c, content, radii);
+        }
+        if !lists.is_empty() {
+            // The last two batches' lists stay alive: the presenter's reader
+            // copies them out of this memory (`Batch::canvas2d`).
+            self.canvas_kept.swap(0, 1);
+            self.canvas_kept[1] = lists;
         }
         batch.canvas_images(self.runner.take_canvas_image_requests());
     }

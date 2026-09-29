@@ -3,6 +3,18 @@
 import Foundation
 
 extension BatchReader {
+    /// A `canvas2d` op's lists, `[address, length]` pairs in the runtime's
+    /// memory (LLP 1056 D4), copied out now: the runtime keeps them alive
+    /// only until its next batch with lists.
+    static func canvasLists(_ value: Any?) -> [Data] {
+        (value as? [Any] ?? []).compactMap { pair in
+            guard let n = pair as? [Any], n.count == 2, let at = (n[0] as? NSNumber)?.uintValue,
+                  let count = (n[1] as? NSNumber)?.intValue, count >= 0,
+                  let from = UnsafeRawPointer(bitPattern: at) else { return nil }
+            return Data(bytes: from, count: count)
+        }
+    }
+
     mutating func batch() throws -> Batch {
         var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false
         var clock: Double?, due: Double?, error: String?
@@ -61,6 +73,7 @@ extension BatchReader {
             depth -= 1
             op.nodeID = try BatchFields(payload).id("id")
             op.payload = payload.mapValues(\.any)
+            if op.op == .canvas2d { op.payload["lists"] = BatchReader.canvasLists(op.payload["lists"]) }
             return op
         }
         while !take(125) {

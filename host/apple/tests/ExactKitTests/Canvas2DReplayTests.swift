@@ -8,17 +8,17 @@ import QuartzCore
 /// one replay waiting, not one per frame.
 final class Canvas2DReplayTests: XCTestCase {
     /// A list: `fillColor` then `count` full-bitmap `fillRect`s.
-    private func list(_ rgb: (Double, Double, Double), rects count: Int = 1) -> String {
+    private func list(_ rgb: (Double, Double, Double), rects count: Int = 1) -> Data {
         var d = Data()
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
         func f64(_ v: Double) { withUnsafeBytes(of: v.bitPattern.littleEndian) { d.append(contentsOf: $0) } }
         u32(0x4432_4345); u32(1)
         u32(Canvas2DOp.fillColor.rawValue); u32(4); f64(rgb.0); f64(rgb.1); f64(rgb.2); f64(1)
         for _ in 0..<count { u32(Canvas2DOp.fillRect.rawValue); u32(4); f64(0); f64(0); f64(150); f64(100) }
-        return d.base64EncodedString()
+        return d
     }
 
-    private func op(_ lists: [String], fresh: Bool) -> [String: Any] {
+    private func op(_ lists: [Data], fresh: Bool) -> [String: Any] {
         ["lifetime": 1, "generation": 0, "fresh": fresh, "w": 300, "h": 200, "scale": 2.0,
          "stretch": true, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": lists]
     }

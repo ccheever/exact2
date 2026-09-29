@@ -290,8 +290,9 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// A 2D canvas's stamped lists (LLP 1056 D4): base64, in order, for
-    /// the Core Graphics replayer. `fresh` starts a new bitmap at `w`×`h`;
+    /// A 2D canvas's stamped lists (LLP 1056 D4), in order, for the Core
+    /// Graphics replayer: `[address, length]` pairs the reader copies out
+    /// as it decodes the batch (the host keeps them alive until then). `fresh` starts a new bitmap at `w`×`h`;
     /// `box` is the content box in the view's border box, where it shows.
     pub fn canvas2d(
         &mut self,
@@ -310,9 +311,7 @@ impl Batch {
             if i > 0 {
                 s.push(',');
             }
-            s.push('"');
-            s.push_str(&exact_runner::agent::base64(l));
-            s.push('"');
+            let _ = write!(s, "[{},{}]", l.as_ptr() as usize, l.len());
         }
         s.push_str("]}");
         self.ops.push(s);
