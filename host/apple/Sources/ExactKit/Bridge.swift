@@ -118,10 +118,11 @@ final class Runtime {
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
         var batch = Batch.decode(bytes)
-        batch.prepare()
         #if DEBUG
+        // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)
         #endif
+        batch.prepare()
         return batch
     }
     /// A payload into the runtime's input buffer; its length. An empty
