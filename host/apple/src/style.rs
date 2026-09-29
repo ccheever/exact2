@@ -268,7 +268,7 @@ fn push_rgba(out: &mut String, channels: [u8; 4]) {
     out.push(']');
 }
 
-fn push_int(out: &mut String, n: i64) {
+pub(crate) fn push_int(out: &mut String, n: i64) {
     let mut buf = [0u8; 20];
     let mut i = buf.len();
     let mut v = n.unsigned_abs();

@@ -5,6 +5,8 @@
 
 use std::fmt::Write as _;
 
+use crate::style::push_int;
+
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
 pub struct Batch {
@@ -54,7 +56,7 @@ fn id_list(ids: &[u32], out: &mut String) {
         if i > 0 {
             out.push(',');
         }
-        let _ = write!(out, "{c}");
+        push_int(out, i64::from(*c));
     }
     out.push(']');
 }
@@ -233,12 +235,17 @@ impl Batch {
         style: &str,
         handlers: &[&str],
     ) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"create\",\"id\":{id},\"kind\":");
+        // A row's mount is a create per node: written by pushes, not `fmt`.
+        let mut s = String::with_capacity(64 + kind.len() + style.len());
+        s.push_str("{\"op\":\"create\",\"id\":");
+        push_int(&mut s, i64::from(id));
+        s.push_str(",\"kind\":");
         quote(kind, &mut s);
         s.push_str(",\"props\":");
         string_map(props, &mut s);
-        let _ = write!(s, ",\"style\":{style},\"handlers\":");
+        s.push_str(",\"style\":");
+        s.push_str(style);
+        s.push_str(",\"handlers\":");
         string_list(handlers, &mut s);
         s.push('}');
         self.ops.push(s);
@@ -263,15 +270,21 @@ impl Batch {
 
     /// `{"op":"style","id":…,"style":{…}}` — the whole dictionary.
     pub fn style(&mut self, id: u32, style: &str) {
-        self.ops.push(format!(
-            "{{\"op\":\"style\",\"id\":{id},\"style\":{style}}}"
-        ));
+        let mut s = String::with_capacity(32 + style.len());
+        s.push_str("{\"op\":\"style\",\"id\":");
+        push_int(&mut s, i64::from(id));
+        s.push_str(",\"style\":");
+        s.push_str(style);
+        s.push('}');
+        self.ops.push(s);
     }
 
     /// `{"op":"children","id":…,"ids":[…]}`.
     pub fn children(&mut self, id: u32, ids: &[u32]) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"children\",\"id\":{id},\"ids\":");
+        let mut s = String::with_capacity(32 + 8 * ids.len());
+        s.push_str("{\"op\":\"children\",\"id\":");
+        push_int(&mut s, i64::from(id));
+        s.push_str(",\"ids\":");
         id_list(ids, &mut s);
         s.push('}');
         self.ops.push(s);
