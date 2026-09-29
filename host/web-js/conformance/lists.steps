@@ -1,0 +1,16 @@
+# A long list scrolled by the agent: down, on to its end (reachend grows
+# it), back up past its start (reachstart adds rows above, anchored); an
+# authored jump; a transcript that follows its end as lines come, until the
+# reader scrolls it up. Each wheel moves more than a port, which the
+# browser half reads as a jump, not travel: travel's lead is the wall
+# clock's, so two runs would build different rows ahead of the port.
+wheel long 1000
+wheel long 2500
+wheel long 5000
+wheel long 9000
+wheel long -40000
+tap jump
+tap say
+tap say
+wheel transcript -300
+tap say

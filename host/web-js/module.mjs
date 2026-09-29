@@ -19,12 +19,12 @@ function cargoWasm(manifest) {
   { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: '/tmp/e3-mod/target-web', ...(WEB ? { RUSTFLAGS: '-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none' } : {}) } });
 }
 
-export function buildModule(app, out = `/tmp/e3-mod/${app}`, draw = false) {
-  const build = readFileSync(resolve(root, 'apps', app, 'web/build.rs'), 'utf8');
+export function buildModule(app, out = `/tmp/e3-mod/${app}`, draw = false, dir = resolve(root, 'apps', app)) {
+  const build = readFileSync(resolve(dir, 'web/build.rs'), 'utf8');
   const expr = /contract::bake\(\s*plan,\s*([\w:]+(?:::(?:default|new)\(\))?)\s*\)/.exec(build)?.[1];
   if (!expr) throw new Error(`${app}: its web build bakes with no Rust data source`);
   const ty = expr.replace(/::(default|new)\(\)$/, '');
-  const dataToml = readFileSync(resolve(root, 'apps', app, 'data/Cargo.toml'), 'utf8');
+  const dataToml = readFileSync(resolve(dir, 'data/Cargo.toml'), 'utf8');
   const pkg = /^name\s*=\s*"([^"]+)"/m.exec(dataToml)[1];
   const crate = resolve(out, 'crate');
   mkdirSync(resolve(crate, 'src'), { recursive: true });
@@ -38,7 +38,7 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 [dependencies]
-${pkg} = { path = "${resolve(root, 'apps', app, 'data')}" }
+${pkg} = { path = "${resolve(dir, 'data')}" }
 exact-logic-abi = { path = "${resolve(root, 'logic/abi')}" }
 [profile.release]
 opt-level = "z"

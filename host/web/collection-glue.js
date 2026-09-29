@@ -48,6 +48,8 @@ export function applyCollectionFeedback(batch, applyBatch) {
   return batch.accepted === true;
 }
 
+// `report(bytes, facts, fill)`: the wire bytes for the wasm runner, the
+// same facts as values for the JS target's (host/web-js/list.js).
 export function collectionController({ root, views, report, settled=()=>{},
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
@@ -241,7 +243,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       delivering = true;
       let accepted;
       const before = new Set(s.rows.map(row => row.view)), at = s.offset, started = now(), clamp = s.clamp;
-      try { accepted = report(bytes) !== false; } finally { delivering = false; }
+      try { accepted = report(bytes, facts, fill) !== false; } finally { delivering = false; }
       const created = s.rows.filter(row => !before.has(row.view)).length;
       if (created > 0) {
         const cost = Math.max(0.001, (now() - started) / created);
@@ -348,7 +350,7 @@ export function collectionController({ root, views, report, settled=()=>{},
         ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
       const bytes=collectionBytes(facts);reportsLeft--;delivering=true;let accepted;
-      try { accepted=report(bytes)!==false; } finally { delivering=false; }
+      try { accepted=report(bytes,facts)!==false; } finally { delivering=false; }
       if(!accepted)return null;
       const next=Object.freeze({state:s,wrapper:lease.wrapper,view});
       interaction={element,pointer,lease:next};s.lastFacts=facts;s.signature=null;enqueue(s,true);

@@ -10,13 +10,17 @@ export function install(exact) {
   const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
   const kids = el => el.getAttribute('markup') === 'markdown' ? [] : [...el.children].filter(c => !c.hasAttribute('data-surface'));
-  const type = el => el.hasAttribute('data-exact-text') ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? 'ScrollView' : TYPES[el.tagName] ?? 'View';
+  // A text's inline runs are text nodes too (the runner's tree; element.rs
+  // marks only the paragraph `data-exact-text`).
+  const run = el => el.parentElement?.hasAttribute('data-exact-text') && el.parentElement.getAttribute('markup') !== 'markdown';
+  const type = el => el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
-    if (type(el) === 'Text') props.text = el.$source ?? el.textContent;
+    // A paragraph of runs has no text of its own: its runs carry it.
+    if (type(el) === 'Text' && (el.$source != null || !kids(el).length)) props.text = el.$source ?? el.textContent;
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -60,10 +64,17 @@ export function install(exact) {
       case 'clock': {
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
+          // Virtualized lists report until a round sends nothing, reading
+          // layout now (collection-glue.js `settle`, as glue.js's clock does).
           const end = performance.now() + 20000;
-          do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
-          // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
-          await document.fonts?.ready;
+          for (let round = 0; round < 16; round++) {
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
+            // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
+            await document.fonts?.ready;
+            if (!exact.lists) break;
+            exact.lists.settle();
+            if (!exact.inflight.n) break;
+          }
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         exact.advance(req.to);

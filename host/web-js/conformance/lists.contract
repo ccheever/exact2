@@ -1,0 +1,48 @@
+// data: carousel
+// Synthetic conformance plan: virtualized lists (LLP 1071 D5, list.js), on
+// Carousel's sources and wasm (it links collections) — a long list scrolled
+// by the agent, whose edges grow it at both ends (reachstart's rows come
+// above what shows, anchored), an authored scrollTop that builds its rows
+// before it moves, and a transcript of varied lines that follows its end as
+// they come. The long list's rows are its estimate: which rows a moving
+// port measures ahead of itself is the frame clock's, not the plan's, so
+// varied rows there would make the two runners' spacers differ by history.
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component Lists
+  resource cards = cards(2000) as shape list<Card>
+  state lo = 600
+  state hi = 700
+  state said = 4
+  state top = 0
+  derive shown = filter(cards, c => c.n >= lo and c.n < hi)
+  derive lines = filter(cards, c => c.n < said)
+  action earlier writes lo
+    lo = max(0, lo - 60)
+  action later writes hi
+    hi = min(2000, hi + 60)
+  action say writes said
+    said = said + 3
+  action jump writes top
+    top = top + 2500
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      row gap=8 padding=8 flex-shrink=0
+        button press=say testId="say"
+          text "say"
+        button press=jump testId="jump"
+          text "jump"
+        text `${lo}–${hi}, ${length(shown)} rows, ${length(lines)} lines` testId="summary"
+      list virtualized=true reachstart=earlier reachend=later estimated-item-height=48 scrollTop=top testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        each c in shown key=c.id
+          row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+            column width=12 height=12 border-radius=6 background-color=c.color
+            text c.label font-size=14
+      list virtualized=true scrollFollowEnd=true testId="transcript" height=140 flex-shrink=0 width="100%" overflow-x="hidden" background-color="#f1f5fa"
+        each c in lines key=c.id
+          text `${c.label}, ${c.width} wide` testId=`line-${c.n}` padding=(4 + c.width / 40) font-size=13

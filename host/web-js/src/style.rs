@@ -222,6 +222,17 @@ pub fn prop_name(node_type: NodeType, prop: PropId) -> Result<String, String> {
 /// are not one declaration each are refused, never guessed.
 pub fn style_row(id: u16) -> Result<(String, String), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
+    // `translate` is one declaration of the author's two lengths (css.rs
+    // `lowered`): written as the author wrote them.
+    if row == StyleId::Translate {
+        return Ok(("translate".into(), String::new()));
+    }
+    // `line-height` is CSS's own (kernel `LineHeight::css`): a number is a
+    // multiple of the font size, unitless; a length is written with its unit;
+    // `aspect-ratio` too (kernel `Ratio::css`): a number is `n / 1`.
+    if row == StyleId::LineHeight || row == StyleId::AspectRatio {
+        return Ok((css_property(row), String::new()));
+    }
     if !matches!(
         row.codec(),
         StyleCodec::Dimension

@@ -9,13 +9,16 @@
 // line (the async lane's check, scripts/async.mjs).
 //
 // usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+//   (the JS builds go to <out>/dist/<target>)
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
 //   --build makes each named app's wasm dist there first (and Caltrain's,
 //   for --synthetic);
-//   --synthetic adds host/web-js/conformance/*.contract, run on the video
+//   --synthetic adds host/web-js/conformance/*.contract, run on
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
-//   data sources they may ask; the JS side loads the same Rust module.
+//   data sources they may ask; the JS side loads the same Rust module. A
+//   plan whose first lines say `// data: <app>` runs on that app's dist
+//   instead, for its sources and the capabilities it links.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -99,10 +102,10 @@ async function target(t, report) {
     for (const url of new Set(t.urls)) await activation(t, report, fail, url);
     return;
   }
-  const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact-web-js-dist', t.name)], { cwd: root, encoding: 'utf8' });
+  const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
-  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact-web-js-dist', t.name))]);
+  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve(out, 'dist', t.name))]);
   await drive(t, report, fail, dir, ws, js);
 }
 
@@ -133,14 +136,15 @@ async function drive(t, report, fail, dir, ws, js) {
     };
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
     // a line — `tap <target>`, `type <target> <text…>`, `clock <+ms|settle>`,
-    // `back` (the browser's history) — each compared after both settle.
+    // `back` (the browser's history), `wheel <target> <dy> [dx]` — each
+    // compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
     await settle();
     let tree = await compare('boot');
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [0, Number(rest[0])] }) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : Promise.reject(new Error(`unknown op ${op}`));
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; }
       try { await run(J); } catch (e) { fail(line, `js: ${e.message.split('\n')[0]}`); continue; }
       await settle();
@@ -170,7 +174,7 @@ async function drive(t, report, fail, dir, ws, js) {
   const tests = resolve(root, 'apps', t.app, 'app.test.contract');
   if (!t.contract && !t.urls && existsSync(tests)) {
     const run = url => { const r = spawnSync('bun', ['scripts/agent.mjs', 'web', '--app', t.app, '--url', url, '--test', tests], { cwd: root, encoding: 'utf8' }); return r.stdout + r.stderr; };
-    const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact-web-js-dist', t.name))]);
+    const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve(out, 'dist', t.name))]);
     const [rw, rj] = [run(w2.url), run(j2.url)];
     w2.close(); j2.close();
     const lines = s => s.split('\n').filter(l => l.startsWith('test '));
@@ -233,20 +237,22 @@ const report = { at: new Date().toISOString(), targets: {}, steps: [], failures:
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
 const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
-if (argv.includes('--build')) for (const a of new Set([...apps, ...(argv.includes('--synthetic') ? ['caltrain'] : [])])) {
+const sdir = resolve(here, 'conformance');
+const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).filter(f => f.endsWith('.contract')).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+if (argv.includes('--build')) mkdirSync(wasmRoot, { recursive: true });
+if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const b = spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
   if (b.status !== 0) report.failures.push({ target: a, step: 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (argv.includes('--synthetic')) {
-  const sdir = resolve(here, 'conformance');
-  for (const f of readdirSync(sdir).filter(f => f.endsWith('.contract'))) {
+  for (const { f, data } of synthetic) {
     const name = 'synthetic-' + basename(f, '.contract'), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
-    // Synthetic plans ask Caltrain's sources (stations, nearest, search): its wasm links them.
-    targets.push({ name, app: 'caltrain', wasm: realpathSync(resolve(wasmRoot, 'caltrain')), contract, plan });
+    // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.
+    targets.push({ name, app: data, wasm: realpathSync(resolve(wasmRoot, data)), contract, plan });
   }
 }
 for (const t of targets) {

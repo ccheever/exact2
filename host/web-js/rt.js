@@ -15,7 +15,7 @@ import { renderMarkup } from "./navigation.js";
 // - timers fire on a clock the host moves (`advance`), each at its own time.
 
 // ---------------------------------------------------------------- signals
-let Listener = null, Owner = null, Queue = [], Flushing = false;
+let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 
 export function eq(a, b) {
@@ -68,7 +68,7 @@ function stale(n, state) {
 }
 function write(n, v) {
   if (eq(n.v, v)) return;
-  n.v = v;
+  n.v = v; Rev++;
   for (const o of n.obs) stale(o, DIRTY);
 }
 function flush() {
@@ -101,6 +101,10 @@ function scope(f, parent = Owner) {
   return n;
 }
 function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
+// For loaded pieces (list.js): scopes, untracked reads, writes, the owner in
+// force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
+export { scope, end, untracked, write, onEnd };
+export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket;
 
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
@@ -126,7 +130,7 @@ const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
-export function C(name, args) { Commands.push([name, args]); }
+export function C(name, args) { Commands.push([name, args]); Rev++; }
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
 /** Pull every derive and resource in plan order: the settlement pass. */
@@ -165,6 +169,7 @@ export function commit(f, what = "commit") {
   const [out, cmds, landed] = [Out, Commands, Landed];
   Writes = null;
   try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
+  settled();
   if (!ok) return false;
   Store.persist();
   for (const go of out) go();
@@ -172,6 +177,23 @@ export function commit(f, what = "commit") {
   // An answer's `then` runs as its own commit, after this one stood.
   for (const m of landed) if (m.then) setTimeout(() => m.then());
   return true;
+}
+/** What runs after each commit's tree update (a loaded piece's publication). */
+export const After = [];
+/** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the
+ * commit's tree is in place, as the web host's `pendingScrolls`; a
+ * virtualized list builds the rows there first (`$jump`, list.js). */
+const Scrolls = new Map();
+/** What a commit does once its tree is in place: authored scrolls, then the
+ * loaded pieces' publications (also after a list's report, list.js). */
+export function settled() { drain(); for (const f of After) f(); }
+function drain() {
+  for (const [e, o] of Scrolls) for (const name in o) {
+    const at = o[name];
+    if (e.$jump) e.$jump(name, at);
+    else if (e[name] !== at) { if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+  }
+  Scrolls.clear();
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
@@ -225,7 +247,7 @@ export const data = { answer: () => null, parse: null, q: [], ready: f => data.q
 export const Store = {
   map: new Map(), writes: [], dirty: false,
   get(k) { return this.map.get(k); },
-  set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; },
+  set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
   persist() { for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem("exact.secret." + k) : localStorage.setItem("exact.secret." + k, v); } catch {} },
@@ -332,9 +354,11 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
 }
 /** A mutation (LLP 1016): its slot (`option<T>`), the resources it
  * declares it refreshes, and one ticket per send, the newest winning. */
+export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
   const m = { ticket: null, then: null };
+  Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
   const land = t => outcome => commit(() => {
@@ -413,15 +437,21 @@ function adopt(p, tag, cls, attrs) {
   return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
+/** Build fresh inside an adopted page (a virtualized list's rows). */
+export function unadopted(f) { const a = Adopt; Adopt = false; try { return f(); } finally { Adopt = a; } }
 
 const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
+/** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
+export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 export function P(e, name, f) {
   effect(() => {
     let v = f();
     v = v == null ? null : typeof v === "boolean" ? String(v) : String(v);
+    if (PropHooks[name]?.(e, v)) return;
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.value !== (v ?? "")) e.value = v ?? ""; }
+    else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
@@ -536,6 +566,10 @@ export function on(e, kind, f) {
     case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
+    // The port's offsets, as the web host sends them (`glue.js` `attach`).
+    case "scroll": return l(kind, () => f(e.scrollLeft, e.scrollTop));
+    // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
+    case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); });
     default: return l(kind, () => f());

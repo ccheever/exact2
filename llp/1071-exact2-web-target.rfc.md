@@ -293,14 +293,15 @@ A plan that uses a capability the JavaScript runtime lacks is refused at
 build, by name, as LLP 1047 D6 refuses an unlinked one. That lets the runtime
 grow one capability at a time.
 
-As landed, the backend and `host/web-js/build.mjs` refuse by name:
-virtualized lists, a Canvas 2D surface drawn by a TypeScript source, a
-TypeScript and a Rust source in one app, native modules, the events and
-dynamic rows in §7's table. `host/web/build.mjs` prints the refusal and
-builds the wasm target. RealWorld, the video player, completion-storm,
-Motion Gallery and Typetour build JS; Caltrain and Weatherlight (their GPU
-modules, which only the wasm build makes yet), Canvas Gallery (its
-TypeScript draws), Carousel and Update Lab build wasm. Given the wasm
+As landed, the backend and `host/web-js/build.mjs` refuse by name: a
+dynamic `virtualized`, `scrollIntoView`, a Canvas 2D surface drawn by a
+TypeScript source, a TypeScript and a Rust source in one app, native
+modules, the events and dynamic rows in §7's table. `host/web/build.mjs`
+prints the refusal and builds the wasm target. RealWorld, the video player,
+completion-storm, Motion Gallery, Typetour and Carousel build JS, and so does
+Bluesky, outside the repo (`EXACT_APP_DIR`, §7 below); Caltrain and
+Weatherlight (their GPU modules, which only the wasm build makes yet),
+Canvas Gallery (its TypeScript draws) and Update Lab build wasm. Given the wasm
 build's GPU module (`--plan`, as conformance builds it), Caltrain builds JS
 and is equal on every step.
 
@@ -694,24 +695,25 @@ from (a) today.
 
 | | apps |
 |---|---|
-| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12 and Typetour 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3 |
+| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12 and Carousel 16/16 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
-| runs, differs | Update Lab (a TypeScript and a Rust source in one app), Carousel (a virtualized list rendered whole) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo), dynamic `line-height` (exact-live, llp, markdown), dynamic SVG `fill` (svg-gallery), dynamic `clip-path` (reflow), dynamic `animation` (sparkline), `timeline-scope` (interaction-gallery), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `reachstart` (messages-stress) |
+| runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), dynamic SVG `fill` (svg-gallery), dynamic `clip-path` (reflow, messages), dynamic `animation` (sparkline, interaction-gallery), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `swiperight` (messages-stress), `transformgeometry` (exact-live) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
 | Gap | Work | Bytes |
 |---|---|---|
-| Virtualized collections: the window, measurement and anchoring engine | 1–2 weeks | 4–6 KB, loaded |
+| `scrollIntoView` and reorder on a virtualized list (`into_view.rs`, `reorder.rs`) | 2–4 days | ~1–2 KB, in `list.js` |
+| The runner's other reserved sources: `exactPage`, `exactDelivery`, `exactSurface`, `exactTime`'s `resolvedLocale` | 1 day | <0.5 KB, loaded |
 | Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | Surface records back to sources | 1–2 days | <0.5 KB |
-| Dynamic composite rows (line-height, clip-path, SVG paint, animation, timeline scope) | 2–3 days | ~1 KB |
+| Dynamic composite rows (clip-path, SVG paint, animation, timeline scope) | 2–3 days | ~1 KB |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
-| Events: pan, select, cancel, reachstart/end, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
+| Events: pan, select, cancel, swiperight, transformgeometry, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
-| Springs, presence, layout transitions (`motion-glue.js`) | ~1 week | loaded, 11 KB |
+| Springs, presence, layout transitions (`motion-glue.js`); Bluesky's header hides on a `translate` spring, which the JS target jumps | ~1 week | loaded, 11 KB |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
@@ -788,6 +790,79 @@ brotli):
 - **Caltrain** (mobile profile, 5 cold runs, medians; JS / wasm): FCP
   384–400 / 360–404 ms, runtime up 633–649 / 2,727–2,764 ms, 18,849 /
   337,240 bytes before interactive (page 4,888 + `app.js` 13,961).
+
+**Virtualized lists** (landed 2026-09-29, measured; brotli):
+- **What.** `host/web-js/list.js` is the runner's half of LLP 1010 §6,
+  1050.000 §6 and 1070, ported from `runner/src/instance/collection`: the
+  size index (the sum tree, measurement epochs and tokens), the window led by
+  travel, bootstrap rows before the first report, anchoring across data
+  changes, first measurements and restored positions, the fill limit and
+  retirement, `reachstart`/`reachend` armed by geometry with the end held
+  behind the start's requests, `scrollFollowEnd`, authored
+  `scrollTop`/`scrollLeft` built before the port moves, and one level of
+  nesting with kept positions and pins. Rows are keyed and made fresh, not
+  recycled, as the runner's are; the wrappers and spacers are
+  `views.rs`'s, so the tree, the boxes and the pixels match. The browser
+  half is the wasm host's `collection-glue.js`, unchanged but for handing
+  its report's facts to the JS runner as values beside the wire bytes.
+- **Cost.** `list.js` is 6.4 KB, in the module only when the plan has a
+  virtualized list; `collection-glue.js` 4.9 KB, fetched after the first
+  paint, as the wasm build fetches it. An app without a list pays 199 B in
+  `rt.js` (the video player, 4,751 → 4,950 B `app.js`): the commit hook,
+  the no-op count an edge reads, and authored scroll offsets, which every
+  app needed (a dynamic `scrollTop` was written as an attribute).
+- **Conformance.** Carousel 16/16, its scripted scroll of 25,000 cards and
+  its feed of nested strips and inboxes; synthetic lists 14/14, a long list
+  scrolled to both edges (each grows it; the start's rows come above,
+  anchored), an authored jump and a transcript following its end. A press
+  on a page with a list is compared once both have settled, since a list
+  builds in the frames after it. Found: a wheel-scrolled list whose rows
+  differ from their estimate is not repeatable across two runs, on either
+  target: which rows a moving port builds ahead of itself, and so which it
+  has measured, is the frame clock's. The fixture's long list uses rows at
+  its estimate.
+- **Not carried**, refused by name: `scrollIntoView`, reorder
+  (`reorderdrop`), a dynamic `virtualized`.
+
+**Bluesky** (outside the repo, `EXACT_APP_DIR`; 2026-09-29): it builds on the
+JS target and its timeline, a thread, a profile, sign-in (the `demo`
+account) and notifications work in a browser.
+- **What it took** (each a refusal or a failure it met): apps outside
+  `apps/` (`host/web/build.mjs` no longer refuses them; the Rust module is
+  built from the app's own data crate); the reserved source
+  `exactViewport` (`facts.js`, the web host's own readings, re-answered on
+  each resize; only where declared), and both it and `exactTime` answered
+  by the page even where the bake compiled a value; symbol images (`symbols.js`, the web host's
+  masks; a bound source's roles come from the plan's strings); the `scroll`
+  event, and `refresh`, which the web does not deliver (no pull to refresh,
+  as in the wasm host); dynamic `translate`, `line-height` and
+  `aspect-ratio`, each one declaration as the author wrote it; a
+  paragraph's inline runs as text nodes in the agent's tree. On Bluesky's
+  side: `contains` → `includes`, the plan's `Items`, the lock.
+- **Conformance** (a local scripted run, not the lane's: its first screen is
+  the live network, and two loads a moment apart can get two Discover
+  feeds): with the same feed, 9 of 11 steps equal. The two that differ are the
+  spring gap: scrolling hides the header on a `translate` spring, and the
+  wasm target's `clock settle` runs its clock across the spring, where a
+  250 ms timer fires.
+- **Measured** (realworld-bench's method and launcher, its `load`
+  scenario: mobile profile, a cold browser each run, 5 runs, medians; both
+  client-rendered, served brotli-11; the first post is Discover's, from the
+  live network):
+
+  | | JS | wasm |
+  |---|---|---|
+  | First contentful paint | 760 ms | 2,988 ms |
+  | Runtime up | 750 ms | 2,976 ms |
+  | Data module ready | 2,201 ms | 3,423 ms |
+  | First post on screen | 2,726 ms | 4,298 ms |
+  | Code before runtime up | 42.6 KB (page 5.4 with its stylesheet, `app.js` 37.7) | 469.3 KB (`app.wasm` 453.4, `glue.js` 17.0) |
+  | Code before the data module is ready | 196.2 KB (+ the Rust module 122.1, the plan it binds 27.3) | 495.3 KB |
+
+  The JS target's remaining weight is the data seam's: Bluesky's AT
+  Protocol client as its own wasm, bound with the whole plan. Binding it with
+  only what it reads (its sources and shapes) is a lever not yet taken; the
+  module itself is the app's code.
 
 ## 8. Rulings and open questions for Charlie
 

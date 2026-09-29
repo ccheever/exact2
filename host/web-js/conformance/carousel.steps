@@ -1,0 +1,12 @@
+# 25,000 cards on a strip scrolled by the agent (a wheel on x), then the
+# feed's rows with their own strips and inboxes (LLP 1070), scrolled down and
+# back: each list builds what shows and keeps what its rows left.
+wheel strip 0 700
+wheel strip 0 3000
+wheel strip 0 -1500
+tap feed-page
+wheel feed 1500
+wheel strip-10 0 800
+wheel feed 2500
+wheel feed -1200
+wheel feed -5000

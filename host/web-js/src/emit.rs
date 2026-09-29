@@ -11,7 +11,7 @@
 
 use crate::code::{self, Frame, Scope, Uses};
 use crate::style;
-use exact_kernel::{NodeType, PropId};
+use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
@@ -186,7 +186,26 @@ struct Em<'a> {
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
     canvas2d: bool,
+    /// Whether a virtualized list is in the plan (`list.js` is imported).
+    list: bool,
+    /// Whether an image draws a symbol (`symbols.js`), and whether a
+    /// binding names one (its roles are then the plan's strings).
+    symbols: (bool, bool),
 }
+
+/// The runner's reserved sources the JS runtime answers itself: the page's
+/// facts, never the build's (`exactTime` in the entry, `exactViewport` in
+/// facts.js).
+const HOST_FACTS: &[&str] = &["exactViewport", "exactTime"];
+/// `exactViewport`'s fields (runner/src/viewport.rs), filled by name.
+const VIEWPORT_FIELDS: &[&str] = &[
+    "width",
+    "height",
+    "prefersReducedMotion",
+    "prefersReducedTransparency",
+    "prefersContrast",
+    "prefersColorScheme",
+];
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
     let fonts = crate::faces::fonts(plan)?;
@@ -204,6 +223,8 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         row_actions: Default::default(),
         markdown: false,
         canvas2d: false,
+        list: false,
+        symbols: (false, false),
     };
     let top = Scope::default();
     let action = Scope {
@@ -264,6 +285,32 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
     }
+    // `exactViewport`: its declared fields, filled by name (facts.js).
+    let viewport = plan
+        .resources
+        .iter()
+        .find(|r| plan.str(r.source) == "exactViewport");
+    if let Some(r) = viewport {
+        let t = &plan.types[r.ty.0 as usize];
+        if t.kind != exact_plan::TypeKind::Record {
+            return Err(format!(
+                "resource {}: `exactViewport` answers a record",
+                plan.str(r.name)
+            ));
+        }
+        let mut names = Vec::new();
+        for f in t.fields.iter() {
+            let name = plan.str(plan.fields[f.0 as usize].name);
+            if !VIEWPORT_FIELDS.contains(&name) {
+                return Err(format!(
+                    "resource {}: `exactViewport` has no `{name}`",
+                    plan.str(r.name)
+                ));
+            }
+            names.push(serde_json::to_string(name).unwrap());
+        }
+        let _ = write!(body, "$viewport([{}]);", names.join(","));
+    }
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
         for a in r.args.iter() {
@@ -286,14 +333,16 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             _ if is_placeholder => "void 0".into(),
             _ => zero(plan, r.ty),
         };
+        // A host fact is the page's, never the build's.
+        let fact = HOST_FACTS.contains(&plan.str(r.source));
         let initial = plan.bytes(r.initial);
-        let initial = if initial.is_empty() {
+        let initial = if initial.is_empty() || fact {
             "void 0".to_string()
         } else {
             value_js(&Value::from_bytes(initial).map_err(|e| e.to_string())?)
         };
         let initial_args = plan.bytes(r.initial_args);
-        let initial_args = if initial_args.is_empty() {
+        let initial_args = if initial_args.is_empty() || fact {
             "void 0".to_string()
         } else {
             value_js(&Value::from_bytes(initial_args).map_err(|e| e.to_string())?)
@@ -354,6 +403,28 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     em.out.clear();
     em.node(sites.root, "$R", &top)?;
     let view = std::mem::take(&mut em.out);
+    // Symbols (symbols.js): a bound source picks its role from the plan's
+    // strings that name one, `symbol:`-prefixed or not.
+    if em.symbols.0 {
+        let mut roles = Vec::new();
+        if em.symbols.1 {
+            for s in &plan.strings {
+                let role = s.strip_prefix("symbol:").unwrap_or(s);
+                if let Some((_, path, filled)) = exact_kernel::generated::symbol(role) {
+                    let entry = format!(
+                        "{}:[{},{}]",
+                        serde_json::to_string(role).unwrap(),
+                        serde_json::to_string(path).unwrap(),
+                        filled as u8
+                    );
+                    if !roles.contains(&entry) {
+                        roles.push(entry);
+                    }
+                }
+            }
+        }
+        let _ = write!(body, "$symbols({{{}}});", roles.join(","));
+    }
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     if let Some(slot) = plan.router {
@@ -487,9 +558,19 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let js = format!(
-        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
+        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
         imports.join(","),
         if plan.router.is_some() { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
+        // Loaded pieces, imported only where the plan uses them.
+        [
+            (em.list, "import{vl as $vl}from\"./list.js\";"),
+            (viewport.is_some(), "import{viewport as $viewport}from\"./facts.js\";"),
+            (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
+        ]
+        .iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, i)| *i)
+        .collect::<String>(),
         sources.join(","),
         // A resource with no compiled value: the page waits for its source.
         false
@@ -769,25 +850,35 @@ impl Em<'_> {
             return Ok(());
         }
         let parts = self.parts[i as usize].clone().ok_or("no parts")?;
-        let virtualized = row.bindings.iter().any(|b| {
-            let b = plan.binding(b);
-            b.kind == BindingKind::Prop
-                && b.id == PropId::Virtualized as u16
-                && !matches!(
-                    style::literal(plan, plan.code(b.expr)),
-                    Some(Value::Bool(false))
-                )
-        });
-        if virtualized {
-            return Err(format!(
-                "node {i}: a virtualized list is not in the JS target"
-            ));
+        let mut virtualized = false;
+        for b in row.bindings.iter().map(|b| plan.binding(b)) {
+            if b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16 {
+                match style::literal(plan, plan.code(b.expr)) {
+                    Some(Value::Bool(v)) => virtualized = v,
+                    _ => {
+                        return Err(format!(
+                            "node {i}: a dynamic `virtualized` is not in the JS target"
+                        ))
+                    }
+                }
+            }
         }
         let element = if parts.tag == "canvas" {
             "div"
         } else {
             parts.tag.as_str()
         };
+        if element == "img" {
+            let bound = row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::ImageSource as u16
+                    && style::literal(plan, plan.code(b.expr)).is_none()
+            });
+            if bound || parts.props.contains_key("data-symbol-path") {
+                self.symbols.0 = true;
+                self.symbols.1 |= bound;
+            }
+        }
         let (mut attrs, content, extra) = attributes(element, &parts.props);
         let mut css = parts.css.clone();
         css.push_str(&extra);
@@ -962,6 +1053,7 @@ impl Em<'_> {
                 }
             }
         }
+        let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);
             let mut args = Vec::new();
@@ -996,7 +1088,10 @@ impl Em<'_> {
                 | EventKind::Seeking
                 | EventKind::Seeked
                 | EventKind::Ratechange
-                | EventKind::Volumechange => {}
+                | EventKind::Volumechange
+                | EventKind::Scroll
+                | EventKind::Refresh => {}
+                EventKind::Reachstart | EventKind::Reachend if virtualized => {}
                 k => {
                     return Err(format!(
                         "node {i}: the `{}` event is not in the JS target",
@@ -1019,10 +1114,97 @@ impl Em<'_> {
                 let _ = write!(self.out, "{nav}({handler});");
                 continue;
             }
+            // A list's edges are the runner's, from its window (list.js).
+            if matches!(h.event, EventKind::Reachstart | EventKind::Reachend) {
+                edges[(h.event == EventKind::Reachend) as usize] = handler;
+                continue;
+            }
             let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
+        }
+        if virtualized {
+            let opts = self.list_options(i, scope, &edges)?;
+            let [Site::Region(r)] = self.sites.of_node(i) else {
+                return Err(format!(
+                    "node {i}: a virtualized list needs one direct `each`"
+                ));
+            };
+            let r = *r;
+            if plan.regions[r as usize].kind != RegionKind::Each {
+                return Err(format!(
+                    "node {i}: a virtualized list needs one direct `each`"
+                ));
+            }
+            self.list = true;
+            return self.each(r, &e, scope, Some(opts));
         }
         self.children(self.sites.of_node(i), &e, scope)?;
         Ok(())
+    }
+
+    /// What the runner reads when a virtualized list is created
+    /// (`Collection::create`), evaluated there: its axis, its literal sizes,
+    /// its row estimate, `scrollFollowEnd` (read again at each update),
+    /// `scroll-restoration`, its edges' handlers, and its plan site.
+    fn list_options(
+        &mut self,
+        i: u32,
+        scope: &Scope,
+        edges: &[String; 2],
+    ) -> Result<String, String> {
+        let plan = self.plan;
+        let (mut ph, mut pw) = (Vec::new(), Vec::new());
+        let (mut x, mut est, mut follow, mut manual) = (
+            "!1".to_string(),
+            "void 0".to_string(),
+            "0".to_string(),
+            "!1".to_string(),
+        );
+        for b in plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+        {
+            let value = match style::literal(plan, plan.code(b.expr)) {
+                Some(v) => value_js(&v),
+                None => code::expression(plan, plan.code(b.expr), scope, &mut self.uses)
+                    .map_err(|x| format!("node {i}: {x}"))?,
+            };
+            match b.kind {
+                BindingKind::Style
+                    if b.id == StyleId::Height as u16 || b.id == StyleId::MaxHeight as u16 =>
+                {
+                    ph.push(value)
+                }
+                BindingKind::Style
+                    if b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16 =>
+                {
+                    pw.push(value)
+                }
+                BindingKind::Style if b.id == StyleId::Display as u16 => {
+                    x = format!("({value})===\"flex\"")
+                }
+                BindingKind::Prop
+                    if b.id == PropId::EstimatedItemHeight as u16
+                        || b.id == PropId::EstimatedItemWidth as u16 =>
+                {
+                    est = value
+                }
+                BindingKind::Prop if b.id == PropId::ScrollFollowEnd as u16 => {
+                    follow = format!("()=>{value}")
+                }
+                BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
+                    manual = format!("({value})===\"manual\"")
+                }
+                _ => {}
+            }
+        }
+        Ok(format!(
+            "{{x:{x},ph:[{}],pw:[{}],est:{est},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
+            ph.join(","),
+            pw.join(","),
+            edges[0],
+            edges[1]
+        ))
     }
 
     fn region(&mut self, r: u32, parent: &str, scope: &Scope) -> Result<(), String> {
@@ -1073,41 +1255,67 @@ impl Em<'_> {
                     bodies[0], bodies[1]
                 );
             }
-            RegionKind::Each => {
-                let (item, index) = (format!("i{r}"), format!("x{r}"));
-                let mut inner = scope.clone();
-                inner.frames.push(Frame {
-                    item: Some(item.clone()),
-                    index: Some(index.clone()),
-                    bound: None,
-                });
-                let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
-                    .map_err(|x| format!("region {r} key: {x}"))?;
-                // The row's own slots, started from their initializers when
-                // the row is created and kept with its key (LLP 1017 P4c).
-                let mut own = Vec::new();
-                for (k, slot) in plan.slots.iter().enumerate() {
-                    if slot.owner.map(|o| o.0) == Some(r) {
-                        let init =
-                            code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
-                                .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
-                        let sig = self.uses.rt("sig");
-                        own.push(format!("{k}:{sig}({init})"));
-                    }
-                }
-                let mut rows_decl = String::new();
-                if !own.is_empty() {
-                    let name = format!("$r{r}");
-                    rows_decl = match &scope.rows {
-                        Some(outer) => format!("const {name}={{...{outer},{}}};", own.join(",")),
-                        None => format!("const {name}={{{}}};", own.join(",")),
-                    };
-                    inner.rows = Some(name);
-                }
-                let saved = std::mem::take(&mut self.out);
-                self.out.push_str(&rows_decl);
-                self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
-                let built = std::mem::replace(&mut self.out, saved);
+            RegionKind::Each => self.each(r, parent, scope, None)?,
+        }
+        Ok(())
+    }
+
+    /// An `each`, or a virtualized list's rows when `list` carries the
+    /// list's options (list.js `vl`).
+    fn each(
+        &mut self,
+        r: u32,
+        parent: &str,
+        scope: &Scope,
+        list: Option<String>,
+    ) -> Result<(), String> {
+        let plan = self.plan;
+        let row = &plan.regions[r as usize];
+        let subject = self
+            .f(row.subject, scope)
+            .map_err(|x| format!("region {r}: {x}"))?;
+        let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
+        let (item, index) = (format!("i{r}"), format!("x{r}"));
+        let mut inner = scope.clone();
+        inner.frames.push(Frame {
+            item: Some(item.clone()),
+            index: Some(index.clone()),
+            bound: None,
+        });
+        let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
+            .map_err(|x| format!("region {r} key: {x}"))?;
+        // The row's own slots, started from their initializers when
+        // the row is created and kept with its key (LLP 1017 P4c).
+        let mut own = Vec::new();
+        for (k, slot) in plan.slots.iter().enumerate() {
+            if slot.owner.map(|o| o.0) == Some(r) {
+                let init = code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
+                    .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
+                let sig = self.uses.rt("sig");
+                own.push(format!("{k}:{sig}({init})"));
+            }
+        }
+        let mut rows_decl = String::new();
+        if !own.is_empty() {
+            let name = format!("$r{r}");
+            rows_decl = match &scope.rows {
+                Some(outer) => format!("const {name}={{...{outer},{}}};", own.join(",")),
+                None => format!("const {name}={{{}}};", own.join(",")),
+            };
+            inner.rows = Some(name);
+        }
+        let saved = std::mem::take(&mut self.out);
+        self.out.push_str(&rows_decl);
+        self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
+        let built = std::mem::replace(&mut self.out, saved);
+        match list {
+            Some(opts) => {
+                let _ = write!(
+                    self.out,
+                    "$vl({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}},{opts});"
+                );
+            }
+            None => {
                 let each = self.uses.rt("each");
                 let _ = write!(
                     self.out,

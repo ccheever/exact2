@@ -35,10 +35,8 @@ const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm');
 const app = resolveApp(process.argv[2]);
 if (target !== '--wasm') {
-  const inRepo = dirname(app.dir) === realpathSync(resolve(new URL('../../apps', import.meta.url).pathname));
-  const js = inRepo
-    ? spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist()], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' })
-    : { status: 1, stderr: `${app.name}: an app outside apps/ is not in the JS target\n` };
+  // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
+  const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist()], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   if (js.status === 0) {
     writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');

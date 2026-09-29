@@ -462,6 +462,9 @@ impl Translator<'_> {
                         .plan
                         .str(exact_plan::StrId(x.args[0] as u32))
                         .to_string();
+                    if name == "scrollIntoView" {
+                        return Err("the `scrollIntoView` command is not in the JS target".into());
+                    }
                     let args = self.popn(x.args[1] as usize)?;
                     self.flush();
                     let c = self.uses.rt("C");

@@ -23,7 +23,8 @@ const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js]'); process.exit(2); }
-const appDir = resolve(root, 'apps', app);
+// An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
+const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
@@ -88,7 +89,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
   ] : ['start();']),
 ].join('\n'));
-for (const f of ['agent.js', 'rust-data.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js']) cpSync(resolve(here, f), resolve(gen, f));
+// Virtualized lists' browser half, the web host's own, loaded after first paint.
+cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
@@ -157,7 +160,7 @@ if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve
 if (rust) {
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
-  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app, undefined, canvas2d);
+  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app, undefined, canvas2d, appDir);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);

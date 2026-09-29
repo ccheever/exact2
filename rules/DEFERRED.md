@@ -77,15 +77,19 @@ it compiles; the Rust render host stays the primary pre-render and the JS render
 the option (his ruling of the same day). Unblocks a web first interaction in
 about a tenth of the wasm target's bytes. Until these gaps close, an app that
 needs one is refused by name and builds the wasm target, which then retires:
-Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module; virtualized collections;
+Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module;
+`scrollIntoView` and reorder on a virtualized list; the runner's reserved sources
+beyond `exactViewport` and `exactTime`;
 a TypeScript and a Rust source in one app; native modules; dynamic
-composite rows (`line-height`, `clip-path`, SVG paint, `animation`,
-`timeline-scope`); the events `pan`, `select`, `cancel`, `reachstart`/`reachend`
-and drags; springs, presence and layout transitions; the dev loop's reload and
+composite rows (`clip-path`, SVG paint, `animation`,
+`timeline-scope`); the events `pan`, `select`, `cancel`, `swiperight`,
+`transformgeometry` and drags; springs, presence and layout transitions; the dev loop's reload and
 state carry, delivery and the rest of the agent (these tools build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
 Take: none named yet (LLP 1071 §8 asks). A Rust source's Canvas 2D surfaces and
-declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7).
+declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7), as did
+virtualized lists, `reachstart`/`reachend`, a dynamic `line-height`, and an app
+outside the repo (Bluesky builds on the JS target).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one
