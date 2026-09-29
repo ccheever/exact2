@@ -11,6 +11,7 @@
 mod code;
 mod emit;
 mod faces;
+mod facts;
 mod style;
 
 use std::process::ExitCode;
