@@ -1,0 +1,40 @@
+// data: svg-gallery
+// Synthetic conformance plan: `exit-animation` and `layout-transition`
+// (LLP 1063, presence-glue.js), over a dist that links the animation
+// grammars. A removed row leaves with the keyframes it names while the row
+// after it slides up into its place, eased, and on a spring; one coming
+// back pushes it down again. Compared mid-flight on the driver's clock and
+// after `clock settle`, which runs the clock to where the last one ends.
+keyframes leave
+  to opacity=0 scale=0.96 animation-timing-function="ease-in"
+
+style Row
+  layout-transition="320ms cubic-bezier(.32,.72,0,1)"
+  exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
+  padding=12 background-color="#e8eef6" margin-bottom=6
+
+style Springy
+  layout-transition="spring(300, 24, 1)"
+  exit-animation="leave 260ms ease-in both"
+  padding=10 background-color="#f3e8d8" margin-bottom=6
+
+component Presence
+  state shown = true
+  state third = true
+  action toggle writes shown
+    shown = not shown
+  action drop writes third
+    third = not third
+  view
+    column testId="root" padding=10
+      row gap=8
+        button press=toggle testId="toggle"
+          text "Toggle"
+        button press=drop testId="drop"
+          text "Drop"
+      when shown
+        text "First" testId="first" class=Row
+      text "Second" testId="second" class=Row
+      when third
+        text "Third" testId="third" class=Springy
+      text "Fourth" testId="fourth" class=Springy

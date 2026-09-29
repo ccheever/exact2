@@ -170,6 +170,8 @@ export function commit(f, what = "commit") {
   const [out, cmds, landed] = [Out, Commands, Landed];
   Writes = null;
   for (const f of Before) f();
+  // Presence measures what it tracks before the tree changes (LLP 1063).
+  Pres?.before({ ops: [] }, Views);
   try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
   settled();
   if (!ok) return false;
@@ -189,7 +191,7 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); for (const f of After) f(); }
+export function settled() { drain(); Present?.(); for (const f of After) f(); }
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
@@ -603,6 +605,41 @@ export function on(e, kind, f) {
     default: return l(kind, () => f());
   }
 }
+// ---------------------------------------------------------------- presence (LLP 1063)
+// `exit-animation` and `layout-transition`: the web host's own
+// presence-glue.js, fetched after the first painted frame by a plan with
+// either row (its node calls `pr`), plays both. Each commit it measures the
+// views that declare a layout transition before the tree changes and plays
+// back each that moved after; a region's removed root that declares an exit
+// stays, out of flow at its last box, until its animations end, where it
+// was: `clear` passes over it.
+// Until the piece is here, rows jump and leave at once, as the wasm host's
+// do when it is unavailable.
+let Pres = null, Presence = null, Present = null, Leave = null;
+const Created = [];
+export function pr(e) {
+  Created.push(e);
+  if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  Presence = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => { globalThis.exact ??= {}; return import("./presence-glue.js"); })
+    .then(() => {
+      const x = globalThis.exact;
+      Pres = x.presenceLive = x.presence(document.getElementById("exact-root"));
+      Created.length = 0;
+      // After a commit's tree: which views declare the row now (the created
+      // ones), and every tracked one that moved plays back from where it was.
+      Present = () => Pres.after({ ops: Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })) }, Views);
+      // A removed region node that declares an exit leaves with it (the
+      // kernel's `exit`: a destroyed root whose parent stays).
+      Leave = n => {
+        const css = n.nodeType === 1 && n.style.getPropertyValue("--exact-exit-animation").trim();
+        if (css) Pres.exit(n, css);
+        if (!exiting(n)) n.remove();
+      };
+    })
+    .catch(err => say(`presence: unavailable; motion skipped: ${err.message}`)).finally(() => inflight.n--);
+}
+
 /** The motion piece (motion.js over `motion.wasm` and the web host's
  * `motion-glue.js`), fetched after the first painted frame by a plan that
  * uses motion; `f(m)` runs at once when it is here, else once it is. */
@@ -740,7 +777,10 @@ function range(p) {
   p.append(a, b);
   return [a, b];
 }
-function clear(a, b) { while (a.nextSibling !== b) a.nextSibling.remove(); }
+// A view leaving with its exit animation stays where it was until it ends
+// (presence-glue.js removes it): never moved, since moving cancels a CSS animation.
+const exiting = n => n.nodeType === 1 && n.hasAttribute("data-exiting");
+function clear(a, b) { for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
 function build(b, f, own) {
   const frag = document.createDocumentFragment();
   const s = scope(() => f(frag), own);
@@ -807,7 +847,7 @@ export function each(p, list, key, row) {
         }
         next.set(k, r);
       });
-      for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; n.remove(); if (n === r.end) break; n = m; } }
+      for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
       // Order: walk the rows, moving a row only when it is not already next.
       let at = a;
       for (const r of next.values()) {

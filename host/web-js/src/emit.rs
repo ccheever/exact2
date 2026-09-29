@@ -791,6 +791,24 @@ fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
     })
 }
 
+/// Take the presence rows' declarations (LLP 1063) out of a node's static
+/// CSS, returned in the order they were written.
+fn presence_decls(css: &mut String) -> String {
+    let mut kept = String::new();
+    let mut taken = String::new();
+    for decl in css.split_inclusive(';') {
+        if decl.starts_with("--exact-layout-transition:")
+            || decl.starts_with("--exact-exit-animation:")
+        {
+            taken.push_str(decl);
+        } else {
+            kept.push_str(decl);
+        }
+    }
+    *css = kept;
+    taken
+}
+
 fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
     let t = &plan.types[ty.0 as usize];
     match t.kind {
@@ -996,6 +1014,11 @@ impl Em<'_> {
         let (mut attrs, content, extra) = attributes(element, &parts.props);
         let mut css = parts.css.clone();
         css.push_str(&extra);
+        // @ref LLP 1063 — `layout-transition` and `exit-animation` are custom
+        // properties the web host's presence-glue.js reads from the element's
+        // own declaration: inline, as the live host writes every row, not
+        // the class (a class's custom property would be inherited).
+        let presence = presence_decls(&mut css);
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }
@@ -1017,7 +1040,9 @@ impl Em<'_> {
         // styles from their own attributes, not the page's class rules: its
         // static rows go inline too (the live host writes every row inline).
         if !css.is_empty() && self.in_symbol(i) {
-            attrs.push(("style".into(), css.clone()));
+            attrs.push(("style".into(), format!("{css}{presence}")));
+        } else if !presence.is_empty() {
+            attrs.push(("style".into(), presence.clone()));
         }
         let class = if css.is_empty() {
             "0".to_string()
@@ -1056,6 +1081,10 @@ impl Em<'_> {
             self.out,
             "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
         );
+        if !presence.is_empty() {
+            let pr = self.uses.rt("pr");
+            let _ = write!(self.out, "{pr}({e});");
+        }
         if parts.tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");

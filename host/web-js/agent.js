@@ -9,10 +9,11 @@ const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTA
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
+  // A view leaving with its exit animation (presence-glue.js) is no view: the runner destroyed it.
   // A paragraph text flows around shapes is its fragments on the page; the
   // tree is its own text and runs (flow.js keeps them).
   const flowed = el => el.$flow && el.querySelector(':scope > [data-flow-fragment]');
-  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface'));
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting'));
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
   // (A flowed paragraph's runs are held off the page: runs too.)
@@ -41,6 +42,11 @@ export function install(exact) {
     return out;
   };
   const tags = () => ({ clock: exact.clock.now, epoch: 1 });
+  // presence-glue.js `observation`, by this runtime's view ids (its elements carry no `data-view`).
+  const presence = () => [...document.querySelectorAll('#exact-root [style*="--exact-layout-transition"], #exact-root [style*="--exact-exit-animation"], #exact-root [data-exiting]')].map(el => {
+    const r = el.getBoundingClientRect();
+    return { id: id(el), x: r.x, y: r.y, w: r.width, h: r.height, opacity: Number(getComputedStyle(el).opacity), exiting: el.hasAttribute('data-exiting') };
+  });
   // The browser runs CSS animations; under the agent they follow its clock,
   // each from the clock time it began, author-paused ones keeping their own
   // (the web host's own `animationClock`), and `clock settle` runs the clock
@@ -138,7 +144,8 @@ export function install(exact) {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.
         const pending = [...exact.resources.filter(r => r.ticket).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
-        return { slots, derives, resources, pending, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...tags() };
+        // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
+        return { slots, derives, resources, pending, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }

@@ -1,0 +1,9 @@
+# Bluesky (outside the repo: EXACT_APP_DIR, a local run, not the lane's; its
+# first screen is the live network). Scrolling the feed hides the header on a
+# `translate` spring and scrolling back shows it (LLP 1071 §7).
+wheel feed-discover 1200
+clock +100
+wheel feed-discover 900
+wheel feed-discover -1600
+clock +150
+wheel feed-discover -3000
