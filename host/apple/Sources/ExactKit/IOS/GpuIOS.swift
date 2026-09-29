@@ -80,7 +80,15 @@ final class Canvases {
     /// Module loads scheduled for the turn after their canvas mounted.
     var deferred: Set<String> = []
     private lazy var compat = GpuModule.bakedCompatibility
-    func artifact(_ surface: String) -> String { GpuModule.artifact(for: surface, compat: compat) }
+    /// Each surface's artifact, read from the baked card once: `ready` asks
+    /// for every canvas's on every frame.
+    private var artifacts: [String: String] = [:]
+    func artifact(_ surface: String) -> String {
+        if let known = artifacts[surface] { return known }
+        let found = GpuModule.artifact(for: surface, compat: compat)
+        artifacts[surface] = found
+        return found
+    }
     /// Every canvas's artifact loaded or refused: what an agent read waits for.
     var ready: Bool { deferred.isEmpty && entries.values.allSatisfy { attempted.contains(artifact($0.name)) } }
     var displayPeriod = DisplayPeriod()

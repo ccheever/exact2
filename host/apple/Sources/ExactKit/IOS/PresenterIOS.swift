@@ -623,7 +623,7 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
-        var moved = false // frame or content ops: rows may have moved (`HeavyLeaves.batchApplied`)
+        var moved = false // create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`)
         defer {
             collections.endBatch()
             pool.end()
@@ -648,7 +648,7 @@ final class Presenter {
             case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
             default: break
             }
-            if kind == .frame || kind == .content { moved = true }
+            if kind == .create || kind == .frame || kind == .content { moved = true }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
                 // Mount the native owner under the root's available box before
