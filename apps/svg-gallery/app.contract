@@ -486,6 +486,17 @@ component StageNine
           feDropShadow dx=2 dy=3 stdDeviation=2 flood-color="#7c3aed" flood-opacity=0.6
       rect x=10 y=14 width=44 height=44 rx=8 fill="#fbbf24" filter="url(#lift)"
       circle cx=88 cy=36 r=20 fill="#34d399" filter="url(#drop)"
+    // A filter region and a mask region far larger than the svg (tens of
+    // millions of pixels at device scale): drawn, never dropped.
+    svg testId="fx-huge-region" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="vast" x="-3000%" y="-3000%" width="6000%" height="6000%"
+          feDropShadow dx=2 dy=3 stdDeviation=2 flood-color="#0f172a" flood-opacity=0.5
+        mask id="field" maskUnits="userSpaceOnUse" x=-6000 y=-6000 width=12000 height=12000
+          rect x=-6000 y=-6000 width=12000 height=12000 fill="#ffffff"
+          circle cx=90 cy=40 r=10 fill="#000000"
+      circle cx=34 cy=38 r=22 fill="#ef4444" filter="url(#vast)"
+      rect x=66 y=14 width=48 height=52 rx=6 fill="#0ea5e9" mask="url(#field)"
     // Colour matrices on a gradient: grey, turned, and luminance to alpha.
     svg testId="fx-matrix" class=Tile viewBox="0 0 120 80"
       defs

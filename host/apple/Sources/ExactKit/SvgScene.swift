@@ -189,7 +189,19 @@ final class SvgScene {
     /// A system font where no presenter's fonts are known.
     static let systemFonts: SvgText.Fonts = { size, _, _, _ in CTFontCreateUIFontForLanguage(.system, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil) }
 
+    /// The content box when the `svg` clips to it: an island over the cap
+    /// renders only what can show there (`SvgIsland.extent`).
+    private var clipped: CGRect?
+
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
+
+    /// What of an island's user space can show: the clipping content box
+    /// through the inverse of the island's `m` (user space to that box).
+    private func seen(_ spec: [String: Any]) -> CGRect? {
+        let m = nums(spec["m"])
+        guard let clipped, m.count == 6, m[0] * m[3] - m[1] * m[2] != 0 else { return nil }
+        return clipped.applying(CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]).inverted())
+    }
 
     /// Build or update the layers from a scene; unchanged animations keep running.
     func apply(_ scene: [String: Any], dark: Bool, clock: Double?) {
@@ -197,6 +209,7 @@ final class SvgScene {
         defer { CATransaction.commit() }
         let box = nums(scene["box"])
         if box.count == 4 { root.bounds = CGRect(x: 0, y: 0, width: box[2], height: box[3]); root.position = CGPoint(x: box[0], y: box[1]) }
+        clipped = scene["clip"] != nil && box.count == 4 ? CGRect(x: 0, y: 0, width: box[2], height: box[3]) : nil
         let t = nums(scene["t"])
         root.isHidden = t.count != 6
         if t.count == 6 { root.sublayerTransform = CATransform3DMakeAffineTransform(CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5])) }
@@ -342,7 +355,7 @@ final class SvgScene {
                     h.combine(scale); h.combine(dark)
                     let key = h.finalize()
                     let picture = pictures[id].flatMap { $0.key == key ? $0.layer : nil }
-                        ?? SvgIsland.filter(fl, k: CGFloat(num(fl["k"])) * scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                        ?? SvgIsland.filter(fl, k: CGFloat(num(fl["k"])) * scale, seen: seen(fl), dark: dark, fonts: fonts ?? SvgScene.systemFonts)
                     if pictures[id]?.layer !== picture { pictures[id]?.layer.removeFromSuperlayer() }
                     pictures[id] = (key, picture)
                     if picture.superlayer !== layer { layer.addSublayer(picture) }
@@ -385,7 +398,7 @@ final class SvgScene {
                 h.combine(scale); h.combine(dark)
                 let key = h.finalize()
                 let m = islands[id].flatMap { $0.key == key ? $0.layer : nil }
-                    ?? SvgIsland.mask(mk, k: CGFloat(num(mk["k"])) * scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                    ?? SvgIsland.mask(mk, k: CGFloat(num(mk["k"])) * scale, seen: seen(mk), dark: dark, fonts: fonts ?? SvgScene.systemFonts)
                 islands[id] = (key, m)
                 if var inner = layer.mask {
                     while let next = inner.mask { inner = next }

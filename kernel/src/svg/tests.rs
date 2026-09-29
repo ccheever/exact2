@@ -298,3 +298,28 @@ fn transform_lists_read_both_grammars() {
     assert_eq!(o("right 5 0"), Some((100.0, 5.0)));
     assert_eq!(o("left right"), None);
 }
+
+#[test]
+fn a_filter_chain_reaches_as_far_as_its_primitives_read() {
+    use crate::svg::filter::{Filter, Input, Op, Primitive};
+    let p = |op| Primitive {
+        op,
+        inputs: [Input::SourceGraphic, Input::None],
+        subregion: (0.0, 0.0, 10.0, 10.0),
+        linear: false,
+    };
+    let chain = |ops: Vec<Op>| Filter {
+        region: (0.0, 0.0, 10.0, 10.0),
+        primitives: ops.into_iter().map(p).collect(),
+    };
+    assert_eq!(chain(vec![Op::Flood([0.0; 4])]).reach(), Some((0.0, 0.0)));
+    assert_eq!(
+        chain(vec![Op::DropShadow(2.0, 1.0, 0.0, -3.0, [0.0; 4])]).reach(),
+        Some((9.0, 0.0))
+    );
+    assert_eq!(
+        chain(vec![Op::Blur(1.0, 1.0), Op::Offset(4.0, 0.0)]).reach(),
+        Some((7.0, 0.0))
+    );
+    assert_eq!(chain(vec![Op::Tile]).reach(), None);
+}

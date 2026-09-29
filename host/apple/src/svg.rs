@@ -277,6 +277,10 @@ fn scene(
         Some(t) => affine_json(t, &mut s),
         None => s.push_str("null"),
     }
+    // Clipped to its box: an island renders only what can show in it.
+    if resolved.clip {
+        s.push_str(",\"clip\":1");
+    }
     s.push_str(",\"els\":");
     items(
         engine,
@@ -444,7 +448,14 @@ fn filtered(
         }
         s.push_str(&num(*v));
     }
-    s.push_str("],\"c\":");
+    // What the island needs to render only its seen part: user space to
+    // the content box `m`, and how far the chain reads `rc` (units, pixels).
+    s.push_str("],\"m\":");
+    affine_json(item.ctm, s);
+    if let Some((units, pixels)) = filter.reach() {
+        let _ = write!(s, ",\"rc\":[{},{}]", num(units), num(pixels));
+    }
+    s.push_str(",\"c\":");
     items(
         engine,
         press,
@@ -562,6 +573,8 @@ fn element(
         let det = |m: Affine| (m[0] * m[3] - m[1] * m[2]).abs();
         let k = (det(item.ctm) / det(local).max(1e-12)).sqrt();
         let _ = write!(s, ",\"k\":{}", num(k));
+        s.push_str(",\"m\":");
+        affine_json(item.ctm, s);
         s.push_str(",\"c\":");
         items(engine, press, &mask.items, item.ctm, s, Role::Item);
         s.push('}');

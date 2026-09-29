@@ -210,6 +210,42 @@ fn input_of(v: f32) -> Option<Input> {
 }
 
 impl Filter {
+    /// How far a result pixel reads its input from, over the whole chain:
+    /// user units and device pixels, summed (a conservative bound, each
+    /// primitive possibly reading the one before). A host that renders only
+    /// part of the region (the part that can be seen) renders this much
+    /// more around it, so the seen pixels are those of the whole region.
+    /// `None` when a result can read anywhere (`feTile`, a wrapping
+    /// convolution).
+    pub fn reach(&self) -> Option<(f32, f32)> {
+        let (mut units, mut pixels) = (0.0f32, 0.0f32);
+        for p in &self.primitives {
+            match &p.op {
+                // Gaussian support, to where its weight is under 1/255.
+                Op::Blur(sx, sy) => units += 3.0 * sx.abs().max(sy.abs()),
+                Op::Offset(dx, dy) => units += dx.abs().max(dy.abs()),
+                Op::DropShadow(sx, sy, dx, dy, _) => {
+                    units += 3.0 * sx.abs().max(sy.abs()) + dx.abs().max(dy.abs())
+                }
+                Op::Morphology(_, rx, ry) => units += rx.abs().max(ry.abs()),
+                Op::Displacement(scale, _, _) => units += scale.abs() / 2.0,
+                Op::Convolve(c) if c.edge == 1 => return None,
+                Op::Convolve(c) => pixels += c.order.0.max(c.order.1) as f32,
+                // Surface normals read the neighbouring pixels.
+                Op::Lighting(_) => pixels += 1.0,
+                Op::Tile => return None,
+                Op::Flood(_)
+                | Op::Composite(..)
+                | Op::Merge(_)
+                | Op::ColorMatrix(_)
+                | Op::Blend(_)
+                | Op::ComponentTransfer(_)
+                | Op::Turbulence(..) => {}
+            }
+        }
+        units.is_finite().then_some((units, pixels))
+    }
+
     /// The chain as numbers: the region, the count, then per primitive its
     /// op code, inputs, subregion, colour space and the op's numbers.
     pub fn encode(&self) -> Vec<f32> {

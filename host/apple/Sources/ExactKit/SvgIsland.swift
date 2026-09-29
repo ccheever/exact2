@@ -70,14 +70,47 @@ private final class TileCell {
 }
 
 enum SvgIsland {
+    /// The most pixels one island's bitmap holds (64 MB at 4 bytes each).
+    static let cap = 16_777_216
+
+    /// The part of `rect` (an island's space) an island renders, its size
+    /// in pixels and its pixels per unit, at `k` pixels per unit when that
+    /// is at most `cap` pixels, as before. Over `cap` (a huge filter region
+    /// or mask at device scale), `rect` is first cut to `seen`, what can
+    /// show of it (in the same space), on the full bitmap's own pixel grid,
+    /// so the pixels kept are the full bitmap's; then, when that is still
+    /// over `cap`, it is drawn at fewer pixels per unit and the layer scales
+    /// it up, as a browser draws a huge effect at a lower resolution rather
+    /// than not at all. `nil` when nothing of it can show.
+    static func extent(_ rect: CGRect, k: CGFloat, seen: CGRect?) -> (rect: CGRect, w: Int, h: Int, k: CGFloat)? {
+        let fw = (rect.width * k).rounded(.up), fh = (rect.height * k).rounded(.up)
+        guard rect.width > 0, rect.height > 0, fw >= 1, fh >= 1, fw.isFinite, fh.isFinite else { return nil }
+        if fw * fh <= CGFloat(cap) { return (rect, Int(fw), Int(fh), k) }
+        var (r, w, h) = (rect, fw, fh)
+        if let seen {
+            let (sx, sy) = (fw / rect.width, fh / rect.height)
+            let i0 = max(0, ((seen.minX - rect.minX) * sx).rounded(.down)), i1 = min(fw, ((seen.maxX - rect.minX) * sx).rounded(.up))
+            let j0 = max(0, ((seen.minY - rect.minY) * sy).rounded(.down)), j1 = min(fh, ((seen.maxY - rect.minY) * sy).rounded(.up))
+            guard i1 > i0, j1 > j0 else { return nil }
+            r = CGRect(x: rect.minX + i0 / sx, y: rect.minY + j0 / sy, width: (i1 - i0) / sx, height: (j1 - j0) / sy)
+            (w, h) = (i1 - i0, j1 - j0)
+        }
+        var scaled = k
+        if w * h > CGFloat(cap) {
+            let f = (CGFloat(cap) / (w * h)).squareRoot()
+            (w, h) = (max(1, (w * f).rounded(.down)), max(1, (h * f).rounded(.down)))
+            scaled = k * f
+        }
+        return (r, Int(w), Int(h), scaled)
+    }
+
     /// A premultiplied sRGB bitmap of `els` (scene elements in a space `t`
-    /// maps to the island's), covering `rect` of the island's space at `k`
-    /// pixels per unit. `flip` puts the rect's top in the bitmap's first
+    /// maps to the island's), covering `rect` of the island's space at
+    /// `w` × `h` pixels, `k` per unit. `flip` puts the rect's top in the bitmap's first
     /// row, as a layer's contents; unflipped suits Core Graphics drawing.
-    static func render(_ els: [Any], rect: CGRect, transform t: CGAffineTransform, k: CGFloat, flip: Bool,
+    static func render(_ els: [Any], rect: CGRect, w: Int, h: Int, k: CGFloat, transform t: CGAffineTransform, flip: Bool,
                        dark: Bool, fonts: SvgText.Fonts?) -> CGContext? {
-        let w = Int((rect.width * k).rounded(.up)), h = Int((rect.height * k).rounded(.up))
-        guard rect.width > 0, rect.height > 0, w > 0, h > 0, w * h <= 16_777_216,
+        guard rect.width > 0, rect.height > 0, w > 0, h > 0, w * h <= cap,
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -102,18 +135,20 @@ enum SvgIsland {
     /// rendered over the region, turned into coverage by the module. `k` is
     /// device pixels per unit of the masked layer. Without the module the
     /// layer is empty, and masks everything away.
-    static func mask(_ spec: [String: Any], k: CGFloat, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
+    static func mask(_ spec: [String: Any], k: CGFloat, seen: CGRect?, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
         let layer = CALayer()
         layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
         let r = nums(spec["r"])
         guard r.count == 4 else { return layer }
         let t = affine(spec["t"])
-        let rect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3]).applying(t)
+        guard let (rect, w, h, k) = extent(CGRect(x: r[0], y: r[1], width: r[2], height: r[3]).applying(t), k: k, seen: seen?.applying(t)) else {
+            return layer
+        }
         layer.anchorPoint = .zero
         layer.bounds = CGRect(origin: .zero, size: rect.size)
         layer.position = rect.origin
         guard let module = SvgRasterModule.shared,
-              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, transform: t, k: k, flip: true, dark: dark, fonts: fonts),
+              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: t, flip: true, dark: dark, fonts: fonts),
               let data = ctx.data else { return layer }
         module.mask(data.assumingMemoryBound(to: UInt8.self), ctx.bytesPerRow * ctx.height, num(spec["l"]) != 0 ? 1 : 0)
         layer.contents = ctx.makeImage()
@@ -124,20 +159,24 @@ enum SvgIsland {
     /// its effects rendered over the filter region at `k` pixels per user
     /// unit, run through the chain by the module, as a layer placed on the
     /// region. Without the module the element draws nothing.
-    static func filter(_ spec: [String: Any], k: CGFloat, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
+    static func filter(_ spec: [String: Any], k: CGFloat, seen: CGRect?, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
         let layer = CALayer()
         layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
         let r = nums(spec["r"])
         guard r.count == 4 else { return layer }
-        let rect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+        // What can show, widened by how far the chain reads (`rc`: units,
+        // then pixels), so the pixels that show are the whole region's; a
+        // chain that can read anywhere is never cut.
+        let reach = nums(spec["rc"])
+        let wide = reach.count == 2 ? seen?.insetBy(dx: -(reach[0] + (reach[1] + 2) / max(k, 1e-6)), dy: -(reach[0] + (reach[1] + 2) / max(k, 1e-6))) : nil
+        guard let (rect, w, h, k) = extent(CGRect(x: r[0], y: r[1], width: r[2], height: r[3]), k: k, seen: wide) else { return layer }
         layer.anchorPoint = .zero
         layer.bounds = CGRect(origin: .zero, size: rect.size)
         layer.position = rect.origin
         let program = nums(spec["p"]).map(Float.init)
         guard let module = SvgRasterModule.shared,
-              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, transform: .identity, k: k, flip: true, dark: dark, fonts: fonts),
+              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: .identity, flip: true, dark: dark, fonts: fonts),
               let data = ctx.data else { return layer }
-        let (w, h) = (ctx.width, ctx.height)
         let ok = program.withUnsafeBufferPointer { p in
             module.filter(p.baseAddress, p.count, data.assumingMemoryBound(to: UInt8.self), w, h,
                           Float(rect.minX), Float(rect.minY), Float(CGFloat(w) / rect.width), Float(CGFloat(h) / rect.height))
@@ -184,13 +223,13 @@ enum SvgIsland {
         guard tile.count == 4 else { return nil }
         let t = affine(g["t"])
         let unit = sqrt(abs(t.a * t.d - t.b * t.c))
-        let k = max(scale * unit, 0.01)
         let tileRect = CGRect(x: tile[0], y: tile[1], width: tile[2], height: tile[3])
-        guard let tileCtx = render(g["c"] as? [Any] ?? [], rect: tileRect, transform: .identity, k: k, flip: false, dark: dark, fonts: fonts),
-              let image = tileCtx.makeImage() else { return nil }
         let area = rect.integral.insetBy(dx: -1, dy: -1)
-        let w = Int((area.width * scale).rounded(.up)), h = Int((area.height * scale).rounded(.up))
-        guard w > 0, h > 0, w * h <= 16_777_216, let space = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let (_, w, h, shown) = extent(area, k: scale, seen: nil),
+              let (_, tw, th, tk) = extent(tileRect, k: max(shown * unit, 0.01), seen: nil),
+              let tileCtx = render(g["c"] as? [Any] ?? [], rect: tileRect, w: tw, h: th, k: tk, transform: .identity, flip: false, dark: dark, fonts: fonts),
+              let image = tileCtx.makeImage() else { return nil }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)

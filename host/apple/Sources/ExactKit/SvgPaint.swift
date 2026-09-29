@@ -127,8 +127,9 @@ enum SvgPaint {
     /// A layer covering `rect` (user units) with the gradient drawn in it.
     private static func gradient(_ g: [String: Any], rect: CGRect, scale: CGFloat, dark: Bool, color: (Any?, Bool) -> CGColor?) -> CALayer? {
         let rect = rect.integral.insetBy(dx: -1, dy: -1)
-        let fullW = Int((rect.width * scale).rounded(.up)), fullH = Int((rect.height * scale).rounded(.up))
-        guard fullW > 0, fullH > 0, fullW * fullH <= 16_777_216 else { return nil }
+        // A shape too large for one bitmap at its scale gets fewer pixels,
+        // stretched: a gradient is smooth, and is never dropped.
+        guard let (_, fullW, fullH, _) = SvgIsland.extent(rect, k: scale, seen: nil) else { return nil }
         let t = numbers(g["t"])
         let stops: [(CGFloat, CGColor)] = (g["st"] as? [Any] ?? []).compactMap { s in
             guard let s = s as? [Any], s.count == 2, let c = color(s[1], dark) else { return nil }
