@@ -476,11 +476,11 @@ if (host === 'web') {
   const webBuild = mkdtempSync(resolve(tmpdir(), 'exact-smoke-web-'));
   selectedWebDist = resolve(webBuild, 'dist');
   process.on('exit', () => rmSync(webBuild, { recursive: true, force: true }));
-  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
   if (built.status !== 0) process.exit(built.status ?? 1);
   if (!argv.includes('--app-only')) {
     fixtureWebDist = resolve(webBuild, 'fixtures');
-    const fixtures = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: fixtureWebDist, EXACT_WEB_LINK: 'all' } });
+    const fixtures = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: fixtureWebDist, EXACT_WEB_LINK: 'all' } });
     if (fixtures.status !== 0) process.exit(fixtures.status ?? 1);
   }
 }

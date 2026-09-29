@@ -1104,7 +1104,7 @@ fn large_static_files_stream_with_lengths_validators_and_head() {
     assert_eq!(get(addr, "/glue.js").0, 200);
 }
 
-/// The JavaScript runtime's shell, as host/web3/build.mjs writes it.
+/// The JavaScript runtime's shell, as host/web-js/build.mjs writes it.
 const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
 
 /// A chunked body, its chunks joined.

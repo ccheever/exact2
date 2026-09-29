@@ -35,6 +35,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   stopping at the first failing crate or test binary. Cargo's scope is the root
   `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
   origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
+  the web JS target's conformance run (`host/web-js/conform.mjs --strict`),
   the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), then
   `metrics.mjs --long`. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
@@ -51,6 +52,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
   one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
+- The web build, `bun host/web/build.mjs <app>`, makes the JS target (LLP 1071: the
+  plan compiled to one ES module over a ~20 KB runtime, `host/web-js`) when the app
+  qualifies, else the wasm target, printing what the JS target refused; `--js` or
+  `--wasm` forces one. The dev loop, the agent's web host, delivery and metrics build
+  `--wasm` until LLP 1071 §7's gaps close.
 - The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
   and the page reloads. `bun scripts/metrics.mjs` prints every number

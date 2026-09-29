@@ -70,6 +70,22 @@ three workloads. Shared-element presentation and the bounded geometry/motion
 work those consumers need are admitted; a generic gesture arena, second
 application-state graph and speculative parallel layout remain out.
 
+**Expanded (Charlie, 2026-09-28: exact2's web support, not "Exact 3"):** the
+web build's JS target (LLP 1071): the same Contract compiled ahead of time to one
+ES module over a ~20 KB runtime, the DOM as the tree, used by default for an app
+it compiles; the Rust render host stays the primary pre-render and the JS render
+the option (his ruling of the same day). Unblocks a web first interaction in
+about a tenth of the wasm target's bytes. Until these gaps close, an app that
+needs one is refused by name and builds the wasm target, which then retires:
+Canvas 2D surfaces drawn by a data source; building an app's GPU module; virtualized collections; declared
+fonts; a TypeScript and a Rust source in one app; native modules; dynamic
+composite rows (`line-height`, `clip-path`, SVG paint, `animation`,
+`timeline-scope`); the events `pan`, `select`, `cancel`, `reachstart`/`reachend`
+and drags; springs, presence and layout transitions; the dev loop's reload and
+state carry, delivery and the rest of the agent (these tools build `--wasm`);
+the JS render path's documents (canonical, og, robots, status, sitemap).
+Take: none named yet (LLP 1071 §8 asks).
+
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one
 authored workspace, using existing hosts and data seams. Unblocks showing the

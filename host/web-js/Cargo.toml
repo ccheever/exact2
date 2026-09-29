@@ -1,17 +1,17 @@
-# The exact3 web spike: a plan compiled ahead of time to one ES module over a
+# The web build's JS target: a plan compiled ahead of time to one ES module over a
 # small JavaScript runtime (`rt.js`), the DOM as the tree. Reuses the
 # Contract compiler (parse, types, lower) and the web host's element and CSS
 # rules (`exact_web::host::template`), so the stylesheet is the live host's CSS.
 [package]
-name = "exact-web3"
+name = "exact-web-js"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Spike: Contract plan -> JavaScript module + CSS for a ~20 KB web runtime"
+description = "The web build's JS target: Contract plan -> JavaScript module + CSS for a ~20 KB web runtime"
 publish = false
 
 [[bin]]
-name = "exact-web3"
+name = "exact-web-js"
 path = "src/main.rs"
 
 [dependencies]

@@ -1323,7 +1323,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "exact-web3"
+name = "exact-web-js"
 version = "0.1.0"
 dependencies = [
  "contract",

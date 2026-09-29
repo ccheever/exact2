@@ -9,7 +9,7 @@
 //! callback body is its own arrow function over `l<base>`, `l<base+1>`.
 //!
 //! Values: numbers, strings and bools are JavaScript's; a record or list is
-//! an array; `none` is `null` and `some(x)` is `x` (the spike does not
+//! an array; `none` is `null` and `some(x)` is `x` (the JS target does not
 //! represent `some(none)`); unit is `null`.
 
 use exact_plan::{Opcode, Plan, Stdlib};
@@ -510,7 +510,7 @@ impl Translator<'_> {
                     ));
                 }
                 Opcode::PendingMutation => self.push(format!("m_{}.p()", x.args[0])),
-                op @ Opcode::NativeProps => return Err(format!("{op:?} is not in the spike")),
+                op @ Opcode::NativeProps => return Err(format!("{op:?} is not in the JS target")),
             }
             i += 1;
         }

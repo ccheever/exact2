@@ -34,7 +34,7 @@ pub fn literal(plan: &Plan, code: &[u8]) -> Option<exact_plan::Value> {
 
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
-/// the value at creation; the spike from its presence).
+/// the value at creation; the JS target from its presence).
 fn decides_tag(p: PropId) -> bool {
     matches!(p, PropId::Href | PropId::SemanticTag)
 }
@@ -247,7 +247,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleId::BackdropBlur
     ) {
         return Err(format!(
-            "a dynamic `{}` ({:?}) is not one declaration; not in the spike",
+            "a dynamic `{}` ({:?}) is not one declaration; not in the JS target",
             row.name(),
             row.codec()
         ));

@@ -1,4 +1,4 @@
-// A Rust data module on the exact3 runtime (LLP 1029.000's seam, ABI 3,
+// A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
 // `logic/abi/src/lib.rs`): the app's importless module wasm and its plan,
 // fetched after first pixel; once bound and activated, every answer is a
 // synchronous call, as the runner's `DataSource::answer` is. Until then the
@@ -91,7 +91,7 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
       const n = r.u32(), body = r.bytes(n);
       return { req: { method, url, headers, body: text.decode(body), raw: body, http, stream: tag === 9 } };
     }
-    throw new Error(`a Rust answer of kind ${tag} (storage or surface work) is not carried by the spike`);
+    throw new Error(`a Rust answer of kind ${tag} (storage or surface work) is not carried by the JS target`);
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
   let r = op(0); r.u8(); const meta = [r.str(), r.str()];

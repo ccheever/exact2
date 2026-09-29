@@ -1,4 +1,4 @@
-// A TypeScript data source on the exact3 runtime (LLP 1027): the app's own
+// A TypeScript data source on the JS runtime (LLP 1027): the app's own
 // `app.ts`, bundled with the page, runs in the browser — the executor on
 // the web anyway (D6). Values cross by the plan's types: the runtime's
 // records are arrays, the module's are objects by field name.

@@ -115,7 +115,7 @@ export async function build(host, n, scene = 0) {
       buildEnv.PATH = wrappers + ':' + process.env.PATH;
     }
     console.error(`BUILD cubes ${host} BENCH_N=${n}`);
-    child = track(spawn(process.execPath,[resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), `bench-cubes-${host === 'web' ? 'web' : 'apple'}`], {cwd:root,env:buildEnv,stdio:['ignore',2,2]}));
+    child = track(spawn(process.execPath,[resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), `bench-cubes-${host === 'web' ? 'web' : 'apple'}`, ...(host === 'web' ? ['--wasm'] : [])], {cwd:root,env:buildEnv,stdio:['ignore',2,2]}));
     const code = await new Promise((ok,no)=>{child.once('exit',ok);child.once('error',no);});
     if (code !== 0) throw new Error(`cubes ${host} build exited ${code}`);
   } finally {

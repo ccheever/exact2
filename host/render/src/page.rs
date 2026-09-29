@@ -104,7 +104,7 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     Ok(html)
 }
 
-/// The JavaScript runtime's entry in its shell (`host/web3/build.mjs`).
+/// The JavaScript runtime's entry in its shell (`host/web-js/build.mjs`).
 const JS_ENTRY: &str = "<script type=\"module\" src=\"./app.js\"></script>";
 
 /// The JavaScript runtime's capture script (LLP 1048.001 D5, as
@@ -115,7 +115,7 @@ const JS_ENTRY: &str = "<script type=\"module\" src=\"./app.js\"></script>";
 /// `load`; an `interaction` page's at the first press or edit, as every
 /// page's at a press that comes first.
 pub fn capture_js() -> &'static str {
-    include_str!("../../web3/capture.js").trim_end()
+    include_str!("../../web-js/capture.js").trim_end()
 }
 
 /// A route's activation on the JavaScript runtime (LLP 1071 D6): what it
@@ -128,7 +128,7 @@ pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str 
     }
 }
 
-/// [`page`] over the JavaScript runtime's shell (the exact3 web target,
+/// [`page`] over the JavaScript runtime's shell (exact2's JS web target,
 /// LLP 1071): [`head_js`], then [`body_js`] — the page a server streams in
 /// those two parts is these bytes.
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
@@ -263,7 +263,7 @@ pub(crate) fn body_js(shell: &str, rendered: &Rendered, late: bool) -> Result<St
 /// The document's element in the shell.
 const ROOT: &str = "<div id=\"exact-root\"></div>";
 
-/// The shell stylesheet's static classes (`host/web3/build.mjs`: `.c<n>{…}`
+/// The shell stylesheet's static classes (`host/web-js/build.mjs`: `.c<n>{…}`
 /// inside `#exact-root#exact-root{…}`), by their CSS text.
 fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
     let mut found = std::collections::HashMap::new();
@@ -406,5 +406,5 @@ fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
         .into()
 }
 
-/// A `modulepreload` in the JavaScript shell's head (`host/web3/build.mjs`).
+/// A `modulepreload` in the JavaScript shell's head (`host/web-js/build.mjs`).
 const MODULE_PRELOAD: &str = "<link rel=\"modulepreload\" href=\"";

@@ -318,7 +318,7 @@ await step('native', () => {
 // so every number below is for the code as it is now.
 await step('wasm', async () => {
   const dist = resolve(ROOT, 'host/web/dist');
-  const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+  const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
   out.web_artifacts = await publicFileCards(dist).finally(closeFilesystemReader);
   out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
@@ -602,7 +602,7 @@ if (rebuild) {
     const now = new Date();
     utimesSync(source, now, now);
     const t = Date.now();
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'ignore' });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'ignore' });
     out.rebuild_ms = r.status === 0 ? Date.now() - t : NaN;
   });
 }
@@ -844,7 +844,7 @@ if (long) {
       for (const names of [false, true]) {
         const dist = resolve(ROOT, 'target/metrics-bytes', `${name}${names ? '-names' : ''}`);
         const env = { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist, EXACT_WEB_NAMES: names ? '1' : '0', ...(names ? { CARGO_TARGET_DIR: resolve(ROOT, 'target/metrics-names') } : {}) };
-        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web'), '--wasm'], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
         if (b.status !== 0) { measured.failed = failure(b); break; }
         const wasm = readFileSync(resolve(dist, 'app.wasm'));
         if (names) measured.code = attribute(wasm);

@@ -6,9 +6,9 @@
 // over the built shell as the Rust render host composes them
 // (`host/render/src/page.rs` `page_js`), so the page adopts the same way.
 //
-//   bun host/web3/render.mjs <dist> --build                      pages for render=build routes
-//   bun host/web3/render.mjs <dist> <location>…                  print pages
-//   bun host/web3/render.mjs <dist> --serve [--port 8830]        a page per request
+//   bun host/web-js/render.mjs <dist> --build                      pages for render=build routes
+//   bun host/web-js/render.mjs <dist> <location>…                  print pages
+//   bun host/web-js/render.mjs <dist> --serve [--port 8830]        a page per request
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';

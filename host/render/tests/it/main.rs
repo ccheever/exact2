@@ -370,7 +370,7 @@ fn a_page_is_the_shell_around_the_document() {
 fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: Rendered) {
     // @ref LLP 1071 D6
     r.activate = exact_plan::ActivatePolicy::Inferred;
-    // The shell as host/web3/build.mjs writes it.
+    // The shell as host/web-js/build.mjs writes it.
     let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./shared-1.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
     let html = exact_render::page(shell, &r).unwrap();
     // Undeclared is eager: the runtime downloads from the head, before the

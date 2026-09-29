@@ -1,15 +1,19 @@
-// The exact3 conformance harness: the same plan through the Rust web runner
-// (app.wasm + glue.js) and the JavaScript runner (exact-web3 + rt.js), in the
+// The JS target's conformance harness: the same plan through the Rust web runner
+// (app.wasm + glue.js) and the JavaScript runner (exact-web-js + rt.js), in the
 // same Chrome, driven by the same agent operations (scripts/agent.mjs's
 // `open`). After every step it compares the runner's typed state, the tree
 // (preorder: depth, type, testId, text, value, label, handlers), layout boxes
 // by testId and a screenshot. `app.test.contract` files run on both.
-// Every failure is reported in one run; the exit code is always 0.
+// Every failure is reported in one run; the exit code is 0 unless `--strict`,
+// which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
+// line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web3/conform.mjs [app …] [--synthetic] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact3-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
 //   apps default to every app with a built wasm dist under --wasm-root
-//   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app>`);
-//   --synthetic adds host/web3/conformance/*.contract, run on the video
+//   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
+//   --build makes each named app's wasm dist there first (and Caltrain's,
+//   for --synthetic);
+//   --synthetic adds host/web-js/conformance/*.contract, run on the video
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module.
 import { spawnSync } from 'node:child_process';
@@ -25,7 +29,7 @@ const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
 const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
-const out = resolve(opt('--out', '/tmp/exact3-conform'));
+const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
 const maxSteps = Number(opt('--steps', 10));
 const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
@@ -94,10 +98,10 @@ async function target(t, report) {
     for (const url of new Set(t.urls)) await activation(t, report, fail, url);
     return;
   }
-  const build = spawnSync('bun', ['host/web3/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact3-dist', t.name)], { cwd: root, encoding: 'utf8' });
+  const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact-web-js-dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
-  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
+  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact-web-js-dist', t.name))]);
   await drive(t, report, fail, dir, ws, js);
 }
 
@@ -163,7 +167,7 @@ async function drive(t, report, fail, dir, ws, js) {
   const tests = resolve(root, 'apps', t.app, 'app.test.contract');
   if (!t.contract && !t.urls && existsSync(tests)) {
     const run = url => { const r = spawnSync('bun', ['scripts/agent.mjs', 'web', '--app', t.app, '--url', url, '--test', tests], { cwd: root, encoding: 'utf8' }); return r.stdout + r.stderr; };
-    const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
+    const [w2, j2] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact-web-js-dist', t.name))]);
     const [rw, rj] = [run(w2.url), run(j2.url)];
     w2.close(); j2.close();
     const lines = s => s.split('\n').filter(l => l.startsWith('test '));
@@ -226,6 +230,10 @@ const report = { at: new Date().toISOString(), targets: {}, steps: [], failures:
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
 const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
+if (argv.includes('--build')) for (const a of new Set([...apps, ...(argv.includes('--synthetic') ? ['caltrain'] : [])])) {
+  const b = spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
+  if (b.status !== 0) report.failures.push({ target: a, step: 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
+}
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (argv.includes('--synthetic')) {
@@ -247,7 +255,7 @@ for (const t of targets) {
 writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 1));
 const byTarget = {};
 for (const f of report.failures) (byTarget[f.target] ??= []).push(f);
-const lines = [`# exact3 conformance — ${report.at}`, '', '| target | JS build | steps compared | steps equal | failures | app tests (wasm / js) |', '|---|---|---|---|---|---|'];
+const lines = [`# JS target conformance — ${report.at}`, '', '| target | JS build | steps compared | steps equal | failures | app tests (wasm / js) |', '|---|---|---|---|---|---|'];
 for (const t of targets) {
   const s = report.steps.filter(x => x.target === t.name && x.differences != null), info = report.targets[t.name] ?? {};
   lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${info.tests ? `${info.tests.wasm} / ${info.tests.js}` : '—'} |`);
@@ -257,3 +265,7 @@ for (const [t, fs] of Object.entries(byTarget)) { lines.push(`### ${t}`); for (c
 writeFileSync(resolve(out, 'report.md'), lines.join('\n'));
 console.log(lines.slice(0, targets.length + 4).join('\n'));
 console.log(`\n${report.failures.length} failures across ${targets.length} targets; ${resolve(out, 'report.md')}`);
+if (argv.includes('--strict') && report.failures.length) {
+  for (const f of report.failures) console.log(`FAIL ${f.target} ${f.step}: ${f.what.split('\n')[0].slice(0, 200)}`);
+  process.exit(1);
+}

@@ -236,7 +236,7 @@ import { resolve } from 'node:path';
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
-  'web-build': ['host/web/build.mjs', '${name}-web'],
+  'web-build': ['host/web/build.mjs', '${name}-web', '--wasm'],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],

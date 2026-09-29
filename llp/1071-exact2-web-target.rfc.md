@@ -1,16 +1,16 @@
-# LLP 1071: A small web runtime — Contract compiled to JavaScript, the DOM as the tree
+# LLP 1071: exact2's web target — a small JS runtime, Contract compiled to JavaScript, the DOM as the tree
 
 **Type:** RFC
-**Status:** Draft. Charlie approved writing it and running the spike on 2026-09-28. Nothing here is decided.
+**Status:** Draft, with rulings (§8): Charlie approved the spike on 2026-09-28, then ruled the same day that this is exact2's web support, a new compile target for the same Contract — not a new framework, not "Exact 3" — used by default where an app qualifies, the wasm target the fallback until §7's gaps close.
 **Systems:**
-- Contract: a second backend, from the validated plan to JavaScript (`contract/`).
-- Web host: a JavaScript runtime beside `exact-web` (`host/web`); the glue, capture and adoption.
-- Build: `host/web/build.mjs`, a build-time stylesheet from `css.rs`.
+- Contract: a second backend, from the validated plan to JavaScript (`host/web-js`, crate `exact-web-js`).
+- Web host: a JavaScript runtime beside `exact-web` (`host/web-js/rt.js`); the glue, capture and adoption.
+- Build: `host/web/build.mjs` builds the JS target by default and falls back to wasm with the refusal named (`--js`/`--wasm` force one); a build-time stylesheet from `css.rs`.
 - Render server (LLP 1048): unchanged as the producer of documents; the checkpoint gains instance state for D6.
 - Agent (LLP 1012): the nine operations over the JavaScript runtime, in a development module.
 - Native hosts: none.
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Implementer:** the spike (§7): Claude (Opus 5.5), branch `exact3-web-spike`, from 2026-09-28. Anything past the spike waits for Charlie's rulings (§8).
+**Implementer:** Claude (Opus 5.5), from 2026-09-28: the spike (§7, branch `exact3-web-spike`), then on main as `host/web-js`.
 **Date:** 2026-09-28
 **Related:**
 - LLP 1047 (pay for what you use): §1 and §10's measurements, D9's budget, §8's "compile the plan instead of interpreting it" (`1047:440-445`), the DOM-only kernel (`1047:1063-1071`).
@@ -51,7 +51,9 @@ The answer is yes on the web, and not by trimming.
   data seam, one source.
 
 It is the rule "the web is the standard" taken one step further: on the web,
-stop emulating the browser and be it.
+stop emulating the browser and be it. It is a compile target, not a framework:
+the same Contract, the same plan and the same data seam, lowered for the web
+as the Apple and Linux hosts lower them for theirs.
 
 ## 1. Measured
 
@@ -291,6 +293,15 @@ A plan that uses a capability the JavaScript runtime lacks is refused at
 build, by name, as LLP 1047 D6 refuses an unlinked one. That lets the runtime
 grow one capability at a time.
 
+As landed, the backend and `host/web-js/build.mjs` refuse by name: declared
+fonts, virtualized lists, a Canvas 2D surface (one the app's GPU module
+doesn't draw), a TypeScript and a Rust source in one app, native modules, the
+events and dynamic rows in §7's table. `host/web/build.mjs` prints the
+refusal and builds the wasm target. RealWorld, the video player,
+completion-storm and Motion Gallery build JS; Caltrain (its Canvas 2D line
+map), Weatherlight (its GPU module, which only the wasm build makes yet),
+Typetour, Carousel and Update Lab build wasm.
+
 ### D6 — Documents, activation and resumability
 
 **LLP 1048 is unchanged as the producer.** The Rust renderer, running the Rust
@@ -470,7 +481,7 @@ Also given up:
 
 ## 7. The spike
 
-Branch `exact3-web-spike`. It measures the claim; it lands nothing on main.
+Branch `exact3-web-spike`. It measured the claim; after §8's ruling it landed on main as `host/web-js`.
 
 1. **The backend.** `contract` gains a JavaScript emitter over the validated
    plan (D1), enough for the video player: components, slots, actions,
@@ -509,17 +520,17 @@ options available to allow for different deployment scenarios, but Rust
 should be the primary/default." The build takes `--render rust|js`, default
 `rust`: (a) the Rust render host (`exact_render`) writes the page over the
 JavaScript runtime's shell and the runtime adopts it; (b) the generated
-JavaScript renders the same page under Bun (`host/web3/render.mjs`) for JS
+JavaScript renders the same page under Bun (`host/web-js/render.mjs`) for JS
 edge runtimes and TypeScript-heavy deployments.
 
 **What was built.**
-- `exact-web3 js <app.contract | baked app.plan>`: the plan's bytecode to
+- `exact-web-js js <app.contract | baked app.plan>`: the plan's bytecode to
   JavaScript (structured forward jumps as labeled blocks), the view as DOM
   construction, static rows to a class stylesheet computed by the web
   host's own `tag_for`/`props_for`/`css_text`/`host_css` (a new
   `exact_web::host::template::parts`), dynamic style units read from
   `css_text` itself.
-- `host/web3/rt.js`: signals, commits with rollback on refusal, a
+- `host/web-js/rt.js`: signals, commits with rollback on refusal, a
   settlement pass, typed writes, resources with tickets and LLP
   1054.000.000's kept requests, mutations (`send`, `pending`, declared
   refreshes, `then`), the durable store, row slots, `when`/`match`/keyed
@@ -531,8 +542,8 @@ edge runtimes and TypeScript-heavy deployments.
 - Data: TypeScript `app.ts` bundled into the page (RealWorld); Rust sources
   through their logic module over ABI 3 after first paint (Caltrain's own
   module, or one generated from the DataSource an app's web build bakes).
-- `host/web3/conform.mjs`: the conformance harness (§4 below), and
-  `host/web3/bench.mjs` / `render-bench.mjs` for the numbers here.
+- `host/web-js/conform.mjs`: the conformance harness (§4 below), and
+  `host/web-js/bench.mjs` / `render-bench.mjs` for the numbers here.
 
 **Conformance.** The same plan through the Rust web runner and the
 JavaScript runner in one Chrome, driven by the same `scripts/agent.mjs`
@@ -702,8 +713,26 @@ from (a) today.
 | Springs, presence, layout transitions (`motion-glue.js`) | ~1 week | loaded, 11 KB |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | Dev reload and state carry, delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent | 1–2 weeks | agent-only / <1 KB |
+| The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
 
-## 8. Open questions for Charlie
+## 8. Rulings and open questions for Charlie
+
+**Rulings.**
+- *Pre-rendering* (Charlie, 2026-09-28): "keep both options available to
+  allow for different deployment scenarios, but Rust should be the
+  primary/default." The Rust render host writes pages by default; the JS
+  render (`render.mjs`) is the option.
+- *The name and the default* (Charlie, 2026-09-28, relayed): this is exact2's
+  web support, not "Exact 3" — a new compile target for the same Contract.
+  The web build uses it by default when an app qualifies and otherwise builds
+  the wasm target, printing the refusal; a flag forces either. The wasm target
+  on the web retires once the gaps in §7 close (they are listed in
+  `rules/DEFERRED.md` too). The conformance harness is a required check: it
+  runs in the async lane (`conform.mjs --strict`), since RULES keeps the five
+  blocking checks under a minute and this run takes minutes and a network.
+  Questions 1, 2 and 6 below are answered by this ruling.
+
+**Open.**
 
 1. **The name.** Is this Exact 3, or an exact2 web target? Nothing native
    changes, which argues for a target; a second runner is a big enough change

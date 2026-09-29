@@ -68,7 +68,7 @@ export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: [
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
   const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
+  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')} --wasm`);
 }
 
 async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {

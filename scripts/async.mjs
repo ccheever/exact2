@@ -3,7 +3,8 @@
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
  * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`, the UIKit XCTests on a simulator when the commit
+ * `#[ignore = "async lane: …"]`, the web JS target's conformance run
+ * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
  * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
@@ -56,6 +57,9 @@ function checks(sha) {
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
+    // The web build's JS target against the wasm runner, step by step (LLP
+    // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
+    ['conform', 'bun', ['host/web-js/conform.mjs', 'realworld', 'weatherlight', 'completion-storm', 'video-player', '--synthetic', '--build', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
@@ -78,6 +82,8 @@ function failures(name, log, status) {
   if (name === 'metrics') for (const m of log.matchAll(/^[ \t]+(\S[^\n]*?)[ \t]{2,}(?:FAILED\b|[^\n]*\bVIOLATION\b)/gm)) found.add(`${name}: ${m[1]} ${/\bVIOLATION\b/.test(m[0]) ? 'VIOLATION' : 'FAILED'}`);
   for (const m of log.matchAll(/Test Case '-\[(\S+) (\S+)\]' failed/g)) found.add(`${name}: ${m[1]} ${m[2]} failed`);
   for (const m of log.matchAll(/^Diff in (\S+?):\d+:/gm)) found.add(`${name}: ${m[1].replace(WT + '/', '')} is not formatted`);
+  // conform --strict: a failing step by target and step (the what varies run to run).
+  for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];
 }

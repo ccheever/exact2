@@ -5,7 +5,7 @@
 // (the server process's user+system time over the pages it rendered),
 // resident memory after warm-up and at the end, and throughput.
 //
-//   bun host/web3/render-bench.mjs --name <label> --path <location> [--requests 200] [--concurrency 8] -- <server command…>
+//   bun host/web-js/render-bench.mjs --name <label> --path <location> [--requests 200] [--concurrency 8] -- <server command…>
 // The server command must print nothing required and listen on --port (given as {port}).
 import { spawn, spawnSync } from 'node:child_process';
 

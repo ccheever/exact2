@@ -31,7 +31,7 @@ function run(command, args, options = {}) {
 }
 mkdirSync(output, { recursive: true });
 if (!args.includes('--no-build')) {
-  run('bun', ['host/web/build.mjs'], { stdio: 'inherit' });
+  run('bun', ['host/web/build.mjs', '--wasm'], { stdio: 'inherit' });
 }
 const preopt = resolve(app, `target/wasm32-unknown-unknown/web/${name.replaceAll('-', '_')}_gpu.wasm`);
 const shipped = readFileSync(resolve(dist, 'gpu_bg.wasm'));

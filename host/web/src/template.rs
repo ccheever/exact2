@@ -1,7 +1,7 @@
 //! One element's projection, for an ahead-of-time target: the tag, the DOM
 //! props and the CSS this host computes for a kernel node, by the same rules
 //! the live host and the document writer use ([`tag_for`], [`props_for`],
-//! [`crate::css::css_text`], [`host_css`]). The exact3 web spike compiles a
+//! [`crate::css::css_text`], [`host_css`]). The web build's JS target compiles a
 //! plan's static rows through this at build, so its stylesheet is this
 //! host's CSS, never a second mapping.
 

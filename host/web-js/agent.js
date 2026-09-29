@@ -1,5 +1,5 @@
-// The agent's door into an exact3 page (LLP 1012's operations, as far as
-// the spike carries them): `exact.agentSettled(request)` answers what
+// The agent's door into a JS-target page (LLP 1012's operations, as far as
+// the JS target carries them): `exact.agentSettled(request)` answers what
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
@@ -73,7 +73,7 @@ export function install(exact) {
         return { slots, derives, resources, ...tags() };
       }
       case 'prefer': return { page: {} };
-      default: return { error: `${req.op} is not carried by the exact3 spike` };
+      default: return { error: `${req.op} is not carried by the JS target` };
     }
   };
   return true;

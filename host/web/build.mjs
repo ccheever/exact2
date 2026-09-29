@@ -1,7 +1,15 @@
 #!/usr/bin/env bun
-// Build the web app: the wasm under the `web` profile (size-tuned), `wasm-opt -Oz`
-// when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
-// Usage: bun host/web/build.mjs [crate=caltrain-web]
+// Build the web app (LLP 1071). By default, the JS target when the app
+// qualifies: `host/web-js/build.mjs`, the plan compiled to one ES module over
+// a small runtime, into the same dist. An app it refuses (a capability the
+// runtime lacks, named) or an app outside apps/ gets the wasm target,
+// with the reason printed: the wasm under the `web` profile (size-tuned),
+// `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
+// glue.js + app.wasm.
+// Usage: bun host/web/build.mjs [crate=caltrain-web] [--js | --wasm]
+// `--js` fails rather than fall back; `--wasm` builds the wasm target
+// outright — the dev loop, the agent's web host, delivery and the metrics
+// read its artifacts (the JS target's gaps, LLP 1071 §7).
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
 // the dev loop does (LLP 1047 D7).
@@ -22,7 +30,19 @@ import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
+const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
+process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm');
 const app = resolveApp(process.argv[2]);
+if (target !== '--wasm') {
+  const inRepo = dirname(app.dir) === realpathSync(resolve(new URL('../../apps', import.meta.url).pathname));
+  const js = inRepo
+    ? spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist()], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' })
+    : { status: 1, stderr: `${app.name}: an app outside apps/ is not in the JS target\n` };
+  if (js.status === 0) process.exit(0);
+  const reason = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('\n');
+  if (target === '--js') { console.error(`${reason}\nthe JS target refused ${app.name} (--js)`); process.exit(1); }
+  console.error(`${reason}\n${app.name}: the JS target refused it; building the wasm target`);
+}
 const crate = app.crate('web');
 const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
 const root = resolve(new URL('../..', import.meta.url).pathname);

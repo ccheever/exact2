@@ -541,7 +541,7 @@ function bake(app, run, exactRoot, sourceRoot) {
   const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
   if (app.workspace === exactRoot) delete env.EXACT_APP_DIR;
   else env.EXACT_APP_DIR = app.dir;
-  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web')], {
+  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web'), '--wasm'], {
     cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   if (r.stdout) process.stderr.write(r.stdout);

@@ -435,7 +435,7 @@ export async function proof(meta, script) {
         // Native mode is read at launch; keep compile-time environment stable.
         buildBake(appInfo, 'linux', linuxTarget, {profile, env:{EXACT_GAME_PARANOID:'0'}});
       } else {
-        const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+        const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
         sample();
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);

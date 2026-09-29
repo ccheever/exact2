@@ -1,6 +1,6 @@
-// The exact3 web spike's build: `bun host/web3/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
+// The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
-// 1. `exact-web3 js` compiles the plan (the app's Contract, or a baked
+// 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
 //    `app.plan` from `host/web/build.mjs`, whose resources carry their
 //    build-time answers) to `app.js` + `app.css`.
 // 2. Bun's bundler joins it with `rt.js`, tree-shaken and minified: one
@@ -22,24 +22,35 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js]'); process.exit(2); }
 const appDir = resolve(root, 'apps', app);
-const out = resolve(opt('--out') ?? `/tmp/exact3-dist/${app}`);
+const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(gen, { recursive: true });
 
 const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contract');
-const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web3', '--', 'js', input, '-o', gen], { cwd: root, stdio: 'inherit' });
-if (cargo.status !== 0) process.exit(cargo.status ?? 1);
-cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // Rust data: the app's own module (`rust.module`), or a module generated
-// from the DataSource its web build bakes with (host/web3/module.mjs).
+// from the DataSource its web build bakes with (host/web-js/module.mjs).
 const bakes = existsSync(resolve(appDir, 'web/build.rs')) && /contract::bake\(\s*plan,/.test(readFileSync(resolve(appDir, 'web/build.rs'), 'utf8'));
 const rust = !!manifest.rust?.module || bakes;
 // A TypeScript source (`app.ts`) runs in the page, bundled with it.
 const ts = !rust && existsSync(resolve(appDir, 'app.ts'));
+// A refusal names what the runtime lacks (LLP 1071 D5); host/web/build.mjs
+// then builds the wasm target instead.
+if (rust && existsSync(resolve(appDir, 'app.ts')) && !opt('--data')) { console.error(`${app}: a TypeScript and a Rust source in one app are not in the JS target`); process.exit(1); }
+// The surfaces the app's GPU module draws (its crate's surface table); any
+// other surface is drawn by a data source on Canvas 2D, which the backend
+// refuses by name.
+const gpuLib = resolve(appDir, 'gpu/src/lib.rs');
+// The app's GPU module comes from a wasm build (`--plan`/`--data` name one);
+// this build doesn't make it yet.
+if (existsSync(gpuLib) && !opt('--plan') && !opt('--data')) { console.error(`${app}: building the GPU module is not in the JS target's build yet`); process.exit(1); }
+const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchAll(/\("([a-z][a-z0-9-]*)", \d+, [a-z_:]+\)/g)].map(m => m[1]) : [];
+const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'js', input, '-o', gen], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+if (cargo.status !== 0) process.exit(cargo.status ?? 1);
+cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   "import { data, journal, clock, advance, commit, inflight, Views, viewId } from './rt.js';",
@@ -133,6 +144,7 @@ if (rust) {
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
+else if (!existsSync(resolve(out, 'app.plan')) && spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.

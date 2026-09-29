@@ -356,7 +356,7 @@ check(`the render server's page is the document, and the runtime adopts it${unav
 test('a TypeScript app\'s served document is adopted, with its module running under the CSP', async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
   try {
-    const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
+    const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight', '--wasm'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
       env: { ...process.env, EXACT_WEB_DIST: out, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
     if (build.status !== 0) throw new Error(`weatherlight build: ${build.stderr}${build.stdout}`);
     const server = await renderServer({ app: 'weatherlight', dir: out, name: 'Weatherlight' });

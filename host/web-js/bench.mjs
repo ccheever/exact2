@@ -8,7 +8,7 @@
 //               (RealWorld: the sign-in form's submit, on `/login`);
 // and the bytes the page's origin sent before each finished (and in all).
 //
-//   bun host/web3/bench.mjs <name>=<url> … [--runs 5] [--profile mobile|none] [--config targets.json] [--json out.json]
+//   bun host/web-js/bench.mjs <name>=<url> … [--runs 5] [--profile mobile|none] [--config targets.json] [--json out.json]
 //
 // A target's selectors default to RealWorld on exact (this repo's testIds);
 // a `--config` file overrides them per name, for the React builds:

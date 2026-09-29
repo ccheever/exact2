@@ -1,4 +1,4 @@
-//! `exact-web3 js <app.contract | app.plan> -o <dir>` — the exact3 web spike's
+//! `exact-web-js js <app.contract | app.plan> -o <dir>` — the JS target's
 //! compiler backend: a plan (compiled here, or a baked `app.plan` from
 //! `host/web/build.mjs`, whose resources carry their build-time answers)
 //! becomes `app.js` (an ES module over `rt.js`) and `app.css` (the static
@@ -14,7 +14,7 @@ mod style;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: exact-web3 js <app.contract | app.plan> -o <dir> [--dump]";
+const USAGE: &str = "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

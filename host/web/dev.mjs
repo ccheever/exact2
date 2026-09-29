@@ -75,7 +75,7 @@ async function currentWebBuild() {
   } catch { return false; }
 }
 if (!await currentWebBuild()) {
-  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 // The last complete cdylib links name their transitive source files, including
@@ -919,7 +919,7 @@ function rebuildNow(files) {
   building = true;
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });

@@ -1,4 +1,4 @@
-// The DOM the exact3 runtime needs, and no more, for rendering a page under
+// The DOM the JS runtime needs, and no more, for rendering a page under
 // Bun (`render.mjs`): elements, text, comments and fragments in a tree,
 // attributes in insertion order, an inline style map, and HTML serialization
 // by the rules `host/web/src/document.rs` writes (escaping, void elements,

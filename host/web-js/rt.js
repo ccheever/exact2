@@ -1,6 +1,6 @@
 import { renderMarkup } from "./navigation.js";
-// The exact3 web spike's runtime: fine-grained signals over the DOM, for a
-// plan compiled ahead of time by `exact-web3`. Everything here is imported
+// the JS target's runtime: fine-grained signals over the DOM, for a
+// plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
 // Semantics kept from the runner (LLP 1005 §6):

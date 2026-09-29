@@ -138,7 +138,7 @@ function webBuild(app) {
   const dist = resolve(ROOT, 'target/web-dist', app);
   if (process.env.EXACT_CANVAS_REBUILD === '1' || !existsSync(resolve(dist, '.exact-build.json'))) {
     mkdirSync(dirname(dist), { recursive: true });
-    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), `${app}-web`], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
+    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), `${app}-web`, '--wasm'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
     if (b.status !== 0) throw new Error(`the ${app} web build failed`);
   }
   return dist;

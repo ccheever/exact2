@@ -27,7 +27,7 @@ function webBuild() {
   const dist = resolve(ROOT, 'target/web-dist/motion-gallery');
   if (process.env.EXACT_MOTION_REBUILD === '1' || !existsSync(resolve(dist, '.exact-build.json'))) {
     mkdirSync(dirname(dist), { recursive: true });
-    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'motion-gallery-web'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
+    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'motion-gallery-web', '--wasm'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
     if (b.status !== 0) throw new Error('the motion-gallery web build failed');
   }
   return dist;
