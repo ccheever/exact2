@@ -446,8 +446,8 @@ public final class ExactSession {
         self.app = app
         self.label = label
         runtime = Runtime()
-        text = TextEngine(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
-                          bundled: { [weak app] source in app?.bundledAsset(source) })
+        text = TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
+                               bundled: { [weak app] source in app?.bundledAsset(source) })
         presenter = Presenter()
         canvases = Canvases()
         webviews = WebViews()
@@ -457,8 +457,8 @@ public final class ExactSession {
         webviews.session = self
         natives.session = self
         frames.session = self
-        runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
         runtime.setCanvasText(CanvasText.measureRun)
@@ -490,7 +490,12 @@ public final class ExactSession {
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
         natives.installAppModule()
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        pressure.setEventHandler { [weak self] in self?.text.dropCold() }
+        pressure.setEventHandler { [weak self] in
+            guard let self else { return }
+            text.dropCold()
+            // The measurer's shaped text is the owner's to drop (LLP 1071 §8.4).
+            if let m = text.measurer { Owner.shared.post { m.dropCold() } }
+        }
         pressure.resume(); textPressure = pressure
         wire()
         preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
@@ -507,6 +512,7 @@ public final class ExactSession {
         runtime.trim()
         rasters.trimCold()
         text.dropColdShaped()
+        if let m = text.measurer { Owner.shared.post { m.dropColdShaped() } }
         #if os(iOS)
         presenter.textRasters.dropKept()
         #endif
@@ -743,15 +749,15 @@ public final class ExactSession {
         // The running tree's focus, read before the candidate replaces it.
         keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
-        let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
-        runtime.setMeasure(TextEngine.measureText, ctx: candidate.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: candidate.opaque)
+        let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
+        runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
         let viewport = size ?? presenter.viewportSize
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
-        runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
@@ -774,8 +780,8 @@ public final class ExactSession {
     func commit(_ candidate: Prepared) -> Batch {
         text = candidate.text
         updateToken = candidate.token
-        runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         text.commitFonts()
         let batch = runtime.commitPlan()
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
@@ -1114,9 +1120,9 @@ public final class ExactSession {
     /// The viewport's size in points: what the kernel lays out under.
     public var viewportSize: CGSize { presenter.viewportSize }
     /// The text engine's counters since this session started (the smoke reads them).
-    public var measureCount: Int { text.measureCount }
-    public var measureHits: Int { text.measureHits }
-    public var measureSeconds: Double { text.measureSeconds }
+    public var measureCount: Int { Owner.shared.sync { text.measuring.measureCount } }
+    public var measureHits: Int { Owner.shared.sync { text.measuring.measureHits } }
+    public var measureSeconds: Double { Owner.shared.sync { text.measuring.measureSeconds } }
     /// The GPU module's and the web arm's status lines (the smoke reads them).
     public var gpuStatus: String { canvases.status }
     public var webStatus: String { webviews.status }

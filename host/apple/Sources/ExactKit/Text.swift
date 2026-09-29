@@ -382,8 +382,11 @@ private struct RegisteredFace {
 /// CoreText's process-wide registration, once per URL, never undone.
 enum FontRegistry {
     nonisolated(unsafe) private static var registered: Set<URL> = []
+    /// The painter and the measurer each register the catalog they install.
+    private static let lock = NSLock()
 
     static func register(_ url: URL) -> Bool {
+        lock.lock(); defer { lock.unlock() }
         if registered.contains(url) { return true }
         var error: Unmanaged<CFError>?
         let ok = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
@@ -403,10 +406,59 @@ enum FontRegistry {
     }
 }
 
+/// Line breaks the kernel's measurements produced, published by the
+/// measuring engine on the owner thread for the painting engine on main
+/// (LLP 1071 §8.1): plain values under one lock, keyed by the paragraph's
+/// content and width. A font install empties it.
+final class BreakBoard: @unchecked Sendable {
+    private struct Key: Hashable { let spec: Spec; let width: CGFloat }
+    private let lock = NSLock()
+    private var breaks: [Key: LineGeometry] = [:]
+    private var order: [Key] = []
+    private static let limit = 512
+    func put(_ spec: Spec, width: CGFloat, _ value: LineGeometry) {
+        let key = Key(spec: spec, width: width)
+        lock.lock(); defer { lock.unlock() }
+        guard breaks[key] == nil else { return }
+        if order.count >= Self.limit { breaks.removeValue(forKey: order.removeFirst()) }
+        order.append(key)
+        breaks[key] = value
+    }
+    func get(_ spec: Spec, width: CGFloat) -> LineGeometry? {
+        lock.lock(); defer { lock.unlock() }
+        return breaks[Key(spec: spec, width: width)]
+    }
+    func clear() {
+        lock.lock(); defer { lock.unlock() }
+        breaks.removeAll(keepingCapacity: true); order.removeAll(keepingCapacity: true)
+    }
+}
+
+/// A session's text: two engines of one kind, never shared (LLP 1071 §8.1).
+/// This one paints, on main; its `measurer` answers the kernel's
+/// measurements on the owner thread. Each keeps its own fonts, shaped text
+/// and caches; what painting reuses from measuring crosses as plain line
+/// breaks (`BreakBoard`).
 final class TextEngine {
     #if os(macOS)
-    var readerParagraphs: [UInt32: RegionReaderParagraph] = [:]
+    var readerParagraphs: [UInt32: RegionReaderParagraph] = [:] {
+        didSet { readerLock.lock(); readerViews = Set(readerParagraphs.keys); readerLock.unlock() }
+    }
+    private let readerLock = NSLock()
+    private var readerViews = Set<UInt32>()
+    /// Whether a reader paragraph is held for `view`: readable off main.
+    func readerHolds(_ view: UInt32) -> Bool {
+        readerLock.lock(); defer { readerLock.unlock() }
+        return readerViews.contains(view)
+    }
     #endif
+    /// The engine the kernel measures with, on the owner thread; nil in the
+    /// measurer itself.
+    private(set) var measurer: TextEngine?
+    /// The painting engine a measurer belongs to.
+    private(set) weak var painter: TextEngine?
+    /// Where the measurer publishes breaks the painter reuses.
+    private var board: BreakBoard?
     var fonts: [String: PlatformFont] = [:]
     private var residency: TextResidency
     var residencyStats: TextResidencyStats { residency.stats }
@@ -459,9 +511,23 @@ final class TextEngine {
         self.read = read ?? { name in resolve(name).flatMap { try? Data(contentsOf: $0) } }
     }
 
+    /// A painting engine with its measurer.
+    static func pair(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
+                     bundled: @escaping (String) -> URL? = { _ in nil }) -> TextEngine {
+        let painter = TextEngine(resolve: resolve, read: read, bundled: bundled)
+        let measurer = TextEngine(resolve: resolve, read: read, bundled: bundled)
+        let board = BreakBoard()
+        painter.measurer = measurer; painter.board = board
+        measurer.painter = painter; measurer.board = board
+        return painter
+    }
+    /// The context the kernel's measure and font hooks get: the measurer's.
+    var measuring: TextEngine { measurer ?? self }
+
     func commitFonts() {
         for url in pendingFonts { _ = FontRegistry.register(url) }
         pendingFonts = []
+        if let m = measurer { Owner.shared.sync { m.commitFonts() } }
     }
 
     /// This engine as the context the C callbacks hand back.
@@ -476,8 +542,11 @@ final class TextEngine {
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
         private let familyStacks: [String: Int]
+        private let measurer: Checkpoint?
 
         fileprivate init(_ engine: TextEngine) {
+            // The measurer's state is the owner's (LLP 1071 §8.1).
+            measurer = engine.measurer.map { m in Owner.shared.sync { Checkpoint(m) } }
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             residency = engine.residency
@@ -494,6 +563,7 @@ final class TextEngine {
             engine.familyStacks = familyStacks
             engine.canvasText = CanvasText(engine: engine)
             engine.dropMeasuredBreaks()
+            if let measurer, let m = engine.measurer { Owner.shared.sync { measurer.restore(into: m) } }
         }
     }
 
@@ -505,8 +575,7 @@ final class TextEngine {
     /// the candidate; checkpoints retain and restore their original namespace.
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
         #if os(macOS)
-        // Reader paragraphs hold layers: released on main (LLP 1071 §8.1).
-        if !readerParagraphs.isEmpty { Owner.shared.callMain { readerParagraphs.removeAll() } }
+        readerParagraphs.removeAll()
         #endif
         fonts.removeAll(keepingCapacity: true)
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
@@ -742,6 +811,7 @@ final class TextEngine {
     func measuredBreaks(_ spec: Spec, width: CGFloat) -> LineGeometry? {
         let identity = residency.identity(spec)
         if let kept = measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)] { return kept }
+        if let published = board?.get(identity.geometry, width: width) { return published }
         if let measured = residency.geometry(identity, width: width) { return LineGeometry(measured) }
         // Scalar answers keep lines only for unclamped text (TextResidency).
         return residency.answerLines(identity, width: width).map { LineGeometry(ranges: $0.0, baselines: $0.1) }
@@ -766,6 +836,7 @@ final class TextEngine {
 
     /// A new identity namespace (a font catalog, a restored checkpoint) keys nothing here.
     private func dropMeasuredBreaks() {
+        board?.clear()
         namespace += 1
         measuredBreakCache.removeAll(keepingCapacity: true)
         measuredBreakOrder.removeAll(keepingCapacity: true)
@@ -778,7 +849,9 @@ final class TextEngine {
             measuredBreakCache.removeValue(forKey: measuredBreakOrder.removeFirst())
         }
         measuredBreakOrder.append(key)
-        measuredBreakCache[key] = LineGeometry(p)
+        let geometry = LineGeometry(p)
+        measuredBreakCache[key] = geometry
+        if painter != nil { board?.put(identity.geometry, width: width, geometry) }
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
@@ -798,7 +871,9 @@ final class TextEngine {
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
         let ranges = spec.lineClamp == 0
-            ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.ranges ?? residency.answerLines(identity, width: width)?.0 : nil
+            ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.ranges
+                ?? (painter == nil ? board?.get(identity.geometry, width: width)?.ranges : nil)
+                ?? residency.answerLines(identity, width: width)?.0 : nil
         let p = layout(shape, width: width, breaks: breaks, ranges: ranges)
         shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
@@ -1189,9 +1264,13 @@ final class TextEngine {
 
     /// The C ABI's synchronous font seam, invoked before the kernel asks its
     /// first text measurement; `ctx` is the session's engine.
+    /// `ctx` is the measurer: its painter installs the same catalog on
+    /// main while the owner waits (the catalog lives for this call).
     static let installFonts: ExactFontsFn = { ctx, catalog in
         guard let ctx else { return }
-        Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().install(catalog)
+        let engine = Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue()
+        engine.install(catalog)
+        if let painter = engine.painter { Owner.shared.callMain { painter.install(catalog) } }
     }
 
     /// The kernel's text measurer; `ctx` is the session's engine.
