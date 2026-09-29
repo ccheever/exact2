@@ -686,7 +686,7 @@ export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor, x_max = Math.max, x_min = Math.min;
 // Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
 export const x_toString = v => String(v);
-export const x_contains = (a, b) => a.includes(b);
+export const x_includes = (a, b) => a.includes(b), x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);
 export const x_trim = s => s.trim();
 export const x_first = l => l.length ? l[0] : null;
 export const x_join = (l, s) => l.map(String).join(s);
