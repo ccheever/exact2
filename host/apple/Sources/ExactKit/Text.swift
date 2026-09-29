@@ -189,6 +189,26 @@ enum CSSLineBox {
     }
 }
 
+/// Where a measured paragraph's lines break, as plain values: what
+/// measurement publishes and painting shapes its own lines from (LLP 1071
+/// §8.1). `clamped`: a `line-clamp`'s last line, made again ending in "…"
+/// (`TextEngine.clampedLine`).
+struct LineGeometry {
+    let ranges: [CFRange]
+    let baselines: [CGFloat]
+    var clamped: CFRange? = nil
+    init(ranges: [CFRange], baselines: [CGFloat], clamped: CFRange? = nil) {
+        self.ranges = ranges; self.baselines = baselines; self.clamped = clamped
+    }
+    /// A clamped last line's own range is the ellipsized line's; the
+    /// geometry keeps the range it broke at.
+    init(_ p: Paragraph) {
+        var ranges = p.lines.map { CTLineGetStringRange($0) }
+        if let clamped = p.clampedRange, !ranges.isEmpty { ranges[ranges.count - 1] = clamped }
+        self.init(ranges: ranges, baselines: p.baselines, clamped: p.clampedRange)
+    }
+}
+
 /// A wrapped paragraph at one width: what is measured is what is painted.
 final class Paragraph {
     let lines: [CTLine]
@@ -199,6 +219,9 @@ final class Paragraph {
     /// Logical source ownership, including trimmed whitespace, one per fragment.
     let fragments: [ExactFlowFragment]
     var flowIncomplete = false
+    /// A `line-clamp` paragraph whose last line ends in "…": that line's
+    /// range as it broke, before the ellipsis (`TextEngine.clampedLine`).
+    var clampedRange: CFRange?
     let flowLineHeight: CGFloat
     let width: CGFloat
     let height: CGFloat
@@ -713,15 +736,15 @@ final class TextEngine {
         return (source.attributed, ranges.map { CTTypesetterCreateLine(source.typesetter, $0) })
     }
 
-    /// The line ranges and baselines the kernel's measurement of `spec` at
-    /// `width` produced, if that measurement is still resident. Plain values:
-    /// a worker typesets its own lines from them (TextRasterMac.swift).
-    func measuredBreaks(_ spec: Spec, width: CGFloat) -> ([CFRange], [CGFloat])? {
-        guard spec.lineClamp == 0 else { return nil }
+    /// The line geometry the kernel's measurement of `spec` at `width`
+    /// produced, if that measurement is still resident. Plain values: a
+    /// worker typesets its own lines from them (TextRasterJob).
+    func measuredBreaks(_ spec: Spec, width: CGFloat) -> LineGeometry? {
         let identity = residency.identity(spec)
         if let kept = measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)] { return kept }
-        guard let measured = residency.geometry(identity, width: width) else { return residency.answerLines(identity, width: width) }
-        return (measured.lines.map { CTLineGetStringRange($0) }, measured.baselines)
+        if let measured = residency.geometry(identity, width: width) { return LineGeometry(measured) }
+        // Scalar answers keep lines only for unclamped text (TextResidency).
+        return residency.answerLines(identity, width: width).map { LineGeometry(ranges: $0.0, baselines: $0.1) }
     }
 
     /// The breaks of recent definite-width measurements, as plain values. The
@@ -733,7 +756,7 @@ final class TextEngine {
         let token: TextIdentityToken
         let width: CGFloat
     }
-    private var measuredBreakCache: [MeasuredBreakKey: ([CFRange], [CGFloat])] = [:]
+    private var measuredBreakCache: [MeasuredBreakKey: LineGeometry] = [:]
     private var measuredBreakOrder: [MeasuredBreakKey] = []
     private static let measuredBreakLimit = 512
 
@@ -755,7 +778,7 @@ final class TextEngine {
             measuredBreakCache.removeValue(forKey: measuredBreakOrder.removeFirst())
         }
         measuredBreakOrder.append(key)
-        measuredBreakCache[key] = (p.lines.map { CTLineGetStringRange($0) }, p.baselines)
+        measuredBreakCache[key] = LineGeometry(p)
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
@@ -775,7 +798,7 @@ final class TextEngine {
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
         let ranges = spec.lineClamp == 0
-            ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.0 ?? residency.answerLines(identity, width: width)?.0 : nil
+            ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.ranges ?? residency.answerLines(identity, width: width)?.0 : nil
         let p = layout(shape, width: width, breaks: breaks, ranges: ranges)
         shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
@@ -828,6 +851,7 @@ final class TextEngine {
         var maxWidth: CGFloat = 0
         var y: CGFloat = 0
         var start = 0
+        var clampedRange: CFRange?
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
         // CoreText breaks a word when it cannot fit; CSS normal instead lets
         // that word overflow. Public Unicode line boundaries distinguish those
@@ -877,6 +901,7 @@ final class TextEngine {
             } else { line = CTTypesetterCreateLine(typesetter, range) }
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
+                clampedRange = range
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
@@ -948,9 +973,11 @@ final class TextEngine {
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
-        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
-                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
-                         shape: shape, offeredWidth: width, glyphCount: glyphCount)
+        let paragraph = Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
+                                  height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+                                  shape: shape, offeredWidth: width, glyphCount: glyphCount)
+        paragraph.clampedRange = clampedRange
+        return paragraph
     }
 
     /// Where Unicode lets a line end, as UTF16 offsets, the last being `length`.
@@ -990,7 +1017,13 @@ final class TextEngine {
     }
 
     func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {
-        let source = source ?? attributed(spec)
+        Self.clampedLine(source ?? attributed(spec), range: range, width: width)
+    }
+
+    /// A `line-clamp`'s last line: its text as it broke, then "…", truncated
+    /// to `width`. Pure over `source`, so painting (a raster worker, the
+    /// region worker) makes the same line layout made.
+    static func clampedLine(_ source: NSAttributedString, range: NSRange, width: Double) -> CTLine? {
         let string = source.string as NSString
         var end = NSMaxRange(range)
         // A wrapped line already fits. Include the ellipsis before asking
@@ -1096,7 +1129,7 @@ final class TextEngine {
                 return metrics
             }
             if !intrinsic, let p = residency.geometry(identity, width: CGFloat(request.width)) {
-                if request.line_clamp == 0 { keepBreaks(p, identity: identity, width: CGFloat(request.width)) }
+                keepBreaks(p, identity: identity, width: CGFloat(request.width))
                 measureHits += 1
                 measureSeconds += CACurrentMediaTime() - lookupStarted
                 return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
@@ -1147,7 +1180,7 @@ final class TextEngine {
             residency.prepare(estimatedBytes: identity.utf16Count * 64)
             p = layout(shape, width: width)
         } else { p = paragraph(spec, identity: identity, width: width) }
-        if !intrinsic && spec.lineClamp == 0 { keepBreaks(p, identity: identity, width: width) }
+        if !intrinsic { keepBreaks(p, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
         measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)

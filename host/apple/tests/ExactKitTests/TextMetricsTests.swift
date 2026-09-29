@@ -1047,9 +1047,9 @@ final class TextMetricsTests: XCTestCase {
                     XCTAssertNotNil(breaks, "\(lineHeight)")
                     let painted = engine.paragraph(spec, width: 160)
                     XCTAssertEqual(Float(painted.height), metrics.height)
-                    XCTAssertEqual(breaks?.0.map(\.location), painted.lines.map { CTLineGetStringRange($0).location })
-                    XCTAssertEqual(breaks?.0.map(\.length), painted.lines.map { CTLineGetStringRange($0).length })
-                    XCTAssertEqual(breaks?.1, painted.baselines)
+                    XCTAssertEqual(breaks?.ranges.map(\.location), painted.lines.map { CTLineGetStringRange($0).location })
+                    XCTAssertEqual(breaks?.ranges.map(\.length), painted.lines.map { CTLineGetStringRange($0).length })
+                    XCTAssertEqual(breaks?.baselines, painted.baselines)
                 }
             }
         }
@@ -1184,9 +1184,9 @@ final class TextMetricsTests: XCTestCase {
         let lines = engine.measuredBreaks(spec(label(3)), width: 60)
         let painted = TextEngine(resolve: { _ in nil }).paragraph(spec(label(3)), width: 60)
         XCTAssertGreaterThan(painted.lines.count, 1)
-        XCTAssertEqual(lines?.0.map(\.location), painted.lines.map { CTLineGetStringRange($0).location })
-        XCTAssertEqual(lines?.0.map(\.length), painted.lines.map { CTLineGetStringRange($0).length })
-        XCTAssertEqual(lines?.1, painted.baselines)
+        XCTAssertEqual(lines?.ranges.map(\.location), painted.lines.map { CTLineGetStringRange($0).location })
+        XCTAssertEqual(lines?.ranges.map(\.length), painted.lines.map { CTLineGetStringRange($0).length })
+        XCTAssertEqual(lines?.baselines, painted.baselines)
         let repainted = engine.paragraph(spec(label(3)), width: 60)
         XCTAssertEqual(repainted.baselines, painted.baselines)
         XCTAssertEqual(Float(repainted.height), first[3].height)

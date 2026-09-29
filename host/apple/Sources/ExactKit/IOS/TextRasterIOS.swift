@@ -129,13 +129,12 @@ final class TextRasterizer {
         guard firstPixels || hasRoom else { return false }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
-        guard let (ranges, baselines) = measured
-            ?? paragraph.map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else { return true }
+        guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return true }
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
-        let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: ranges, baselines: baselines,
+        let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
             box: key.box, size: key.size, scale: key.scale, clip: key.clip,
-            ellipsis: key.spec.ellipsis, crop: true)
+            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped)
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -226,9 +225,10 @@ extension NodeView {
         if textRasterFailed && textRasterKey != nil { return false }
         // `text-overflow: ellipsis` truncates in the raster job, as `draw(_:)`
         // does (LLP 1053 G5): a label stretched across a row rasters its text,
-        // not a backing store of the row's width.
+        // not a backing store of the row's width. A `line-clamp`'s last line
+        // is made again from the range it broke at (`LineGeometry.clamped`).
         guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
-            && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 else { return false }
+            && bounds.width > 0 && bounds.height > 0 else { return false }
         return canvasAbove == nil
     }
     /// The whole paragraph's pixels are up for its current text and box: a

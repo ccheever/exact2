@@ -47,17 +47,16 @@ final class TextRasterizer {
         guard let engine = node.text else { return nil }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
-        guard let (ranges, baselines) = measured
-                ?? paragraph.map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else { return nil }
+        guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return nil }
         node.textRasterKey = key
         node.textRasterReady = false
         node.textRasterFailed = false
         node.textRasterPending = false
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         return TextRasterJob(source: source.copy() as! NSAttributedString,
-                   ranges: ranges, baselines: baselines,
+                   ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
-                   box: key.box, size: key.size, scale: key.scale)
+                   box: key.box, size: key.size, scale: key.scale, clamped: geometry.clamped)
     }
 
     /// Only first pixels may rasterize synchronously. A replacement uses the

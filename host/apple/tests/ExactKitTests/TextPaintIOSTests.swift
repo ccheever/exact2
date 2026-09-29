@@ -3,10 +3,9 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A paragraph that cannot raster (`line-clamp`) has only `draw(_:)`'s
-/// bitmap. A list builds its lead rows below the scrollport, where that draw
-/// runs first, and nothing redisplays the row when it scrolls in: the draw
-/// must paint the text visible or not. UIKit, so a simulator runs it:
+/// A list builds its lead rows below the scrollport, and nothing redisplays
+/// a row when it scrolls in: its paragraphs must have their pixels by then.
+/// UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class TextPaintIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -36,6 +35,9 @@ final class TextPaintIOSTests: XCTestCase {
         return count
     }
 
+    /// A clamped paragraph (`line-clamp`) rasters like any other (its last
+    /// line made again from its geometry, `LineGeometry.clamped`): built in
+    /// the lead it asks a worker, and it has pixels when it scrolls in.
     func testAClampedParagraphInAReusedRowBuiltBelowTheScrollportPaints() throws {
         let session = ExactApp.shared.makeSession(label: "clamp-reuse")
         defer { session.destroy() }
@@ -58,10 +60,17 @@ final class TextPaintIOSTests: XCTestCase {
         let text = try XCTUnwrap(p.views[21])
         XCTAssertTrue(text === first, "the pool lent the retired paragraph's view")
         XCTAssertNotNil(text.window)
-        XCTAssertFalse(text.canRasterText, "a clamped paragraph draws")
-        XCTAssertTrue(text.drawsPaint)
-        XCTAssertFalse(p.textIsVisible(text), "drawn while below the scrollport")
-        XCTAssertGreaterThan(inkPixels(text), 50, "the bitmap it keeps when it scrolls in has the text")
+        XCTAssertTrue(text.canRasterText, "a clamped paragraph rasters")
+        XCTAssertFalse(text.drawsPaint, "so its view keeps no bitmap")
+        XCTAssertFalse(p.textIsVisible(text), "built below the scrollport")
+        XCTAssertEqual(inkPixels(text), 0, "draw(_:) paints none of it")
+
+        // It scrolls in: before the frame commits, what shows has its pixels.
+        p.apply(wireBatch([["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 300.0, "h": 60.0]]))
+        XCTAssertTrue(p.textIsVisible(text))
+        p.paintVisibleText()
+        XCTAssertNotNil(text.textRaster)
+        XCTAssertTrue(text.textRasterFrame.contains(p.textScrollportRect(text)), "the raster covers what shows")
     }
 
     /// A one-line label stretched across a row: `text-overflow: ellipsis`

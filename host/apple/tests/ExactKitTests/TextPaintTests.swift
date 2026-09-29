@@ -3,6 +3,9 @@
 // box's background under each of its line fragments, as the web paints both.
 import XCTest
 import CoreText
+#if os(macOS)
+import IOSurface
+#endif
 @testable import ExactKit
 
 final class TextPaintTests: XCTestCase {
@@ -92,5 +95,41 @@ final class TextPaintTests: XCTestCase {
         XCTAssertEqual(row.run(dark: false).background, [242, 242, 247, 255])
         XCTAssertEqual(row.run(dark: true).background, [44, 44, 46, 255])
         XCTAssertTrue(row.hasSchemeColor)
+    }
+
+    /// A `line-clamp` paragraph rasters from its published geometry (LLP
+    /// 1071 §8.1): a worker shapes the lines, the last one again from the
+    /// range it broke at, ending in "…". The same pixels as layout's lines.
+    func testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt() throws {
+        let text = "Maybe family sounds draft later scroll deadline picnic thanks soon a meeting at the station"
+        for align in [0, 1, 2] {
+            let spec = Spec(runs: [run(text)], align: align, lineClamp: 2, color: [30, 60, 90, 255])
+            let p = engine.paragraph(spec, width: 180)
+            XCTAssertEqual(p.lines.count, 2)
+            let clamped = try XCTUnwrap(p.clampedRange, "the last line was clamped")
+            let geometry = try XCTUnwrap(engine.measuredBreaks(spec, width: 180))
+            XCTAssertEqual(geometry.clamped?.location, clamped.location)
+            XCTAssertEqual(geometry.ranges.last?.length, clamped.length, "the range it broke at, not the ellipsized line's")
+            let box = CGRect(x: 0, y: 0, width: 180, height: p.height)
+            func job(_ clamp: CFRange?) -> TextRasterJob {
+                TextRasterJob(source: engine.attributed(spec), ranges: geometry.ranges, baselines: geometry.baselines,
+                              flush: align == 1 ? 0.5 : align == 2 ? 1 : 0, box: box, size: box.size, scale: 2, clamped: clamp)
+            }
+            let shaped = try XCTUnwrap(job(geometry.clamped).render())
+            let laidOut = try XCTUnwrap(job(geometry.clamped).render(lines: p.lines))
+            XCTAssertEqual(shaped.frame, laidOut.frame)
+            XCTAssertEqual(rasterBytes(shaped), rasterBytes(laidOut), "align \(align)")
+            XCTAssertNotEqual(rasterBytes(try XCTUnwrap(job(nil).render())), rasterBytes(laidOut), "the clamp paints its ellipsis")
+        }
+    }
+
+    private func rasterBytes(_ r: TextRasterImage) -> Data {
+        #if os(iOS)
+        return (r.image.dataProvider?.data as Data?) ?? Data()
+        #else
+        r.surface.lock(options: .readOnly, seed: nil)
+        defer { r.surface.unlock(options: .readOnly, seed: nil) }
+        return Data(bytes: r.surface.baseAddress, count: r.surface.allocationSize)
+        #endif
     }
 }

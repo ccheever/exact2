@@ -44,6 +44,9 @@ struct TextRasterJob {
     /// Pixels only where lines paint (their ink and line boxes), not the
     /// whole box: a label stretched across a row keeps a bitmap of its text.
     var crop = false
+    /// CSS `line-clamp`: the last line's range as it broke, made again
+    /// ending in "…" (`TextEngine.clampedLine`, as layout made it).
+    var clamped: CFRange? = nil
 
     static let maxInkOverflow: CGFloat = 256
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -55,6 +58,10 @@ struct TextRasterJob {
         } else {
             let typesetter = CTTypesetterCreateWithAttributedString(source)
             lines = ranges.map { CTTypesetterCreateLine(typesetter, $0) }
+            if let clamped, !lines.isEmpty {
+                let range = NSRange(location: clamped.location, length: clamped.length)
+                lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]
+            }
         }
         let positions = zip(lines, baselines).map { line, baseline in
             CGPoint(x: box.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width))),

@@ -141,7 +141,7 @@ final class RegionWorkerLayout {
             if count <= 0 { count = length - start }
             var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
             if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp && start + count < length {
-                line = ellipsizedLine(attributed, range: NSRange(location: start, length: count), width: limit) ?? line
+                line = TextEngine.clampedLine(attributed, range: NSRange(location: start, length: count), width: limit) ?? line
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
@@ -266,23 +266,6 @@ final class RegionWorkerLayout {
             }
         }
         return widest
-    }
-
-    private static func ellipsizedLine(_ source: NSAttributedString, range: NSRange, width: Double) -> CTLine? {
-        let string = source.string as NSString
-        var end = NSMaxRange(range)
-        // A wrapped line already fits. Include the ellipsis before asking
-        // CoreText to make room for it, removing the line's trailing break/space.
-        while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
-        let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
-        candidate.append(NSAttributedString(string: "…", attributes: source.attributes(at: max(range.location, end - 1), effectiveRange: nil)))
-        let typesetter = CTTypesetterCreateWithAttributedString(candidate)
-        let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
-        // Keep paragraph-global indices, including the token, for AppKit hits.
-        let token = CTTypesetterCreateLine(typesetter, CFRange(location: end, length: 1))
-        // If even the token cannot fit, retain the first clipped character,
-        // as the browser does, rather than replacing it with a partial ellipsis.
-        return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
 }
