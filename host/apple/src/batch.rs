@@ -444,13 +444,19 @@ impl Batch {
     /// `{"op":"frame","id":…,"x":…,"y":…,"w":…,"h":…}` — the node's frame in
     /// its parent's coordinate space, in points.
     pub fn frame(&mut self, id: u32, x: f32, y: f32, w: f32, h: f32) {
-        self.ops.push(format!(
-            "{{\"op\":\"frame\",\"id\":{id},\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
-            crate::style::num(x),
-            crate::style::num(y),
-            crate::style::num(w),
-            crate::style::num(h)
-        ));
+        // One string per op, the numbers written into it: a list row's
+        // mount frames every node.
+        let mut s = String::with_capacity(64);
+        let _ = write!(s, "{{\"op\":\"frame\",\"id\":{id},\"x\":");
+        crate::style::push_num(&mut s, x);
+        s.push_str(",\"y\":");
+        crate::style::push_num(&mut s, y);
+        s.push_str(",\"w\":");
+        crate::style::push_num(&mut s, w);
+        s.push_str(",\"h\":");
+        crate::style::push_num(&mut s, h);
+        s.push('}');
+        self.ops.push(s);
     }
 
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;

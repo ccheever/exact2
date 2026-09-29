@@ -178,7 +178,9 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 None => false, // `none`: nothing to paint
             },
             RowValue::Enum(e) => {
-                let _ = write!(out, "\"{e}\"");
+                out.push('"');
+                out.push_str(e);
+                out.push('"');
                 true
             }
             RowValue::Vec2(v) => {
@@ -288,6 +290,15 @@ fn push_int(out: &mut String, n: i64) {
 pub fn push_num(out: &mut String, n: f32) {
     if n.fract() == 0.0 && n.abs() < 1e9 {
         push_int(out, n as i64);
+    } else if (n * 4.0).fract() == 0.0 && n.abs() < 1e7 {
+        // Quarters (a 1.5 radius, a half-point frame) are exact in binary,
+        // and `{n}` spells them just so: write them without `fmt`.
+        let q = (n * 4.0) as i64;
+        if q < 0 {
+            out.push('-');
+        }
+        push_int(out, q.abs() / 4);
+        out.push_str([".0", ".25", ".5", ".75"][(q.abs() % 4) as usize]);
     } else {
         let _ = write!(out, "{n}");
     }
@@ -602,6 +613,34 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
+    }
+
+    /// Quarters are written as `{n}` writes them.
+    #[test]
+    fn quarters_spell_as_display_does() {
+        for n in [
+            0.25f32,
+            0.5,
+            0.75,
+            1.5,
+            -0.5,
+            -2.25,
+            123.75,
+            9_999_999.5,
+            0.1,
+            1.0 / 3.0,
+            -0.0,
+            7.0,
+        ] {
+            let mut s = String::new();
+            push_num(&mut s, n);
+            let want = if n.fract() == 0.0 {
+                format!("{}", n as i64)
+            } else {
+                format!("{n}")
+            };
+            assert_eq!(s, want, "{n}");
+        }
     }
 
     /// LLP 1061 D2: the press scale is the presenter's to show, so it crosses
