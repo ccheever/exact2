@@ -86,6 +86,11 @@ pub struct Output {
     pub pages: String,
     /// Whether a node renders Markdown (the page fetches `markdown.wasm`).
     pub markdown: bool,
+    /// Whether a node is a Canvas 2D surface (the page loads its engine,
+    /// `canvas2d.js`, and the data module draws).
+    pub canvas2d: bool,
+    /// The declared faces' preloads, for the page's head.
+    pub preloads: String,
     pub css: String,
     pub viewport: Option<String>,
     pub warnings: Vec<String>,
@@ -180,19 +185,11 @@ struct Em<'a> {
     warnings: Vec<String>,
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
+    canvas2d: bool,
 }
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
-    // Declared fonts are not loaded by this runtime yet (LLP 1071 §7's gaps):
-    // text would lay out in the fallback face.
-    for (i, stack) in plan.stacks.iter().enumerate() {
-        let first = plan.stack_member(stack.members.iter().next().ok_or("an empty font stack")?);
-        if first.kind == exact_plan::StackMemberKind::Family {
-            return Err(format!(
-                "font stack {i}: declared fonts are not in the JS target"
-            ));
-        }
-    }
+    let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
     let parts = style::project(plan, &sites, &mut warnings)?;
@@ -206,6 +203,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         warnings,
         row_actions: Default::default(),
         markdown: false,
+        canvas2d: false,
     };
     let top = Scope::default();
     let action = Scope {
@@ -496,7 +494,17 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         // A resource with no compiled value: the page waits for its source.
         false
     );
-    let mut css = String::from("#exact-root#exact-root{");
+    // Canvas text names a declared family by its declared name (LLP 1056 D8).
+    let js = if em.canvas2d && !fonts.aliases.is_empty() {
+        format!(
+            "{js}(globalThis.exact??={{}}).fontAliases={};\n",
+            fonts.aliases
+        )
+    } else {
+        js
+    };
+    let mut css = fonts.css.clone();
+    css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
@@ -536,6 +544,8 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         names: names_js,
         pages: build_pages(plan),
         markdown: em.markdown,
+        canvas2d: em.canvas2d,
+        preloads: fonts.preloads,
         viewport,
         warnings: em.warnings,
     })
@@ -835,37 +845,77 @@ impl Em<'_> {
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];
-            // A surface this runtime paints is one the app's GPU module
-            // draws (the build names them); a Canvas 2D one, drawn by a data
-            // source, is not in the JS target yet.
+            // A surface the app's GPU module draws (the build names them)
+            // goes to it; any other is a Canvas 2D surface, drawn by the
+            // data module and replayed by the web host's own glue.
             let name = plan.str(sf.name);
-            if !gpu_surfaces().iter().any(|s| s == name) {
-                return Err(format!(
-                    "node {i}: the Canvas 2D surface `{name}` is not in the JS target"
-                ));
-            }
+            let gpu = gpu_surfaces().iter().any(|s| s == name);
             let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
-            let mut values = Vec::new();
-            for a in sf.args.iter() {
-                let a = &plan.surface_args[a.0 as usize];
-                let v = code::expression(plan, plan.code(a.expr), scope, &mut self.uses)?;
-                values.push(if named {
-                    format!("{}:{v}", serde_json::to_string(plan.str(a.name)).unwrap())
+            if !gpu {
+                // Positional values, their declared types where known, and
+                // the authored names (LLP 1056 D1: a draw's `args`).
+                self.canvas2d = true;
+                let values = sf
+                    .args
+                    .iter()
+                    .map(|a| {
+                        let a = &plan.surface_args[a.0 as usize];
+                        code::expression(plan, plan.code(a.expr), scope, &mut self.uses)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let types: Vec<String> = sf
+                    .args
+                    .iter()
+                    .map(|a| {
+                        let a = &plan.surface_args[a.0 as usize];
+                        crate::faces::arg_type(plan, plan.code(a.expr)).map_or("0".into(), |t| {
+                            serde_json::to_string(&type_code(plan, t)).unwrap()
+                        })
+                    })
+                    .collect();
+                let names: Vec<String> = if named {
+                    sf.args
+                        .iter()
+                        .map(|a| {
+                            serde_json::to_string(plan.str(plan.surface_args[a.0 as usize].name))
+                                .unwrap()
+                        })
+                        .collect()
                 } else {
-                    v
-                });
-            }
-            let gs = self.uses.rt("gs");
-            let body = if named {
-                format!("({{{}}})", values.join(","))
+                    Vec::new()
+                };
+                let c2 = self.uses.rt("c2");
+                let _ = write!(
+                    self.out,
+                    "{c2}({e},{},()=>[{}],[{}],[{}]);",
+                    serde_json::to_string(name).unwrap(),
+                    values.join(","),
+                    types.join(","),
+                    names.join(",")
+                );
             } else {
-                format!("[{}]", values.join(","))
-            };
-            let _ = write!(
-                self.out,
-                "{gs}({e},{},()=>{body});",
-                serde_json::to_string(plan.str(sf.name)).unwrap()
-            );
+                let mut values = Vec::new();
+                for a in sf.args.iter() {
+                    let a = &plan.surface_args[a.0 as usize];
+                    let v = code::expression(plan, plan.code(a.expr), scope, &mut self.uses)?;
+                    values.push(if named {
+                        format!("{}:{v}", serde_json::to_string(plan.str(a.name)).unwrap())
+                    } else {
+                        v
+                    });
+                }
+                let gs = self.uses.rt("gs");
+                let body = if named {
+                    format!("({{{}}})", values.join(","))
+                } else {
+                    format!("[{}]", values.join(","))
+                };
+                let _ = write!(
+                    self.out,
+                    "{gs}({e},{},()=>{body});",
+                    serde_json::to_string(name).unwrap()
+                );
+            }
         }
         if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
             let _ = write!(self.out, "{e}.muted=!0;");

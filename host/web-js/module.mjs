@@ -19,7 +19,7 @@ function cargoWasm(manifest) {
   { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: '/tmp/e3-mod/target-web', ...(WEB ? { RUSTFLAGS: '-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none' } : {}) } });
 }
 
-export function buildModule(app, out = `/tmp/e3-mod/${app}`) {
+export function buildModule(app, out = `/tmp/e3-mod/${app}`, draw = false) {
   const build = readFileSync(resolve(root, 'apps', app, 'web/build.rs'), 'utf8');
   const expr = /contract::bake\(\s*plan,\s*([\w:]+(?:::(?:default|new)\(\))?)\s*\)/.exec(build)?.[1];
   if (!expr) throw new Error(`${app}: its web build bakes with no Rust data source`);
@@ -50,7 +50,8 @@ strip = true
 ${ws.slice(ws.indexOf('[workspace.dependencies]')).split('\n[workspace.package]')[0]}
 ${patch}
 `);
-  writeFileSync(resolve(crate, 'src/lib.rs'), `exact_logic_abi::export!(${ty}, ${expr});\n`);
+  // Canvas 2D draws only for a plan that has a 2D surface (logic/abi/src/draw.rs).
+  writeFileSync(resolve(crate, 'src/lib.rs'), `exact_logic_abi::export!(${ty}, ${expr});\n${draw ? `exact_logic_abi::export_draw!(${ty});\n` : ''}`);
   if (!existsSync(resolve(crate, 'Cargo.lock'))) cpSync(resolve(root, 'Cargo.lock'), resolve(crate, 'Cargo.lock'));
   const r = cargoWasm(resolve(crate, 'Cargo.toml'));
   if (r.status !== 0) throw new Error(`${app}: the module did not build`);

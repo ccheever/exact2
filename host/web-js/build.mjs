@@ -51,6 +51,12 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'js', input, '-o', gen], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
+// Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
+// host's own replayer) are drawn by the Rust data module.
+const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
+if (canvas2d && !rust) { console.error(`${app}: a Canvas 2D surface drawn by a ${ts ? 'TypeScript' : 'missing'} source is not in the JS target`); process.exit(1); }
+cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
+cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.js'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   "import { data, journal, clock, advance, commit, inflight, Views, viewId } from './rt.js';",
@@ -111,7 +117,9 @@ const viewport = existsSync(resolve(gen, 'viewport.txt')) ? readFileSync(resolve
 // The entry and the chunks it imports statically (none, unless a split
 // shares one with a loaded piece): what a page preloads from its head.
 const statics = ['app.js', ...new Set([...readFileSync(resolve(out, 'app.js'), 'utf8').matchAll(/(?:^|[;}\s])import(?:[^"'();]*?from)?\s*["']\.\/([^"']+\.js)["']/g)].map(m => m[1]))];
-const preloads = args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join('');
+// Declared fonts: a preload each, from the head (LLP 1019; the faces are in app.css).
+const fonts = existsSync(resolve(gen, 'preloads.html')) ? readFileSync(resolve(gen, 'preloads.html'), 'utf8') : '';
+const preloads = fonts + (args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join(''));
 writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -137,7 +145,7 @@ if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve
 if (rust) {
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
-  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app);
+  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app, undefined, canvas2d);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);

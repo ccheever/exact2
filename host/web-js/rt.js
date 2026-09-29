@@ -482,11 +482,32 @@ export function gs(e, name, values) {
       x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root");
       // A surface's published records reach the runner in the wasm host
       // (LLP 1009 D6); this runtime has no source reading them yet: dropped.
-      x.wasm ??= { exact_surface_record: () => 0 }; x.writeIn ??= () => 0; x.send ??= () => {};
+      (x.wasm ??= {}).exact_surface_record ??= () => 0; x.writeIn ??= () => 0; x.send ??= () => {};
       if (clock.agent) x.now = () => clock.now;
       inflight.n++;
       Gpu = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import(new URL("gpu-glue.js", document.baseURI).href)).then(() => x.gpu?.settled?.()).catch(err => say(`gpu: ${err.message}`)).finally(() => inflight.n--);
     }
+  });
+}
+/** A Canvas 2D surface (LLP 1056): its arguments, drawn by the data
+ * module and replayed by the web host's own glue, both in `canvas2d.js`,
+ * fetched two frames after the first 2D canvas mounts (a loaded
+ * capability); `types` are the arguments' declared types where known. */
+let Canvas2d = null;
+export function c2(e, name, values, types, names) {
+  const c = { e, name, types, names, mounted: clock.now, args: null };
+  onEnd(() => Canvas2d?.then(m => m?.gone(c)));
+  effect(() => {
+    c.args = values();
+    if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+    if (!Canvas2d) {
+      inflight.n++;
+      Canvas2d = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./canvas2d.js"))
+        .then(m => m.engine({ data, clock, inflight, journal, advance, views: Views, viewId, wall: () => performance.now() - start }))
+        .catch(err => say(`canvas2d: ${err.message}`)).finally(() => inflight.n--);
+    }
+    // After the commit applied, as the runner publishes surface inputs.
+    queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
   });
 }
 /** A dynamic style row: a number takes the unit css.rs gives the row. */

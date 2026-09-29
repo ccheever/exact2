@@ -1,12 +1,21 @@
+//! The plan's declared fonts (LLP 1019): the faces, their CSS family names
+//! and the catalog the glue loads before first paint.
+
 use super::*;
 
-pub(super) struct FontFace {
-    pub(super) family: String,
+/// One declared face, under the family name the host's CSS uses
+/// (`ExactPlanStack<i>`); the JS target declares the same (LLP 1071 §7).
+pub struct FontFace {
+    /// The CSS family: `ExactPlanStack<stack index>`.
+    pub family: String,
     /// The family's declared name, which canvas text names (LLP 1056 D8).
-    pub(super) declared: String,
-    pub(super) source: String,
-    pub(super) weight: u16,
-    pub(super) italic: bool,
+    pub declared: String,
+    /// The face's file, relative to the app.
+    pub source: String,
+    /// Its weight.
+    pub weight: u16,
+    /// Whether it is italic.
+    pub italic: bool,
 }
 
 pub(super) fn font_names(plan: &Plan) -> Vec<String> {
@@ -48,7 +57,8 @@ pub(crate) fn decode_plan(bytes: &[u8]) -> Result<Plan, exact_plan::PlanError> {
     }
 }
 
-pub(super) fn font_faces(plan: &Plan) -> Vec<FontFace> {
+/// The plan's declared faces, in stack order.
+pub fn font_faces(plan: &Plan) -> Vec<FontFace> {
     let mut out = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
         let member = plan.stack_member(

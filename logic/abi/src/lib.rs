@@ -10,6 +10,8 @@ use exact_runner::{
     SurfaceOutcome, SurfaceRequest,
 };
 
+pub mod draw;
+
 /// Seam version, independent of the plan format version.
 pub const ABI: u32 = 3;
 /// Maximum request or response bytes, enforced on both sides.

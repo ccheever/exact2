@@ -370,3 +370,80 @@ fn explicit_independent_http_survives_the_module_codec() {
     );
     end(&reader).unwrap();
 }
+
+/// A source that draws one surface, `dot`, translating once per draw: the
+/// transform persists within a generation, as a canvas's state does.
+struct Painter;
+impl DataSource for Painter {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        if surface != "dot" {
+            return Err("no such surface".into());
+        }
+        ctx.translate(1.0, 0.0)?;
+        ctx.set_fill_style_str("#2980e6");
+        ctx.fill_rect(0.0, 0.0, frame.width, args.len() as f64);
+        Ok(true)
+    }
+}
+
+#[test]
+fn a_draw_crosses_the_seam_and_its_recorder_lives_for_its_generation() {
+    use exact_runner::exact_canvas::{list, Causes, Frame};
+    use exact_runner::{DrawReply, DrawRequest};
+    let mut session = Session::new(Painter);
+    let mut recorders = draw::Recorders::default();
+    let args = [Value::Number(1.0), Value::str("a")];
+    let mut draw = |session: &mut Session<Painter>, generation: u32, surface: &str| {
+        let request = DrawRequest {
+            canvas: 7,
+            generation,
+            seq: 1,
+            surface,
+            args: &args,
+            names: &[],
+            frame: Frame {
+                time: 0.0,
+                mounted: 0.0,
+                cause: Causes::MOUNT,
+                width: 40.0,
+                height: 20.0,
+                pixel_width: 80,
+                pixel_height: 40,
+                scale: 2.0,
+            },
+            current_color: None,
+            rtl: false,
+        };
+        session
+            .draw(&mut recorders, &draw::draw_request(&request).unwrap())
+            .unwrap();
+        draw::read_draw_reply(session.output()).unwrap()
+    };
+    let first = draw(&mut session, 0, "dot");
+    assert!(first.wants_frame && first.error.is_none());
+    let transforms = |reply: &DrawReply| {
+        reply
+            .lists
+            .iter()
+            .flat_map(|l| list::records(l).unwrap())
+            .filter(|r| r.op == list::Op::SetTransform)
+            .map(|r| r.at(4))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(transforms(&first), [1.0]);
+    // The same generation keeps the context's transform; a new one starts afresh.
+    assert_eq!(transforms(&draw(&mut session, 0, "dot")), [2.0]);
+    assert_eq!(transforms(&draw(&mut session, 1, "dot")), [1.0]);
+    let thrown = draw(&mut session, 1, "square");
+    assert_eq!(thrown.error.as_deref(), Some("no such surface"));
+    assert!(!thrown.wants_frame);
+}

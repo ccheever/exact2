@@ -62,6 +62,8 @@ export function install(exact) {
           // Settled: no request in flight and no commit pending, within 20 s.
           const end = performance.now() + 20000;
           do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
+          // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
+          await document.fonts?.ready;
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         exact.advance(req.to);

@@ -10,6 +10,7 @@
 
 mod code;
 mod emit;
+mod faces;
 mod style;
 
 use std::process::ExitCode;
@@ -74,6 +75,12 @@ fn main() -> ExitCode {
             }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
+            }
+            if out_files.canvas2d {
+                let _ = std::fs::write(dir.join("canvas2d.flag"), "");
+            }
+            if !out_files.preloads.is_empty() {
+                let _ = std::fs::write(dir.join("preloads.html"), &out_files.preloads);
             }
             if let Some(meta) = &out_files.viewport {
                 let _ = std::fs::write(dir.join("viewport.txt"), meta);

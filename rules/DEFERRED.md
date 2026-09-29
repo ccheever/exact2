@@ -77,14 +77,15 @@ it compiles; the Rust render host stays the primary pre-render and the JS render
 the option (his ruling of the same day). Unblocks a web first interaction in
 about a tenth of the wasm target's bytes. Until these gaps close, an app that
 needs one is refused by name and builds the wasm target, which then retires:
-Canvas 2D surfaces drawn by a data source; building an app's GPU module; virtualized collections; declared
-fonts; a TypeScript and a Rust source in one app; native modules; dynamic
+Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module; virtualized collections;
+a TypeScript and a Rust source in one app; native modules; dynamic
 composite rows (`line-height`, `clip-path`, SVG paint, `animation`,
 `timeline-scope`); the events `pan`, `select`, `cancel`, `reachstart`/`reachend`
 and drags; springs, presence and layout transitions; the dev loop's reload and
 state carry, delivery and the rest of the agent (these tools build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
-Take: none named yet (LLP 1071 §8 asks).
+Take: none named yet (LLP 1071 §8 asks). A Rust source's Canvas 2D surfaces and
+declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

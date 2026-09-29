@@ -293,14 +293,16 @@ A plan that uses a capability the JavaScript runtime lacks is refused at
 build, by name, as LLP 1047 D6 refuses an unlinked one. That lets the runtime
 grow one capability at a time.
 
-As landed, the backend and `host/web-js/build.mjs` refuse by name: declared
-fonts, virtualized lists, a Canvas 2D surface (one the app's GPU module
-doesn't draw), a TypeScript and a Rust source in one app, native modules, the
-events and dynamic rows in §7's table. `host/web/build.mjs` prints the
-refusal and builds the wasm target. RealWorld, the video player,
-completion-storm and Motion Gallery build JS; Caltrain (its Canvas 2D line
-map), Weatherlight (its GPU module, which only the wasm build makes yet),
-Typetour, Carousel and Update Lab build wasm.
+As landed, the backend and `host/web-js/build.mjs` refuse by name:
+virtualized lists, a Canvas 2D surface drawn by a TypeScript source, a
+TypeScript and a Rust source in one app, native modules, the events and
+dynamic rows in §7's table. `host/web/build.mjs` prints the refusal and
+builds the wasm target. RealWorld, the video player, completion-storm,
+Motion Gallery and Typetour build JS; Caltrain and Weatherlight (their GPU
+modules, which only the wasm build makes yet), Canvas Gallery (its
+TypeScript draws), Carousel and Update Lab build wasm. Given the wasm
+build's GPU module (`--plan`, as conformance builds it), Caltrain builds JS
+and is equal on every step.
 
 ### D6 — Documents, activation and resumability
 
@@ -692,18 +694,17 @@ from (a) today.
 
 | | apps |
 |---|---|
-| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4; synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3 |
-| state, tree and layout equal; pixels differ | Caltrain (its Canvas 2D line map), Motion Gallery (animated images) |
-| runs, differs | Typetour (1 px text: declared fonts not loaded), Update Lab (a TypeScript and a Rust source in one app), Carousel (a virtualized list rendered whole) |
+| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12 and Typetour 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3 |
+| state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
+| runs, differs | Update Lab (a TypeScript and a Rust source in one app), Carousel (a virtualized list rendered whole) |
 | refused at build, by name | native modules (native-fixture, photo-editor, map-demo), dynamic `line-height` (exact-live, llp, markdown), dynamic SVG `fill` (svg-gallery), dynamic `clip-path` (reflow), dynamic `animation` (sparkline), `timeline-scope` (interaction-gallery), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `reachstart` (messages-stress) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
 | Gap | Work | Bytes |
 |---|---|---|
-| Canvas 2D surfaces: a `draw` op on the logic ABI, `canvas2d-glue.js` reused | 3–5 days | ~0.5 KB core; 3.8 KB loaded |
 | Virtualized collections: the window, measurement and anchoring engine | 1–2 weeks | 4–6 KB, loaded |
-| Declared fonts (the web host's font loading reused) | 1–2 days | <1 KB |
+| Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | Surface records back to sources | 1–2 days | <0.5 KB |
 | Dynamic composite rows (line-height, clip-path, SVG paint, animation, timeline scope) | 2–3 days | ~1 KB |
@@ -749,7 +750,7 @@ What stays on the wasm target, and why:
   name.
 - **The parity smokes**: `motionparity` takes Chrome as the reference for
   animated images on the agent's clock (`image-glue.js`, a gap above);
-  `canvasparity`'s apps draw Canvas 2D surfaces, which the JS target refuses.
+  `canvasparity`'s apps draw Canvas 2D surfaces from TypeScript, which the JS target refuses.
 - **Conformance** (`conform.mjs`): the wasm run is the oracle it compares against.
 - **Metrics `--long`'s web bytes**: the wasm's code by capability (LLP 1047 D9).
 
@@ -761,6 +762,31 @@ lane's set): every step equal but RealWorld's `tap submit` on the register
 page, where the JS runner answers as the sign-in form did ("credentials
 invalid", one stamp) and the wasm with the register form's three blank-field
 errors: the `when signup … else` button's press looks bound to the other branch.
+
+**Canvas 2D surfaces and declared fonts** (landed 2026-09-29, measured;
+brotli):
+- **Canvas 2D** (a Rust source's surfaces). The module exports its draws
+  beside the ABI (`exact_logic_abi::export_draw!`, `logic/abi/src/draw.rs`:
+  op 5, one recorder per canvas generation, the runner's `DataSource::draw`
+  unchanged). `rt.js` `c2` keeps each canvas's arguments; `canvas2d.js`, a
+  chunk fetched two frames after the first 2D canvas mounts, is the runner's
+  half of LLP 1056 D4 (geometry and size generations, causes, frames, fonts)
+  over the wasm host's own `canvas2d-glue.js`, unchanged. Cost: 180 B in
+  Caltrain's `app.js` (the hook, only where a 2D canvas is), 5,687 B loaded
+  (the chunk: 4,014 the glue, the rest the engine and the draw client), 28 B in `rust-data.js`; the module
+  grows by the draw code and the recorder it now links, 10.5 KB for
+  Caltrain's (35,769 → 46,265, a size build; app.wasm carries the same code).
+  Still refused: TypeScript draws; not carried: a Rust draw's `measureText`
+  and images (no text engine or image table crosses the seam).
+- **Declared fonts** cost the runtime nothing: each face is an `@font-face`
+  rule in the build's stylesheet under the web host's family name, with
+  `font-display: optional` — the wasm host's own policy (a face not ready in
+  about 100 ms stays unused, no swap after paint) — and a preload in the
+  shell's head, which a server's early flush sends; a rendered page's head
+  drops the render's own copies. Typetour: 171 B of rules and preloads in its shell; the faces themselves are the bytes the wasm host loads too.
+- **Caltrain** (mobile profile, 5 cold runs, medians; JS / wasm): FCP
+  384–400 / 360–404 ms, runtime up 633–649 / 2,727–2,764 ms, 18,849 /
+  337,240 bytes before interactive (page 4,888 + `app.js` 13,961).
 
 ## 8. Rulings and open questions for Charlie
 

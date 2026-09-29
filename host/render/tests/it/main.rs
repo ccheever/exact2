@@ -440,6 +440,21 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"interaction\""));
     assert!(!html.replace(capture, "").contains(".js"), "{html}");
+    // A shell that declares the plan's fonts (their faces with
+    // `font-display`, their preloads early in the head) keeps its own: the
+    // render's copies would replace the shell's rules.
+    r.activate = exact_plan::ActivatePolicy::Inferred;
+    let preload =
+        "<link rel=\"preload\" href=\"assets/A.ttf\" as=\"font\" type=\"font/ttf\" crossorigin>";
+    r.head.push_str(&format!("<style>@font-face{{font-family:\"ExactPlanStack0\";src:url(\"assets/A.ttf\");font-weight:400;font-style:normal}}</style>{preload}"));
+    let fonted = shell.replace(
+        "<style>p{margin:0}</style>",
+        &format!("{preload}\n<style>@font-face{{font-family:\"ExactPlanStack0\";src:url(\"assets/A.ttf\");font-display:optional}}p{{margin:0}}</style>"),
+    );
+    let html = exact_render::page(&fonted, &r).unwrap();
+    assert_eq!(html.matches("as=\"font\"").count(), 1, "{html}");
+    assert_eq!(html.matches("@font-face").count(), 1, "{html}");
+    assert!(html.find(preload) < html.find("<style>"));
 }
 
 /// `root` without its view ids: a link's `data-view` is empty.

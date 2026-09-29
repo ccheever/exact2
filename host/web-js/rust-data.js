@@ -124,6 +124,8 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
     const res = await fetch(req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
     return { status: res.status, headers: [...res.headers], body: new Uint8Array(await res.arrayBuffer()) };
   };
+  // What a loaded capability needs of the module (canvas2d.js's draws).
+  data.logic = { exports: e, session, writer, reader, encode, ABI };
   data.grants = meta[1];
   for (const f of data.q.splice(0)) f();
 }

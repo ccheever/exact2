@@ -236,7 +236,7 @@ pub(crate) fn body_js(shell: &str, rendered: &Rendered, late: bool) -> Result<St
     let at = places(shell)?;
     let mut out =
         String::with_capacity(rendered.document.root.len() + rendered.checkpoint.len() + 1024);
-    out.push_str(&rendered.head);
+    out.push_str(&without_fonts(shell, &rendered.head));
     out.push('\n');
     if late {
         for (start, stop) in preloads(shell, &at) {
@@ -258,6 +258,36 @@ pub(crate) fn body_js(shell: &str, rendered: &Rendered, late: bool) -> Result<St
     );
     out.push_str(&shell[at.entry + JS_ENTRY.len()..]);
     Ok(out)
+}
+
+/// The head's fields without the plan's fonts when the shell declares them
+/// (`host/web-js/build.mjs`: its stylesheet's faces, with their
+/// `font-display`, and their preloads early in the head): a second rule for
+/// a face would replace the shell's.
+fn without_fonts(shell: &str, head: &str) -> String {
+    const PRELOAD: &str = "<link rel=\"preload\" href=\"";
+    if !shell.contains("as=\"font\"") {
+        return head.to_string();
+    }
+    let mut out = head.to_string();
+    if let Some(at) = out.find("<style>@font-face") {
+        if let Some(end) = out[at..].find("</style>") {
+            out.replace_range(at..at + end + "</style>".len(), "");
+        }
+    }
+    let mut from = 0;
+    while let Some(at) = out[from..].find(PRELOAD).map(|at| at + from) {
+        let Some(end) = out[at..].find('>').map(|end| at + end + 1) else {
+            break;
+        };
+        if out[at..end].contains("as=\"font\"") {
+            out.replace_range(at..end, "");
+            from = at;
+        } else {
+            from = end;
+        }
+    }
+    out
 }
 
 /// The document's element in the shell.
