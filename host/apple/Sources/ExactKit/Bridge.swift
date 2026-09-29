@@ -487,17 +487,15 @@ final class Runtime {
     /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.
     /// An app module's topic changed (LLP 1024): a notification (T5).
     func appChanged(_ topic: Data) {
-        Owner.shared.syncOrLater { [self] in
-            guard !destroyed else { return }
+        let rt = rt
+        Owner.shared.notify {
             topic.withUnsafeBytes { exact_app_changed(rt, $0.bindMemory(to: UInt8.self).baseAddress, topic.count) }
         }
     }
-    /// A notification (LLP 1072 T5): when main is serving a callback the
-    /// owner waits on, the line is journaled after the owner's current job.
+    /// A notification (LLP 1072 T5): queued to the owner, never waited for,
+    /// so a line main journals mid-apply does not wait behind a slice being
+    /// built. A later call runs after it; a destroyed runtime refuses it.
     func log(_ line: String) {
-        Owner.shared.syncOrLater { [self] in
-            guard !destroyed else { return }
-            _ = exact_log(rt, write(line))
-        }
+        Owner.shared.notify { [self] in _ = exact_log(rt, write(line)) }
     }
 }

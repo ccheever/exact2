@@ -132,6 +132,12 @@ final class Owner: @unchecked Sendable {
         work.signal()
     }
 
+    /// A notification (T5): on the owner, now; from anywhere else, queued
+    /// in order behind the jobs before it, never waited for.
+    func notify(_ body: @escaping () -> Void) {
+        if isOwner { body() } else { post(body) }
+    }
+
     /// A notification (T5): synchronous, unless main is serving a callback
     /// the owner waits on; then it runs after the owner's current job.
     func syncOrLater(_ body: @escaping () -> Void) {
