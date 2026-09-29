@@ -90,6 +90,7 @@ export function engine(rt) {
       glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq, lists: at });
       r.text = reply.lists.some(hasText);
       r.frames = reply.frame && !reply.error;
+      r.draws = (r.draws ?? 0) + 1; r.error = reply.error ?? null;
       if (reply.error) say(`canvas ${id} (${r.c.name}) draw threw: ${reply.error}`);
       for (const n of reply.notes ?? []) say(`canvas ${id} (${r.c.name}): ${n}`);
     }
@@ -155,6 +156,11 @@ export function engine(rt) {
     drawAll();
   }
   // Under the agent the clock is the driver's: its moves are the frames.
+  // The agent's `state.canvas` (runner/src/runner/canvas2d.rs `state`): each
+  // 2D canvas's generation, draws, backing and last error.
+  x.canvas2dState = () => [...records].map(([view, r]) => ({ view, surface: r.c.name, context: '2d', artifact: 'data', lifetime: r.lifetime, generation: r.generation,
+    pending: !r.draws || !!r.causes, animating: !!r.frames, draws: r.draws ?? 0,
+    width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch, error: r.error ?? null, refused: null }));
   if (clock.agent && x.advance) { const advance = x.advance; x.advance = to => { advance(to); frame(); }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
   host();

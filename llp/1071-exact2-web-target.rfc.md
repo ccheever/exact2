@@ -749,10 +749,10 @@ What stays on the wasm target, and why:
   plans into a running page (`--plan`, `exact.reload`); the JS target
   compiles one plan ahead of time. `agent.mjs --plan` refuses a JS dist by
   name.
-- **The parity smokes**: `motionparity` takes Chrome as the reference for
-  animated images on the agent's clock (`image-glue.js`, a gap above);
-  `canvasparity`'s probes read the runner's canvas records (`state.canvas`:
-  draws, generation, errors, the bitmap), which the JS agent does not report.
+- **`motionparity`**: it takes Chrome as the reference for animated images
+  on the agent's clock (`image-glue.js`, a gap above). `canvasparity` takes
+  the JS build since the JS agent reports `state.canvas` ("Retiring the wasm
+  target on the web").
 - **Conformance** (`conform.mjs`): the wasm run is the oracle it compares against.
 - **Metrics `--long`'s web bytes**: the wasm's code by capability (LLP 1047 D9).
 
@@ -1319,6 +1319,88 @@ shows none.
   backed up through SQLite and the file store, the backup exported to the
   driver's path, a file picked and read back; Markdown opens a chosen
   document and shows it.
+
+### Retiring the wasm target on the web (plan, 2026-09-29)
+
+Charlie asked for this once the JS target covers everything (§8's ruling:
+"the wasm target on the web retires once the gaps in §7 close"). As of this
+writing every app in `apps/` builds JS, and so does Bluesky outside the
+repo. The games under `game/games` (Tennis, Beacons and the fixtures, LLP
+1046) do not: the JS build neither finds a game's directory nor reads its
+materialized manifest, and a game's logic, generated shells and GPU module
+are the game runtime's (LLP 1046), which the JS runtime has no half of; the
+wasm target is their web build. What retires is the wasm target as something an app author builds, serves or
+ships. What stays is internal: the Rust runner compiled to wasm as a test
+reference, and the web crate's build script as delivery's producer, until
+each has the replacement named below. Nothing that conformance or a native
+client depends on is deleted before its replacement runs.
+
+**What users stop seeing.**
+
+| Surface | Today | After |
+|---|---|---|
+| `host/web/build.mjs <app>` | the JS target; wasm with the refusal printed | the JS target only (a game excepted, until its runtime has a web half); a refusal is an error naming the gap. `--wasm` leaves the usage text (done) and the README; it stays as an internal flag for the rows below |
+| `host/web/dev.mjs` | the JS loop; `--wasm` is the resident loop | the JS loop. A native client's live reload keeps the resident loop's producers (below) without its wasm page |
+| `scripts/deploy.mjs` web root | the JS build of the bake's plan (landed) | unchanged |
+| `serve.mjs`, the agent's web host, the smoke's app drive, metrics | what the build makes | JS only |
+
+**What stays internal, and what replaces it.**
+
+1. *Conformance's oracle* (`conform.mjs`): the wasm page is the reference
+   every JS step is compared to (state, tree, layout, pixels). It stays as
+   the internal reference build (`host/web/build.mjs --wasm`, called only by
+   `conform.mjs`). A reference without the wasm page is the Rust runner
+   headless under the agent (the Linux host, `agent.mjs linux`), which
+   gives the runner's state and tree but its own layout and pixels (Taffy
+   and its own text, not the browser's); so it replaces the state and tree
+   comparisons, while layout and pixels need a pinned JS baseline per app
+   (the JS run of a green commit, compared thereafter). The wasm build is
+   deleted from the web host only when both run in the lane.
+2. *Native clients' live reload* (`build.mjs --url`, `/__dev/open`, `exact
+   run`): they read the resident loop's envelope and generations, made by
+   its producers — the app's `dev` bin (the resident compiler), the
+   TypeScript producer (Hermes bytecode) and the Rust module producer —
+   none of which is the wasm. The page is the only wasm part, and
+   `programIdentity` hashes `app.wasm`. The replacement is the resident
+   loop's producers and envelope server beside a JS page that reloads at
+   each generation (the JS build of the generation's plan), with the
+   program identity the JS build's files. Until it lands a native client
+   opens `dev.mjs --wasm`, and the JS loop's 404 says so.
+3. *The parity tools.* `canvasparity` now takes the JS build as the web
+   (landed with this plan: the JS agent reports `state.canvas`, whose
+   records for every fixture — draws, pending, generation, backing, the
+   bitmap's stretch, errors — equal the wasm host's on pages 2 and 3; the
+   whole smoke was not run here: its `direct.html` step's headless Chrome
+   `--dump-dom` does not return on this machine, on either target).
+   `motionparity` waits on animated images held to the agent's clock
+   (`image-glue.js`, a §7 gap). The smoke's bare-plan fixtures and router
+   sweep swap plans into a running page (`--plan`, `exact.reload`); the JS
+   target compiles one plan ahead of time, so they become one JS build per
+   fixture plan, as conformance builds its synthetic plans (`--plan`,
+   `--data`).
+4. *Delivery's bake* (`deploy.mjs`): the streams' bundle and receipts come
+   from the `<app>-web` crate's build script (the baked plan, its compat
+   receipt, the TypeScript bytecode, the Rust module), which the wasm build
+   runs and then compiles to `app.wasm`. The replacement is the build
+   script alone (a `cargo check` of the web crate writes the same bake
+   outputs, as the JS build now runs Messages' script) with the envelope
+   and receipts read from its outputs rather than extracted from
+   `app.wasm`. Until then `deploy.mjs` bakes `--wasm` and publishes only
+   the JS root.
+5. *Metrics `--long`'s web bytes*: the wasm's code by capability (LLP 1047
+   D9) is a measure of the retiring target; it is removed with it, and the
+   JS target's per-capability bytes (its chunks) take the row.
+
+**Order.** (a) `reorderdrop` lands and the two apps build JS (landed);
+games build JS, or are declared the wasm target's until they do — the
+game runtime's web half is its own plan, not this one; (b) the build's
+fallback becomes an error for everything but a game and `--wasm` leaves the user-facing text;
+(c) delivery's bake without the wasm compile; (d) the resident producers
+beside the JS page; (e) the fixtures and router sweep as per-plan JS
+builds, and `motionparity` once animated images are carried; (f) the
+Linux-host state/tree oracle and pinned JS baselines in the lane; then (g)
+the wasm web host (`host/web/glue.js`, the web crate's wasm entry,
+`stages.mjs`) is deleted.
 
 ## 8. Rulings and open questions for Charlie
 

@@ -135,10 +135,11 @@ function over(img, rgb, pad) {
  * smoke leaves `host/web/dist` to the web smoke; built here when missing
  * (`EXACT_CANVAS_REBUILD=1` builds it again). */
 function webBuild(app) {
-  const dist = resolve(ROOT, 'target/web-dist', app);
+  const dist = resolve(ROOT, 'target/web-dist-js', app);
   if (process.env.EXACT_CANVAS_REBUILD === '1' || !existsSync(resolve(dist, '.exact-build.json'))) {
     mkdirSync(dirname(dist), { recursive: true });
-    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), `${app}-web`, '--wasm'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
+    // The web the app ships (LLP 1071: the JS target), whose replay is the web host's own glue.
+    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), `${app}-web`, '--js'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
     if (b.status !== 0) throw new Error(`the ${app} web build failed`);
   }
   return dist;

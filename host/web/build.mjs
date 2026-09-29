@@ -2,14 +2,15 @@
 // Build the web app (LLP 1071). By default, the JS target when the app
 // qualifies: `host/web-js/build.mjs`, the plan compiled to one ES module over
 // a small runtime, into the same dist. An app it refuses (a capability the
-// runtime lacks, named) or an app outside apps/ gets the wasm target,
-// with the reason printed: the wasm under the `web` profile (size-tuned),
+// runtime lacks, named) gets the wasm target, with the reason printed: the wasm under the `web` profile (size-tuned),
 // `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
 // glue.js + app.wasm.
-// Usage: bun host/web/build.mjs [crate=caltrain-web] [--js | --wasm]
-// `--js` fails rather than fall back; `--wasm` builds the wasm target
-// outright — delivery's bake (the streams' bundle, whose plan the JS web
-// root compiles) and the parity smokes read its artifacts (LLP 1071 §7).
+// Usage: bun host/web/build.mjs [crate=caltrain-web] [--js]
+// `--js` fails rather than fall back. `--wasm` is internal, for what the
+// retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
+// on the web"): conformance's reference, delivery's bake (the streams'
+// bundle, whose plan the JS web root compiles), the resident dev loop a
+// native client opens, `motionparity` and the smoke's plan fixtures.
 // `--render <rust|js|none>` passes to the JS target's build. A JS build's completion marker says
 // `target: 'js'`, so the dev loop, the agent and the smoke know which they got.
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
