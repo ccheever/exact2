@@ -81,8 +81,7 @@ Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module;
 reorder on a virtualized list;
 a TypeScript and a Rust source in one app; native modules; a dynamic SVG
 `transform`, marker or `url(#…)` reference; a file input or `showPicker` (and
-with it the `cancel` its dismissal sends); the reorder drag (`reorderdrop`); an exit
-animation on a virtualized list's row; the dev loop's reload and
+with it the `cancel` its dismissal sends); the reorder drag (`reorderdrop`); the dev loop's reload and
 state carry, delivery and the rest of the agent (these tools build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
 Take: none named yet (LLP 1071 §8 asks). A Rust source's Canvas 2D surfaces and

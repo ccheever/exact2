@@ -712,7 +712,6 @@ from (a) today.
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height and transform drags~~ (landed 2026-09-29, below); the reorder drag (`reorderdrop`: `reorder_drag.rs` and motion-glue's `arrangeController`, with reorder on a virtualized list); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 3–5 days | loaded (`motion-glue.js`, `picker-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
-| ~~Springs, presence, layout transitions~~ (landed 2026-09-29, below); left: an exit animation on a virtualized list's row (the wrapper leaves as its row) | 1 day | none |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), delivery (`deliveryCheck`, `deliveryActivate`; `exactDelivery` answers what the build baked), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
@@ -948,9 +947,12 @@ bytes against a plan without the feature):
   lagging `en-US` table, an rtl table, an escape, the three facts, an
   unpublished surface), intoview 10/10; the auth fixture is its smoke,
   since it needs its local authorization server.
-- **Still open here:** `exactTime`'s
-  offset re-answered after an agent's clock move across a DST change (the
-  wasm host's `exact_set_time` after `clock`) is not carried.
+- **`exactTime` across a DST change** (landed later the same day): after
+  each clock move the agent answers `exactTime` again where its answer
+  changed, the offset at the new virtual instant, as the wasm host's
+  `exact_set_time` after `clock` does (agent-only bytes). Synthetic
+  `dst.contract` (Los Angeles an hour before the 2026-03-08 change; a plan's
+  `// agent: timeZone=… epoch=…` line is the drive's facts on both).
 
 **Motion: springs, holds, swipes and pans** (landed 2026-09-29, measured;
 brotli):
@@ -1099,8 +1101,14 @@ measured; brotli):
   builds on the JS target and conforms 8/8 with the same feed, the header
   hiding and showing on its `translate` spring included — the two steps
   that differed.
-- **Not carried:** an exit animation on a virtualized list's row (the
-  kernel's wrapper that leaves as its row): the list's rows leave at once.
+- **A virtualized list's row** (landed later the same day): a row whose
+  item left the data leaves as its wrapper, where the window placed it,
+  with its root's exit animation (kernel `leaving_with`); one the window
+  scrolls away leaves at once; the list's child order passes over it.
+  `list.js` 7,662 → 7,758 B. Synthetic `listexit.contract` (over
+  Sparkline's dist, which links collections and the animation grammars: a
+  row in view, one built below the port), and driven mid-flight: boxes,
+  opacity and screenshots equal at +120 ms.
 
 ## 8. Rulings and open questions for Charlie
 
