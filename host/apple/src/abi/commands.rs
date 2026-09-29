@@ -15,6 +15,13 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// Whether the live plan can show an SVG island (`exact_svg_islands`).
+    pub fn svg_islands(&self) -> bool {
+        self.host
+            .as_ref()
+            .is_some_and(|h| exact_runner::svg_islands(h.runner().plan()))
+    }
+
     /// A command the session is about to run (`exact_command`).
     pub fn command(&mut self, len: usize) -> u32 {
         let request = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);

@@ -223,3 +223,20 @@ fn the_picker_is_a_file_input_or_show_picker() {
     let input = used("component A\n  view\n    input type=\"file\" accept=\"image/*\" id=\"f\"\n");
     assert!(input.has(Capability::Picker));
 }
+
+#[test]
+fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
+    // @ref LLP 1055.000 D10, D14 — what makes a native host open its island module.
+    let islands = |s: &str| {
+        exact_runner::svg_islands(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")))
+    };
+    assert!(!islands("component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      rect width=10 height=10 fill=\"#f00\"\n"));
+    assert!(
+        !islands("component A\n  view\n    box filter=\"blur(2px)\"\n"),
+        "a box's filter is not an island"
+    );
+    assert!(islands("component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      rect width=10 height=10 filter=\"blur(1px)\"\n"));
+    assert!(islands(
+        "component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      defs\n        mask id=\"m\"\n          rect width=5 height=5 fill=\"#fff\"\n      rect width=10 height=10 mask=\"url(#m)\"\n"
+    ));
+}

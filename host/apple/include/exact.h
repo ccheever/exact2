@@ -432,6 +432,11 @@ uint32_t exact_log(ExactRuntime rt, size_t len);
  * {"ticket":N} (held for the agent) / {"present":true,…}. */
 uint32_t exact_command(ExactRuntime rt, size_t len);
 
+/* Whether the live plan can show an SVG island, a `mask` or a `filter`
+ * (LLP 1055.000 §8 ruling 4): 1 when the host should open its island module
+ * off the main thread now, 0 otherwise or before a boot. */
+uint8_t exact_svg_islands(ExactRuntime rt);
+
 /* An auth session's word (LLP 1069.006), JSON in the input buffer:
  * {"op":"hold","ticket":N} under the agent, or {"op":"done","ticket":N,
  * "url":…} / {"op":"done","ticket":N,"status":N,"message":…}. Returns 0; the

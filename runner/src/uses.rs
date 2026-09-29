@@ -300,6 +300,26 @@ pub fn uses(plan: &Plan) -> Uses {
     uses
 }
 
+/// Whether `plan` can show an SVG island (LLP 1055.000 D10, D14): a `mask`
+/// or `filter` element, or `filter` bound on an SVG element (its functions
+/// need no element). A host whose island module is loaded on demand (LLP
+/// 1047 D1's loaded tier; Apple's `libexact_svg.dylib`) opens it off the
+/// main thread at boot when this holds, and never for a plan without one.
+pub fn svg_islands(plan: &Plan) -> bool {
+    use exact_kernel::NodeType;
+    plan.nodes
+        .iter()
+        .any(|node| match NodeType::from_wire(node.node_type) {
+            Some(NodeType::SvgMask | NodeType::SvgFilter) => true,
+            Some(t) if t == NodeType::Svg || t.is_svg_element() => node.bindings.iter().any(|b| {
+                let b = plan.binding(b);
+                b.kind == BindingKind::Style
+                    && StyleId::from_bit(u32::from(b.id)) == Some(StyleId::Filter)
+            }),
+            _ => false,
+        })
+}
+
 /// Whether any code range calls a `format` entry, and whether any reads
 /// geometry (`frame`, `measure`): each validated body walked whole, so no
 /// call a run can reach is missed.

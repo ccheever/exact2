@@ -107,19 +107,26 @@ final class Runtime {
     func canvasHeld(_ view: UInt32, _ held: Bool) { exact_canvas_held(rt, view, held ? 1 : 0) }
     /// The Canvas 2D text measurer (LLP 1056 D8), with the measurer's context.
     func setCanvasText(_ measure: ExactCanvasTextFn?) { exact_set_canvas_text(rt, measure) }
-    func boot(width: CGFloat, height: CGFloat) -> Batch { read(exact_boot(rt, Float(width), Float(height))) }
+    func boot(width: CGFloat, height: CGFloat) -> Batch { islands(read(exact_boot(rt, Float(width), Float(height)))) }
+    /// A plan that can show an SVG island opens the island module off the
+    /// main thread now, before its first mask or filter needs it (LLP
+    /// 1055.000 §8 ruling 4); a plan without one never loads it.
+    private func islands(_ batch: Batch) -> Batch {
+        if exact_svg_islands(rt) != 0 { SvgRasterModule.prewarm() }
+        return batch
+    }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state
     /// carried — transactional, so a refused candidate leaves the running
     /// app exactly as it was.
     func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
         let n = write(bytes)
-        return read(exact_boot_plan(rt, n, Float(width), Float(height)))
+        return islands(read(exact_boot_plan(rt, n, Float(width), Float(height))))
     }
     func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         let n = write(bytes)
         return read(exact_prepare_plan(rt, token, n, Float(width), Float(height)))
     }
-    func commitPlan() -> Batch { read(exact_commit_plan(rt)) }
+    func commitPlan() -> Batch { islands(read(exact_commit_plan(rt))) }
     func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat) -> Batch {
         var payload = plan
         payload.append(module.receipt)

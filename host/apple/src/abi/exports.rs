@@ -508,5 +508,14 @@ macro_rules! host {
         pub extern "C" fn exact_command(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.command(len), |n| n)
         }
+
+        /// Whether the live plan can show an SVG island (a `mask` or a
+        /// `filter`; `exact_runner::svg_islands`): 1 when the host should
+        /// open its island module off the main thread now (LLP 1055.000 §8
+        /// ruling 4).
+        #[no_mangle]
+        pub extern "C" fn exact_svg_islands(rt: u32) -> u8 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u8::from(b.svg_islands()), |_| 0)
+        }
     };
 }

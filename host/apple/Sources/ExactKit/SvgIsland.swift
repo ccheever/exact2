@@ -11,9 +11,11 @@ import CoreGraphics
 import Foundation
 import QuartzCore
 
-/// The island module (LLP 1047 D1's loaded tier): opened synchronously at
-/// first use, so the frame that first shows an island is late by the load
-/// (measured and logged) and never shows the element without its effect.
+/// The island module (LLP 1047 D1's loaded tier). A plan that can show an
+/// island (`exact_svg_islands`) has it opened off the main thread at boot
+/// (`prewarm`); otherwise it opens synchronously at first use, so the frame
+/// that first shows an island is late by the load (measured and logged) and
+/// never shows the element without its effect.
 final class SvgRasterModule {
     typealias Abi = @convention(c) () -> UInt32
     typealias Mask = @convention(c) (UnsafeMutablePointer<UInt8>?, Int, UInt8) -> Void
@@ -31,15 +33,64 @@ final class SvgRasterModule {
         loadMs = ms
     }
 
-    /// The module, or `nil` (reported once, by name) when it cannot load.
-    static let shared: SvgRasterModule? = {
-        let t0 = CFAbsoluteTimeGetCurrent()
+    private static let path: String = {
         #if os(macOS)
         let directory = Bundle.main.executableURL!.deletingLastPathComponent().path
         #else
         let directory = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
         #endif
-        let path = ProcessInfo.processInfo.environment["EXACT_SVG_DYLIB"] ?? directory + "/libexact_svg.dylib"
+        return ProcessInfo.processInfo.environment["EXACT_SVG_DYLIB"] ?? directory + "/libexact_svg.dylib"
+    }()
+
+    /// Main thread only: whether `prewarm` ran, and whether its load is done.
+    private static var prewarming = false
+    private static let prewarmed = DispatchSemaphore(value: 0)
+    private static var waited = false
+    /// Milliseconds the prewarm's check of the file took (before `dlopen`).
+    private static var checkMs = 0.0
+
+    /// Open the module on a background queue, once. The first open of a
+    /// freshly installed file waits for the system's one-time check of it
+    /// (110–480 ms measured on a Mac), and `dlopen` holds dyld's lock while
+    /// it waits, so any other thread's `dlsym` or `dlopen` would wait too.
+    /// An executable mapping of the file asks for that check first, outside
+    /// the lock: the mapping is refused (the signature is not registered
+    /// yet, as `dlopen` does before it maps), the verdict is kept, and the
+    /// `dlopen` after it holds the lock 2–5 ms.
+    static func prewarm() {
+        guard !prewarming else { return }
+        prewarming = true
+        let path = path
+        DispatchQueue.global(qos: .userInitiated).async {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let fd = open(path, O_RDONLY)
+            if fd >= 0 {
+                if let p = mmap(nil, 16384, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0), p != MAP_FAILED { munmap(p, 16384) }
+                close(fd)
+            }
+            checkMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            _ = shared
+            prewarmed.signal()
+        }
+    }
+
+    /// The module for an island, on the main thread: a prewarm still
+    /// running is waited for (the wait is logged once).
+    static var ready: SvgRasterModule? {
+        if prewarming, !waited {
+            waited = true
+            let t0 = CFAbsoluteTimeGetCurrent()
+            prewarmed.wait()
+            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            FileHandle.standardError.write(Data(String(format: "exact svg: the first island waited %.2f ms for the module\n", ms).utf8))
+        }
+        return shared
+    }
+
+    /// The module, or `nil` (reported once, by name) when it cannot load.
+    private static let shared: SvgRasterModule? = {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let off = !Thread.isMainThread
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             FileHandle.standardError.write(Data("exact svg: the island module is not loaded (\(String(cString: dlerror()))); masks and filters draw nothing\n".utf8))
             return nil
@@ -51,7 +102,7 @@ final class SvgRasterModule {
             return nil
         }
         let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-        FileHandle.standardError.write(Data(String(format: "exact svg: island module loaded in %.2f ms\n", ms).utf8))
+        FileHandle.standardError.write(Data(String(format: "exact svg: island module loaded in %.2f ms%@\n", ms, off ? String(format: " off the main thread, after a %.2f ms check", checkMs) : "").utf8))
         return SvgRasterModule(library, ms: ms)
     }()
 }
@@ -147,7 +198,7 @@ enum SvgIsland {
         layer.anchorPoint = .zero
         layer.bounds = CGRect(origin: .zero, size: rect.size)
         layer.position = rect.origin
-        guard let module = SvgRasterModule.shared,
+        guard let module = SvgRasterModule.ready,
               let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: t, flip: true, dark: dark, fonts: fonts),
               let data = ctx.data else { return layer }
         module.mask(data.assumingMemoryBound(to: UInt8.self), ctx.bytesPerRow * ctx.height, num(spec["l"]) != 0 ? 1 : 0)
@@ -174,7 +225,7 @@ enum SvgIsland {
         layer.bounds = CGRect(origin: .zero, size: rect.size)
         layer.position = rect.origin
         let program = nums(spec["p"]).map(Float.init)
-        guard let module = SvgRasterModule.shared,
+        guard let module = SvgRasterModule.ready,
               let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: .identity, flip: true, dark: dark, fonts: fonts),
               let data = ctx.data else { return layer }
         let ok = program.withUnsafeBufferPointer { p in
