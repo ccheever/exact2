@@ -8,8 +8,9 @@
 // glue.js + app.wasm.
 // Usage: bun host/web/build.mjs [crate=caltrain-web] [--js | --wasm]
 // `--js` fails rather than fall back; `--wasm` builds the wasm target
-// outright — delivery and the parity smokes read its artifacts (the JS
-// target's gaps, LLP 1071 §7). A JS build's completion marker says
+// outright — delivery's bake (the streams' bundle, whose plan the JS web
+// root compiles) and the parity smokes read its artifacts (LLP 1071 §7).
+// `--render <rust|js|none>` passes to the JS target's build. A JS build's completion marker says
 // `target: 'js'`, so the dev loop, the agent and the smoke know which they got.
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
@@ -24,7 +25,7 @@ import { gzipSync } from 'node:zlib';
 import { rolldown } from 'rolldown';
 import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
+import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -33,10 +34,13 @@ import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets,
 
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm');
+// `--render <rust|js|none>`: the JS target's pages at build (host/web-js/build.mjs).
+const renderFlag = process.argv.indexOf('--render');
+const render = renderFlag < 0 ? [] : process.argv.splice(renderFlag, 2);
 const app = resolveApp(process.argv[2]);
 if (target !== '--wasm') {
   // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
-  const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist()], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   if (js.status === 0) {
     writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
@@ -391,21 +395,9 @@ if (authReach.sessions) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 // Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
 // the first time a canvas of one of its surfaces mounts.
-const gpuArtifacts = [...(app.hasGpu ? [{ crate: crate.replace(/-web$/, '-gpu'), stem: 'gpu' }] : []),
-  ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
-let gpuNote = gpuArtifacts.length ? '' : 'no GPU crate';
-for (const { crate: gpuCrate, stem } of gpuArtifacts) {
-  const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
-  const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
-  const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, gpuWasm], { stdio: 'inherit' });
-  if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; break; }
-  else if (wb.status !== 0) process.exit(wb.status ?? 1);
-  const bg = resolve(stage, `${stem}_bg.wasm`);
-  const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
-  const gw = readFileSync(bg);
-  gpuNote += `${gpuNote ? '; ' : ''}${stem}_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
-}
-if (gpuArtifacts.length && !gpuNote.startsWith('wasm-bindgen')) {
+const gpu = webGpuArtifacts(app, stage);
+let gpuNote = gpu.note;
+if (gpu.built) {
   copyHostFiles('gpu');
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';

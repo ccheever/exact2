@@ -12,8 +12,10 @@
 // size generation, and every due draw is one synchronous call into the Rust
 // data module (`exact_logic_draw`, logic/abi/src/draw.rs), whose lists are
 // handed to the glue as `[address, length]` pairs in a buffer standing in
-// for its memory.
+// for its memory. A TypeScript source draws in the page instead
+// (`ts-draw.js`, what `draw.js` exports when the build finds one).
 import './canvas2d-glue.js';
+import { drawer } from './draw.js';
 
 // The module's draws, over what rust-data.js keeps of it (`data.logic`): a
 // request (draw.rs `draw_request`) and its reply, both in the module's ABI.
@@ -48,7 +50,7 @@ function client({ exports: e, session, writer, reader, encode, ABI }) {
   };
 }
 
-const MOUNT = 1, ARGS = 2, SIZE = 4, FRAME = 8, FONT = 32;
+const MOUNT = 1, ARGS = 2, SIZE = 4, FRAME = 8, IMAGE = 16, FONT = 32;
 let lifetimes = 1;
 
 export function engine(rt) {
@@ -89,6 +91,7 @@ export function engine(rt) {
       r.text = reply.lists.some(hasText);
       r.frames = reply.frame && !reply.error;
       if (reply.error) say(`canvas ${id} (${r.c.name}) draw threw: ${reply.error}`);
+      for (const n of reply.notes ?? []) say(`canvas ${id} (${r.c.name}): ${n}`);
     }
     const frames = [...records.values()].some(r => r.frames);
     if (frames !== wanting) { wanting = frames; glue.op({ frames }); }
@@ -100,12 +103,17 @@ export function engine(rt) {
   wasm.exact_canvas_geometry = (id, width, height, scale) => {
     const r = records.get(id);
     if (!r) return 0;
-    const b = { w: Math.max(0, Math.round(width * scale)), h: Math.max(0, Math.round(height * scale)), width, height, scale };
-    if (r.backing && r.backing.w === b.w && r.backing.h === b.h && r.backing.scale === b.scale) { r.backing = b; return 0; }
+    // An explicit bitmap size (`bitmap-width`/`bitmap-height`, LLP 1056 D6
+    // r3; an unset one is the web's 300 or 150) is its own coordinate
+    // space, stretched to the box: the runner's `Backing::of`.
+    const { bitmapWidth: bw, bitmapHeight: bh } = r.c.e.dataset;
+    const b = bw != null || bh != null ? { w: +(bw ?? 300), h: +(bh ?? 150), width: +(bw ?? 300), height: +(bh ?? 150), scale: 1, stretch: true }
+      : { w: Math.max(0, Math.round(width * scale)), h: Math.max(0, Math.round(height * scale)), width, height, scale, stretch: false };
+    if (r.backing && r.backing.w === b.w && r.backing.h === b.h && r.backing.stretch === b.stretch && (b.stretch || r.backing.scale === b.scale)) { r.backing = b; return 0; }
     // A new size generation: a fresh bitmap and recorder (D4).
     if (r.backing) { r.generation++; r.causes |= SIZE; }
     r.backing = b;
-    glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq: 0, fresh: true, w: b.w, h: b.h, scale, stretch: false, lists: [] });
+    glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq: 0, fresh: true, w: b.w, h: b.h, scale: b.scale, stretch: b.stretch, lists: [] });
     if (r.waiting) { r.waiting = false; inflight.n--; }
     drawAll();
     return 0;
@@ -113,9 +121,35 @@ export function engine(rt) {
   // A presented frame: the clock moves to the page's time (its timers fire),
   // and canvases that asked draw once at it (D5).
   wasm.exact_advance = () => { rt.advance(rt.wall()); frame(); return 0; };
+  // An image handle loaded or failed (LLP 1056 D9): the payload the glue
+  // wrote in (src, size, ok, the lifetimes that asked); those canvases draw
+  // again, cause "image". Each pending image is counted in flight.
+  let written = '';
+  x.writeIn = text => { written = text; return 0; };
+  const images = new Set(), done = new Set();
+  wasm.exact_canvas_image = () => {
+    const [src, , , , asked] = written.split('\0');
+    done.add(src);
+    if (images.delete(src)) inflight.n--;
+    const lifetimes = new Set(JSON.parse(asked || '[]'));
+    for (const r of records.values()) if (lifetimes.has(r.lifetime)) r.causes |= IMAGE;
+    drawAll();
+    return 0;
+  };
+  // What a TypeScript draw asks the page (`canvas2dHost`), with an image
+  // not yet loaded counted until it is.
+  const host = () => {
+    const h = x.canvas2dHost;
+    if (!h || h.counted) return;
+    const image = h.image;
+    x.canvas2dHost = { ...h, counted: true, image: json => {
+      const size = image(json), src = JSON.parse(json).src;
+      if (!size && !images.has(src) && !done.has(src)) { images.add(src); inflight.n++; }
+      return size;
+    } };
+  };
   wasm.exact_canvas_fonts = () => { for (const r of records.values()) if (r.text) r.causes |= FONT; drawAll(); return 0; };
   x.send ??= () => {};
-  x.writeIn ??= () => 0;
   function frame() {
     for (const r of records.values()) if (r.frames && r.framedAt !== clock.now) r.causes |= FRAME;
     drawAll();
@@ -123,13 +157,23 @@ export function engine(rt) {
   // Under the agent the clock is the driver's: its moves are the frames.
   if (clock.agent && x.advance) { const advance = x.advance; x.advance = to => { advance(to); frame(); }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
+  host();
   // The module arrives after first pixel (rust-data.js); until then causes wait.
   const ready = () => {
     module = client(data.logic);
     if (!module) say('canvas2d: the Rust module draws no Canvas 2D surface (exact_logic_abi::export_draw!)');
     drawAll();
   };
-  if (data.logic) ready(); else data.ready(ready);
+  // A TypeScript draw is in the page already; it starts once the page's
+  // declared faces have loaded (or failed), as a module arriving after
+  // first pixel finds them (a face that lands later redraws text, cause
+  // "font").
+  if (drawer) {
+    inflight.n++;
+    const faces = document.fonts ? [...document.fonts].map(f => (f.status === 'unloaded' ? f.load() : f.loaded).catch(() => {})) : [];
+    Promise.all(faces).then(() => { module = drawer; drawAll(); }).finally(() => inflight.n--);
+  }
+  else if (data.logic) ready(); else data.ready(ready);
   return {
     args(c) {
       if (!c.e.isConnected) return;

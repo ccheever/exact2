@@ -32,8 +32,10 @@ export function viewport(readers) {
   onPreferences(changed);
 }
 
+// A release admits no agent mode (LLP 1069.007 D2): its build writes this false.
+const AGENT_ADMITTED = true;
 export function page(readers) {
-  const agent = typeof location === "object" && new URLSearchParams(location.search).has("agent");
+  const agent = AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent");
   const facts = typeof document === "object" && document.createElement ? pageReporter(agent) : null;
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).

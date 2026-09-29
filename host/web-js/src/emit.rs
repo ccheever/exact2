@@ -370,7 +370,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             _ if is_placeholder => "void 0".into(),
             _ => zero(plan, r.ty),
         };
-        // A host fact is the page's, never the build's.
+        // A host fact is the page's; a store reader's value a placeholder (LLP 1027 D4).
         let fact = HOST_FACTS.contains(&plan.str(r.source));
         let initial = plan.bytes(r.initial);
         let initial = if initial.is_empty() || fact {
@@ -379,7 +379,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             value_js(&Value::from_bytes(initial).map_err(|e| e.to_string())?)
         };
         let initial_args = plan.bytes(r.initial_args);
-        let initial_args = if initial_args.is_empty() || fact {
+        let initial_args = if initial_args.is_empty() || fact || r.reader {
             "void 0".to_string()
         } else {
             value_js(&Value::from_bytes(initial_args).map_err(|e| e.to_string())?)
@@ -974,6 +974,9 @@ impl Em<'_> {
         } else if !presence.is_empty() {
             attrs.push(("style".into(), presence.clone()));
         }
+        if parts.tag == "canvas" {
+            attrs.extend(style::canvas_bitmap(plan, row)?);
+        }
         let class = if css.is_empty() {
             "0".to_string()
         } else {
@@ -1018,6 +1021,9 @@ impl Em<'_> {
         if parts.tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
+        }
+        if parts.tag.contains('-') {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("nm")); // a native module, LLP 1024 D3
         }
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {

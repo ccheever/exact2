@@ -510,7 +510,13 @@ impl Translator<'_> {
                     ));
                 }
                 Opcode::PendingMutation => self.push(format!("m_{}.p()", x.args[0])),
-                op @ Opcode::NativeProps => return Err(format!("{op:?} is not in the JS target")),
+                // A native module's props (LLP 1024 D1): the pairs as one
+                // JSON object of strings, as `stdlib::native_props` writes it.
+                Opcode::NativeProps => {
+                    let f = self.popn(x.args[0] as usize * 2)?;
+                    let np = self.uses.rt("NP");
+                    self.push(format!("{np}([{}])", f.join(",")))
+                }
             }
             i += 1;
         }

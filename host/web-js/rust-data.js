@@ -82,7 +82,8 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   const result = r => {
     const tag = r.u8();
     if (tag === 0) return { v: r.value() };
-    if (tag >= 2 && tag <= 4) throw new Error(r.str());
+    // UnknownSource (2): a mixed app's TypeScript module may answer it.
+    if (tag >= 2 && tag <= 4) throw Object.assign(new Error(r.str()), { unknown: tag === 2 });
     if (tag === 1 || tag === 6 || tag === 9) {
       const http = tag === 1 ? 'ordered' : `independent:${r.u32()}`;
       if (r.u8()) r.str(); else r.str();
@@ -117,7 +118,8 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
     if (observed) out.store = true;
     return out;
   };
-  data.answer = (source, args, store) => callWith(3, source, args, store);
+  const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
+  data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
   // The host runs the request (`glue.js` `ask`): the browser's fetch.
   data.fetch = async req => {

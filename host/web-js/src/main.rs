@@ -2,7 +2,8 @@
 //! compiler backend: a plan (compiled here, or a baked `app.plan` from
 //! `host/web/build.mjs`, whose resources carry their build-time answers)
 //! becomes `app.js` (an ES module over `rt.js`) and `app.css` (the static
-//! rows, as the live web host's CSS).
+//! rows, as the live web host's CSS); a Contract's plan is written beside
+//! them as `app.plan`.
 //!
 //! It lives beside the web host rather than in `contract`'s CLI because it
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
@@ -75,6 +76,14 @@ fn main() -> ExitCode {
             ] {
                 if let Err(e) = std::fs::write(dir.join(name), text) {
                     eprintln!("{name}: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+            // A Contract compiled here is also the plan beside the pages
+            // (the build's `app.plan`), so the build runs no second compile.
+            if !input.ends_with(".plan") {
+                if let Err(e) = std::fs::write(dir.join("app.plan"), plan.encode()) {
+                    eprintln!("app.plan: {e}");
                     return ExitCode::from(1);
                 }
             }

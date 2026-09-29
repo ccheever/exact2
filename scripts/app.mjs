@@ -24,6 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import { gzipSync } from 'node:zlib';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
@@ -306,6 +307,34 @@ export function webHostFiles(...groups) {
       name === 'module-prelude.js' ? 'js/src/prelude.js'
         : name.startsWith('sqlite3.') ? 'node_modules/@sqlite.org/sqlite-wasm/dist/' + (name === 'sqlite3.mjs' ? 'index.mjs' : name)
           : 'host/web/' + name]));
+}
+
+/** The app's GPU modules for the web (LLP 1009 D2, D6) into `stage`: each
+ * GPU crate's wasm with wasm-bindgen's glue (its exports are the module's ABI
+ * on the web), then wasm-opt; `<stem>.js` + `<stem>_bg.wasm`, the primary as
+ * `gpu`, a declared module as `gpu/<name>`. `cargo` builds the crates first,
+ * as the wasm target's bake does (the JS target has no bake); the wasm target
+ * passes false, having built them. Returns the build's note, or null when
+ * wasm-bindgen is missing (the note says so). */
+export function webGpuArtifacts(app, stage, { cargo = false, env = process.env } = {}) {
+  const artifacts = [...(app.hasGpu ? [{ crate: app.crate('gpu'), stem: 'gpu' }] : []),
+    ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
+  const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
+  let note = '';
+  for (const { crate, stem } of artifacts) {
+    if (cargo) buildCommand('cargo', ['build', ...cargoReproducibilityFlags(app), ...injectedProfiles(app), ...wasmRemapFlags(app), '-p', crate,
+      '--target', 'wasm32-unknown-unknown', '--profile', 'web', '--lib', '--config', 'profile.web.strip=false'], app, webToolchainEnv({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
+    const wasm = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
+    const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
+    const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, wasm], { stdio: 'inherit' });
+    if (wb.error?.code === 'ENOENT') return { note: 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built', built: false };
+    if (wb.status !== 0) throw new Error(`wasm-bindgen ${crate} failed`);
+    const bg = resolve(stage, `${stem}_bg.wasm`);
+    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
+    const bytes = readFileSync(bg);
+    note += `${note ? '; ' : ''}${stem}_bg.wasm ${kib(bytes.length)} (${kib(gzipSync(bytes, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
+  }
+  return { note: note || 'no GPU crate', built: artifacts.length > 0 };
 }
 
 /** The checkout containing `dir` and its repository's common git directory. */

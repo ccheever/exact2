@@ -228,6 +228,9 @@ function stamp() {
   if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start);
   if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); }
 }
+// A release build never enters agent mode (LLP 1069.007 D2): its build
+// writes this false, as the wasm host's files are gated.
+const AGENT_ADMITTED = true;
 /** A timer: `every(ms, action, once)`, due from mount. */
 export function every(ms, action, once) {
   clock.timers.push({ due: clock.now + ms, ms, action, once });
@@ -414,11 +417,17 @@ export function M(m, source, args) { Sends.push([m, source, args]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
+/** An app file named from the root (`/assets/…`, `/deck/…`, `/shaders/…`)
+ * is its published release's when the page is one (its base, LLP 1038 D7),
+ * as the web host's `localAssetURL` resolves it. */
+let Release;
+const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
+  && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (attrs) for (const k in attrs) e.setAttribute(k, rel(k, attrs[k]));
   if (text !== 0) e.textContent = text;
   p.append(e);
   return e;
@@ -453,7 +462,7 @@ function adopt(p, tag, cls, attrs) {
   p.$n = e.nextSibling;
   e.removeAttribute("style"); e.removeAttribute("data-view");
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) for (const k in attrs) if (e.getAttribute(k) !== attrs[k]) e.setAttribute(k, attrs[k]);
+  if (attrs) for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); }
   return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
@@ -467,7 +476,7 @@ export const PropHooks = {};
 export function P(e, name, f) {
   effect(() => {
     let v = f();
-    v = v == null ? null : typeof v === "boolean" ? String(v) : String(v);
+    v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
     if (PropHooks[name]?.(e, v)) return;
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.value !== (v ?? "")) e.value = v ?? ""; }
@@ -564,6 +573,22 @@ export function c2(e, name, values, types, names) {
     queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
   });
 }
+/** A native module's element (LLP 1024 D3): the real custom element, empty
+ * until the web host's adapter (`native-glue.js`, in `native.js`) and the
+ * app's module artifact load after first paint; the module renders into it,
+ * and its events reach the handlers as `exact-native` events (`on`). */
+let Native = null;
+export function nm(e) {
+  if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  const id = viewId(e), st = e.exactNative = { id, name: e.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; } };
+  onEnd(() => { st.destroyed = true; Native?.then(h => h.destroy(e), () => {}); });
+  // In flight until the module is attached and its first events are in
+  // (`clock settle` waits for them).
+  inflight.n++;
+  (Native ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./native.js")).then(m => m.viewHost(say)))
+    .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
+    .finally(() => setTimeout(() => inflight.n--));
+}
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) { effect(() => css(e, prop, unit, f())); }
 function css(e, prop, unit, v) {
@@ -585,6 +610,7 @@ export function Sm(e, prop, unit, f) {
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
+  if (e.exactNative) return l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); });
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.
     case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
@@ -873,7 +899,7 @@ export function each(p, list, key, row) {
 export function mount(f) {
   const root = document.getElementById("exact-root");
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = !!globalThis.__exactRender || new URLSearchParams(location.search).has("agent");
+  clock.agent = !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
@@ -918,6 +944,9 @@ export function checkpoint() {
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
+/** A native module's props (LLP 1024 D1): key/value pairs to one JSON
+ * object of strings, a none left out (`stdlib::native_props`). */
+export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
 export const x_now = () => read(Now);
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;

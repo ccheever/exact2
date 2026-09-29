@@ -1,9 +1,10 @@
 // The dev loop on the JS target (LLP 1071): what `host/web/dev.mjs` runs for
 // an app the JS target takes, so a developer runs the runtime the app ships.
 // An edit — the Contract, the app's TypeScript or Rust data, its assets, or
-// this runtime and compiler — rebuilds the app (`host/web/build.mjs --js`,
-// into a stage renamed over dist/, so a request sees the old build or the
-// new one) and every open page reloads: the plan is compiled ahead of time,
+// this runtime and compiler — rebuilds the app (`host/web-js/build.mjs
+// --render none`, into a stage renamed over dist/, so a request sees the old
+// build or the new one; what did not change is not rebuilt: module.mjs
+// `fresh`) and every open page reloads: the plan is compiled ahead of time,
 // so a new plan is a new program. Slot values are not carried across the
 // reload (LLP 1071 §7, "dev reload and state carry"). A build that fails
 // shows its errors in the page and the page keeps the last good build.
@@ -11,10 +12,10 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, renameSync, rmSync, statSync, watch } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
@@ -28,14 +29,18 @@ function build(app, dist) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
   return new Promise((done) => {
-    const child = building = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), '--js'],
-      { cwd: root, env: { ...process.env, EXACT_WEB_DIST: stage }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // The JS target's build itself, rendering no pages (every route is the
+    // shell), with the completion marker host/web/build.mjs writes.
+    const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none'],
+      { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
     child.stderr.on('data', (d) => { log += d; });
     child.on('exit', (code) => {
       building = null;
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done(log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}`); }
+      writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
+        manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       rmSync(`${dist}.previous`, { recursive: true, force: true });
       if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
       renameSync(stage, dist);
@@ -78,7 +83,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; rebuild(); }, 30);
+    // An editor's save is one burst of events, well inside 5 ms; an event
+    // after the build starts builds again (`again`).
+    timer = setTimeout(() => { timer = null; rebuild(); }, 5);
   };
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];

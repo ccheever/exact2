@@ -13,19 +13,27 @@
 // A data module loaded after first pixel (`rust-data.js`) and the agent
 // adapter (`agent.js`, only under `?agent`) are separate files.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh } from './module.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
 const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
+// `--production` (delivery, scripts/deploy.mjs): a release over a wasm bake's
+// baked plan (`--plan <dist>/app.plan`) — agent mode refused, and the bake's
+// origin files (the envelope, the web manifest, install and auth pages,
+// sitemap) and head links carried, so the web root it publishes is the
+// wasm root's in everything but the program (LLP 1071 §7, delivery).
+const production = args.includes('--production');
+if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(gen, { recursive: true });
@@ -36,27 +44,37 @@ const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // from the DataSource its web build bakes with (host/web-js/module.mjs).
 const bakes = existsSync(resolve(appDir, 'web/build.rs')) && /contract::bake\(\s*plan,/.test(readFileSync(resolve(appDir, 'web/build.rs'), 'utf8'));
 const rust = !!manifest.rust?.module || bakes;
-// A TypeScript source (`app.ts`) runs in the page, bundled with it.
-const ts = !rust && existsSync(resolve(appDir, 'app.ts'));
-// A refusal names what the runtime lacks (LLP 1071 D5); host/web/build.mjs
-// then builds the wasm target instead.
-if (rust && existsSync(resolve(appDir, 'app.ts')) && !opt('--data')) { console.error(`${app}: a TypeScript and a Rust source in one app are not in the JS target`); process.exit(1); }
+// A TypeScript source (`app.ts`) runs in the page, bundled with it; beside a
+// Rust one (LLP 1027.002), the Rust module answers what it owns and the
+// TypeScript module the rest (ts-data.js, rust-data.js). A synthetic plan
+// over another app's sources (`--data`) asks the Rust module only.
+const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
+const mixed = rust && ts;
+// Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
+// the page as `modules/`, with the web host's adapter (native.js).
+const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
 // refuses by name.
 const gpuLib = resolve(appDir, 'gpu/src/lib.rs');
-// The app's GPU module comes from a wasm build (`--plan`/`--data` name one);
-// this build doesn't make it yet.
-if (existsSync(gpuLib) && !opt('--plan') && !opt('--data')) { console.error(`${app}: building the GPU module is not in the JS target's build yet`); process.exit(1); }
 const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchAll(/\("([a-z][a-z0-9-]*)", \d+, [a-z_:]+\)/g)].map(m => m[1]) : [];
-const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'js', input, '-o', gen], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+// The compiler, run as its built binary when nothing it was built from
+// changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit).
+const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug/exact-web-js');
+const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
+const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
-// host's own replayer) are drawn by the Rust data module.
+// host's own replayer) are drawn by the Rust data module, or by a
+// TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
 const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
-if (canvas2d && !rust) { console.error(`${app}: a Canvas 2D surface drawn by a ${ts ? 'TypeScript' : 'missing'} source is not in the JS target`); process.exit(1); }
+if (canvas2d && !rust && !ts) { console.error(`${app}: a Canvas 2D surface with no data source to draw it`); process.exit(1); }
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
+const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
+if (tsDraws) writeFileSync(resolve(gen, 'ts-draw.js'), readFileSync(resolve(here, 'ts-draw.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')).replace('__RECORDER__', resolve(root, 'canvas/recorder.js')));
+if (tsDraws) writeFileSync(resolve(gen, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
+writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-draw.js';\n" : 'export const drawer = null;\n');
 cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.js'));
 // `exactTime`: the runner's reserved source (runner/src/time.rs), answered
 // before the app's, as the web host tells the wasm runner (navigation.js).
@@ -73,12 +91,12 @@ writeFileSync(resolve(gen, 'main.js'), [
     "  return Object.keys(sourceTypes.exactTime[1]).map(k => f[k]);",
     "} };",
   ] : []),
-  ...(ts ? ["import { install as ts } from './ts-data.js';", 'ts(data);'] : []),
+  ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
   "const start = () => {",
   "  const state = app();",
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources });",
   // The agent adapter, only when the agent drives the page.
-  "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
+  ...(production ? [] : ["  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
   "};",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
@@ -89,9 +107,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
   ] : ['start();']),
 ].join('\n'));
-for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'flow.js']) cpSync(resolve(here, f), resolve(gen, f));
-// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`).
-for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
+// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js).
+for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
@@ -109,13 +127,15 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",
-  ...(ts ? ["import { install } from './ts-data.js';"] : rust ? ["import { install } from './rust-data.js';"] : []),
+  ...(ts ? ["import { install as ts } from './ts-data.js';"] : []),
+  ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
   // (render.mjs): the app starts and names its route, then settles.
   'let t0, route;',
   'globalThis.__start = async () => {',
   '  t0 = performance.now();',
-  ...(ts ? ['  install(data);'] : rust ? ['  await install(data, sources, async p => __files(p));'] : []),
+  ...(ts ? [`  ts(data, ${mixed});`] : []),
+  ...(rust ? ['  await install(data, sources, async p => __files(p));'] : []),
   '  app();',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
@@ -129,9 +149,24 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
-if (spawnSync('bun', ['build', resolve(gen, 'main-server.js'), '--format=iife', '--outfile', resolve(gen, 'server.js')], { cwd: root, stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) process.exit(1);
-const bundled = spawnSync('bun', ['build', resolve(gen, 'main.js'), '--minify', '--format=esm', '--splitting', '--outdir', out, '--entry-naming', 'app.js', '--chunk-naming', '[name]-[hash].js'], { cwd: root, stdio: 'inherit' });
-if (bundled.status !== 0) process.exit(bundled.status ?? 1);
+// A release admits no agent mode (LLP 1069.007 D2): every file that reads
+// `?agent` declares AGENT_ADMITTED, written false here, as host/web/build.mjs
+// gates the wasm host's.
+if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))) {
+  const code = readFileSync(resolve(gen, f), 'utf8');
+  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) { console.error(`${f} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`); process.exit(1); }
+  writeFileSync(resolve(gen, f), code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;'));
+}
+// Bun's bundler, in this process. A build that renders nothing (the dev
+// loop's) makes no server bundle.
+const how = opt('--render') ?? 'rust';
+const bundle = async (options) => {
+  const r = await Bun.build(options);
+  for (const m of r.logs) console.error(String(m));
+  if (!r.success) process.exit(1);
+};
+if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js' });
+await bundle({ entrypoints: [resolve(gen, 'main.js')], minify: true, format: 'esm', splitting: true, outdir: out, naming: { entry: 'app.js', chunk: '[name]-[hash].js' } });
 
 // The web host's base stylesheet, as its build writes it (comments out).
 const base = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1]
@@ -154,19 +189,12 @@ ${preloads}<style>${base}${css}</style>
 <div id="exact-root"></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
-if (existsSync(resolve(gen, 'markdown.flag'))) cpSync((await import('./module.mjs')).buildMarkdown(), resolve(out, 'markdown.wasm'));
-// The motion engine (host/web-js/motion), only for a plan that uses motion.
-if (existsSync(resolve(gen, 'motion.flag'))) cpSync((await import('./module.mjs')).buildMotion(), resolve(out, 'motion.wasm'));
-// The Markdown editor's rules (exact-markdown-editor), beside its chunk.
-if (existsSync(resolve(gen, 'editor.flag'))) cpSync((await import('./module.mjs')).buildEditor(), resolve(out, 'markup-editor.wasm'));
-// The exclusions walker (exact-textflow's `textflow-web`), beside its chunk.
-if (existsSync(resolve(gen, 'flow.flag'))) cpSync((await import('./module.mjs')).buildFlow(), resolve(out, 'textflow.wasm'));
-// The app's GPU module, as its wasm build made it, with the web host's glue (a loaded capability).
-const gpuFrom = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
-if (gpuFrom && existsSync(resolve(gpuFrom, 'gpu.js'))) {
-  for (const f of ['gpu.js', 'gpu_bg.wasm']) cpSync(resolve(gpuFrom, f), resolve(out, f));
-  for (const f of ['gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
-  if (existsSync(resolve(gpuFrom, 'shaders'))) cpSync(resolve(gpuFrom, 'shaders'), resolve(out, 'shaders'), { recursive: true });
+if (production) {
+  const bake = dirname(resolve(opt('--plan')));
+  const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest|icon)"|meta name="theme-color")[^>]*>$/gm) ?? [];
+  writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)
+    .replace('<html lang="en">', readFileSync(resolve(bake, 'index.html'), 'utf8').match(/<html lang="[^"]*">/)?.[0] ?? '<html lang="en">'));
+  for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
 }
 // The web's auth callback page (host/web/build.mjs does the same for the wasm target).
 if (auth) {
@@ -178,6 +206,32 @@ if (auth) {
   const docs = authClientMetadata({ origin: manifest.app?.origin ?? null, displayName: manifest.app?.name ?? manifest.name, manifest }, callbacks);
   for (const [name, doc] of Object.entries(docs)) writeFileSync(resolve(out, `.exact/auth/${name}.json`), JSON.stringify(doc, null, 2) + '\n');
 }
+if (existsSync(resolve(gen, 'markdown.flag'))) cpSync(buildMarkdown(), resolve(out, 'markdown.wasm'));
+// The motion engine (host/web-js/motion), only for a plan that uses motion.
+if (existsSync(resolve(gen, 'motion.flag'))) cpSync(buildMotion(), resolve(out, 'motion.wasm'));
+// The Markdown editor's rules (exact-markdown-editor), beside its chunk.
+if (existsSync(resolve(gen, 'editor.flag'))) cpSync(buildEditor(), resolve(out, 'markup-editor.wasm'));
+// The exclusions walker (exact-textflow's `textflow-web`), beside its chunk.
+if (existsSync(resolve(gen, 'flow.flag'))) cpSync(buildFlow(), resolve(out, 'textflow.wasm'));
+// The app's GPU module (LLP 1009 D2), built here as the wasm target's build
+// makes it, with the web host's glue: a loaded capability.
+// Built again only when something a module was built from changed (Cargo's
+// dep-info, module.mjs `fresh`): the bindings and wasm-opt with it.
+if (existsSync(gpuLib)) {
+  const { gpuModules, resolveApp, webGpuArtifacts, copyShaders, shaderWatchRoots } = await import('../../scripts/app.mjs');
+  const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
+  const crates = [['gpu', target.crate('gpu')], ...gpuModules(target.manifest).map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
+  const shaders = shaderWatchRoots(target).filter(existsSync);
+  if (!crates.every(([stem, crate]) => fresh(resolve(cache, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders))) {
+    rmSync(cache, { recursive: true, force: true });
+    const gpu = webGpuArtifacts(target, cache, { cargo: true });
+    if (!gpu.built) { rmSync(cache, { recursive: true, force: true }); console.error(`${app}: ${gpu.note}`); process.exit(1); }
+    copyShaders(target, resolve(cache, 'shaders'));
+  }
+  cpSync(cache, out, { recursive: true });
+  for (const f of ['gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
+}
+if (pageModules) cpSync(resolve(appDir, 'modules/web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.
@@ -185,19 +239,21 @@ if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve
 if (rust) {
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
-  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app, undefined, canvas2d, appDir);
+  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
-  else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
+  else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
-else if (!existsSync(resolve(out, 'app.plan')) && spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
+else if (!existsSync(resolve(out, 'app.plan'))) cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.
+// `--render none` renders nothing: the dev loop's, where every route is the
+// shell and the page builds itself (a render entry rebuilds on every
+// Contract edit, since its crate bakes the plan).
 const pages = JSON.parse(readFileSync(resolve(gen, 'pages.json'), 'utf8'));
-const how = opt('--render') ?? 'rust';
 // The shell a page is composed over stays as shell.html (a render server's, too).
 if (pages.length) cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
 if (pages.length && how === 'rust') {
@@ -205,7 +261,7 @@ if (pages.length && how === 'rust') {
   const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));
   if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
   const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
-  const r = spawnSync('cargo', ['run', '--release', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, '--shell', resolve(out, 'index.html'), '--build'],
+  const r = spawnSync('cargo', ['run', '--release', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, ...(manifest.app?.origin ? ['--origin', manifest.app.origin] : []), '--shell', resolve(out, 'index.html'), '--build'],
     { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, EXACT_UPDATE_TRUST: 'development' } });
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
   for (const doc of r.stdout.split('\n').filter(Boolean).map(l => JSON.parse(l))) {
