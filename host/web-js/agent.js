@@ -135,6 +135,16 @@ export function install(exact) {
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
+        // A jump that crosses timers stops after each timer whose commit
+        // sends, and its reply lands before the next fires, as the wasm
+        // host's does (Runner::advance_until_request): the runner keeps one
+        // request per target, so the next tick's send would drop it.
+        for (const end = performance.now() + 20000; ;) {
+          const next = Math.min(...exact.clock.timers.map(t => t.due));
+          if (!(next <= req.to)) break;
+          exact.advance(next);
+          while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 15));
+        }
         exact.advance(req.to); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         return { clock: exact.clock.now };
