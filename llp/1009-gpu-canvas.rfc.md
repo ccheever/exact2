@@ -5,7 +5,7 @@
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-09-29 (D7 recorded, held — one submit per tick was built and measured; the trait is unchanged. §3 has the trace and macOS's off-main acquisition.) 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
+**Revised:** 2026-09-29 (D7 accepted and landed — one submit per tick: `Surface::render` records into the module's encoder, `gpu_flush` submits once and presents; `Surface::submitted` for post-submit maps. §3 has the trace and macOS's off-main acquisition.) 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
 **Related:** `rules/DEFERRED.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
 
 ## Summary
@@ -40,11 +40,11 @@ been a second WebGPU surface to keep in step with the first.
 several, each loaded by its own surfaces: D6.)
 `<app>-gpu` is a second artifact: wgpu plus the app's surfaces behind a
 small C ABI (`gpu_load`, `gpu_create`, `gpu_bind`, `gpu_render`,
-`gpu_destroy`, `gpu_readback`) — a `dylib` in the bundle on Apple, loaded
+`gpu_destroy`, `gpu_readback`; `gpu_flush` since D7) — a `dylib` in the bundle on Apple, loaded
 with `dlopen`; on the web a second wasm with its generated glue, fetched
 when needed. The core hosts stay as they are (`#![deny(unsafe_code)]`,
 no wasm-bindgen); the module holds the two audited `unsafe` boundaries
-(the Metal layer handoff, `dlopen`). The app implements one trait:
+(the Metal layer handoff, `dlopen`). The app implements one trait (as first written; D7 gives `render` the module's encoder):
 
 ```rust
 pub trait Surface {
@@ -164,21 +164,102 @@ loading it with the first world canvas. It is not smaller — every host
 needs the same per-artifact loading, routing and recovery — and it would
 teach the core what a world is, which `game/` keeps out of it.
 
-**D7 — One submit per tick: built and measured, held** (2026-09-29,
-Charlie). On Metal each canvas's frame commits three command buffers —
-wgpu's pending writes (`write_buffer`), the render, and wgpu's present —
-so one submit per tick was built on `perf/gpu-submit` (kept, unmerged):
-`Surface::render` took the module's `CommandEncoder` and never submitted,
-a new `gpu_flush` submitted once per module per tick and then presented
-each canvas, and any other call about a canvas already in the open frame
-flushed first. Every surface was migrated (Weird Castle's by a patch kept
-with the branch) and GPU readbacks stayed byte-identical. It saves about
-36 ms/s of process CPU on the M1 iPad Pro shader-only feed (620 → 584,
-median of three) and is within noise on the iPhone 13 Pro Max's mixed
-feed. Held: at that size it is not worth changing the trait, breaking
-out-of-repo surfaces until migrated, and turning one canvas's validation
-error into a whole frame's. The gap's remainder is wgpu's encoding, its
-`write_buffer` staging and a present command buffer per canvas (§3).
+**D7 — One submit per tick: canvases record into the module's encoder**
+(amended 2026-09-29, accepted and landed; Charlie approved changing the
+trait on 2026-09-28, and on 2026-09-29, after the lane first recorded it as
+held for its small saving: "breaking weird castle and other apps is fine.
+focus on optimizing and ideal end states rather than a smooth journey
+there." Out-of-repo surfaces follow; Weird Castle's migration is a patch
+kept with the lane.)
+D2's `render` gave each surface the queue, and each surface submitted its
+own frame. On Metal that is three command buffers per canvas per frame —
+wgpu's pending writes (the surface's `write_buffer`), the render, and
+wgpu's present — each committed on the main thread and each retired by
+Metal's submission and completion threads. On the M1 iPad Pro, with two or
+three shader rows of the Extra Heavy feed at 120 Hz, that was about
+120 ms/s on Metal's threads and 75 ms/s of commits on the main thread,
+where SwiftUI's `layerEffect` rows cost the app nothing (§3 has the trace
+and what landing it measured).
+So the trait changes:
+
+```rust
+fn render(&mut self, frame: &Frame, device: &wgpu::Device, queue: &wgpu::Queue,
+          encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView,
+          format: wgpu::TextureFormat) -> bool;
+fn submitted(&mut self) {}
+```
+
+The encoder is the module's. `gpu_render` records a canvas into it and
+shows nothing; a new export, `gpu_flush`, finishes it, submits it once,
+then presents each canvas's drawable in the order rendered. Each host's
+tick renders every canvas it judges on screen and dirty (D4, unchanged),
+then flushes each module it rendered into — so per module per tick one
+pending-writes buffer, one frame buffer and one present per canvas: two
+plus N command buffers where there were 3N. A surface never submits.
+
+- **Pending writes.** `queue.write_buffer`/`write_texture` in `render` go
+  to wgpu's staging as before and land in the one submit, ahead of every
+  command in it. For what an instance owns that is exactly what its own
+  submit did; the rule the trait states is that a surface does not rewrite,
+  mid-tick, a resource another canvas's already-recorded commands read — a
+  shared cache may add textures (the shader row's photos) but not overwrite
+  one in use. Copies that must precede a write are encoded, not written.
+- **Ordering.** Commands run in render order, then the presents. Any other
+  call about a canvas already in the open frame — bind, input, agent, an
+  asset, restore, its children or child textures, destroy — flushes first,
+  and so does a second render of it, `gpu_sync`, a readback, a shader
+  registration and a clock change: whatever a host observes about a canvas
+  is what it observed when each render submitted. A readback and the
+  fixture render into their own encoder and submit it.
+- **A canvas not drawing this tick** records nothing and is not in the
+  frame: off screen, clean, or — iOS — without a drawable yet. A frame with
+  no canvases is not submitted; `gpu_flush` with nothing open is a no-op.
+- **iOS off-main acquisition** (`gpu/src/acquire.rs`) is unchanged in
+  shape: a canvas whose drawable has not arrived is starved and records
+  nothing; the next drawable is requested after its present, which is now
+  in the flush. Drawables arriving at different times give the late
+  canvases a second, smaller submit: `gpu_on_acquire` renders the starved
+  canvases and flushes once for them.
+- **Web.** WebGPU presents a canvas when the task that rendered it ends.
+  Before this, each canvas's `render` was its own `queue.submit` — N
+  submits a frame, not one. The glue flushes at the end of its animation
+  frame, after a resize observer's render, in the agent's settle loop and
+  after a reload's staged renders — each in the task that rendered.
+  `queue.writeBuffer` is ordered on the queue timeline as native staging
+  is, so the same rule holds.
+- **Linux.** The Linux host presents no module canvas (a platform target is
+  refused off Apple, LLP 1015 §7; the host loads modules headless for their
+  records and agent), and its own painter — vello on wgpu, tiny-skia as the
+  oracle — is not a `Surface`: neither changes. The fixture and readback
+  paths, which Linux tests use, submit their own encoder.
+- **Errors and a lost device.** A surface that reports a failure after
+  recording keeps its commands in the frame — they name its drawable, so it
+  is kept alive until the submit, then discarded, not presented. A wgpu
+  validation error while recording now invalidates the whole frame rather
+  than one canvas's submit; natively wgpu's default handler already aborts
+  on one, so this does not change what a broken surface does. A device found
+  lost at a render or a flush drops the open frame unsubmitted before the
+  presentations go, and recovery (D2) proceeds as before.
+- **After the submit** the module calls `submitted` on each canvas in the
+  frame: a surface that copied something for reading maps it there (a map
+  cannot precede the submit of its copy) — the engine's culling counts and
+  pass timings.
+
+Not chosen: an encoder per canvas submitted together (`queue.submit` of N
+buffers) keeps a validation error to one canvas but commits N frame buffers,
+2N + 1 in all; and folding the presents into the frame's command buffer
+needs the drawable, which wgpu keeps private to its surface texture.
+
+**Not taken: small uniforms as immediates** (measured 2026-09-29, branch
+`perf/gpu-immediates-on-d7`). Redeclaring a surface's small `var<uniform>`
+as `var<immediate>` where the device grants it removes `write_buffer`'s
+per-write staging buffer (about 60 µs of the iPad's main thread a frame),
+and alone it saved about 19 ms/s on the iPad shader feed. On top of D7 it
+saved nothing measurable: wgpu 30's Metal backend sets immediates for every
+stage (`setObjectBytes`, `setMeshBytes`, `setVertexBytes`,
+`setFragmentBytes` — about 8 ms/s) and zero-fills them again on each
+pipeline change (about 8 ms/s), which is what the staging cost. It returns
+if wgpu sets only the stages that read them.
 
 **The extension point for animatable properties** (the DEFERRED clause
 "animatable properties are extensible"): committed state is not
@@ -246,9 +327,18 @@ The spec (1009.000) transcribes the landing.
   the canvases cost the main thread 95 ms/s (wgpu's `Queue::submit` 25,
   its encoding 26, `write_buffer` 22, the present 8, Metal's commits 9),
   and Metal's submission and completion threads 70 and 17 ms/s; the
-  acquiring threads 51 ms/s in `nextDrawable`. One submit per tick (D7,
-  held): 75 ms/s on the main thread (encoding 22, submit 16, `write_buffer`
+  acquiring threads 51 ms/s in `nextDrawable`. One submit per tick
+  (D7, alone): 75 ms/s on the main thread (encoding 22, submit 16, `write_buffer`
   16, present 8) and 57 and 13 on Metal's threads — 120 fps both.
+- **D7, landed 2026-09-29** (the Extra Heavy feed, `fling 0`, three
+  interleaved rounds each, medians, origin/main against D7): the M1 iPad
+  Pro's shader-only feed 621 → 584 ms/s process CPU (main 332 → 319), the
+  iPhone 13 Pro Max's 598 → 569 (main 322 → 310), both at 120 fps. The
+  19-kind feed: iPad 111.6 → 115.0 fps, late frames 4.5 → 2.9 a second,
+  24k pt/s 101.7 → 112.7 fps, CPU 658 → 668; iPhone 107.9 → 111.1 fps,
+  late 6.9 → 5.2, 24k pt/s 93.0 → 103.7, CPU 663 → 657. GPU readbacks
+  (Caltrain, Weatherlight, the engine's core and compressed suites, 100
+  images) are byte-identical to origin/main.
 - **macOS, 2026-09-28/29** (the same feed at rest, five canvases on
   screen; `~/bench/xheavy/gpusubmit/mac`). With the drawable acquired on
   the main thread, 54% of the main thread's wall-clock samples were waiting
