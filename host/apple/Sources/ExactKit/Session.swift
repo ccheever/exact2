@@ -411,7 +411,12 @@ public final class ExactSession {
     private(set) var fillInFlight = false
     private var afterFill: [() -> Void] = []
     private let published = NSLock()
-    private var publishedFill: (view: UInt32, batch: Batch, generation: Int)?
+    /// Batches the owner committed without main waiting, in its order: a
+    /// slice's (with its list) and a frame's tick's.
+    private var publishedQueue: [(view: UInt32?, batch: Batch, generation: Int)] = []
+    /// A frame's tick is on the owner (LLP 1071 §7.1): the next one waits.
+    private(set) var tickInFlight = false
+    private var landing = false
     /// Slices build off main on iOS unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1071 T12).
     /// macOS follows once physical scrolling there is measured (stage 5).
@@ -535,34 +540,59 @@ public final class ExactSession {
         fillInFlight = true
         let captured = generation
         runtime.collectionFeedbackAsync(bytes, now: now()) { [weak self] batch in
-            guard let self else { return }
-            published.lock()
-            publishedFill = (view, batch, captured)
-            published.unlock()
-            DispatchQueue.main.async { [weak self] in self?.landFill() }
+            self?.publish(view, batch, captured)
         }
+    }
+
+    /// A frame's tick on the owner, not waited for: motion sampled at this
+    /// frame lands with the next main-queue turn (LLP 1071 §7.1).
+    func sendTick(now: Double) {
+        tickInFlight = true
+        let captured = generation
+        runtime.tickAsync(now: now) { [weak self] batch in self?.publish(nil, batch, captured) }
+    }
+
+    /// On the owner: queue a batch for main, in the owner's order.
+    private func publish(_ view: UInt32?, _ batch: Batch, _ generation: Int) {
+        published.lock()
+        publishedQueue.append((view, batch, generation))
+        published.unlock()
+        DispatchQueue.main.async { [weak self] in self?.landFill() }
+    }
+
+    private var hasPublished: Bool {
+        published.lock()
+        defer { published.unlock() }
+        return !publishedQueue.isEmpty
     }
 
     /// Apply the slice the owner published, then what it owes and what
     /// waited for it. Before any other batch applies, so batches apply in
     /// the owner's order (T4).
     func landFill() {
-        published.lock()
-        let fill = publishedFill
-        publishedFill = nil
-        published.unlock()
-        guard let fill else { return }
-        fillInFlight = false
-        guard state != .destroyed, fill.generation == generation else { afterFill.removeAll(); return }
-        let batch = fill.batch
-        if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue) {
-            apply(batch)
+        guard !landing else { return }
+        landing = true
+        defer { landing = false }
+        while true {
+            published.lock()
+            let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
+            published.unlock()
+            guard let next else { return }
+            if next.view == nil { tickInFlight = false } else { fillInFlight = false }
+            guard state != .destroyed, next.generation == generation else {
+                if next.view != nil { afterFill.removeAll() }
+                continue
+            }
+            let batch = next.batch
+            if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue) {
+                apply(batch)
+            }
+            guard let view = next.view else { continue }
+            presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
+            let waiting = afterFill
+            afterFill.removeAll()
+            for work in waiting { work() }
         }
-        presenter.collections.landed(fill.view, at: ProcessInfo.processInfo.systemUptime)
-        let waiting = afterFill
-        afterFill.removeAll()
-        for work in waiting { work() }
-        presenter.collections.flush()
     }
 
     /// Land every session's slice in flight.
@@ -571,7 +601,7 @@ public final class ExactSession {
     /// Wait for the slice in flight and land it: what shows, the agent and
     /// every read that must see it (T5, T7, T9).
     public func drainFill() {
-        guard fillInFlight else { return }
+        guard fillInFlight || tickInFlight || hasPublished else { return }
         Owner.shared.sync {}
         landFill()
     }
@@ -795,12 +825,7 @@ public final class ExactSession {
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         // A slice the owner committed before this batch applies first (T4).
-        if fillInFlight, !applying {
-            published.lock()
-            let ready = publishedFill != nil
-            published.unlock()
-            if ready { landFill() }
-        }
+        if !applying, !landing, fillInFlight || tickInFlight, hasPublished { landFill() }
         let outermost = !applying
         applying = true
         for op in batch.ops where op.op == .router { routerOp = op.payload }
@@ -1244,7 +1269,13 @@ final class Frames: NSObject {
                 let now = s.now()
                 if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }
-            if motion || canvas2d { s.apply(s.runtime.tick(now: s.now())) }
+            if motion || canvas2d {
+                if ExactSession.asyncFills {
+                    if !s.tickInFlight { s.sendTick(now: s.now()) }
+                } else {
+                    s.apply(s.runtime.tick(now: s.now()))
+                }
+            }
         }
         let more = s.canvases.tick(now: frameNow)
         run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)

@@ -111,9 +111,13 @@ final class CollectionFillMacTests: XCTestCase {
         p.collections.flush()
         XCTAssertEqual(wires.count, 1)
         XCTAssertEqual(fills.count, 1)
-        // Landed: one retire-only report from main at the slice's limit.
+        // Landed: one retire-only report from main at the slice's limit, on
+        // the next turn; until it goes, the next slice waits.
         inFlight = false
         p.collections.landed(1, at: 0)
+        XCTAssertEqual(wires.count, 1)
+        XCTAssertEqual(p.collections.fillSlice(1, limit: 5), 0)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(wires.count, 2)
         XCTAssertEqual(flags(wires[1]) & 6, 4, "retire only")
         XCTAssertEqual(limit(wires[1]), 5)

@@ -283,6 +283,13 @@ final class Runtime {
             done(read(exact_collection_feedback(rt, n, now)))
         }
     }
+    /// A frame's tick on the owner, not waited for (LLP 1071 §7.1).
+    func tickAsync(now: Double, done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(exact_tick(rt, now)))
+        }
+    }
     /// Actual viewport/row observations using the runner's versioned LE wire.
     func collectionFeedback(_ bytes: Data, now: Double) -> Batch {
         return on {
