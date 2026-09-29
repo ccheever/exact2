@@ -616,6 +616,9 @@ export function on(e, kind, f) {
 // Until the piece is here, rows jump and leave at once, as the wasm host's
 // do when it is unavailable.
 let Pres = null, Presence = null, Present = null, Leave = null;
+/** A view leaves with the exit animation `css` names (a virtualized list's
+ * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
+export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
 const Created = [];
 export function pr(e) {
   Created.push(e);

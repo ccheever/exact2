@@ -7,7 +7,7 @@
 // Imported by an app's module only when its plan has a virtualized list.
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried; not carried
 // (refused at build): reorder, dynamic `virtualized`.
-import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal, Hosts } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal, Hosts, exitView } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -284,7 +284,7 @@ class Collection {
     for (const [key, m] of old) {
       const p = this.index.pos.get(key);
       if (limited && p !== undefined) leaving.push([this.distance(p, port)[1], key, m]);
-      else { if (p !== undefined) this.keep(m); this.retire(m); }
+      else { if (p !== undefined) this.keep(m); this.retire(m, p === undefined); }
     }
     if (limited) {
       let cap = limit === 0 ? 0 : Math.max(2 * limit, 4);
@@ -329,8 +329,12 @@ class Collection {
     this.adoptNested(m);
     return m;
   }
-  retire(m) {
-    end(m.s); m.wrapper.remove();
+  // A row whose item left the data leaves as its wrapper, where the window
+  // placed it, with its root's exit animation (kernel txn.rs `leaving_with`);
+  // one the window scrolled away, at once.
+  retire(m, left) {
+    end(m.s);
+    if (!(left && exitView(m.wrapper, m.wrapper.firstElementChild?.style.getPropertyValue("--exact-exit-animation").trim()))) m.wrapper.remove();
     Views.delete(m.view); Views.delete(m.root);
   }
   emit() {
@@ -351,9 +355,11 @@ class Collection {
     if (kids.length === this.children.length && kids.every((k, i) => k === this.children[i])) return;
     // In place, as glue.js's `children` op: kept rows keep their elements.
     const el = this.el;
-    let at = el.firstElementChild;
-    for (const k of kids) { if (k === at) { at = at.nextElementSibling; continue; } el.insertBefore(k, at); }
-    while (at) { const next = at.nextElementSibling; at.remove(); at = next; }
+    // A leaving row stays where it was until its animation ends (moving it would cancel it).
+    const past = n => { while (n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; };
+    let at = past(el.firstElementChild);
+    for (const k of kids) { if (k === at) { at = past(at.nextElementSibling); continue; } el.insertBefore(k, at); }
+    while (at) { const next = past(at.nextElementSibling); at.remove(); at = next; }
     this.children = kids;
   }
   // ------------------------------------------------ nesting (nest.rs)
