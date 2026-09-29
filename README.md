@@ -13,14 +13,16 @@ build, serve, watch, and reload scripts run under Bun. Run tooling unit tests wi
 fixture checkouts. This is the source
 tooling installation; a standalone CLI distribution is not packaged yet.
 
-An app with TypeScript sources (`app.ts`) runs its logic on Hermes, which
-`js/build.rs` links from a sibling **ibex** checkout at `../ibex`
-([ccheever/ibex](https://github.com/ccheever/ibex)): clone it beside this repo
-and run `./scripts/build-hermes.sh --vanilla` there once (`EXACT_HERMES_DIR`
-points at an engine built elsewhere; `EXACT_JS_ENGINE=stub` builds an
-executor that refuses to load). Without it, `host/apple/build.mjs` for such an
-app stops in `exact-js`'s build script with the message that names these
-steps. An app with a Rust data crate and no `app.ts` needs none of this.
+An app with TypeScript sources (`app.ts`) is baked with Hermes on the machine
+that builds it, for every host (the web's build too: its crate build-depends on
+`exact-js-bake`, which runs `js/build.rs`). `js/build.rs` links the engine and
+the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
+([expo/ibex](https://github.com/expo/ibex)): clone it beside this repo and run
+`./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
+`EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
+them, the build of such an app stops in `exact-js`'s build script with a
+message naming these steps. An app with a Rust data crate and no `app.ts`
+needs none of this.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
