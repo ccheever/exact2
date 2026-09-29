@@ -96,6 +96,8 @@ pub struct Output {
     pub canvas2d: bool,
     /// Whether the plan uses motion (the page fetches `motion.wasm`).
     pub motion: bool,
+    /// Whether a text field is a Markdown editor (`markup-editor.wasm`).
+    pub editor: bool,
     /// The declared faces' preloads, for the page's head.
     pub preloads: String,
     pub css: String,
@@ -194,6 +196,7 @@ struct Em<'a> {
     markdown: bool,
     canvas2d: bool,
     motion: bool,
+    editor: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
@@ -207,6 +210,11 @@ struct Em<'a> {
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
+    // A file input (LLP 1069.002: picker-glue.js) is not in this runtime;
+    // nor, with it, the `cancel` its dismissal sends (the DOM's is carried).
+    if exact_runner::uses::uses(plan).has(exact_runner::uses::Capability::Picker) {
+        return Err("a file input or `showPicker` (LLP 1069.002) is not in the JS target".into());
+    }
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
@@ -223,6 +231,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         markdown: false,
         canvas2d: false,
         motion: false,
+        editor: false,
         list: false,
         symbols: (false, false),
     };
@@ -646,6 +655,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         markdown: em.markdown,
         canvas2d: em.canvas2d,
         motion: em.motion,
+        editor: em.editor,
         preloads: fonts.preloads,
         viewport,
         warnings: em.warnings,
@@ -1137,6 +1147,7 @@ impl Em<'_> {
         if markdown {
             self.markdown = true;
         }
+        self.editor(i, element, &e)?;
         for b in row.bindings.iter() {
             let b = plan.binding(b);
             if style::literal(plan, plan.code(b.expr)).is_some() {
@@ -1202,7 +1213,9 @@ impl Em<'_> {
                 | EventKind::Volumechange
                 | EventKind::Scroll
                 | EventKind::Refresh
-                | EventKind::Pan => {}
+                | EventKind::Pan
+                | EventKind::Cancel
+                | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight | EventKind::Panrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
@@ -1228,6 +1241,7 @@ impl Em<'_> {
                 EventKind::Swiperight => Some("onSwipe"),
                 EventKind::Pan => Some("onPan"),
                 EventKind::Panrelease => Some("onPanRelease"),
+                EventKind::Select => Some("onSelect"),
                 _ => None,
             };
             if let Some(piece) = piece {

@@ -698,7 +698,7 @@ from (a) today.
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), text around shapes (reflow, textflow), events `select` (markdown-stress), `cancel` (fieldnotes), `transformgeometry` (exact-live, interaction-gallery) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), text around shapes (reflow, textflow), a file input (fieldnotes), the event `transformgeometry` (exact-live, interaction-gallery) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -710,7 +710,7 @@ from (a) today.
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | Text around shapes (`wrap-flow`, LLP 1043.000): the JS target writes it as CSS, which lays out no exclusion (found 2026-09-29) | 1–2 days | loaded (`textflow-glue.js`, `textflow.wasm`) |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
-| Events: ~~pan, panrelease, swiperight~~ (landed 2026-09-29, below); select, cancel, transformgeometry, the height, transform and reorder drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
+| Events: ~~pan, panrelease, swiperight, select, cancel~~ (landed 2026-09-29, below); transformgeometry, the height, transform and reorder drags; a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | ~1 week | loaded (`motion-glue.js`, `picker-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
 | ~~Springs~~ (landed 2026-09-29, below), presence, layout transitions (`motion-glue.js`, on the motion piece) | ~1 week | loaded |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
@@ -997,6 +997,27 @@ brotli):
   popovers (`filter-messages`, the recover and purge confirmations) have
   boxes in the wasm page's layout and none in the JS page's. Bluesky's header
   spring now builds on the JS target (b5cc1550 refused it for a day).
+
+**`select`, `cancel` and the Markdown editor** (landed 2026-09-29, measured;
+brotli):
+- **What.** A `textarea markup="markdown"` is the web host's own editor
+  (LLP 1045 D5): `markup-editor.js`, unchanged, fetched at the first one,
+  over `markup-editor.wasm`, built from `exact-markdown-editor` as the wasm
+  build builds it. It replaces the text field, which then forwards to it
+  what the runtime writes and listens for (its value, attributes and style,
+  its events), and its view id moves to the editor. `select` is the editor's
+  facts at each selection change, the runner's `Event::Select` record; the
+  `format` command runs the editor's. The DOM's `cancel` is carried as any
+  event; its producers, a file input's picker and `showPicker`, are refused
+  by name (fieldnotes).
+- **Cost.** 486 B in `app.js` for a plan with an editor (`mde`,
+  `onSelect`, nothing for any other); loaded at the first editor: the chunk
+  5,309 B, `markup-editor.wasm` 40,233 B (the wasm host's own). For
+  comparison, the motion registration and its events are 725 B in a plan's
+  `app.js` (`mo`, `onSwipe`, `onPan`, `onPanRelease`, `Sm`).
+- **Conformance.** Markdown Stress 17/17, with a scripted editor (the
+  single-document mode, a tap in the editor, three toolbar formats); it
+  joins the async lane.
 
 ## 8. Rulings and open questions for Charlie
 

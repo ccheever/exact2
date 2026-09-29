@@ -3,6 +3,7 @@
 
 use super::Em;
 use crate::style;
+use exact_kernel::PropId;
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::{BindingKind, BindingsRow};
 use exact_web::host::template::Parts;
@@ -50,6 +51,34 @@ impl Em<'_> {
                 None => {
                     let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// A Markdown text field is the web host's own editor (LLP 1045 D5:
+    /// markup-editor.js over its wasm), which replaces it once loaded.
+    pub(super) fn editor(&mut self, i: u32, element: &str, e: &str) -> Result<(), String> {
+        let plan = self.plan;
+        let row = &plan.nodes[i as usize];
+        let markup = row
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .find(|b| b.kind == BindingKind::Prop && b.id == PropId::Markup as u16);
+        if element == "textarea" {
+            match markup.map(|b| style::literal(plan, plan.code(b.expr))) {
+                Some(Some(v)) if v.as_str() == Some("markdown") => {
+                    self.editor = true;
+                    let mde = self.uses.rt("mde");
+                    let _ = write!(self.out, "{mde}({e});");
+                }
+                Some(None) => {
+                    return Err(format!(
+                        "node {i}: a dynamic `markup` on a text field is not in the JS target"
+                    ))
+                }
+                _ => {}
             }
         }
         Ok(())

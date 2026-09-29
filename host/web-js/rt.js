@@ -637,6 +637,35 @@ export function onPan(e, f) {
 }
 /** `panrelease`: its velocity is the motion piece's tracker (LLP 1057 §10.6). */
 export function onPanRelease(e, f) { e.$panrelease = f; motion(() => {}); }
+/** A Markdown text field (LLP 1045 D5): the web host's own editor
+ * (markup-editor.js over its wasm), fetched at the first one; it replaces
+ * the textarea, which then forwards to it what this runtime writes and
+ * listens for: its value, attributes, style and events. */
+let Editor = null;
+export function mde(e) {
+  if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  if (!Editor) {
+    Editor = import("./markup-editor.js").then(() => globalThis.exact.installMarkupEditor);
+    Hosts.format = (id, name, arg) => Editor.then(() => document.getElementById(id)?.exactMarkup?.format(name, arg ?? ""));
+  }
+  Editor.then(install => {
+    if (!e.isConnected) return;
+    const id = viewId(e);
+    install(e, {
+      live: n => n.isConnected,
+      replace(n) {
+        Ids.set(n, id); Views.set(id, n);
+        Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
+        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => e.dispatchEvent(new ev.constructor(t, ev)));
+        new MutationObserver(ms => { for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); } n.exactMarkup?.sync(); }).observe(e, { attributes: true });
+      },
+      select: (n, p) => { const [formats, mixed, unavailable, link] = p.split("\n"); e.$select?.([formats, mixed === "1", link ?? "", unavailable]); },
+    });
+  }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
+}
+/** `select`: the editor's facts at each selection change (runner Event::Select). */
+export function onSelect(e, f) { e.$select = f; }
 /** The web host's input piece (input-glue.js), after first paint: pans. */
 let Input = null, Inputs = null;
 function input() {

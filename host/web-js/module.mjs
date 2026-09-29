@@ -118,18 +118,29 @@ pub extern "C" fn output() -> *const u8 { unsafe { OUT.as_ptr() } }
  * the one `exact_motion` Engine, as a wasm module the page fetches after
  * first paint when its plan uses motion. */
 export function buildMotion(out = '/tmp/e3-mod/motion') {
+  return buildLeaf('motion', 'exact-web-js-motion', 'host/web-js/motion', out);
+}
+
+/** The Markdown editor's rules (LLP 1045 D5), the crate the wasm host's
+ * build makes its `markup-editor.wasm` from. */
+export function buildEditor(out = '/tmp/e3-mod/editor') {
+  return buildLeaf('markup-editor', 'exact-markdown-editor', 'markdown/editor', out);
+}
+
+// A workspace crate's exports as a size-built wasm module: `<name>.wasm`.
+function buildLeaf(name, pkg, dir, out) {
   const crate = resolve(out, 'crate');
   mkdirSync(resolve(crate, 'src'), { recursive: true });
   const ws = readFileSync(resolve(root, 'Cargo.toml'), 'utf8');
   writeFileSync(resolve(crate, 'Cargo.toml'), `[package]
-name = "exact-js-motion"
+name = "exact-js-${name}"
 version = "0.1.0"
 edition = "2021"
 publish = false
 [lib]
 crate-type = ["cdylib"]
 [dependencies]
-exact-web-js-motion = { path = "${resolve(root, 'host/web-js/motion')}" }
+${pkg} = { path = "${resolve(root, dir)}" }
 [profile.release]
 opt-level = "z"
 lto = "fat"
@@ -139,13 +150,14 @@ strip = true
 [workspace]
 ${ws.slice(ws.indexOf('[workspace.dependencies]')).split('\n[workspace.package]')[0]}
 `);
-  writeFileSync(resolve(crate, 'src/lib.rs'), '//! Generated: the motion capability for the JS runtime.\npub use exact_web_js_motion::*;\n');
+  writeFileSync(resolve(crate, 'src/lib.rs'), `//! Generated: ${name}.wasm for the JS runtime.\npub use ${pkg.replaceAll('-', '_')}::*;\n`);
   if (!existsSync(resolve(crate, 'Cargo.lock'))) cpSync(resolve(root, 'Cargo.lock'), resolve(crate, 'Cargo.lock'));
   const r = cargoWasm(resolve(crate, 'Cargo.toml'));
-  if (r.status !== 0) throw new Error('motion.wasm did not build');
-  cpSync('/tmp/e3-mod/target-web/wasm32-unknown-unknown/release/exact_js_motion.wasm', resolve(out, 'motion.wasm'));
-  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', resolve(out, 'motion.wasm'), '-o', resolve(out, 'motion.wasm')]);
-  return resolve(out, 'motion.wasm');
+  if (r.status !== 0) throw new Error(`${name}.wasm did not build`);
+  const wasm = resolve(out, `${name}.wasm`);
+  cpSync(`/tmp/e3-mod/target-web/wasm32-unknown-unknown/release/exact_js_${name.replaceAll('-', '_')}.wasm`, wasm);
+  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', wasm, '-o', wasm]);
+  return wasm;
 }
 
 if (import.meta.main) {

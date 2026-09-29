@@ -86,6 +86,9 @@ fn main() -> ExitCode {
             if out_files.motion {
                 let _ = std::fs::write(dir.join("motion.flag"), "");
             }
+            if out_files.editor {
+                let _ = std::fs::write(dir.join("editor.flag"), "");
+            }
             if !out_files.preloads.is_empty() {
                 let _ = std::fs::write(dir.join("preloads.html"), &out_files.preloads);
             }
