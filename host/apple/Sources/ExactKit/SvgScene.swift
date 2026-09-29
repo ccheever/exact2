@@ -35,6 +35,7 @@ private func color(_ v: Any?, dark: Bool) -> CGColor? {
 
 /// `[0,x,y, 1,x,y, 2,x1,y1,x2,y2,x,y, 3]`: move, line, cubic, close.
 private func path(_ v: Any?) -> CGPath {
+    if let prepared = v as? PreparedPath { return prepared.path }
     let n = nums(v), p = CGMutablePath()
     var i = 0
     while i < n.count {
@@ -49,6 +50,12 @@ private func path(_ v: Any?) -> CGPath {
     }
     return p
 }
+
+/// The scene's path parser, for the owner's preparation (`SvgPrepare`).
+enum SvgGeometry {
+    static func path(_ v: Any?) -> CGPath { svgPath(v) }
+}
+func svgPath(_ v: Any?) -> CGPath { path(v) }
 
 /// A circle about the origin from (r, 0), toward positive y (SVG 2 §10.3),
 /// the same four cubics the kernel draws, so a radius animation interpolates
@@ -77,9 +84,14 @@ enum CssAnimations {
         for spec in specs {
             guard let id = spec["id"] as? String else { continue }
             keep.insert(id)
-            var h = Hasher()
-            digest(spec, into: &h)
-            let signature = String(h.finalize()) + (clock.map { "@\($0)" } ?? "")
+            let prepared = spec["#"] as? PreparedAnimation
+            let hash: Int
+            if let prepared { hash = prepared.signature } else {
+                var h = Hasher()
+                digest(spec, into: &h)
+                hash = h.finalize()
+            }
+            let signature = String(hash) + (clock.map { "@\($0)" } ?? "")
             if installed[id] == signature { continue }
             installed[id] = signature
             layer.removeAnimation(forKey: id)
@@ -102,10 +114,33 @@ enum CssAnimations {
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
-        case let d as [String: Any]: h.combine(d.count); for k in d.keys.sorted() { h.combine(k); digest(d[k], into: &h) }
+        case let d as [String: Any]:
+            // A spec's prepared parts ("#") are made from the rest.
+            let keys = d.keys.filter { $0 != "#" }.sorted()
+            h.combine(keys.count); for k in keys { h.combine(k); digest(d[k], into: &h) }
         case .none: h.combine(0 as UInt8)
         case let .some(other): h.combine(String(describing: other))
         }
+    }
+
+    /// A spec's keyframe values, key times and timing functions: plain
+    /// values, built on the owner as the batch is decoded (`SvgPrepare`).
+    static func lowered(_ spec: [String: Any]) -> (values: [Any], keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?) {
+        let key = spec["k"] as? String ?? ""
+        let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
+        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
+        let values: [Any] = colors
+            ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
+            : nums(spec["v"]).map { key == "r" ? circle(max(0, $0)) as Any : NSNumber(value: $0) }
+        // No curves: every interval is linear, Core Animation's default.
+        var timing: [CAMediaTimingFunction]?
+        if let curves = spec["c"] as? [Any], !curves.isEmpty {
+            timing = curves.map { c in
+                let p = nums(c).map(Float.init)
+                return p.count == 4 ? CAMediaTimingFunction(controlPoints: p[0], p[1], p[2], p[3]) : CAMediaTimingFunction(name: .linear)
+            }
+        }
+        return (values, nums(spec["t"]).map { NSNumber(value: $0) }, timing)
     }
 
     /// `offscreen`: for a tree `CARenderer` draws (a live filter picture),
@@ -113,24 +148,13 @@ enum CssAnimations {
     /// held one runs from where it is held, and the picture is drawn at once.
     static func make(_ spec: [String: Any], layer: CALayer, clock: Double?, offscreen: Bool = false) -> CAAnimation? {
         let key = spec["k"] as? String ?? ""
-        let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
-        let times = nums(spec["t"])
-        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
-        let values: [Any] = colors
-            ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
-            : nums(spec["v"]).map { key == "r" ? circle(max(0, $0)) as Any : NSNumber(value: $0) }
+        let (values, keyTimes, timing) = (spec["#"] as? PreparedAnimation).map { ($0.values, $0.keyTimes, $0.timing) } ?? lowered(spec)
         let duration = num(spec["d"]), repeatCount = num(spec["n"])
-        guard duration > 0, repeatCount != 0, times.count == values.count, times.count >= 2 else { return nil }
+        guard duration > 0, repeatCount != 0, keyTimes.count == values.count, keyTimes.count >= 2 else { return nil }
         let a = CAKeyframeAnimation(keyPath: key == "r" ? "path" : key)
-        a.keyTimes = times.map { NSNumber(value: $0) }
+        a.keyTimes = keyTimes
         a.values = values
-        // No curves: every interval is linear, Core Animation's default.
-        if let curves = spec["c"] as? [Any], !curves.isEmpty {
-            a.timingFunctions = curves.map { c in
-                let p = nums(c).map(Float.init)
-                return p.count == 4 ? CAMediaTimingFunction(controlPoints: p[0], p[1], p[2], p[3]) : CAMediaTimingFunction(name: .linear)
-            }
-        }
+        if let timing { a.timingFunctions = timing }
         a.calculationMode = .linear
         a.duration = duration
         a.repeatCount = repeatCount < 0 ? .infinity : Float(repeatCount)

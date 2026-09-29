@@ -13,7 +13,7 @@ import Foundation
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
 public struct Batch {
-    public let ops: [BatchOp]
+    public internal(set) var ops: [BatchOp]
     public let timers: Bool
     public let motion: Bool
     /// The runner's clock after the call, milliseconds (LLP 1012 `clock`).
@@ -117,7 +117,8 @@ final class Runtime {
         // The runtime owns these bytes until its next call. The reader copies
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
-        let batch = Batch.decode(bytes)
+        var batch = Batch.decode(bytes)
+        batch.prepare()
         #if DEBUG
         observeBatch?(Data(bytes), batch)
         #endif

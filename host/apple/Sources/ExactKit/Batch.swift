@@ -71,6 +71,8 @@ public struct BatchOp {
     var property = ""
     // Rare adapters retain their existing input shape. Common ops never build it.
     var payload: [String: Any] = [:]
+    /// A create or style op's flat-leaf paint, read on the owner (`prepare`).
+    var flat: FlatPaint?
 
     init(op: Kind, nodeID: UInt32? = nil) {
         self.op = op; self.nodeID = nodeID

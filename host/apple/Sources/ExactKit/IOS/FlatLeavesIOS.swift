@@ -28,12 +28,14 @@ final class FlatLeaf {
     let id: UInt32
     let layer = CALayer()
     var style: NodeStyle
+    /// Its paint, read from `style` on the owner thread (LLP 1071 stage 4).
+    var paint: FlatPaint
     var frame = CGRect.zero
     var opacity: Float = 1
     /// The node whose children op placed it.
     var parent: UInt32?
-    init(id: UInt32, style: NodeStyle) {
-        self.id = id; self.style = style
+    init(id: UInt32, style: NodeStyle, paint: FlatPaint) {
+        self.id = id; self.style = style; self.paint = paint
         layer.delegate = FlatAction.shared
         layer.anchorPoint = .zero
     }
@@ -52,48 +54,13 @@ final class FlatLeaves {
     /// Each parent's shape layers, one per run of alike adjacent leaves.
     private var runs: [UInt32: [CAShapeLayer]] = [:]
 
-    /// Layout rows (the kernel's) and rows a childless, textless box never
-    /// paints: they do not stop a leaf being flat.
-    private static let inert: Set<String> = [
-        "width", "height", "min_width", "min_height", "max_width", "max_height",
-        "padding_top", "padding_right", "padding_bottom", "padding_left",
-        "margin_top", "margin_right", "margin_bottom", "margin_left",
-        "flex_direction", "flex_wrap", "justify_content", "align_items", "align_self", "align_content",
-        "flex_grow", "flex_shrink", "flex_basis", "position_type", "top", "right", "bottom", "left",
-        "row_gap", "column_gap", "aspect_ratio", "box_sizing", "overflow_x", "overflow_y",
-        "grid_auto_flow", "grid_template_columns", "grid_template_rows", "grid_column", "grid_row", "justify_items",
-        "direction", "font_size", "font_weight", "font_style", "font_family", "line_height", "letter_spacing",
-        "font_variant_numeric", "line_clamp", "white_space", "field_sizing", "overflow_wrap",
-        "border_style_top", "border_style_right", "border_style_bottom", "border_style_left", "text_transform",
-        "text_color", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
-        "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
-    ]
     /// The kinds a flat leaf's parent may be: a plain box's container.
     private static let parents: Set<String> = ["view", "button"]
 
-    /// Whether a created node can be a flat leaf.
-    static func eligible(kind: String, handlers: Set<String>, props: [String: String], style: NodeStyle) -> Bool {
-        kind == "view" && handlers.isEmpty && props.isEmpty && paints(style)
-    }
-    private static func paints(_ style: NodeStyle) -> Bool {
-        for (key, value) in style {
-            if inert.contains(key) { continue }
-            switch key {
-            case "background_color":
-                // A fixed colour only: a `light-dark()` pair follows the
-                // owning view's appearance, which a layer has not.
-                guard let c = value.numbers, c.count == 4 else { return false }
-            case "border_width", "border_width_top", "border_width_right", "border_width_bottom", "border_width_left":
-                guard value.number == 0 else { return false }
-            case "border_color_top", "border_color_right", "border_color_bottom", "border_color_left":
-                continue // painted only with a width, which is refused above
-            case "display":
-                guard value.string != "none" else { return false }
-            default:
-                return false
-            }
-        }
-        return true
+    /// Whether a created node can be a flat leaf: its paint was read
+    /// (`FlatPaint`, on the owner) and nothing else about it needs a view.
+    static func eligible(_ op: BatchOp) -> Bool {
+        op.kind == "view" && op.handlers.isEmpty && op.props.isEmpty && (op.flat ?? FlatPaint(op.style)) != nil
     }
 
     /// The nodes this batch creates flat: eligible, and placed by the batch
@@ -104,7 +71,7 @@ final class FlatLeaves {
         var candidates = Set<UInt32>(), kinds: [UInt32: String] = [:]
         for op in batch.ops where op.op == .create {
             kinds[op.id] = op.kind
-            if Self.eligible(kind: op.kind, handlers: op.handlers, props: op.props, style: op.style) { candidates.insert(op.id) }
+            if Self.eligible(op) { candidates.insert(op.id) }
         }
         guard !candidates.isEmpty else { return }
         // A node with children is not a leaf; nor is one any op but the
@@ -128,8 +95,8 @@ final class FlatLeaves {
 
     /// A create op: made flat (true), or the caller makes a view.
     func create(_ op: BatchOp) -> Bool {
-        guard batchFlat.contains(op.id) else { return false }
-        let leaf = FlatLeaf(id: op.id, style: op.style)
+        guard batchFlat.contains(op.id), let flat = op.flat ?? FlatPaint(op.style) else { return false }
+        let leaf = FlatLeaf(id: op.id, style: op.style, paint: flat)
         leaves[op.id] = leaf
         paint(leaf)
         made += 1
@@ -138,10 +105,12 @@ final class FlatLeaves {
     func isFlat(_ id: UInt32) -> Bool { leaves[id] != nil }
 
     /// A style op for `id`: applied (true), or the leaf was promoted.
-    func style(_ id: UInt32, _ style: NodeStyle) -> Bool {
+    func style(_ id: UInt32, _ op: BatchOp) -> Bool {
         guard let leaf = leaves[id] else { return false }
-        guard Self.paints(style) else { promote(id, style: style); return false }
+        let style = op.style
+        guard let flat = op.flat ?? FlatPaint(style) else { promote(id, style: style); return false }
         leaf.style = style
+        leaf.paint = flat
         paint(leaf)
         return true
     }
@@ -185,11 +154,10 @@ final class FlatLeaves {
     /// one radius over the corners that have one (CSS's reduction; a box
     /// needing more is promoted, as a view would draw it).
     private func paint(_ leaf: FlatLeaf) {
-        let s = leaf.style
+        let s = leaf.paint
         let bounds = CGRect(origin: .zero, size: leaf.frame.size)
-        let fill = s["background_color"]?.numbers.map { TextEngine.color($0).cgColor }.flatMap { $0.alpha > 0 ? $0 : nil }
-        let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
-        let r = names.map { CGFloat(max(0, s["border_radius_" + $0]?.number ?? 0)) }
+        let fill = s.fill
+        let r = s.radii
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [bounds.width, bounds.width, bounds.height, bounds.height]
         var factor: CGFloat = 1
@@ -198,7 +166,7 @@ final class FlatLeaves {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        if fill != nil, !oneRadius { promote(leaf.id, style: s); return }
+        if fill != nil, !oneRadius { promote(leaf.id, style: leaf.style); return }
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (v, mask) in zip(radii, masks) where v > 0 { corners.insert(mask) }
@@ -209,7 +177,7 @@ final class FlatLeaves {
         let cornerRadius = oneRadius ? radius : 0
         if l.cornerRadius != cornerRadius { l.cornerRadius = cornerRadius }
         if cornerRadius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
-        let hidden = s["display"]?.string == "none"
+        let hidden = s.hidden
         if l.isHidden != hidden { l.isHidden = hidden }
         changed(leaf)
         touch(leaf)
@@ -234,12 +202,13 @@ final class FlatLeaves {
 
     /// What a run shares: one fill, one radius on all four corners (or none),
     /// shown whole. A leaf that is not alike stands alone.
-    private func runKey(_ leaf: FlatLeaf) -> String? {
-        let s = leaf.style
-        guard leaf.opacity == 1, s["display"]?.string != "none", let c = s["background_color"]?.numbers, c.count == 4, c[3] > 0 else { return nil }
-        let r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { s["border_radius_" + $0]?.number ?? 0 }
+    private struct RunKey: Equatable { let rgba: [Double]; let radius: CGFloat }
+    private func runKey(_ leaf: FlatLeaf) -> RunKey? {
+        let s = leaf.paint
+        guard leaf.opacity == 1, !s.hidden, let c = s.rgba, c.count == 4, c[3] > 0 else { return nil }
+        let r = s.radii
         guard r.allSatisfy({ $0 == r[0] }) else { return nil }
-        return "\(c) \(r[0])"
+        return RunKey(rgba: c, radius: r[0])
     }
 
     /// Each dirty parent's flat leaves into its container's layer, in tree
@@ -287,7 +256,7 @@ final class FlatLeaves {
                     let path = CGMutablePath()
                     for id in ids[i..<j] {
                         guard let f = leaves[id]?.frame, f.width > 0, f.height > 0 else { continue }
-                        let r = min(CGFloat(leaf.style["border_radius_top_left"]?.number ?? 0), f.width / 2, f.height / 2)
+                        let r = min(leaf.paint.radii[0], f.width / 2, f.height / 2)
                         if r > 0 { path.addRoundedRect(in: f, cornerWidth: r, cornerHeight: r) } else { path.addRect(f) }
                     }
                     run.path = path

@@ -713,7 +713,7 @@ final class Presenter {
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
-                if flats.isFlat(id), flats.style(id, op.style) { continue }
+                if flats.isFlat(id), flats.style(id, op) { continue }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"]
                 v.applyStyle(op.style)
