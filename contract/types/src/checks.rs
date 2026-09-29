@@ -1020,7 +1020,7 @@ fn check_stmt(
                 }
                 let mut params = Vec::with_capacity(args.len());
                 for arg in args {
-                    params.push(infer(arg, scope, shapes)?);
+                    params.push(crate::source_argument(arg, source, scope, shapes)?);
                 }
                 let mi = c
                     .mutations
@@ -1147,6 +1147,18 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 let item = match infer(list, scope, shapes) {
+                    // `each x in []`: nothing says what `x` would be.
+                    Ok(Ty::List(item)) if !item.is_complete() => {
+                        sink.push(TypeError {
+                            id: "type-cannot-infer",
+                            message: format!(
+                                "cannot infer what `{}` holds: `each` needs a typed list, and `[]` shows nothing",
+                                var
+                            ),
+                            span: list.span(),
+                        });
+                        continue;
+                    }
                     Ok(Ty::List(item)) => *item,
                     Ok(lt) => {
                         sink.push(TypeError {

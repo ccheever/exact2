@@ -247,8 +247,10 @@ none`. **Expressions.** Numbers, strings, templates with `${…}`, `true`/
 `false`, `none`, `some(e)`, `[]` (the empty list, 2026-09-28: its element
 type comes from the other arm of a `match` or `?:`, a declared `list<T>`, or
 a write into the state it initializes, as `none`'s does; an `[]` nothing
-types is `type-cannot-infer` at the `[]`; a list literal with items stays
-out, LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
+types, in a derive, a source argument, or an `each` list, is
+`type-cannot-infer` at the `[]`, and a state only `[]` initializes is
+refused as a state nothing writes; a list literal with items stays out,
+LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
 < <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
 { case some(x) => a, case none => b }`.
 

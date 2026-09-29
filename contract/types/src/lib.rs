@@ -600,6 +600,29 @@ impl Types {
     }
 }
 
+/// A source's argument, which names its type on its own: the seam's
+/// signature (LLP 1027 D2) is built from the call sites, so an argument the
+/// site leaves `?` (`[]`, `none`) has nothing to complete it and would reach
+/// lowering with no plan type.
+pub(crate) fn source_argument(
+    arg: &Expr,
+    source: &str,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    let t = infer(arg, scope, shapes)?;
+    if t.is_complete() {
+        return Ok(t);
+    }
+    err(
+        "type-cannot-infer",
+        format!(
+            "cannot infer the type of this argument to `{source}`: a source's argument names its type on its own, and `{t}` does not; pass a typed value (a state, `some(x)`, a list from a source or `map`/`filter`)"
+        ),
+        arg.span(),
+    )
+}
+
 /// Infer an expression's type in `scope`.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {

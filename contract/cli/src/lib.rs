@@ -467,6 +467,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         Expr::Number(n, _) => s.push_str(&format!("{n}")),
                         Expr::Str(t, _) => q(t, &mut s),
                         Expr::Bool(b, _) => s.push_str(&format!("{b}")),
+                        Expr::EmptyList(_) => s.push_str("[]"),
                         _ => s.push_str("null"),
                     }
                 }

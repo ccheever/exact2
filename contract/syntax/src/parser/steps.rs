@@ -235,7 +235,7 @@ impl Parser {
                         ) {
                             return Err(SyntaxError {
                                 id: "syntax-expected-step",
-                                message: "`expect state name ==` takes a number, a string, a bool, or `none`".into(),
+                                message: "`expect state name ==` takes a number, a string, a bool, `none`, or `[]`".into(),
                                 span,
                             });
                         }

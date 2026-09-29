@@ -5,12 +5,12 @@ use contract_syntax::Step;
 
 #[test]
 fn a_test_block_parses_to_the_eight_operations_and_expects() {
-    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n";
+    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n  expect state tags == []\n";
     let tests = contract::tests(src).unwrap();
     assert_eq!(tests.len(), 1);
     let t = &tests[0];
     assert_eq!(t.name, "login");
-    assert_eq!(t.steps.len(), 13);
+    assert_eq!(t.steps.len(), 14);
     assert!(matches!(&t.steps[0], Step::Tap { target, hover: false, .. } if target == "title"));
     assert!(matches!(&t.steps[2], Step::Key { key, .. } if key == "Enter"));
     assert!(matches!(&t.steps[4], Step::Clock { arg, .. } if arg == "+500"));
@@ -27,6 +27,11 @@ fn a_test_block_parses_to_the_eight_operations_and_expects() {
     );
     assert!(
         json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":14}"),
+        "{json}"
+    );
+    // `[]` is the empty list on the wire too, never `null`.
+    assert!(
+        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":15}"),
         "{json}"
     );
     assert!(

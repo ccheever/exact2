@@ -599,4 +599,38 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     let e = contract::compile("fn nothing(): number = []\ncomponent A\n  view\n    text \"a\"\n")
         .unwrap_err();
     assert_eq!(e.id, "type-fn-return", "{e}");
+    // A source's argument names its type on its own: `[]` (and `none`) there
+    // is refused at the argument, not left for lowering to find at 0:0.
+    for (src, line, col) in [
+        (
+            "shape C\n  id: string\ncomponent A\n  mutation changed as shape list<C>\n  action tick writes changed\n    send changed = tick([])\n  view\n    text \"a\"\n",
+            6,
+            25,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src([]) as shape list<C>\n  view\n    text `${length(xs)}`\n",
+            4,
+            21,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src(none) as shape list<C>\n  view\n    text `${length(xs)}`\n",
+            4,
+            21,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src(1) as shape list<C> else src([])\n  view\n    text `${length(xs)}`\n",
+            4,
+            50,
+        ),
+        // `each` over `[]` has nothing to type its item.
+        (
+            "component A\n  view\n    column\n      each x in [] key=\"k\"\n        text x\n",
+            4,
+            17,
+        ),
+    ] {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, "type-cannot-infer", "{src}: {e}");
+        assert_eq!((e.span.line, e.span.col), (line, col), "{src}: {e}");
+    }
 }

@@ -195,7 +195,7 @@ pub(crate) fn check_component(
         let args: Vec<Ty> = r
             .args
             .iter()
-            .map(|arg| sink.keep(infer(arg, &scope, shapes)))
+            .map(|arg| sink.keep(crate::source_argument(arg, &r.source, &scope, shapes)))
             .collect();
         resource_args.push(args);
     }
@@ -279,7 +279,7 @@ pub(crate) fn check_component(
             let params = p
                 .args
                 .iter()
-                .map(|arg| sink.keep(infer(arg, &values, shapes)))
+                .map(|arg| sink.keep(crate::source_argument(arg, &p.source, &values, shapes)))
                 .collect();
             let result = ct.resources[i].clone();
             sink.keep_unit(record_source(&mut ct, &p.source, params, result, p.span));
