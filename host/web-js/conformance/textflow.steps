@@ -1,0 +1,3 @@
+# Text around shapes (LLP 1043.000), with a finger: each orb is a `pan`
+# whose action moves it, and the text flows past it where it lands.
+drag orb-1 60 40 300

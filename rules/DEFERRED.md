@@ -80,8 +80,7 @@ needs one is refused by name and builds the wasm target, which then retires:
 Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module;
 reorder on a virtualized list;
 a TypeScript and a Rust source in one app; native modules; a dynamic SVG
-`transform`, marker or `url(#…)` reference; text around shapes (`wrap-flow`,
-which the JS target lays out as plain CSS); a file input or `showPicker` (and
+`transform`, marker or `url(#…)` reference; a file input or `showPicker` (and
 with it the `cancel` its dismissal sends); the event `transformgeometry` and the
 drags (height, transform, reorder); presence and layout transitions; the dev loop's reload and
 state carry, delivery and the rest of the agent (these tools build `--wasm`);
@@ -96,7 +95,9 @@ readers, the reserved sources `exactPage`, `exactDelivery` and `exactSurface`,
 localized strings, `openAuthSession` and `scrollIntoView` (LLP 1071 §7, "The runtime
 gaps"); and `pan`, `panrelease`, `swiperight` and spring transitions over the motion
 engine (Spark, Messages and Messages Stress build); and `select`, over the web
-host's own Markdown editor, and the DOM's `cancel` (Markdown Stress builds).
+host's own Markdown editor, and the DOM's `cancel` (Markdown Stress builds); and
+text around shapes over the web host's exclusions executor (Reflow and Text Flow
+build).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

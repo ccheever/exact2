@@ -169,6 +169,7 @@ export function commit(f, what = "commit") {
   }
   const [out, cmds, landed] = [Out, Commands, Landed];
   Writes = null;
+  for (const f of Before) f();
   try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
   settled();
   if (!ok) return false;
@@ -179,8 +180,9 @@ export function commit(f, what = "commit") {
   for (const m of landed) if (m.then) setTimeout(() => m.then());
   return true;
 }
-/** What runs after each commit's tree update (a loaded piece's publication). */
-export const After = [];
+/** What runs after each commit's tree update (a loaded piece's publication),
+ * and before it (the text flow piece puts flowed paragraphs back). */
+export const After = [], Before = [];
 /** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the
  * commit's tree is in place, as the web host's `pendingScrolls`; a
  * virtualized list builds the rows there first (`$jump`, list.js). */
@@ -637,6 +639,23 @@ export function onPan(e, f) {
 }
 /** `panrelease`: its velocity is the motion piece's tracker (LLP 1057 §10.6). */
 export function onPanRelease(e, f) { e.$panrelease = f; motion(() => {}); }
+/** A node's `wrap-flow` (LLP 1043.000): an absolutely positioned `both`
+ * is an exclusion the text around it flows past, laid out by the text flow
+ * piece (flow.js over the web host's `textflow-glue.js`), fetched after
+ * first paint by a plan with the row. */
+let Flow = null, Fl = null;
+const Wraps = new Set();
+export function wf(e, f) {
+  Wraps.add(e);
+  onEnd(() => Wraps.delete(e));
+  effect(() => { e.$wrap = f(); });
+  if (Flow || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  Flow = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./flow.js"))
+    .then(m => m.flow({ views: Views, viewId, wraps: Wraps, clock, wall: () => performance.now() - start, say }))
+    .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
+    .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
+}
 /** A Markdown text field (LLP 1045 D5): the web host's own editor
  * (markup-editor.js over its wasm), fetched at the first one; it replaces
  * the textarea, which then forwards to it what this runtime writes and

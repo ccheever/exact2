@@ -89,9 +89,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
   ] : ['start();']),
 ].join('\n'));
-for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'flow.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own motion and input pieces, loaded after first paint (motion.js, a pan).
-for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
@@ -159,6 +159,8 @@ if (existsSync(resolve(gen, 'markdown.flag'))) cpSync((await import('./module.mj
 if (existsSync(resolve(gen, 'motion.flag'))) cpSync((await import('./module.mjs')).buildMotion(), resolve(out, 'motion.wasm'));
 // The Markdown editor's rules (exact-markdown-editor), beside its chunk.
 if (existsSync(resolve(gen, 'editor.flag'))) cpSync((await import('./module.mjs')).buildEditor(), resolve(out, 'markup-editor.wasm'));
+// The exclusions walker (exact-textflow's `textflow-web`), beside its chunk.
+if (existsSync(resolve(gen, 'flow.flag'))) cpSync((await import('./module.mjs')).buildFlow(), resolve(out, 'textflow.wasm'));
 // The app's GPU module, as its wasm build made it, with the web host's glue (a loaded capability).
 const gpuFrom = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
 if (gpuFrom && existsSync(resolve(gpuFrom, 'gpu.js'))) {

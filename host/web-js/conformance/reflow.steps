@@ -1,0 +1,5 @@
+# Reflow's dragon: a `pan` moves the clipped (`clip-path`) illustration and
+# the prose flows around its new place (text around shapes, LLP 1043.000).
+tap scene-dragon
+drag dragon 40 60 300
+drag dragon -80 20 300

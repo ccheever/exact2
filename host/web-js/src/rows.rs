@@ -84,6 +84,33 @@ impl Em<'_> {
         Ok(())
     }
 
+    /// A node's `wrap-flow` (LLP 1043.000), for the text flow piece
+    /// (rt.js `wf`): an absolutely positioned `both` is an exclusion.
+    pub(super) fn wrap_flow(
+        &mut self,
+        i: u32,
+        e: &str,
+        scope: &crate::code::Scope,
+    ) -> Result<(), String> {
+        let plan = self.plan;
+        let Some(b) = plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .find(|b| b.kind == BindingKind::Style && b.id == StyleId::WrapFlow as u16)
+        else {
+            return Ok(());
+        };
+        let value = match style::literal(plan, plan.code(b.expr)) {
+            Some(v) => format!("()=>{}", super::value_js(&v)),
+            None => self.f(b.expr, scope)?,
+        };
+        self.flow = true;
+        let wf = self.uses.rt("wf");
+        let _ = write!(self.out, "{wf}({e},{value});");
+        Ok(())
+    }
+
     /// Whether node `i` is a `symbol` or inside one (through regions' arms).
     pub(super) fn in_symbol(&self, i: u32) -> bool {
         let plan = self.plan;

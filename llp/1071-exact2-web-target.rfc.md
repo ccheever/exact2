@@ -698,7 +698,7 @@ from (a) today.
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), text around shapes (reflow, textflow), a file input (fieldnotes), the event `transformgeometry` (exact-live, interaction-gallery) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), a file input (fieldnotes), the event `transformgeometry` (exact-live, interaction-gallery) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -708,7 +708,7 @@ from (a) today.
 | Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
-| Text around shapes (`wrap-flow`, LLP 1043.000): the JS target writes it as CSS, which lays out no exclusion (found 2026-09-29) | 1–2 days | loaded (`textflow-glue.js`, `textflow.wasm`) |
+| ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: ~~pan, panrelease, swiperight, select, cancel~~ (landed 2026-09-29, below); transformgeometry, the height, transform and reorder drags; a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | ~1 week | loaded (`motion-glue.js`, `picker-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
@@ -1018,6 +1018,32 @@ brotli):
 - **Conformance.** Markdown Stress 17/17, with a scripted editor (the
   single-document mode, a tap in the editor, three toolbar formats); it
   joins the async lane.
+
+**Text around shapes** (landed 2026-09-29, measured; brotli):
+- **What.** Until now the JS target wrote `wrap-flow` as CSS, which lays
+  out no exclusion: Reflow's and Text Flow's prose ran under their shapes.
+  A node with the row now registers (`wf`), and a plan with one fetches,
+  after first paint, the web host's own exclusions executor
+  (`textflow-glue.js` and `timer-glue.js`, unchanged, over `textflow.wasm`,
+  `exact-textflow`'s `textflow-web` as the wasm build builds it) and
+  `flow.js`, the runner's half the wasm host keeps in Rust: which nodes are
+  exclusions (absolutely positioned, `both`) and the contexts they wrap
+  (`flow_host.rs`'s `emit_textflow`), and the kernel's structural admission
+  rule for an auto-height paragraph (`flow.rs`'s `structural_refusal`),
+  read from the page's computed styles (`computedStyleMap` keeps a
+  percentage as authored). Before each commit touches the tree, flowed
+  paragraphs go back to their text (a `Before` hook, 12 B in every app's
+  module), and after it the executor lays them out again. The agent reads
+  a flowed paragraph's own text and runs, not its fragments.
+- **Cost.** 336 B in `app.js` for a plan with the row (`wf`); loaded:
+  `flow.js` with the executor 8,571 B, `textflow.wasm` 38,547 B (the wasm
+  host's own). Reflow's `app.js` 10,927 B, Text Flow's 12,257 B.
+- **Conformance.** Reflow 11/11 plus its dragon dragged twice (a `pan` on
+  a clipped node, the prose re-flowing), Text Flow 10/10 plus an orb
+  dragged; both join the async lane. A second orb's drag differed by
+  3e-5 px in its slot: which frames a real-time finger's deltas fall in is
+  the frame clock's, and `moveOrb` scales and clamps each delta, so the sum
+  depends on the partition, on either target.
 
 ## 8. Rulings and open questions for Charlie
 

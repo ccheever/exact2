@@ -9,10 +9,14 @@ const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTA
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
-  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : [...el.children].filter(c => !c.hasAttribute('data-surface'));
+  // A paragraph text flows around shapes is its fragments on the page; the
+  // tree is its own text and runs (flow.js keeps them).
+  const flowed = el => el.$flow && el.querySelector(':scope > [data-flow-fragment]');
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface'));
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
-  const run = el => el.parentElement?.hasAttribute('data-exact-text') && el.parentElement.getAttribute('markup') !== 'markdown';
+  // (A flowed paragraph's runs are held off the page: runs too.)
+  const run = el => !el.isConnected || el.parentElement?.hasAttribute('data-exact-text') && el.parentElement.getAttribute('markup') !== 'markdown';
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
@@ -23,7 +27,7 @@ export function install(exact) {
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
-    if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? el.textContent;
+    if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -111,6 +115,8 @@ export function install(exact) {
             do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end);
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
+            // Text around shapes lays out in the frames after a commit (flow.js).
+            await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there.

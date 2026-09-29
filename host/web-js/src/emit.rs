@@ -98,6 +98,8 @@ pub struct Output {
     pub motion: bool,
     /// Whether a text field is a Markdown editor (`markup-editor.wasm`).
     pub editor: bool,
+    /// Whether a node has a `wrap-flow` row (`textflow.wasm`).
+    pub flow: bool,
     /// The declared faces' preloads, for the page's head.
     pub preloads: String,
     pub css: String,
@@ -197,6 +199,7 @@ struct Em<'a> {
     canvas2d: bool,
     motion: bool,
     editor: bool,
+    flow: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
@@ -232,6 +235,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         canvas2d: false,
         motion: false,
         editor: false,
+        flow: false,
         list: false,
         symbols: (false, false),
     };
@@ -656,6 +660,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         canvas2d: em.canvas2d,
         motion: em.motion,
         editor: em.editor,
+        flow: em.flow,
         preloads: fonts.preloads,
         viewport,
         warnings: em.warnings,
@@ -949,18 +954,6 @@ impl Em<'_> {
             let _ = write!(self.out, "{hd}({parent},{{{}}});", fields.join(","));
             return Ok(());
         }
-        // Text around shapes (LLP 1043.000) is the text flow executor's
-        // (`textflow-glue.js`), which this runtime doesn't load yet: CSS
-        // lays out no exclusion.
-        if row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
-            b.kind == BindingKind::Style
-                && b.id == StyleId::WrapFlow as u16
-                && !matches!(style::literal(plan, plan.code(b.expr)), Some(v) if v.as_str() == Some("auto"))
-        }) {
-            return Err(format!(
-                "node {i}: text around shapes (`wrap-flow`) is not in the JS target"
-            ));
-        }
         let parts = self.parts[i as usize].clone().ok_or("no parts")?;
         let mut virtualized = false;
         for b in row.bindings.iter().map(|b| plan.binding(b)) {
@@ -1175,6 +1168,7 @@ impl Em<'_> {
             }
         }
         self.motion_node(i, &e, scope)?;
+        self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);

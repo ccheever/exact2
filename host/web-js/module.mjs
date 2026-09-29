@@ -127,6 +127,19 @@ export function buildEditor(out = '/tmp/e3-mod/editor') {
   return buildLeaf('markup-editor', 'exact-markdown-editor', 'markdown/editor', out);
 }
 
+/** The exclusions walker (LLP 1043.000 §3 D7): `exact-textflow`'s
+ * `textflow-web` binary, as the wasm build builds its `textflow.wasm`. */
+export function buildFlow(out = '/tmp/e3-mod/flow') {
+  mkdirSync(out, { recursive: true });
+  const r = spawnSync('cargo', [...(WEB ? [`+${WEB}`] : []), 'build', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '-p', 'exact-textflow', '--bin', 'textflow-web',
+    ...(WEB ? ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'] : [])],
+  { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: '/tmp/e3-mod/target-flow', ...(WEB ? { RUSTFLAGS: '-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none' } : {}) } });
+  if (r.status !== 0) throw new Error('textflow.wasm did not build');
+  const wasm = resolve(out, 'textflow.wasm');
+  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '/tmp/e3-mod/target-flow/wasm32-unknown-unknown/web/textflow-web.wasm', '-o', wasm]);
+  return wasm;
+}
+
 // A workspace crate's exports as a size-built wasm module: `<name>.wasm`.
 function buildLeaf(name, pkg, dir, out) {
   const crate = resolve(out, 'crate');
