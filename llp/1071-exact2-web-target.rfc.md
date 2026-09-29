@@ -704,19 +704,17 @@ from (a) today.
 
 | Gap | Work | Bytes |
 |---|---|---|
-| `scrollIntoView` and reorder on a virtualized list (`into_view.rs`, `reorder.rs`) | 2–4 days | ~1–2 KB, in `list.js` |
-| The runner's other reserved sources: `exactPage`, `exactDelivery`, `exactSurface`, `exactTime`'s `resolvedLocale` | 1 day | <0.5 KB, loaded |
+| Reorder on a virtualized list (`reorder.rs`; a drag, on the motion capability) | 2–3 days | ~1 KB, in `list.js` |
 | Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
-| Surface records back to sources | 1–2 days | <0.5 KB |
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | Text around shapes (`wrap-flow`, LLP 1043.000): the JS target writes it as CSS, which lays out no exclusion (found 2026-09-29) | 1–2 days | loaded (`textflow-glue.js`, `textflow.wasm`) |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: pan, select, cancel, swiperight, transformgeometry, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
-| Springs, presence, layout transitions (`motion-glue.js`); Bluesky's header hides on a `translate` spring, which the JS target jumps | ~1 week | loaded, 11 KB |
+| Springs, presence, layout transitions (`motion-glue.js`); Bluesky's header hides on a `translate` spring, which the JS target jumps (the motion capability is in progress: "The runtime gaps") | ~1 week | loaded, 11 KB |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| State carried across a dev reload (the loop rebuilds and reloads), delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
+| State carried across a dev reload (the loop rebuilds and reloads), delivery (`deliveryCheck`, `deliveryActivate`; `exactDelivery` answers what the build baked), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
 
 ### The tools (2026-09-29)
@@ -760,10 +758,8 @@ What stays on the wasm target, and why:
 Found on the way (2026-09-29): the runtime now answers `exactTime`, the
 runner's reserved source, itself (`data.reserved`, from `navigation.js`'s
 reporters; `resolvedLocale` is `""`, the no-tables answer), which
-`auth-fixture`'s `time` resource needed. Its web smoke still stops at the
-auth session: the press's held device request (`openAuthSession`) is not in
-the JS runtime. A text reading `now()` is not re-rendered by a clock move on
-the JS target (the wasm's is). RealWorld's `tap submit` difference was the
+`auth-fixture`'s `time` resource needed. (Its auth session and `now()`
+readers closed the same day: "The runtime gaps" below.) RealWorld's `tap submit` difference was the
 harness: its auto-taps compared before a press's fetch (the hosted API)
 landed; they now settle first, as scripted steps do.
 
@@ -822,8 +818,8 @@ brotli):
   target: which rows a moving port builds ahead of itself, and so which it
   has measured, is the frame clock's. The fixture's long list uses rows at
   its estimate.
-- **Not carried**, refused by name: `scrollIntoView`, reorder
-  (`reorderdrop`), a dynamic `virtualized`.
+- **Not carried**, refused by name: reorder (`reorderdrop`), a dynamic
+  `virtualized`. (`scrollIntoView` landed the same day: below.)
 
 **Bluesky** (outside the repo, `EXACT_APP_DIR`; 2026-09-29): it builds on the
 JS target and its timeline, a thread, a profile, sign-in (the `demo`
@@ -899,6 +895,66 @@ account) and notifications work in a browser.
 - **Conformance.** Sparkline 4/4, SVG Gallery 12/12, and a synthetic
   `composite.contract` (over SVG Gallery's dist, which links the grammars)
   3/3; both apps join the async lane's run.
+
+**The runtime gaps** (landed 2026-09-29, measured; brotli-11, `app.js`
+bytes against a plan without the feature):
+- **`now()`.** A reader of `now()` is re-evaluated at each commit made at a
+  later time, as the runner's dependency tracking marks a clock read
+  (`instance/deps.rs`), and never by the clock moving alone: `x_now` reads a
+  node each commit stamps. Outside the agent the clock is the page's elapsed
+  time, stamped at an input or reply commit; a timer commits at its due
+  time; a render's clock carries into the page. Bluesky's relative times
+  follow the clock (its minute-rounded `clock` derive feeds its resources:
+  "2m" became "1h", "32m" "42m" across two clock moves). About 65 B in
+  every app.
+- **The reserved sources** (`facts.js`, each answered by its readers'
+  declared fields, imported only where declared): `exactPage` from the web
+  host's own `pageReporter` (visibility, online, share sheet; the agent's
+  `prefer page`), +672 B; `exactDelivery` as the build baked it (a JS build
+  links no update store; `deliveryCheck` and `deliveryActivate` stay a
+  gap), +178 B; `exactSurface`, a GPU module's published record decoded
+  against each reader's shape as `surface_record.rs` decodes it, +549 B.
+- **Localized strings** (LLP 1060): the tables in the module, the locale
+  slot at the base for initializers and then the table the page's locale
+  reads, with `exactTime` answered again, as the runner's first
+  `set_place`; `t` fills MF2 simple messages; the resolved table sets
+  `lang` and `dir`; `exactTime.resolvedLocale` names it. +625 B with two
+  one-key tables.
+- **`openAuthSession`** (`auth.js`, `runner/src/auth.rs`'s rules: the
+  request's checks, the grants, one session per window and supersession,
+  the callback's match): held under the agent (`pending`, `clock settle`
+  stops with reason `device`, `tap @t cancel` / `type @t <url>`), else a
+  popup opened in the press's own call stack by the web host's
+  `auth-glue.js`. The store keeps keys as the web host does
+  (`storage-environment.js`, fetched on first use). The auth-fixture smoke
+  on the JS target: 14/14 under the agent, 4/4 through the popup (opener,
+  and COOP's BroadcastChannel). Auth Fixture's `app.js` 8,935 → 11,238 B;
+  `auth-glue.js` 761 B and `storage-environment.js` 531 B loaded;
+  `serve.mjs` serves `/.exact/auth/…` from a JS build.
+- **`scrollIntoView` on a virtualized list** (`list.js`, `into_view.rs`
+  ported): the command and the agent's `tap <list> into <key>`, aligned as
+  `Element.scrollIntoView()` aligns, built at the destination before the
+  port moves, corrected until it holds (`done`, `unconverged`,
+  `cancelled`, refusals), an inner list through its outer row; `state`
+  lists each request. `list.js` 6,583 → 7,662 B (+1,079). Reorder stays a
+  gap: it is a drag, on the motion capability.
+- **The RealWorld `wheel 1 -4000` flake** was not the JS target: macOS's
+  elastic overscroll bounces a page wheeled past its edge on the
+  compositor's clock, and a screenshot could catch either target 1-10 px
+  low mid-bounce (the wasm page in 2 of 4 runs), while layout agreed. The
+  agent's documents set `overscroll-behavior: none` on the root: 6 of 6
+  equal.
+- **Conformance** (new synthetic plans): clock 10/10, locale 4/4 (a
+  lagging `en-US` table, an rtl table, an escape, the three facts, an
+  unpublished surface), intoview 10/10; the auth fixture is its smoke,
+  since it needs its local authorization server.
+- **Still open here:** springs, presence and layout transitions, and the
+  agent's `clock settle` across them (Bluesky's two differing steps): the
+  web-js events lane is landing one motion capability (a loaded
+  `motion.wasm` over the Engine and `motion-glue.js`) that carries springs;
+  presence, layout transitions and settle build on it. `exactTime`'s
+  offset re-answered after an agent's clock move across a DST change (the
+  wasm host's `exact_set_time` after `clock`) is not carried.
 
 ## 8. Rulings and open questions for Charlie
 
