@@ -816,6 +816,34 @@ impl Em<'_> {
         Ok(())
     }
 
+    /// Whether node `i` is a `symbol` or inside one (through regions' arms).
+    fn in_symbol(&self, i: u32) -> bool {
+        let plan = self.plan;
+        let mut at = Some(i);
+        while let Some(n) = at {
+            let row = &plan.nodes[n as usize];
+            if NodeType::from_wire(row.node_type) == Some(NodeType::SvgSymbol) {
+                return true;
+            }
+            at = match (row.parent, row.arm) {
+                (Some(p), _) => Some(p.0),
+                (None, Some(a)) => {
+                    let mut region = plan.arms[a.0 as usize].region;
+                    loop {
+                        let r = &plan.regions[region.0 as usize];
+                        match (r.parent, r.arm) {
+                            (Some(p), _) => break Some(p.0),
+                            (None, Some(a)) => region = plan.arms[a.0 as usize].region,
+                            (None, None) => break None,
+                        }
+                    }
+                }
+                (None, None) => None,
+            };
+        }
+        false
+    }
+
     fn f(&mut self, code: exact_plan::Code, scope: &Scope) -> Result<String, String> {
         code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
     }
@@ -899,6 +927,12 @@ impl Em<'_> {
         {
             attrs.push(("tabindex".into(), "0".into()));
         }
+        // A `symbol`'s content is drawn as `use`'s clones, which Chrome
+        // styles from their own attributes, not the page's class rules: its
+        // static rows go inline too (the live host writes every row inline).
+        if !css.is_empty() && self.in_symbol(i) {
+            attrs.push(("style".into(), css.clone()));
+        }
         let class = if css.is_empty() {
             "0".to_string()
         } else {
@@ -923,7 +957,14 @@ impl Em<'_> {
         let text = content
             .map(|t| serde_json::to_string(&t).unwrap())
             .unwrap_or("0".into());
-        let h = self.uses.rt("h");
+        // An SVG node's element is in SVG's namespace (element.rs's tag).
+        let h = self
+            .uses
+            .rt(if format!("{node_type:?}").starts_with("Svg") {
+                "hs"
+            } else {
+                "h"
+            });
         let e = format!("e{i}");
         let _ = write!(
             self.out,
@@ -1046,10 +1087,43 @@ impl Em<'_> {
                     );
                 }
                 BindingKind::Style => {
-                    let (name, kind) =
-                        style::style_row(b.id).map_err(|x| format!("node {i}: {x}"))?;
+                    let press = parts.css.contains("--exact-press:");
+                    let timeline = row.bindings.iter().any(|b| {
+                        let b = plan.binding(b);
+                        b.kind == BindingKind::Style && b.id == StyleId::AnimationTimeline as u16
+                    });
+                    if b.id == StyleId::Transition as u16
+                        && style::can_be(plan, plan.code(b.expr), &|v| v.contains("spring"))
+                    {
+                        return Err(format!(
+                            "node {i}: a dynamic `transition` that can be a spring is not in the JS target"
+                        ));
+                    }
+                    // An id a reference names is scoped per instance by the
+                    // kernel (LLP 1055.000 D3); a dynamic one is not resolved.
+                    if style::can_be(plan, plan.code(b.expr), &|v| v.contains("url(")) {
+                        return Err(format!(
+                            "node {i}: a dynamic `{}` that can reference an element (`url(#…)`) is not in the JS target",
+                            StyleId::from_bit(b.id as u32).map_or("style", |r| r.name())
+                        ));
+                    }
+                    let writes = style::style_writes(b.id, press, timeline)
+                        .map_err(|x| format!("node {i}: {x}"))?;
                     let s = self.uses.rt("S");
-                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{kind}\",{f});");
+                    for w in writes {
+                        let (name, unit) = (w.name, w.unit);
+                        match w.map {
+                            Some(m) => {
+                                let _ = write!(
+                                    self.out,
+                                    "{s}({e},\"{name}\",\"{unit}\",()=>({m})(({f})()));"
+                                );
+                            }
+                            None => {
+                                let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
+                            }
+                        }
+                    }
                 }
             }
         }

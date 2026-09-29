@@ -63,7 +63,7 @@ cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.j
 const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=\{[^}]*\}/)?.[0] ?? '');
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
-  "import { data, journal, clock, advance, commit, inflight, Views, viewId } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After } from './rt.js';",
   ...(time ? [
     "import { sourceTypes } from './names.js';",
     "import { reportTime, reportPlace } from './navigation.js';",
@@ -76,7 +76,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(ts ? ["import { install as ts } from './ts-data.js';", 'ts(data);'] : []),
   "const start = () => {",
   "  const state = app();",
-  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId });",
+  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After });",
   // The agent adapter, only when the agent drives the page.
   "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
   "};",

@@ -32,6 +32,14 @@ pub fn literal(plan: &Plan, code: &[u8]) -> Option<exact_plan::Value> {
     }
 }
 
+/// Whether a binding's code pushes a string `used` accepts: what it can be,
+/// as runner/src/uses.rs asks it.
+pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
+    instructions(code).any(|i| {
+        i.is_ok_and(|i| i.op == Opcode::Str && used(plan.str(exact_plan::StrId(i.args[0] as u32))))
+    })
+}
+
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
 /// the value at creation; the JS target from its presence).
@@ -214,12 +222,104 @@ pub fn prop_name(node_type: NodeType, prop: PropId) -> Result<String, String> {
         })
 }
 
+/// What a dynamic style row writes: one declaration or more, each a CSS
+/// property, the unit a number takes, and, for a few, a JavaScript function
+/// of the value that gives the declaration's (`null` writes none).
+pub struct Write {
+    pub name: String,
+    pub unit: String,
+    pub map: Option<&'static str>,
+}
+
+/// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
+/// css.rs writes no declaration for the row's empty value.
+const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
+
+fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
+    vec![Write {
+        name: name.into(),
+        unit: unit.into(),
+        map: None,
+    }]
+}
+
+/// A dynamic style row's writes (see [`style_row`]), with what css.rs
+/// writes beside a row that is not one declaration of its own: the
+/// timeline rows' custom properties (LLP 1057.003 D2, D4), which the drag
+/// code reads, and a paused play state under a bound `animation-timeline`.
+/// `timeline` says the node has an `animation-timeline` row, so a dynamic
+/// `animation` (whose shorthand resets the play state) is paused again;
+/// `press` that its press feedback composes through `--exact-scale`.
+pub fn style_writes(id: u16, press: bool, timeline: bool) -> Result<Vec<Write>, String> {
+    let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
+    let with = |name: &str, map: &'static str| Write {
+        name: name.into(),
+        unit: String::new(),
+        map: Some(map),
+    };
+    Ok(match row {
+        // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in
+        // the stylesheet (emit.rs), under the author's names.
+        StyleId::Animation if press => return Err(
+            "a dynamic `animation` on a node whose press feedback scales is not in the JS target"
+                .into(),
+        ),
+        StyleId::Animation if timeline => vec![
+            with("animation", NONE),
+            with(
+                "animation-play-state",
+                "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:\"paused\"",
+            ),
+        ],
+        StyleId::Animation => vec![with("animation", NONE)],
+        StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
+        StyleId::AnimationTimeline => vec![
+            with(
+                "--exact-animation-timeline",
+                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:v",
+            ),
+            with(
+                "animation-play-state",
+                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:\"paused\"",
+            ),
+        ],
+        StyleId::AnimationRange => vec![with(
+            "--exact-animation-range",
+            "v=>v==null||/^\\s*normal\\s*$/i.test(v)?null:v",
+        )],
+        StyleId::TimelineScope => vec![
+            with("timeline-scope", NONE),
+            with("--exact-timeline-scope", NONE),
+        ],
+        // A transition as the author wrote it; a spring is lowered by the
+        // host to frames, and a pressed node's `scale` goes through
+        // `--exact-scale` (css.rs): not yet.
+        StyleId::Transition if press => return Err(
+            "a dynamic `transition` on a node whose press feedback scales is not in the JS target"
+                .into(),
+        ),
+        StyleId::Transition => one("transition", ""),
+        // The kernel's `clip-path` is `none`, `url(#id)` or `path()` (clip.rs);
+        // any other shape, which the browser would take, is refused: unset.
+        StyleId::ClipPath => vec![with(
+            "clip-path",
+            "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
+        )],
+        _ => {
+            let (name, unit) = style_row(id)?;
+            one(name, unit)
+        }
+    })
+}
+
 /// A dynamic style row's CSS property and the unit a number takes, read
 /// from the web host's own `css_text` for a sample value (`7` → `7px`,
 /// `7deg` or `7`), so the unit rule is css.rs's, not a copy. Text values
-/// (enums, `auto`, `N%`, colours as `#rrggbb[aa]`) are written as the
-/// author wrote them; the browser parses them as the kernel does. Rows that
-/// are not one declaration each are refused, never guessed.
+/// (enums, `auto`, `N%`, colours as `#rrggbb[aa]`, and the rows whose
+/// grammar is CSS's own: `clip-path`, `shape-outside`, SVG paint, dashes,
+/// filters, transform origins, gradients) are written as the author wrote
+/// them; the browser parses them as the kernel does. Rows that are not one
+/// declaration each are refused, never guessed.
 pub fn style_row(id: u16) -> Result<(String, String), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
     // `translate` is one declaration of the author's two lengths (css.rs
@@ -231,6 +331,22 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // multiple of the font size, unitless; a length is written with its unit;
     // `aspect-ratio` too (kernel `Ratio::css`): a number is `n / 1`.
     if row == StyleId::LineHeight || row == StyleId::AspectRatio {
+        return Ok((css_property(row), String::new()));
+    }
+    // css.rs `declared`: each of these is its value's own CSS text, in the
+    // author's grammar. Not an SVG `transform` (SVG's syntax, which the
+    // kernel restates as CSS's) or a marker (a reference, see emit.rs).
+    if matches!(
+        row.codec(),
+        StyleCodec::ClipPath
+            | StyleCodec::ShapeOutside
+            | StyleCodec::Paint
+            | StyleCodec::DashArray
+            | StyleCodec::TransformOrigin
+            | StyleCodec::PaintOrder
+            | StyleCodec::Filter
+            | StyleCodec::BackgroundImage
+    ) {
         return Ok((css_property(row), String::new()));
     }
     if !matches!(

@@ -13,14 +13,17 @@ export function install(exact) {
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
   const run = el => el.parentElement?.hasAttribute('data-exact-text') && el.parentElement.getAttribute('markup') !== 'markdown';
-  const type = el => el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
+  const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
+  const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
+  const type = el => el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
-    if (type(el) === 'Text' && (el.$source != null || !kids(el).length)) props.text = el.$source ?? el.textContent;
+    if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? el.textContent;
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -34,9 +37,35 @@ export function install(exact) {
     return out;
   };
   const tags = () => ({ clock: exact.clock.now, epoch: 1 });
-  // The browser runs CSS animations; under the agent they follow its clock:
-  // each held at the driver's time, seeked on every read.
-  const seek = () => { for (const a of document.getAnimations()) { a.pause(); a.currentTime = exact.clock.now; } };
+  // The browser runs CSS animations; under the agent they follow its clock,
+  // each from the clock time it began, author-paused ones keeping their own
+  // (the web host's own `animationClock`), and `clock settle` runs the clock
+  // to where the last one ends, as the wasm host's does.
+  // (navigation.js's `animationClock`, restated: importing it would pull it
+  // into every app's module, since rt.js imports navigation.js.)
+  const starts = new WeakMap(), held = new WeakSet();
+  const anim = {
+    register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },
+    seek(to) {
+      for (const a of document.getAnimations()) {
+        const timing = a.effect?.getComputedTiming();
+        if (!timing || held.has(a)) continue;
+        const t = to - (starts.get(a) ?? exact.clock.now);
+        if (t >= timing.endTime && timing.endTime !== Infinity) a.finish(); else { a.pause(); a.currentTime = t; }
+      }
+      exact.synced?.();
+    },
+    settle() {
+      let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
+      for (const a of document.getAnimations()) {
+        const timing = a.effect?.getComputedTiming();
+        if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
+      }
+      return to;
+    },
+  };
+  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); };
+  exact.After.push(seek);
   exact.agentSettled = async (req) => {
     seek();
     switch (req.op) {
@@ -71,13 +100,17 @@ export function install(exact) {
             do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
-            if (!exact.lists) break;
-            exact.lists.settle();
-            if (!exact.inflight.n) break;
+            if (exact.lists) exact.lists.settle();
+            if (exact.inflight.n) continue;
+            // Animations (and springs, `settleAt`) that end later move the clock there.
+            const to = anim.settle();
+            if (!(to > exact.clock.now)) break;
+            exact.advance(to); seek();
+            await new Promise(r => requestAnimationFrame(() => r()));
           }
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
-        exact.advance(req.to);
+        exact.advance(req.to); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         return { clock: exact.clock.now };
       }

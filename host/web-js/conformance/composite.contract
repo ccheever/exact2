@@ -1,0 +1,26 @@
+// data: svg-gallery
+// Synthetic conformance plan: dynamic composite style rows (LLP 1071 §7) —
+// `clip-path`, SVG paint and dashes, `filter`, and `animation` swapped
+// between rules and paused — over a dist that links their grammars.
+keyframes grow
+  from scale=0.5
+  to scale=1
+
+keyframes fade
+  from opacity=1
+  to opacity=0.2
+
+component Composite
+  state on = false
+  action flip writes on
+    on = not on
+  view
+    column testId="root" padding=10 gap=8
+      button press=flip testId="flip"
+        text on ? "on" : "off"
+      view testId="clipped" width=80 height=80 background-color="#2a9d8f" clip-path=(on ? "path('M40 0L80 80L0 80Z')" : "path(evenodd, 'M0 0H80V80H0ZM20 20H60V60H20Z')")
+      view testId="filtered" width=80 height=40 background-color="#e76f51" filter=(on ? "blur(2px) saturate(2)" : "none")
+      svg testId="drawing" width=120 height=60 viewBox="0 0 120 60"
+        rect x=10 y=10 width=40 height=40 fill=(on ? "#16a34a" : "#dc2626") stroke=(on ? "#0f172a" : "none") stroke-width=3 stroke-dasharray=(on ? "4 2" : "none")
+        circle cx=90 cy=30 r=16 fill=(on ? "none" : "#2563eb") stroke="#2563eb" stroke-width=2 stroke-dashoffset=(on ? 3 : 0)
+      view testId="animated" width=120 height=20 background-color="#264653" animation=(on ? "grow 400ms linear both" : "fade 1s linear -500ms paused")

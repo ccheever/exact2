@@ -396,15 +396,17 @@ export function M(m, source, args) { Sends.push([m, source, args]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
-export function h(p, tag, cls, attrs, text) {
+export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
-  const e = /^(svg|g|path|circle|rect|line|polyline|polygon|ellipse)$/.test(tag) ? document.createElementNS(SVG, tag) : document.createElement(tag);
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
   if (text !== 0) e.textContent = text;
   p.append(e);
   return e;
 }
+/** An SVG element (the compiler knows the node's type; element.rs's tag). */
+export const hs = (p, tag, cls, attrs, text) => h(p, tag, cls, attrs, text, SVG);
 /** A canvas: the host's surface element under its children (`glue.js`). */
 export function cv(e) {
   if (Adopt) { const s = at(e); if (s?.dataset?.surface !== undefined) { e.$n = s.nextSibling; return; } }
@@ -429,7 +431,7 @@ const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {
   let e = at(p);
   while (e && e.nodeType !== 1) e = e.nextSibling;
-  if (!e || e.localName !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
+  if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling;
   e.removeAttribute("style"); e.removeAttribute("data-view");
   if (cls !== 0) e.setAttribute("class", "c" + cls);

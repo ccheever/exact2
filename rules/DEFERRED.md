@@ -80,16 +80,18 @@ needs one is refused by name and builds the wasm target, which then retires:
 Canvas 2D surfaces drawn by a TypeScript source; building an app's GPU module;
 `scrollIntoView` and reorder on a virtualized list; the runner's reserved sources
 beyond `exactViewport` and `exactTime`;
-a TypeScript and a Rust source in one app; native modules; dynamic
-composite rows (`clip-path`, SVG paint, `animation`,
-`timeline-scope`); the events `pan`, `select`, `cancel`, `swiperight`,
+a TypeScript and a Rust source in one app; native modules; a dynamic SVG
+`transform`, marker or `url(#…)` reference; text around shapes (`wrap-flow`,
+which the JS target lays out as plain CSS); the events `pan`, `select`, `cancel`, `swiperight`,
 `transformgeometry` and drags; springs, presence and layout transitions; the dev loop's reload and
 state carry, delivery and the rest of the agent (these tools build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
 Take: none named yet (LLP 1071 §8 asks). A Rust source's Canvas 2D surfaces and
 declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7), as did
 virtualized lists, `reachstart`/`reachend`, a dynamic `line-height`, and an app
-outside the repo (Bluesky builds on the JS target).
+outside the repo (Bluesky builds on the JS target); so did dynamic composite rows
+(`clip-path`, SVG paint and dashes, `filter`, gradients, `animation`, the timeline
+rows, an eased `transition`) and full SVG (Sparkline and SVG Gallery build).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

@@ -695,10 +695,10 @@ from (a) today.
 
 | | apps |
 |---|---|
-| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12 and Carousel 16/16 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3, lists 14/14 |
+| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), dynamic SVG `fill` (svg-gallery), dynamic `clip-path` (reflow, messages), dynamic `animation` (sparkline, interaction-gallery), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `swiperight` (messages-stress), `transformgeometry` (exact-live) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `swiperight` (messages-stress), `transformgeometry` (exact-live) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -709,7 +709,8 @@ from (a) today.
 | Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | Surface records back to sources | 1–2 days | <0.5 KB |
-| Dynamic composite rows (clip-path, SVG paint, animation, timeline scope) | 2–3 days | ~1 KB |
+| ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
+| Text around shapes (`wrap-flow`, LLP 1043.000): the JS target writes it as CSS, which lays out no exclusion (found 2026-09-29) | 1–2 days | loaded (`textflow-glue.js`, `textflow.wasm`) |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: pan, select, cancel, swiperight, transformgeometry, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
@@ -863,6 +864,41 @@ account) and notifications work in a browser.
   Protocol client as its own wasm, bound with the whole plan. Binding it with
   only what it reads (its sources and shapes) is a lever not yet taken; the
   module itself is the app's code.
+
+**Dynamic composite rows and SVG** (landed 2026-09-29, measured; brotli):
+- **What.** A dynamic row whose grammar is CSS's own is one declaration as
+  the author wrote it (style.rs `style_writes`): `clip-path` (only `none`,
+  `url()` and `path()`, the kernel's grammar; any other shape is unset),
+  `shape-outside`, SVG `fill`/`stroke` and dashes, `filter`,
+  `transform-origin`, `paint-order`, gradients; `animation` over the plan's
+  `@keyframes` (paused again under an `animation-timeline`, whose shorthand
+  would reset the play state); the timeline rows as css.rs writes them
+  (`timeline-scope` with its `--exact-timeline-scope`, the drag and
+  animation timelines' custom properties); an eased `transition`. Refused by
+  name: a dynamic SVG `transform` (SVG's syntax, which the kernel restates as
+  CSS), a marker, and any value that can be `url(#…)` (the kernel scopes ids
+  per instance), `animation` or `transition` on a node whose press feedback
+  scales (`--exact-scale`), and a `transition` that can be a spring.
+- **Found and fixed.** The compiler never linked the host's grammars
+  (`exact_web::link`), so a *static* `animation`, `clip-path`, `filter`,
+  gradient or drag timeline row was left out of the stylesheet: Motion
+  Gallery's keyframe tiles ran on no rule (its stylesheet +148 B). SVG
+  elements were made in SVG's namespace by a tag list that lacked `defs`,
+  gradients, `stop`, `clipPath`, `mask`, `marker`, `pattern`, `use`,
+  `symbol`, `text` and the filters: the compiler now says (`hs`, from the
+  node type), which took 51 B off every app's module (the video player
+  4,954 → 4,903 B `app.js`). A `symbol`'s content carries its rows inline
+  too, since Chrome styles `use` clones without the page's class rules. The
+  agent held every CSS animation at the clock's time from zero; it now
+  keeps each from the time it began, author-paused ones at their own, and
+  `clock settle` runs the clock to where the last one ends, as the wasm
+  host's `animationClock` does (agent-only bytes).
+- **Cost.** Only a plan with such a row pays: a `S(e, prop, "", f)` per row,
+  plus a small mapping function for `clip-path`, `animation`, the timeline
+  rows. Sparkline 15,262 B `app.js`, SVG Gallery 12,331 B (page 4,186).
+- **Conformance.** Sparkline 4/4, SVG Gallery 12/12, and a synthetic
+  `composite.contract` (over SVG Gallery's dist, which links the grammars)
+  3/3; both apps join the async lane's run.
 
 ## 8. Rulings and open questions for Charlie
 

@@ -27,6 +27,10 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // The stylesheet is the live host's CSS for any plan: every grammar
+    // (animations, clip paths and filters, gradients, drag timelines) is
+    // linked, as the render host links them (LLP 1047 D7).
+    exact_web::link(exact_web_capabilities::ALL);
     let path = std::path::Path::new(input);
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {

@@ -1332,6 +1332,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-web",
+ "exact-web-capabilities",
  "serde_json",
 ]
 
