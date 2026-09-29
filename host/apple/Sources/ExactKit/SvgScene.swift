@@ -198,6 +198,34 @@ final class SvgScene {
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
+    #if os(iOS)
+    /// Filtered pictures that follow a changing input on the GPU, by element.
+    private var live: [Int: SvgFilterLive] = [:]
+    #endif
+
+    /// A shown filtered picture whose input changed: on iOS, the same layer
+    /// redrawn on the GPU after this commit (`SvgFilterLive`); `nil` for a
+    /// first picture, or a chain or host the GPU path does not take.
+    private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool) -> CALayer? {
+        #if os(iOS)
+        guard let shown = pictures[id]?.layer, SvgFilterLive.takes(fl),
+              let e = SvgIsland.filterExtent(fl, k: k, seen: seen(fl)), e.gpu else { return nil }
+        let picture = live[id].flatMap { $0.layer === shown ? $0 : nil } ?? SvgFilterLive(layer: shown)
+        live[id] = picture
+        picture.update(els: fl["c"] as? [Any] ?? [], rect: e.rect, w: e.w, h: e.h, k: e.k, program: e.program,
+                       dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+        return shown
+        #else
+        return nil
+        #endif
+    }
+
+    private func forget(_ id: Int) {
+        #if os(iOS)
+        live.removeValue(forKey: id)
+        #endif
+    }
+
     /// What of an island's user space can show: the clipping content box
     /// through the inverse of the island's `m` (user space to that box).
     private func seen(_ spec: [String: Any]) -> CGRect? {
@@ -220,7 +248,7 @@ final class SvgScene {
         attach(scene["els"] as? [Any] ?? [], to: root, dark: dark, clock: clock, alive: &alive)
         for (id, layer) in layers where !alive.contains(id) {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
-            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id)
+            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id); forget(id)
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
             wrapSpecs.removeValue(forKey: id); wrapInstalled.removeValue(forKey: id)
             node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
@@ -297,6 +325,9 @@ final class SvgScene {
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]
+        #if os(iOS)
+        live = [:]
+        #endif
         node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
     }
 
@@ -367,13 +398,16 @@ final class SvgScene {
                     CssAnimations.digest(fl, into: &h)
                     h.combine(scale); h.combine(dark)
                     let key = h.finalize()
+                    let k = CGFloat(num(fl["k"])) * scale
                     let picture = pictures[id].flatMap { $0.key == key ? $0.layer : nil }
-                        ?? SvgIsland.filter(fl, k: CGFloat(num(fl["k"])) * scale, seen: seen(fl), dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                        ?? follow(id, fl, k: k, dark: dark)
+                        ?? SvgIsland.filter(fl, k: k, seen: seen(fl), dark: dark, fonts: fonts ?? SvgScene.systemFonts)
                     if pictures[id]?.layer !== picture { pictures[id]?.layer.removeFromSuperlayer() }
                     pictures[id] = (key, picture)
                     if picture.superlayer !== layer { layer.addSublayer(picture) }
                 } else if let old = pictures.removeValue(forKey: id) {
                     old.layer.removeFromSuperlayer()
+                    forget(id)
                 }
             } else if let shape = layer as? CAShapeLayer {
                 shape.path = path(e["p"])

@@ -697,6 +697,7 @@ extension Agent {
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         presenter.settlePump()
         presenter.canvas2d.waitForReplays()
+        SvgFilterLive.waitForDraws()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
         let vp = presenter.viewport
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale

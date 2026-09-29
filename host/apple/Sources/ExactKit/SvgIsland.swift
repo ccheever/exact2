@@ -123,6 +123,10 @@ private final class TileCell {
 enum SvgIsland {
     /// The most pixels one island's bitmap holds (64 MB at 4 bytes each).
     static let cap = 16_777_216
+    /// The most bytes a filter island's work may hold at once: its bitmaps
+    /// and the chain's working images (F1's map was 747 MB in the module's
+    /// `f32` images for one drop shadow).
+    static let budget = 128 << 20
 
     /// The part of `rect` (an island's space) an island renders, its size
     /// in pixels and its pixels per unit, at `k` pixels per unit when that
@@ -133,7 +137,8 @@ enum SvgIsland {
     /// over `cap`, it is drawn at fewer pixels per unit and the layer scales
     /// it up, as a browser draws a huge effect at a lower resolution rather
     /// than not at all. `nil` when nothing of it can show.
-    static func extent(_ rect: CGRect, k: CGFloat, seen: CGRect?) -> (rect: CGRect, w: Int, h: Int, k: CGFloat)? {
+    static func extent(_ rect: CGRect, k: CGFloat, seen: CGRect?, limit: Int = cap) -> (rect: CGRect, w: Int, h: Int, k: CGFloat)? {
+        let cap = min(limit, SvgIsland.cap)
         let fw = (rect.width * k).rounded(.up), fh = (rect.height * k).rounded(.up)
         guard rect.width > 0, rect.height > 0, fw >= 1, fh >= 1, fw.isFinite, fh.isFinite else { return nil }
         if fw * fh <= CGFloat(cap) { return (rect, Int(fw), Int(fh), k) }
@@ -206,28 +211,50 @@ enum SvgIsland {
         return layer
     }
 
-    /// A filtered element's picture (LLP 1055.000 D14): the element without
-    /// its effects rendered over the filter region at `k` pixels per user
-    /// unit, run through the chain by the module, as a layer placed on the
-    /// region. Without the module the element draws nothing.
-    static func filter(_ spec: [String: Any], k: CGFloat, seen: CGRect?, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
-        let layer = CALayer()
-        layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+    /// Where a filter island goes and at what size (`extent`, bounded by
+    /// `budget` at what its chain costs a pixel), its chain, and whether
+    /// the GPU runs it.
+    static func filterExtent(_ spec: [String: Any], k: CGFloat, seen: CGRect?)
+        -> (rect: CGRect, w: Int, h: Int, k: CGFloat, program: [Float], gpu: Bool)? {
         let r = nums(spec["r"])
-        guard r.count == 4 else { return layer }
+        guard r.count == 4 else { return nil }
         // What can show, widened by how far the chain reads (`rc`: units,
         // then pixels), so the pixels that show are the whole region's; a
         // chain that can read anywhere is never cut.
         let reach = nums(spec["rc"])
-        let wide = reach.count == 2 ? seen?.insetBy(dx: -(reach[0] + (reach[1] + 2) / max(k, 1e-6)), dy: -(reach[0] + (reach[1] + 2) / max(k, 1e-6))) : nil
-        guard let (rect, w, h, k) = extent(CGRect(x: r[0], y: r[1], width: r[2], height: r[3]), k: k, seen: wide) else { return layer }
+        let pad = reach.count == 2 ? reach[0] + (reach[1] + 2) / max(k, 1e-6) : 0
+        let wide = reach.count == 2 ? seen?.insetBy(dx: -pad, dy: -pad) : nil
+        let program = nums(spec["p"]).map(Float.init)
+        // Bytes a pixel costs: the source and the result, and on the GPU
+        // about two half-float intermediates; in the module a premultiplied
+        // `f32` image per input, working copy and result of each primitive.
+        let gpu = SvgFilterGPU.runs(program)
+        let steps = program.count > 4 ? Int(max(1, program[4])) : 1
+        let perPixel = gpu ? 24 : 8 + 16 * (3 + 3 * steps)
+        guard let e = extent(CGRect(x: r[0], y: r[1], width: r[2], height: r[3]), k: k, seen: wide, limit: budget / perPixel) else { return nil }
+        return (e.rect, e.w, e.h, e.k, program, gpu)
+    }
+
+    /// A filtered element's picture (LLP 1055.000 D14): the element without
+    /// its effects rendered over the filter region at `k` pixels per user
+    /// unit, run through the chain on the GPU (`SvgFilterGPU`) or else by
+    /// the module, as a layer placed on the region. Without either the
+    /// element draws nothing.
+    static func filter(_ spec: [String: Any], k: CGFloat, seen: CGRect?, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
+        let layer = CALayer()
+        layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        guard let (rect, w, h, k, program, gpu) = filterExtent(spec, k: k, seen: seen) else { return layer }
         layer.anchorPoint = .zero
         layer.bounds = CGRect(origin: .zero, size: rect.size)
         layer.position = rect.origin
-        let program = nums(spec["p"]).map(Float.init)
-        guard let module = SvgRasterModule.ready,
-              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: .identity, flip: true, dark: dark, fonts: fonts),
-              let data = ctx.data else { return layer }
+        guard let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, w: w, h: h, k: k, transform: .identity, flip: true, dark: dark, fonts: fonts) else { return layer }
+        if gpu, let source = ctx.makeImage(),
+           let out = SvgFilterGPU.run(program, source: source, origin: rect.origin,
+                                      scale: CGSize(width: CGFloat(w) / rect.width, height: CGFloat(h) / rect.height)) {
+            layer.contents = out
+            return layer
+        }
+        guard let module = SvgRasterModule.ready, let data = ctx.data else { return layer }
         let ok = program.withUnsafeBufferPointer { p in
             module.filter(p.baseAddress, p.count, data.assumingMemoryBound(to: UInt8.self), w, h,
                           Float(rect.minX), Float(rect.minY), Float(CGFloat(w) / rect.width), Float(CGFloat(h) / rect.height))

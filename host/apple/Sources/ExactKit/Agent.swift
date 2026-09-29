@@ -443,7 +443,13 @@ public final class Agent {
         // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
         // A held device request is not I/O in flight (LLP 1069.007 D3).
         let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
-        return inFlight + session.presenter.canvas2d.loadingCount
+        #if os(iOS)
+        // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
+        let pictures = SvgFilterLive.inFlight
+        #else
+        let pictures = 0
+        #endif
+        return inFlight + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.
