@@ -413,8 +413,11 @@ export function resolveApp(nameOrCrate) {
      * (LLP 1067 D5). */
     get modules() {
       const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
-      return { tags, apple: tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith('.swift')).sort().map(f => resolve(apple, f)) : [],
-        web: existsSync(web) ? web : null };
+      const under = (suffix) => tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith(suffix)).sort().map(f => resolve(apple, f)) : [];
+      // An `.xcframework` beside the Swift (a symlink is fine) is linked into
+      // the module artifact: its slice for the build's platform gives the
+      // headers (`import <Module>`) and every static library it holds.
+      return { tags, apple: under('.swift'), frameworks: under('.xcframework'), web: existsSync(web) ? web : null };
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,

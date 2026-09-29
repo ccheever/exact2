@@ -1007,8 +1007,8 @@ function main(args) {
   // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
   // two cost 93 s of every build at load 120.
   const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
-  const arm = (args, source, built) => {
-    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc])).digest('hex').slice(0, 16);
+  const arm = (args, source, built, extra = '') => {
+    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     if (!existsSync(cached)) {
       mkdirSync(dir, { recursive: true });
@@ -1029,16 +1029,30 @@ function main(args) {
   const modulesLoadName = 'libexact_modules.dylib';
   const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), ...app.modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
-  const moduleArgs = (sdkFor, targetArgs, out) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, '-o', out, ...targetArgs];
+  // The slice of each `modules/apple/*.xcframework` for this build, as
+  // linker input: `-I` its headers, `-L` it, `-l` each static library in it.
+  const frameworkArgs = (forIos, simulator) => (app.modules.frameworks ?? []).flatMap(fw => {
+    const slice = readdirSync(fw).filter(d => statSync(resolve(fw, d)).isDirectory()).find(d => forIos ? (d.startsWith('ios-') && d.endsWith('-simulator') === simulator) : d.startsWith('macos-'));
+    if (!slice) throw new Error(`host/apple: ${basename(fw)} has no ${forIos ? (simulator ? 'iOS simulator' : 'iOS') : 'macOS'} slice`);
+    const dir = resolve(fw, slice), libs = readdirSync(dir).filter(f => /^lib.*\.a$/.test(f));
+    return ['-I', resolve(dir, 'Headers'), '-L', dir, ...libs.map(f => `-l${f.slice(3, -2)}`)];
+  });
+  // `modules/apple/link.txt`, when present: extra linker flags for the module
+  // artifact (one per line, `#` comments), for what an archive needs but
+  // cannot declare — `-lc++` for a static library with C++ inside.
+  const linkFile = app.modules.apple.length ? resolve(dirname(app.modules.apple[0]), 'link.txt') : null;
+  const linkArgs = linkFile && existsSync(linkFile) ? readFileSync(linkFile, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')) : [];
+  const frameworkStamp = (forIos, simulator) => JSON.stringify([linkArgs, ...frameworkArgs(forIos, simulator).filter(a => a.startsWith('/')).map(a => { const st = statSync(a); return [a, st.size, st.mtimeMs]; })]);
+  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator), ...linkArgs, '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt), moduleSources, modulesBuilt);
+  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device));
   if (app.modules.tags.length) {
     // The roster the artifact serves, read from its table: a macOS slice (the
     // one this process can load) of the same sources for an iOS build.
     let provided = [];
     if (modulesBuilt && typeof Bun !== 'undefined') {
       const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe);
+      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false));
       const { dlopen, read, CString } = import.meta.require('bun:ffi');
       const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
       provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
