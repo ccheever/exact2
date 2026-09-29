@@ -1,0 +1,4 @@
+# Exact Live's rundown by finger: Arrange's reorder drag on its virtualized
+# list, a row carried two places down.
+tap pane-rundown
+drag arrange-grip-photo-00001 0 150 400

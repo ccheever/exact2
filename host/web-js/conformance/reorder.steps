@@ -1,0 +1,5 @@
+# Lift the second row and carry it below the fourth; a short move that
+# places nothing; lift the sixth and carry it to the top.
+drag grip-1 0 150 400
+drag grip-2 0 4 200
+drag grip-5 0 -300 500

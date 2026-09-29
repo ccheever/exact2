@@ -710,6 +710,13 @@ export function onTGeom(e, f) { e.$tgeom = f; }
 /** `transformrelease`: motion-glue's transform drag on the handle, holding
  * target `t`'s translate and scale inside its clip `c` (LLP 1057.001 §4). */
 export function onTRelease(e, f, t, c) { e.$trelease = f; motion(m => m.transformDrag(e, t, c)); }
+/** A `reorderFor` grip on list `l` (the strict ancestor it names), and a
+ * virtualized list's `reorderdrop`: Arrange, motion-glue's reorder drag
+ * over the list's preview (list.js) and the motion piece (arrange.js). The
+ * grip names its view (`data-view`): the list's browser half pins the row
+ * a contact on it holds by that name (collection-glue.js `liveView`). */
+export function onReorder(e, l) { e.$reorderList = l; e.dataset.view = viewId(e); motion(m => m.reorderHandle(e)); }
+export function onDrop(e, f) { e.$reorderdrop = f; motion(() => {}); }
 /** `pan`: the web host's input piece's (input-glue.js), after first paint. */
 export function onPan(e, f) {
   e.$pan = f; e.exactHandlers ??= e.dataset.exactOn.split(" ");
@@ -736,6 +743,24 @@ export function wf(e, f) {
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
+/** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
+ * the web host's own geometry-glue.js, fetched after first paint by a plan
+ * whose actions read geometry (`geo`); unavailable until it is (D5). The
+ * record is the runner's `Geometry`: x, y, width, height, provisional,
+ * unavailable. */
+let Geo = null, Geometry = null;
+export function geo() {
+  if (Geometry || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  Geometry = new Promise(r => requestAnimationFrame(() => r())).then(() => import("./geometry-glue.js"))
+    .then(() => { Geo = globalThis.exact.geometry(document.getElementById("exact-root")); })
+    .catch(err => say(`geometry: ${err.message}`)).finally(() => inflight.n--);
+}
+function geoRead(op, id) {
+  const out = new Float64Array(4), bits = Geo ? Geo.read(op, document.getElementById(id), out) : 0;
+  return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
+}
+export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
 /** A Markdown text field (LLP 1045 D5): the web host's own editor
  * (markup-editor.js over its wasm), fetched at the first one; it replaces
  * the textarea, which then forwards to it what this runtime writes and

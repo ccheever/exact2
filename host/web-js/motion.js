@@ -8,6 +8,7 @@
 // `mo`), the holds `motion-glue.js` asks for, and the actions they end in.
 import { motionController } from './motion-glue.js';
 import { transformDrags } from './transform.js';
+import { arrangeDrags } from './arrange.js';
 
 export async function engine({ clock, wall, views, viewId, hooks, say, inflight }) {
   const bytes = globalThis.__files ? globalThis.__files('motion.wasm') : await fetch(new URL('motion.wasm', document.baseURI)).then(r => r.arrayBuffer());
@@ -52,6 +53,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     for (const op of batch?.ops ?? []) {
       if (op.op === 'animate') api.animate(op);
       else if (op.op === 'retire-motion') api.retire(op.id, op.property, op.token, op.runtime);
+      else if (op.op === 'reorder-state') A.controller.state(op);
     }
   };
   const serial = token => Number(token ?? 0);
@@ -113,6 +115,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       }
       case 'height-owner': case 'clear-height-owner': return { accepted: false };
       case 'transform-geometry': case 'transform-invalidate': case 'transform-begin': case 'transform-move': case 'transform-action': return T.request(facts);
+      case 'reorder-begin': case 'reorder-preview': case 'reorder-terminal': case 'reorder-cancel': case 'reorder-rebase': case 'reorder-finish': return A.request(facts);
       case 'pan-sample': w.m_pan_sample(facts.view, facts.token ? 1 : 0, facts.x, facts.y, facts.now); return { accepted: true };
       case 'pan-velocity': w.m_pan_release(facts.view, facts.now); return { vx: w.m_scratch(0), vy: w.m_scratch(1) };
       default: return { error: `${facts.op} is not in the JS target's motion` };
@@ -147,6 +150,9 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   }
   const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
   const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight });
+  const A = arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After: globalThis.exact.After });
+  // A list's wrappers during a preview are motion nodes too (list.js).
+  hooks.observe = observe;
   // A dynamic style row on a held node goes to the authored text the hold
   // restores, as the wasm host's `style` op does (motion-glue `style`).
   hooks.style = (e, prop, v) => {
@@ -166,7 +172,8 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     observe,
     // After each commit's tree: lower what it changed, then retire what no
     // longer qualifies (glue.js `applyBatch`'s tail).
-    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); },
+    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); A.reconcile(); },
+    reorderHandle(el) { A.handle(el); A.reconcile(); },
     transformDrag(el, target, clip) { T.attach(el, target, clip); T.reconcile(); },
     height(id, v) { heights.set(id, v); observeHeight(id, v); },
     heightDrag(el, target) {
@@ -175,7 +182,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       api.attachHeightDrag(el, id, (t, g) => el.addEventListener(t, g));
       reconcileHeights();
     },
-    gone(id) { T.gone(id); if (handles.delete(id) | heights.delete(id)) reconcileHeights(); nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
+    gone(id) { T.gone(id); A.gone(id); if (handles.delete(id) | heights.delete(id)) reconcileHeights(); nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
     swipe(el) { const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); },
     pan: { sample: (id, x, y, t, first) => w.m_pan_sample(id, first ? 1 : 0, x, y, t), velocity: (id, t) => (w.m_pan_release(id, t), [w.m_scratch(0), w.m_scratch(1)]) },
   };

@@ -103,7 +103,9 @@ export function install(exact) {
         return { nodes, roots, ...tags() };
       }
       case 'layout': {
-        const nodes = all().map(n => { const b = views.get(n.id).getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height }; }).filter(n => n.w || n.h);
+        // Every view, a zero box too (an empty text, a closed popover), as
+        // the wasm host's layout reports them.
+        const nodes = all().map(n => { const b = views.get(n.id).getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height }; });
         return { nodes, ...tags() };
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }

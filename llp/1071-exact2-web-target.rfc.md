@@ -701,17 +701,17 @@ from (a) today.
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | every step equal, since the build gaps closed (2026-09-29, below) | Canvas Gallery 9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5, recorder 3/3 |
-| refused at build, by name | a file input (fieldnotes), the event `reorderdrop` (exact-live, interaction-gallery) |
+| refused at build, by name | a file input (fieldnotes) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
 | Gap | Work | Bytes |
 |---|---|---|
-| Reorder on a virtualized list (`reorder.rs`; a drag, on the motion capability) | 2–3 days | ~1 KB, in `list.js` |
+| ~~Reorder on a virtualized list~~ landed 2026-09-29 (below) | — | — |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
-| Events: ~~pan, panrelease, swiperight, select, cancel, the height and transform drags~~ (landed 2026-09-29, below); the reorder drag (`reorderdrop`: `reorder_drag.rs` and motion-glue's `arrangeController`, with reorder on a virtualized list); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 3–5 days | loaded (`motion-glue.js`, `picker-glue.js`) |
+| Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 1–2 days | loaded (`picker-glue.js`) |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
@@ -818,7 +818,7 @@ brotli):
   target: which rows a moving port builds ahead of itself, and so which it
   has measured, is the frame clock's. The fixture's long list uses rows at
   its estimate.
-- **Not carried**, refused by name: reorder (`reorderdrop`), a dynamic
+- **Not carried**, refused by name (reorder landed later that day, below): a dynamic
   `virtualized`. (`scrollIntoView` landed the same day: below.)
 
 **Bluesky** (outside the repo, `EXACT_APP_DIR`; 2026-09-29): it builds on the
@@ -1235,6 +1235,45 @@ Measured (metrics' dev row, five edits, p50): video player 104 ms (p95
 rebuild 60–150 ms and a first frame that waits for its Rust module, as an
 unbaked plan's resources without a compiled value must. The budget row is
 100 ms; the rest is the reload itself.
+
+**Arrange, the reorder drag; `frame` and `measure`** (landed 2026-09-29,
+measured; brotli):
+- **What.** The web host's own `arrangeController` (motion-glue.js,
+  unchanged) over the motion piece, whose runner's half gains
+  `reorder_drag.rs`'s (`arrange.js`: the six reorder packets, identities, the
+  token and the collection's exact geometry checked before any value, the
+  source and neighbours held, the source released at the engine's velocity,
+  the frame the page rebases by) and the collection's `reorder.rs` and the
+  runner's `reorder.rs` (`reorder.js`: a grip's binding, the source row's
+  gap certified by measured rows, each wrapper's absolute target sprung by
+  the engine, one owner, the list's `reorderdrop` with the keys the
+  collection names). `reorder.js` is installed on list.js's collections by
+  the motion piece at the first grip, so a list without a grip carries
+  none of it; list.js keeps the hooks and gives its internals to it. The
+  compiler resolves `reorderFor` to the strict ancestor with that `id` and
+  binds the grip (`onReorder`, which names the grip's view, `data-view`, as
+  collection-glue.js pins a contact's row by it) and the list's handler
+  (`onDrop`). `frame(id)` and `measure(id)` (LLP 1051.000) are the web
+  host's own `geometry-glue.js`, fetched after first paint by a plan whose
+  actions read geometry (`geo`), answering the runner's `Geometry` record.
+- **Found and fixed.** motion-glue reads the drag timelines' custom
+  properties from an element's own declaration: static ones are now
+  inline, as presence's are (Interaction Gallery's swipe rows and deck
+  consumers followed nothing). The JS agent's `layout` left out zero boxes
+  the wasm host's reports (an empty text, a closed popover), which made
+  Interaction Gallery's and Messages' layouts look different: Messages now
+  conforms 5/5 (its swipes included) and joins the async lane.
+- **Cost.** `list.js` 7,865 → 8,010 B (the hooks, 145 B, in every app with
+  a virtualized list); loaded with a grip: the motion chunk 15,018 →
+  18,238 B (`arrange.js`, `reorder.js`); `geometry-glue.js` 976 B loaded.
+  Interaction Gallery's `app.js` 23,615 B, Exact Live's 30,161 B.
+- **Conformance.** Interaction Gallery 18/18 (a swipe, the deck's card
+  thrown, a row reordered, the sheet's height dragged) and Exact Live 11/11
+  (a rundown row reordered), and a synthetic `reorder.contract` 5/5. Both
+  apps stay out of the async lane: their first photograph's screenshot
+  differs by about 4% in some runs (a PNG scaled by `object-fit: cover`,
+  rastered differently from run to run, on either target; calling
+  `decode()` on every image made it constant rather than rare).
 
 ## 8. Rulings and open questions for Charlie
 

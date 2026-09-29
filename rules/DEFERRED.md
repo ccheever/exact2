@@ -77,9 +77,9 @@ it compiles; the Rust render host stays the primary pre-render and the JS render
 the option (his ruling of the same day). Unblocks a web first interaction in
 about a tenth of the wasm target's bytes. Until these gaps close, an app that
 needs one is refused by name and builds the wasm target, which then retires:
-reorder on a virtualized list; a dynamic SVG
+a dynamic SVG
 `transform`, marker or `url(#…)` reference; a file input or `showPicker` (and
-with it the `cancel` its dismissal sends); the reorder drag (`reorderdrop`); state carried across the
+with it the `cancel` its dismissal sends); state carried across the
 dev loop's reload, native clients on the dev URL (the resident loop's producers
 without its wasm page) and the rest of the agent (these build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
@@ -99,7 +99,9 @@ build); and the height and transform drags (`heightrelease`, `transformgeometry`
 `transformrelease`); and exit animations and layout transitions (presence-glue.js); and the build's gaps: the GPU module, Canvas 2D drawn by a TypeScript
 source, a TypeScript and a Rust source in one app, native modules, delivery (the web
 root publishes the JS build of the bake's plan; the web needs no update client) and
-the dev loop's rebuild (~0.1 s an edit) — LLP 1071 §7, "Build and toolchain gaps".
+the dev loop's rebuild (~0.1 s an edit) — LLP 1071 §7, "Build and toolchain gaps";
+and the reorder drag (`reorderdrop`, reorder on a virtualized list) and `frame`/
+`measure` (Interaction Gallery and Exact Live build).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

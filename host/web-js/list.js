@@ -5,8 +5,9 @@
 // web host's own browser half (`collection-glue.js`, loaded after the first
 // paint as the wasm build loads it), which reports the same facts to it.
 // Imported by an app's module only when its plan has a virtualized list.
-// `scrollIntoView` (LLP 1070.000, into_view.rs) is carried; not carried
-// (refused at build): reorder, dynamic `virtualized`.
+// `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
+// preview (reorder.rs) by reorder.js, which the motion piece loads for a
+// reorder drag; not carried (refused at build): a dynamic `virtualized`.
 import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal, Hosts, exitView } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
@@ -176,7 +177,7 @@ class Collection {
     this.bootstrap = Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null });
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null });
     this.edges = [o.start, o.end];
   }
   snapshot() {
@@ -194,6 +195,7 @@ class Collection {
     let inPlace = null;
     if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
+    if (this.preview && (rekeyed || !inPlace || inPlace.length)) this.endPreview();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
     const previous = inPlace && JSON.stringify(this.snapshot());
@@ -304,6 +306,7 @@ class Collection {
     }
     this.pending = pending;
     this.emit();
+    if (this.preview) this.emitPreview();
   }
   distance(p, [top, end]) {
     const start = this.index.prefix(p), finish = start + this.index.h[p];
@@ -428,6 +431,7 @@ class Collection {
   }
   contains(c) { for (let p = c.up; p; p = p.up) if (p === this) return true; return false; }
   releasePins(cats) {
+    if (cats[1] && this.preview) this.losePreviewPin();
     const g = this.geometry;
     if (!g || !((cats[0] && g.focus_view != null) || (cats[1] && g.interaction_view != null))) return false;
     if (cats[0]) g.focus_view = null;
@@ -455,6 +459,10 @@ class Collection {
     const within = this.travelWithin(f, byView, fill);
     if (within !== undefined) return [false, within];
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
+    // Arrange's preview (reorder.js, loaded with the motion piece) ends with
+    // the row width and loses its pin with the contact (mod.rs `feedback`).
+    if (this.preview && changedWidth) this.endPreview();
+    if (this.preview && this.geometry.interaction_view !== f.interaction_view) this.losePreviewPin();
     if (!this.dims(f)) fill.limit = null;
     if (fill.ancestorMoving) fill.limit = 0;
     const previous = this.snapshot();
@@ -471,6 +479,7 @@ class Collection {
     this.correction = null;
     if (changedWidth) this.invalidateEstimates();
     else for (const r of measurements) this.measure(byView, r);
+    if (this.preview) this.checkPreviewHeight();
     this.restore(anchor);
     this.settleIntoView(f.offset);
     this.realize(false, fill);
@@ -672,7 +681,9 @@ function load() {
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
   (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading,
-    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState };
+    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState,
+    // Arrange's preview, installed by reorder.js (the motion piece's chunk).
+    internals: { Collection, Lists, Views, find, minEpoch, settled, controller: () => Controller } };
 }
 // A report from the browser half (runner/collection.rs `collection_feedback_filled`).
 function report(bytes, f, fill) {

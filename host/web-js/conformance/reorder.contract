@@ -1,0 +1,33 @@
+// data: interaction-gallery
+// Synthetic conformance plan: Arrange, the reorder drag (LLP 1041 §8.5), on
+// a virtualized list over a dist that links collections, drags and motion.
+// A grip's reorderFor names the list; a finger lifts its row, the rows it
+// passes spring aside (the collection's preview), and the release runs the
+// list's reorderdrop with the item's key and the one it now goes before,
+// certified by the collection; a short move places nothing. The action
+// records the drop; the rows keep their order, and spring back.
+shape Photo
+  id: string
+  title: string
+  subtitle: string
+  asset: string
+  alt: string
+  tone: string
+  notes: string
+  rank: number
+
+component Arrange
+  resource rows = galleryRows(0, 0, true) as shape list<Photo>
+  state last = "none"
+  state drops = 0
+  action dropped(item: string, before: option<string>) writes last, drops
+    last = `${item} before ${match before { case some(b) => b, case none => "the end" }}`
+    drops = drops + 1
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column" background-color="#ffffff"
+      text `${last} · ${drops}` testId="last" flex-shrink=0 padding=8
+      list id="arrange" reorderdrop=dropped virtualized=true estimated-item-height=56 testId="list" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        each p in rows key=p.id
+          row testId=`row-${p.rank}` height=56 box-sizing="border-box" padding-left=12 align-items="center" gap=12 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb" background-color="#ffffff"
+            box reorderFor="arrange" testId=`grip-${p.rank}` touch-action="none" width=32 height=32 background-color="#cbd5e1" border-radius=6
+            text p.title font-size=15

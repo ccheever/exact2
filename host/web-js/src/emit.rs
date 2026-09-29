@@ -210,6 +210,8 @@ struct Em<'a> {
     heights: std::collections::BTreeMap<u32, u32>,
     /// Each transform drag handle's target and clip, by node.
     transforms: std::collections::BTreeMap<u32, (u32, u32)>,
+    /// Each Arrange grip's list (`reorderFor`), by node.
+    reorders: std::collections::BTreeMap<u32, u32>,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -245,9 +247,11 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         symbols: (false, false),
         heights: Default::default(),
         transforms: Default::default(),
+        reorders: Default::default(),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
+    em.reorders = em.reorder_lists();
     let top = Scope::default();
     let action = Scope {
         action: true,
@@ -464,6 +468,12 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     }
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
+    // A plan whose actions read geometry fetches the page's reader after
+    // first paint, as the wasm host does for an artifact that imports it.
+    if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
+        let geo = em.uses.rt("geo");
+        let _ = write!(body, "{geo}();");
+    }
     if let Some(slot) = plan.locale {
         let language = em.uses.rt("language");
         let _ = write!(body, "{language}(s_{});", slot.0);
@@ -727,8 +737,18 @@ fn presence_decls(css: &mut String) -> String {
     let mut kept = String::new();
     let mut taken = String::new();
     for decl in css.split_inclusive(';') {
-        if decl.starts_with("--exact-layout-transition:")
-            || decl.starts_with("--exact-exit-animation:")
+        // The drag timelines' too (LLP 1057.003 D2, D4): motion-glue.js
+        // reads each from the element's own declaration.
+        if [
+            "--exact-layout-transition:",
+            "--exact-exit-animation:",
+            "--exact-drag-timeline:",
+            "--exact-animation-timeline:",
+            "--exact-animation-range:",
+            "--exact-timeline-scope:",
+        ]
+        .iter()
+        .any(|p| decl.starts_with(p))
         {
             taken.push_str(decl);
         } else {
@@ -1143,6 +1163,11 @@ impl Em<'_> {
         }
         self.motion_node(i, &e, scope)?;
         self.height_owner(i, &e, scope)?;
+        if let Some(l) = self.reorders.get(&i) {
+            self.motion = true;
+            let on = self.uses.rt("onReorder");
+            let _ = write!(self.out, "{on}({e},e{l});");
+        }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
@@ -1192,6 +1217,7 @@ impl Em<'_> {
                 | EventKind::Transformgeometry
                 | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
+                EventKind::Reorderdrop if virtualized => self.motion = true,
                 k => {
                     return Err(format!(
                         "node {i}: the `{}` event is not in the JS target",
@@ -1218,6 +1244,7 @@ impl Em<'_> {
                 EventKind::Heightrelease => Some("onHeight"),
                 EventKind::Transformgeometry => Some("onTGeom"),
                 EventKind::Transformrelease => Some("onTRelease"),
+                EventKind::Reorderdrop => Some("onDrop"),
                 _ => None,
             };
             if let Some(piece) = piece {

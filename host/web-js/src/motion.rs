@@ -95,6 +95,13 @@ impl Em<'_> {
             .collect()
     }
 
+    /// Each `reorderFor` grip's list: the unique strict ancestor with that
+    /// `id` (runner `reorder_binding`; the list, its handler and its rows
+    /// are checked at run time).
+    pub(super) fn reorder_lists(&self) -> std::collections::BTreeMap<u32, u32> {
+        self.drag_targets(PropId::ReorderFor)
+    }
+
     fn drag_targets(&self, prop: PropId) -> std::collections::BTreeMap<u32, u32> {
         let plan = self.plan;
         let literal = |i: u32, prop: PropId| {
