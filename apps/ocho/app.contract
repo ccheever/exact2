@@ -207,6 +207,7 @@ component Ocho
   state termNote = ""
   state scheme = "system"
   state cursor = -1
+  state searching = false
   resource fleet = fleet(query) as shape Fleet
   resource media = exactViewport() as shape Media
   derive appearance = scheme == "system" ? (media.prefersColorScheme == "dark" ? "dark" : "light") : scheme
@@ -249,86 +250,92 @@ component Ocho
   action focusManager
     focus("manager")
   action navKey(name: string) writes cursor, page, chosenTab, chosenVersion, version, launcher, typed, pickedAccount, pickedAccountLabel, pickedProvider, pickedMachine, pickedMachineLabel, opened, termNote
-    if (name == "j" or name == "ArrowDown") and rowCount > 0
-      cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
-      if page == "sessions"
-        match first(filter(fleet.sessions, s => s.index == ((cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1))))
-          case some(s)
-            scrollIntoView("sessions", s.id, block="nearest")
-          case none
-            cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
-    if (name == "k" or name == "ArrowUp") and rowCount > 0
-      cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
-      if page == "sessions"
-        match first(filter(fleet.sessions, s => s.index == ((cursor - 1 < 0 ? 0 : cursor - 1))))
-          case some(s)
-            scrollIntoView("sessions", s.id, block="nearest")
-          case none
-            cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
-    if name == "G" and rowCount > 0
-      cursor = rowCount - 1
-      if page == "sessions"
-        match first(filter(fleet.sessions, s => s.index == (rowCount - 1)))
-          case some(s)
-            scrollIntoView("sessions", s.id, block="nearest")
-          case none
-            cursor = rowCount - 1
-    if name == "g" and rowCount > 0
-      cursor = 0
-      if page == "sessions"
-        match first(filter(fleet.sessions, s => s.index == (0)))
-          case some(s)
-            scrollIntoView("sessions", s.id, block="nearest")
-          case none
-            cursor = 0
-    if name == "Enter" or name == "l"
-      if page == "sessions"
-        match cursorSession
-          case some(s)
-            version = version + 1
-            termNote = ""
-            send opened = openTab(s.machineId, s.id, false, version + 1)
-          case none
-            version = version
-      if page == "machines"
-        match cursorMachine
-          case some(m)
-            version = version + 1
-            termNote = ""
-            send opened = openShell(m.id, version + 1)
-          case none
-            version = version
-    if name == "Escape"
-      cursor = -1
-    if name == "/"
-      focus("search")
-    if name == "n"
-      launcher = true
-      typed = ""
-      pickedAccount = ""
-      pickedAccountLabel = ""
-      pickedProvider = ""
-      pickedMachine = ""
-      pickedMachineLabel = ""
-      focus("launcher-code-1")
-    if name == "1"
-      page = "sessions"
-      version = version + 1
-      chosenVersion = version + 1
-      chosenTab = ""
-      cursor = -1
-    if name == "2"
-      page = "machines"
-      version = version + 1
-      chosenVersion = version + 1
-      chosenTab = ""
-      cursor = -1
-    if name == "3"
-      page = "accounts"
-      version = version + 1
-      chosenVersion = version + 1
-      chosenTab = ""
-      cursor = -1
+    // The search field's keys reach here too (a keydown bubbles on the web); searchKey owns them while it has focus.
+    if not searching
+      if (name == "j" or name == "ArrowDown") and rowCount > 0
+        cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+        if page == "sessions"
+          match first(filter(fleet.sessions, s => s.index == ((cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1))))
+            case some(s)
+              scrollIntoView("sessions", s.id, block="nearest")
+            case none
+              cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+      if (name == "k" or name == "ArrowUp") and rowCount > 0
+        cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+        if page == "sessions"
+          match first(filter(fleet.sessions, s => s.index == ((cursor - 1 < 0 ? 0 : cursor - 1))))
+            case some(s)
+              scrollIntoView("sessions", s.id, block="nearest")
+            case none
+              cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+      if name == "G" and rowCount > 0
+        cursor = rowCount - 1
+        if page == "sessions"
+          match first(filter(fleet.sessions, s => s.index == (rowCount - 1)))
+            case some(s)
+              scrollIntoView("sessions", s.id, block="nearest")
+            case none
+              cursor = rowCount - 1
+      if name == "g" and rowCount > 0
+        cursor = 0
+        if page == "sessions"
+          match first(filter(fleet.sessions, s => s.index == (0)))
+            case some(s)
+              scrollIntoView("sessions", s.id, block="nearest")
+            case none
+              cursor = 0
+      if name == "Enter" or name == "l"
+        if page == "sessions"
+          match cursorSession
+            case some(s)
+              version = version + 1
+              termNote = ""
+              send opened = openTab(s.machineId, s.id, false, version + 1)
+            case none
+              version = version
+        if page == "machines"
+          match cursorMachine
+            case some(m)
+              version = version + 1
+              termNote = ""
+              send opened = openShell(m.id, version + 1)
+            case none
+              version = version
+      if name == "Escape"
+        cursor = -1
+      if name == "/"
+        focus("search")
+      if name == "n"
+        launcher = true
+        typed = ""
+        pickedAccount = ""
+        pickedAccountLabel = ""
+        pickedProvider = ""
+        pickedMachine = ""
+        pickedMachineLabel = ""
+        focus("launcher-code-1")
+      if name == "1"
+        page = "sessions"
+        version = version + 1
+        chosenVersion = version + 1
+        chosenTab = ""
+        cursor = -1
+      if name == "2"
+        page = "machines"
+        version = version + 1
+        chosenVersion = version + 1
+        chosenTab = ""
+        cursor = -1
+      if name == "3"
+        page = "accounts"
+        version = version + 1
+        chosenVersion = version + 1
+        chosenTab = ""
+        cursor = -1
+  action searchFocused() writes searching
+    searching = true
+  action searchBlurred() writes searching
+    searching = false
   action searchKey(name: string) writes cursor, opened, version, termNote
     if name == "ArrowDown" and rowCount > 0
       cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
@@ -440,8 +447,10 @@ component Ocho
       cwd = home
     send models = models(id, pickedProvider, pickedAccount, cwd == "" ? home : cwd)
     focus("launcher-code-3")
-  action setCwd(value) writes cwd, models
+  action setCwd(value) writes cwd
     cwd = value
+  action commitCwd(value) writes models
+    // The catalog can depend on the directory: asked once the value is committed (blur or Return), not per keystroke.
     if pickedMachine != ""
       send models = models(pickedMachine, pickedProvider, pickedAccount, value)
   action useDir(dir: string) writes cwd, models
@@ -602,7 +611,7 @@ component Ocho
               when page == "sessions"
                 row width=280 height=32 align-items="center" gap=8 padding-left=10 padding-right=10 border-radius=9 box-sizing="border-box" background-color="light-dark(rgba(0,0,0,0.05), rgba(255,255,255,0.07))"
                   image "symbol:search" font-size=13 tint-color="light-dark(#8a8a8a, #8a8a8a)"
-                  input id="search" testId="search" value=query input=setQuery key=searchKey placeholder="Search sessions" aria-label="Search sessions" visibility=(launcher ? "hidden" : "visible") flex=1 min-width=0 height=18 line-height="18px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=13 color="light-dark(#0d0d0d, #ececec)"
+                  input id="search" testId="search" value=query input=setQuery focus=searchFocused blur=searchBlurred key=searchKey placeholder="Search sessions" aria-label="Search sessions" visibility=(launcher ? "hidden" : "visible") flex=1 min-width=0 height=18 line-height="18px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=13 color="light-dark(#0d0d0d, #ececec)"
               button press=openLauncher testId="new-session-main" aria-label="New session" hover=hover("new-main") height=32 padding-left=12 padding-right=14 border-radius=9 flex-direction="row" align-items="center" gap=6 background-color=(hoverId == "new-main" ? "light-dark(#2a2a2a, #d9d9d9)" : "light-dark(#0d0d0d, #ececec)") transition="background-color 120ms ease-out" press-scale=0.97
                 image "symbol:add" font-size=12 font-weight=700 tint-color="light-dark(#ffffff, #0d0d0d)"
                 text "New" font-size=13 font-weight=600 color="light-dark(#ffffff, #0d0d0d)"
@@ -696,7 +705,7 @@ component Ocho
               row padding-left=18 padding-right=18 padding-bottom=8 gap=8 align-items="center" flex-shrink=0 flex-wrap="wrap"
                 text "in" font-size=12 color="light-dark(#8a8a8a, #8a8a8a)"
                 row flex=1 min-width=160 height=28 align-items="center" padding-left=8 padding-right=8 box-sizing="border-box" border-radius=7 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))"
-                  input testId="launcher-cwd" value=cwd input=setCwd placeholder="Directory" aria-label="Directory" flex=1 min-width=0 height=16 line-height="16px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=12 font-family="ui-monospace" color="light-dark(#0d0d0d, #ececec)"
+                  input testId="launcher-cwd" value=cwd input=setCwd change=commitCwd placeholder="Directory" aria-label="Directory" flex=1 min-width=0 height=16 line-height="16px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=12 font-family="ui-monospace" color="light-dark(#0d0d0d, #ececec)"
                 each d in machineDirs key=d.id
                   when d.id != cwd
                     button press=useDir(d.id) testId=`dir-${d.id}` class=Pill height=24 padding-left=8 padding-right=8 border-radius=6 background-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))"

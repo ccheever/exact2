@@ -526,7 +526,7 @@ final class FleetFeed {
                 if let j = sessions.firstIndex(where: { ($0["id"] as? String) == sid }) {
                     let was = (sessions[j]["status_observed_at"] as? NSNumber)?.doubleValue ?? 0
                     let now = (patch["status_observed_at"] as? NSNumber)?.doubleValue ?? 0
-                    guard now > was || was == 0 else { continue }
+                    guard now > was else { continue } // the desktop's rule: a newer observation only
                     for k in statusKeys { if let v = patch[k] { sessions[j][k] = v } }
                 } else { sessions.append(patch) }
             }

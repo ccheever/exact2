@@ -27,12 +27,31 @@ then `PATH`.
 libghostty is linked from `modules/apple/GhosttyKit.xcframework`, a symlink to
 a Ghostty checkout's `macos/GhosttyKit.xcframework` (ignored by git). Building
 it needs Zig 0.15.2 and the Xcode Metal toolchain (`xcodebuild
--downloadComponent MetalToolchain`); `scripts/ghostty-kit.sh` is the recipe used
-here, with two workarounds for Xcode 26: an `xcrun` shim that points Zig at the
-macOS 15 SDK (Zig 0.15.2 cannot link the 26.x SDK's libSystem), and each
-archive repacked with Apple's `libtool` (Xcode 26's linker refuses Zig's
-archives, "member not 8-byte aligned"). `host.macos.link` in `app.json` adds `-lc++` for the C++
-inside libghostty.
+-downloadComponent MetalToolchain`), with two workarounds for Xcode 26: an
+`xcrun` shim on `PATH` that answers `--show-sdk-path` with a macOS 15 SDK (Zig
+0.15.2 cannot link the 26.x SDK's libSystem), and each archive repacked with
+Apple's `libtool` (Xcode 26's linker refuses Zig's archives, "member not 8-byte
+aligned"). `host.macos.link` in `app.json` adds `-lc++` for the C++ inside
+libghostty. The recipe, from the Ghostty checkout (v1.3.1), targeting macOS 14
+so the slice matches Exact's deployment target:
+
+```sh
+zig build -Demit-macos-app=false -Dxcframework-target=native \
+  -Dtarget=aarch64-macos.14.0 -Doptimize=ReleaseFast
+D=macos/GhosttyKit.xcframework/macos-arm64
+rm -rf macos/GhosttyKit.xcframework/macos-arm64_x86_64   # the fat slice zig wrote
+mkdir -p "$D/Headers" && cp -R include/ "$D/Headers/" && find "$D" -maxdepth 1 -name '*.a' -delete
+R=$(mktemp -d)
+find .zig-cache/o -name '*.a' | while read -r f; do   # the thin macOS arm64 archives only
+  plat=$(xcrun otool -l "$f" | grep -A2 LC_BUILD_VERSION | awk '/platform/ {print $2; exit}')
+  [ "$plat" = 1 ] && [ "$(xcrun lipo -info "$f" | sed 's/.*: //')" = arm64 ] || continue
+  name=$(basename "$f"); [ "$name" = libghostty-fat.a ] && continue
+  [ -e "$D/$name" ] && continue                          # a duplicate name: the first wins
+  rm -rf "$R"/* && (cd "$R" && ar x "$OLDPWD/$f" && chmod 644 *.o)
+  xcrun libtool -static -o "$D/$name" "$R"/*.o
+done
+xcrun nm -g "$D/libghostty.a" | grep -c ' T _ghostty_'   # the surface API is present
+```
 
 ```sh
 bun host/apple/build.mjs ocho-apple --run

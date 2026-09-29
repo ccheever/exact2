@@ -42,3 +42,12 @@ replaces.
   renaming the prop to `scheme` fixed it. A native module tag's leftover
   attributes should either be all its own, or a known-row collision on a
   hyphenated tag should be a refusal with a message.
+- **A `key` handler on an input also reaches the `key` handler of an ancestor
+  on the web.** `column key=navKey` around `input key=searchKey`: on the web a
+  keydown bubbles, so every key in the search field ran both actions (the
+  cursor moved twice; Enter opened the session twice); on macOS the field
+  editor keeps the arrows, so only the input's handler ran. The web is the
+  standard, so the app tracks the field's focus (`focus=`/`blur=`) and the
+  ancestor ignores keys while it is focused. A dispatch rule (the innermost
+  `key` handler wins, or a contract-level way to stop the bubble) would make
+  the two hosts agree without app state.

@@ -327,7 +327,9 @@ final class SurfaceView: NSView {
             ev.unshifted_codepoint = scalar.value
         }
         var text: String? = nil
-        if action != GHOSTTY_ACTION_RELEASE, let chars = event.characters, !chars.isEmpty {
+        // `characters` exists only on key events: AppKit raises on a flagsChanged event (a lone modifier).
+        let typed = event.type == .keyDown || event.type == .keyUp
+        if action != GHOSTTY_ACTION_RELEASE, typed, let chars = event.characters, !chars.isEmpty {
             if chars.count == 1, let scalar = chars.unicodeScalars.first {
                 if scalar.value < 0x20 { text = event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control)) }
                 else if scalar.value >= 0xF700 && scalar.value <= 0xF8FF { text = nil }
