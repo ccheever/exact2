@@ -311,7 +311,26 @@ that share nothing:
   simulator. It did not reproduce the old race by
   itself, so the stress test is the guard.
 - **The device gate:** three rounds of the 19-kind fling and ladder and the
-  live fling on the iPhone, with no crash report.
+  live fling and ladder on the iPhone 13 Pro Max (rounds r20–r22, build
+  `rl1`), with no crash report in the device's crash logs. (The lane's own
+  iPhone runs on 2026-09-29 had crashed four times, 05:20–05:43, in
+  `TextResidency` and in `measureText` on the owner. Those were not counted,
+  because the probe's result files were complete. A device gate now reads
+  the crash logs as well.)
+
+**What the split costs** (medians of 3, the iPhone, fling / ladder):
+
+| feed | `rl1` fps | late per s | main ms/s | before the split (n14–n15) |
+|---|---|---|---|---|
+| 19-kind fling | 115.1 | 2.8 | 237 | 113.8 fps, 3.4 late, 282 ms/s |
+| live fling | 113.0 | 6.1 | 235 | 114.3 fps, 4.7 late, 207 ms/s |
+| live ladder | 93.5 | 12.5 | 334 | 100.2 fps, 10.6 late, 313 ms/s |
+
+The live feed pays for the split: painting no longer finds the measurer's
+shaped paragraphs, so main shapes its own lines from the published breaks.
+It costs about 25 ms/s of main on the live fling. Stage 4 recovers some of
+it; building the painter's lines off main from `LineGeometry` (the
+nested-list lane's raster path) recovers the rest.
 
 ## 0.1 Rulings on r1's questions (Charlie, 2026-09-28, through the coordinator)
 
