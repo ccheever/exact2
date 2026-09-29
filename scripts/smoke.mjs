@@ -152,7 +152,9 @@ if (host === 'canvas') {
 // run from a disposable tracked checkout; manifest and asset edits never
 // touch the developer's source tree. What it holds:
 // a dry run prints the table and writes nothing; `--yes` publishes the web
-// root, the blobs, and one signed head per stream, and the head verifies
+// root (the JS target's build when it takes the app; a browser boots it and
+// its deck loads from the immutable release), the blobs, and one signed head
+// per stream, and the head verifies
 // with the key; repeated bundle bytes stay current, and the origin follows its
 // actual public cards (identical cards rewrite nothing); an asset edit
 // is `bundle seq 2` naming the asset, with the record's `previous` the old
@@ -230,26 +232,23 @@ if (host === 'deploy') {
     let browser;
     try {
       browser = await open({ host: 'web', url: `http://127.0.0.1:${webServer.address().port}/` });
-      let tree = await browser.tree();
-      check(tree.roots?.length > 0 && tree.nodes.length > 0, 'the published web release booted in Chrome');
-      if (byTestId(tree, 'open-deck')) {
-        await browser.tap('open-deck'); await browser.clock('settle');
-        let state;
-        for (let i = 0; i < 40; i++) {
-          state = await browser.state();
-          if (state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready') break;
-          await sleep(25);
+      // A release admits no agent mode (LLP 1069.007 D2): read the page as a browser shows it.
+      const page = (expression) => browser.carrier.evaluate(expression);
+      check(await page("document.getElementById('exact-root')?.childElementCount > 0"), 'the published web release booted in Chrome');
+      if (await page(`!!document.querySelector('[data-testid="open-deck"]')`)) {
+        await page(`document.querySelector('[data-testid="open-deck"]').click()`);
+        let src = null;
+        for (let i = 0; i < 120 && !src; i++) {
+          src = await page("(() => { const f = document.querySelector('iframe'); return f?.contentDocument?.getElementById('deck-title') ? f.src : null; })()");
+          if (!src) await sleep(25);
         }
-        const frame = byTestId(await browser.tree(), 'deck-frame');
-        check(frame?.url?.includes('/.exact/root/web/releases/') && state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready', 'the published deck loaded from its immutable release');
-        await browser.tap('deck-frame', { selector: '#deck-title' });
-        for (let i = 0; i < 20; i++) { state = await browser.state(); if (state.slots.deckMessage === 'deck-tapped') break; await sleep(25); }
-        check(state.slots.deckMessage === 'deck-tapped', 'the published immutable deck answered its guest tap');
+        check(src?.includes('/.exact/root/web/releases/'), `the published deck loaded from its immutable release: ${src}`);
       }
-      check(requests.some((p) => /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/app\.wasm$/.test(p))
+      // The program is the JS target's `app.js` when it takes the app, else `app.wasm` (LLP 1071 §7, delivery).
+      check(requests.some((p) => /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/app\.(?:js|wasm)$/.test(p))
         && !requests.some((p) => /^\/(assets|deck|shaders)\//.test(p)), `the browser used immutable local resources: ${requests.join(', ')}`);
-      const logs = await browser.logs();
-      check(!logs.host.some((line) => /exception:|console.error: exact:/.test(line)), `published browser diagnostics: ${logs.host.join(' | ')}`);
+      const lines = browser.carrier.hostLines;
+      check(!lines.some((line) => /exception:|console.error: exact:/.test(line)), `published browser diagnostics: ${lines.join(' | ')}`);
     } finally { if (browser) await browser.close(); await new Promise((done) => webServer.close(done)); }
     const blobs1 = readdirSync(resolve(origin, '.exact/blobs')).length;
     check(blobs1 >= 1, 'blobs were written');
@@ -272,7 +271,8 @@ if (host === 'deploy') {
     const again = table('--yes', '--dirty', '--release', 'r-smoke-repeat');
     const stages = readdirSync(resolve(fixture.app.target, 'deploy')).filter(name => name.startsWith('r-smoke-repeat-'));
     if (stages.length !== 1) throw new Error(`the repeat invocation left ${stages.length} private bakes`);
-    const candidate = webRelease(resolve(fixture.app.target, 'deploy', stages[0], 'web'));
+    const baked = resolve(fixture.app.target, 'deploy', stages[0]);
+    const candidate = webRelease(resolve(baked, existsSync(resolve(baked, 'web-js')) ? 'web-js' : 'web'));
     const oldCards = new Map(oldPointer.files.map(card => [card.name, card.sourceSha256]));
     const newCards = new Map(candidate.pointer.files.map(card => [card.name, card.sourceSha256]));
     const expected = { new: [], changed: [], current: [], removed: [] };

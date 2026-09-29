@@ -408,10 +408,14 @@ function* publishedFile(dist, pathname) {
   catch { return null; }
   // Immutable generation URLs never consult the current pointer: readers
   // that already opened an older index keep all of that generation's files.
+  // A release holds only what its publisher wrote (deploy.mjs `webRootFiles`:
+  // a JS-target root adds its content-named chunks and pages), so any name
+  // in it is public but a dot path the allowlist does not name.
+  const releaseFile = (name) => PUBLIC_FILES.has('/' + name) || !name.split('/').some((part) => part.startsWith('.'));
   const release = /^\/\.exact\/root\/web\/releases\/([0-9a-f]{64})\/(.*)$/.exec(route);
   if (release) {
     const name = release[2] || 'index.html';
-    if (!PUBLIC_FILES.has('/' + name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    if (!releaseFile(name)) return null;
     staticRelative(name);
     const rel = `${webReleasePath(release[1])}/${name}`;
     const body = (yield { op: 'get', root: resolve(dist), path: rel });
@@ -422,7 +426,7 @@ function* publishedFile(dist, pathname) {
   if (raw === null) return undefined; // a local build, not a deployed root
   const root = parseWebRoot(Buffer.from(raw, 'base64'));
   const card = root.files.find((file) => '/' + file.name === route);
-  if (!card || !PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
+  if (!card || !releaseFile(card.name)) return null;
   const rel = `${webReleasePath(root.id)}/${card.name}`;
   const value = (yield { op: 'get', root: resolve(dist), path: rel });
   if (value === null) return null;

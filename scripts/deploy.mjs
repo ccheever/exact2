@@ -57,7 +57,7 @@ import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBui
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock } from './filesystem.mjs';
-import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
+import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
@@ -534,6 +534,26 @@ export function deployRun(target, release) {
 
 // ------------------------------------------------------------------ the bake
 
+/** The web root on the JS target (LLP 1071 §7, delivery), when it takes the
+ * app: the wasm bake's baked plan compiled to JavaScript into `<run>/web-js`
+ * (`host/web-js/build.mjs --production`), carrying the bake's origin files,
+ * so the root and every stream's bundle share one plan. The bake stays what
+ * the streams publish; the web needs no update client, since a fresh load
+ * of the atomic root is current. Returns the directory, or null with the
+ * refusal logged (the wasm bake is then the root). */
+function bakeJs(app, run, web, exactRoot, sourceRoot) {
+  const out = resolve(run, 'web-js');
+  const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_APP_DIR: app.dir });
+  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web-js/build.mjs'), app.name, '--plan', resolve(web, 'app.plan'), '--out', out, '--production'], {
+    cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.status === 0) { process.stderr.write(`web root: the JS target (${out})\n`); return out; }
+  rmSync(out, { recursive: true, force: true });
+  const reason = `${r.stderr ?? ''}`.trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('; ');
+  process.stderr.write(`web root: the wasm target; the JS target refused ${app.name}: ${reason}\n`);
+  return null;
+}
+
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
 function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
@@ -849,7 +869,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     try {
       const before = await origin.get(webRootPath);
       const previous = before ? parseWebRoot(before) : null;
-      const names = listPublicFiles(web);
+      const names = webRootFiles(web);
       const oldNames = previous ? previous.files.map((f) => f.name)
         : origin.dir && existsSync(origin.dir) ? listPublicFiles(origin.dir) : [];
       for (const rel of names) {
@@ -1056,10 +1076,19 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
   });
 }
 
+/** A web root's public files: the wasm build's allowlist, and a JS-target
+ * root's whole tree besides (its content-named chunks and rendered pages;
+ * no dot path but the allowlist's, so never its `.gen`). */
+function webRootFiles(web) {
+  const names = new Set(listPublicFiles(web));
+  if (!existsSync(resolve(web, 'app.wasm'))) for (const name of listBuildFiles(web)) names.add(name);
+  return [...names].sort();
+}
+
 /** Capture one complete web graph. The identity binds every original byte
  * and this encoding version; generated links all name that immutable tree. */
 export function webRelease(web) {
-  const files = listPublicFiles(web).map((name) => ({ name, body: readStaticCandidate(web, name) }));
+  const files = webRootFiles(web).map((name) => ({ name, body: readStaticCandidate(web, name) }));
   const source = files.map(({ name, body }) => ({ name, sha256: sha256(body) }));
   const id = sha256(canonicalBytes({ webRoot: 1, source }));
   const prefix = `/${webReleasePath(id)}/`;
@@ -1075,6 +1104,10 @@ export function webRelease(web) {
         : html.replace(/(<meta charset="utf-8">)/i, `$1\n<base href="${prefix}">`));
       if (!file.body.toString('utf8').includes('<base ')) file.body = Buffer.from(`<base href="${prefix}">\n${html}`);
       file.body = Buffer.from(file.body.toString().replace('href="./exact.json"', `href="${prefix}exact.json"`));
+    } else if (file.name.endsWith('.html') && /<base\s+href=["']\/["']\s*\/?\s*>/i.test(file.body.toString('utf8'))) {
+      // A JS-target root's other documents (its rendered pages, the shell)
+      // anchor in the release as index.html does.
+      file.body = Buffer.from(file.body.toString('utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, `<base href="${prefix}">`));
     } else if (file.name === 'manifest.json') {
       const manifest = JSON.parse(file.body.toString('utf8'));
       // Manifest navigation remains canonical after moving the manifest
@@ -1195,6 +1228,7 @@ async function deployCaptured(opts, capsule) {
 
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);
+  const webRoot = wantOrigin ? bakeJs(app, run, web, exactRoot, sourceRoot) ?? web : web;
   const bundle = readBundle(web, app);
   const builds = {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(run,'bake')}).find(r=>r.compat.inputs.platform==='web')};
   if(!builds.web)refuse('the web build emitted no completed graph receipt');
@@ -1224,7 +1258,7 @@ async function deployCaptured(opts, capsule) {
   }
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
-  const table = await classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, builds, platforms, wantOrigin });
+  const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
   if (!opts.json) console.log(renderTable(table));
 
   if (!opts.yes) {
@@ -1242,7 +1276,7 @@ async function deployCaptured(opts, capsule) {
       if (row.action === 'unavailable') { failed.push({ kind: 'origin', error: row.reason }); log(`  origin: unavailable — ${row.reason}`); continue; }
       if (row.action !== 'publish') { published.push({ ...row, action: 'current' }); continue; }
       // A step that fails leaves what was there (D3 item 5); the run goes on to the next row and exits 1.
-      try { published.push(await publishRoot({ origin, row, web, log })); } catch (e) { failed.push({ kind: 'origin', error: e.message }); log(`  origin: failed — ${e.message}`); }
+      try { published.push(await publishRoot({ origin, row, web: webRoot, log })); } catch (e) { failed.push({ kind: 'origin', error: e.message }); log(`  origin: failed — ${e.message}`); }
       continue;
     }
     const name = `${row.platform ?? '?'} ${row.kind} ${row.compatibilityId.slice(0, 8)}`;
