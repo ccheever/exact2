@@ -1339,12 +1339,26 @@ impl Parser {
 }
 
 /// A keyword that may still be a name where one is expected: every keyword but
-/// those that begin or join an expression, a region, or a statement.
+/// those that begin or join an expression, a region, or a statement. The
+/// operators `and`, `or` and `not` join or begin an expression, so a parameter
+/// by one of those names could never be read back.
 fn is_name_word(w: &str) -> bool {
     !is_keyword(w)
         || !matches!(
             w,
-            "when" | "if" | "else" | "each" | "in" | "match" | "case" | "as" | "fn" | "refresh"
+            "when"
+                | "if"
+                | "else"
+                | "each"
+                | "in"
+                | "match"
+                | "case"
+                | "as"
+                | "fn"
+                | "refresh"
+                | "and"
+                | "or"
+                | "not"
         )
 }
 

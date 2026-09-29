@@ -417,6 +417,11 @@ fn state_and_key_name_parameters_but_not_a_statement() {
         // A keyword that shapes an expression never names a parameter.
         ("fn f(when: string): string = when\ncomponent A\n  view\n    text \"a\"\n", "syntax-expected-name"),
         ("component A\n  resource xs = names() as shape list<string>\n  derive k = filter(xs, in => in != \"\")\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        // An operator word joins or begins an expression, so it never names a
+        // parameter either: `not` as a parameter could not be read back.
+        ("fn f(not: bool): bool = not\ncomponent A\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        ("fn f(and: bool, or: bool): bool = and\ncomponent A\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        ("component A\n  resource xs = names() as shape list<bool>\n  derive k = filter(xs, and => and)\n  view\n    text \"a\"\n", "syntax-expected-name"),
         // A parameter named like a keyword is a value, never a call.
         ("fn f(state: string): string = state(1)\ncomponent A\n  view\n    text \"a\"\n", "syntax-keyword-as-value"),
     ] {
