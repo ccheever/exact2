@@ -593,10 +593,10 @@ host's entry for the new id comes from the batch's snapshots.
   window, so `end()` drops them with it.
 - **Pressure.** A memory warning drops everything (`reset()`).
 
-**With LLP 1071** (r3, `perf/late-frames`): parking happens where destroy
-ops are applied, and eviction stays synchronous on main (1071 §5: an
+**With LLP 1072** (r3, `perf/late-frames`): parking happens where destroy
+ops are applied, and eviction stays synchronous on main (1072 §5: an
 asynchronous fill only creates). Taking happens where create ops are
-applied, on main, by the apply coordinator (1071 §3.2). A create-only
+applied, on main, by the apply coordinator (1072 §3.2). A create-only
 batch's creates may claim trees that the previous eviction parked. The pool
 stays main-only state, and nothing here runs on the owner thread.
 
