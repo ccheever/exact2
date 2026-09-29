@@ -6,6 +6,10 @@ final class NavigationHost {
     unowned let presenter: Presenter
     private var refused: [UInt32: String] = [:]
     private var gates: [UInt32: [Bool]] = [:]
+    /// The ops that can change what hides or disables a node: a frame, a
+    /// paint or a presentation value (every frame of an animation) cannot,
+    /// and each write posts an accessibility notification.
+    private static let gating: Set<BatchOp.Kind> = [.create, .props, .style, .children, .roots]
     init(presenter: Presenter) { self.presenter = presenter }
     func reset() { refused.removeAll(); gates.removeAll() }
 
@@ -15,7 +19,7 @@ final class NavigationHost {
         for op in batch.ops {
             if let id = op.nodeID {
                 if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
-                else { touched.insert(id) }
+                else if Self.gating.contains(op.op) { touched.insert(id) }
             }
             // A children op names retained siblings too. Only changed ancestry
             // can change their inherited gates; a list append must not revisit
