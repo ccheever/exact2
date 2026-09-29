@@ -23,7 +23,9 @@ struct CollectionFacts: Equatable {
     /// Wire version 3: `velocity` (points/s, positive toward the end),
     /// `limit`, the rows past what it owes this report may build (nil: any),
     /// and whether an enclosing list is moving (LLP 1070 F2).
-    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false) -> Data {
+    /// `createOnly` and `noBuild` split a moving list's report around the
+    /// owner thread (LLP 1071 §5): build only, off main; then retire only.
+    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
             var le = value.littleEndian
@@ -33,7 +35,7 @@ struct CollectionFacts: Equatable {
         for value in [offset, portMain, portCross, cross] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
-        integer(UInt32(ancestorMoving ? 1 : 0))
+        integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0))
         integer(UInt32(measurements.count))
         for row in measurements { integer(row.view); integer(row.epoch); integer(row.size.bitPattern) }
         return bytes
@@ -193,6 +195,21 @@ final class CollectionHost {
     var rescued: (() -> Void)?
     private(set) var fillPending = Set<UInt32>()
     private var sliceLimits: [UInt32: UInt32] = [:]
+    /// @ref LLP 1071 §3, §5 — a moving list's slice is built off main. The
+    /// session sends it (`onFill`), says whether one is in flight (`filling`,
+    /// when every report waits), and lands it (`drain`: wait and apply).
+    var onFill: ((UInt32, Data) -> Void)?
+    var filling: (() -> Bool)?
+    var drain: (() -> Void)?
+    /// The slice a report sends off main, and the retire-only report a
+    /// landed one owes, each with its limit.
+    private var building: (view: UInt32, limit: UInt32)?
+    private var retireOwed: [UInt32: UInt32] = [:]
+    private var fillLimits: [UInt32: UInt32] = [:]
+    /// Seconds from a slice's send to its landing, per list: the lead a
+    /// moving list builds ahead covers it.
+    private(set) var fillLatency: [UInt32: Double] = [:]
+    private var fillSent: [UInt32: Double] = [:]
     // Platform hooks remove event monitors/recognizers when the adapter resets.
     var stopTracking: (() -> Void)?
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -204,6 +221,7 @@ final class CollectionHost {
         stopTracking?(); stopTracking = nil
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
         fillPending.removeAll(); sliceLimits.removeAll()
+        building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget()
         refreshPins = false; lastVisited = 0
         #if os(iOS)
@@ -302,6 +320,9 @@ final class CollectionHost {
             // a port the estimates overstate (a jump into unmeasured rows).
             if motion != nil { sliceLimits[view] = 2 }
             lastVisited = view &- 1
+            // What shows cannot wait for a slice in flight (T7): land it,
+            // then report from the geometry that shows now.
+            if filling?() == true { drain?() }
             flush()
             sliceLimits[view] = nil
             if motion != nil { rescued?() }
@@ -312,6 +333,8 @@ final class CollectionHost {
     /// main-queue turn. Returns the rows it created.
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
+        // One slice in flight at a time; this one stays owed (LLP 1071 §3.1).
+        if filling?() == true { return 0 }
         fillPending.remove(view)
         guard let entry = entries[view], batchDepth == 0 else { return 0 }
         let before = Set(entry.snapshot.rows.map(\.view))
@@ -320,9 +343,22 @@ final class CollectionHost {
         sliceLimits[view] = limit
         // The slice's own list first: the round-robin would visit it last.
         lastVisited = view &- 1
+        if onFill != nil { building = (view, limit) }
         flush()
+        building = nil
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
+    }
+    /// A slice built off main has been applied (LLP 1071 §5): what it left
+    /// owed (rows past the window, an edge) is settled now, on main, by a
+    /// retire-only report from fresh facts and the pins that hold now.
+    func landed(_ view: UInt32, at now: Double) {
+        if let sent = fillSent.removeValue(forKey: view) { fillLatency[view] = now - sent }
+        guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
+        retireOwed[view] = limit
+        dirty.insert(view)
+        budget.nextTurn()
+        flush()
     }
     /// The agent's `clock settle`: every list reports until none is owed a
     /// report, so rows a reply mounted are measured before the agent reads
@@ -386,6 +422,8 @@ final class CollectionHost {
         // even if a visit re-dirties its list).
         var free = entries.count
         while !dirty.isEmpty {
+            // A slice in flight holds every report until it lands (T4).
+            if filling?() == true { return }
             guard budget.begin() else { return }
             #if os(iOS)
             let focus = focusFound ?? focusedView()
@@ -431,11 +469,17 @@ final class CollectionHost {
                 // report while moving or owed a continuation only measure
                 // and rescue what shows. At rest a report is unlimited.
                 let velocity = motion?(id)
-                let limit: UInt32? = sliceLimits.removeValue(forKey: id)
+                let retireLimit = retireOwed.removeValue(forKey: id)
+                let limit: UInt32? = retireLimit ?? sliceLimits.removeValue(forKey: id)
                     ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
                 let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? (entry.lastLimit != nil)
+                // Off main only when the report keeps the port, the width and
+                // the pins: a report that changes them may retire (§5).
+                let same = entry.lastFacts.map { ($0.portMain, $0.portCross, $0.cross, $0.focus, $0.interaction)
+                    == (facts.portMain, facts.portCross, facts.cross, facts.focus, facts.interaction) } ?? false
+                let offMain = building?.view == id && same && retireLimit == nil ? building : nil
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
-                    || (entry.snapshot.pending && limit != 0) || further {
+                    || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil {
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
@@ -444,8 +488,16 @@ final class CollectionHost {
                     // what it owes (LLP 1070 F2); its pending report
                     // continues once the outer list rests.
                     let ancestorMoving = entry.snapshot.parent.flatMap { motion?($0) } != nil
+                    if let offMain, let onFill {
+                        fillLimits[id] = offMain.limit
+                        fillSent[id] = ProcessInfo.processInfo.systemUptime
+                        onFill(id, facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
+                            velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, createOnly: true))
+                        budget.end()
+                        return
+                    }
                     onFeedback(facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
-                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving))
+                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil))
                 }
             }
             free -= reported ? 0 : 1

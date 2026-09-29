@@ -274,6 +274,15 @@ final class Runtime {
             return read(exact_into_view(rt, view, n))
         }
     }
+    /// A build-only report on the owner, not waited for (LLP 1071 §3):
+    /// `done` runs on the owner with the decoded batch.
+    func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            let n = write(bytes)
+            done(read(exact_collection_feedback(rt, n, now)))
+        }
+    }
     /// Actual viewport/row observations using the runner's versioned LE wire.
     func collectionFeedback(_ bytes: Data, now: Double) -> Batch {
         return on {

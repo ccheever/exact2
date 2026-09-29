@@ -102,6 +102,10 @@ public final class Agent {
               let op = req["op"] as? String
         else { reply(["error": "unreadable request: \(line)"]); return }
         if op == "quit" { exit(0) }
+        // A slice building off main lands before the agent reads or acts
+        // (LLP 1071 T9); under the agent slices are synchronous, so this is
+        // for a carrier attached to an ordinary run.
+        ExactSession.drainAll()
         let wanted = req["session"] as? String
         var target: ExactSession? = nil
         if let wanted {

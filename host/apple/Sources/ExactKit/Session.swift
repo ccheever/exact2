@@ -404,6 +404,22 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any], UInt32?)] = []
     private var applying = false
+    // @ref LLP 1071 §3 — a collection slice built on the owner thread. While
+    // one is in flight, work that would wait behind it on the owner (a
+    // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
+    // main instead, and runs after the slice lands, in order.
+    private(set) var fillInFlight = false
+    private var afterFill: [() -> Void] = []
+    private let published = NSLock()
+    private var publishedFill: (view: UInt32, batch: Batch, generation: Int)?
+    /// Slices build off main on iOS unless the agent drives the app, or
+    /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1071 T12).
+    /// macOS follows once physical scrolling there is measured (stage 5).
+    #if os(iOS)
+    static let asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
+    #else
+    static let asyncFills = false
+    #endif
     var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
     private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
@@ -502,14 +518,70 @@ public final class ExactSession {
         let rt = ExactRuntime(UInt(bitPattern: ctx))
         DispatchQueue.main.async {
             guard let s = ExactSession.live[rt]?.session else { return }
-            s.apply(s.runtime.pump(now: s.now()))
+            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now())) }
         }
     }
 
     /// The app's clock: what events, timers, motion, and canvases see.
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
+    /// Run `work` now, or after the slice in flight lands (LLP 1071 §3).
+    func whenIdle(_ work: @escaping () -> Void) {
+        if fillInFlight { afterFill.append(work) } else { work() }
+    }
+
+    /// Send a build-only slice to the owner; its batch comes back published.
+    private func sendFill(_ view: UInt32, _ bytes: Data) {
+        fillInFlight = true
+        let captured = generation
+        runtime.collectionFeedbackAsync(bytes, now: now()) { [weak self] batch in
+            guard let self else { return }
+            published.lock()
+            publishedFill = (view, batch, captured)
+            published.unlock()
+            DispatchQueue.main.async { [weak self] in self?.landFill() }
+        }
+    }
+
+    /// Apply the slice the owner published, then what it owes and what
+    /// waited for it. Before any other batch applies, so batches apply in
+    /// the owner's order (T4).
+    func landFill() {
+        published.lock()
+        let fill = publishedFill
+        publishedFill = nil
+        published.unlock()
+        guard let fill else { return }
+        fillInFlight = false
+        guard state != .destroyed, fill.generation == generation else { afterFill.removeAll(); return }
+        let batch = fill.batch
+        if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue) {
+            apply(batch)
+        }
+        presenter.collections.landed(fill.view, at: ProcessInfo.processInfo.systemUptime)
+        let waiting = afterFill
+        afterFill.removeAll()
+        for work in waiting { work() }
+        presenter.collections.flush()
+    }
+
+    /// Land every session's slice in flight.
+    static func drainAll() { for weak in live.values { weak.session?.drainFill() } }
+
+    /// Wait for the slice in flight and land it: what shows, the agent and
+    /// every read that must see it (T5, T7, T9).
+    public func drainFill() {
+        guard fillInFlight else { return }
+        Owner.shared.sync {}
+        landFill()
+    }
+
     private func wire() {
+        if ExactSession.asyncFills {
+            presenter.collections.onFill = { [weak self] view, bytes in self?.sendFill(view, bytes) }
+            presenter.collections.filling = { [weak self] in self?.fillInFlight ?? false }
+            presenter.collections.drain = { [weak self] in self?.drainFill() }
+        }
         presenter.collections.onFeedback = { [weak self] bytes in
             guard let self, state != .destroyed else { return }
             let batch = runtime.collectionFeedback(bytes, now: now())
@@ -535,7 +607,7 @@ public final class ExactSession {
             if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
-        presenter.onIntrinsic = { [unowned self] sizes in apply(runtime.intrinsics(sizes)) }
+        presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
@@ -722,6 +794,13 @@ public final class ExactSession {
 
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
+        // A slice the owner committed before this batch applies first (T4).
+        if fillInFlight, !applying {
+            published.lock()
+            let ready = publishedFill != nil
+            published.unlock()
+            if ready { landFill() }
+        }
         let outermost = !applying
         applying = true
         for op in batch.ops where op.op == .router { routerOp = op.payload }
@@ -900,7 +979,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                apply(runtime.advance(now: now()))
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; apply(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1158,11 +1237,15 @@ final class Frames: NSObject {
         // Frame-precise timers: the first frame at or past the deadline fires
         // them. A frame before it would advance to no timer, and its commit
         // and presenter pass cost a list in motion a report a frame.
-        if timerSoon, !ExactEnv.agentMode, s.clock == nil {
-            let now = s.now()
-            if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
+        // A slice building on the owner holds this frame's timers and tick:
+        // they run on the first frame after it lands (LLP 1071 §7.1).
+        if !s.fillInFlight {
+            if timerSoon, !ExactEnv.agentMode, s.clock == nil {
+                let now = s.now()
+                if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
+            }
+            if motion || canvas2d { s.apply(s.runtime.tick(now: s.now())) }
         }
-        if motion || canvas2d { s.apply(s.runtime.tick(now: s.now())) }
         let more = s.canvases.tick(now: frameNow)
         run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
