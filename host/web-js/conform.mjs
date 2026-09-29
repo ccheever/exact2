@@ -136,7 +136,8 @@ async function drive(t, report, fail, dir, ws, js) {
     };
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
     // a line — `tap <target>`, `type <target> <text…>`, `clock <+ms|settle>`,
-    // `back` (the browser's history), `wheel <target> <dy> [dx]` — each
+    // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
+    // <list> <key> [block]` (a virtualized list's row by key) — each
     // compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
@@ -144,7 +145,7 @@ async function drive(t, report, fail, dir, ws, js) {
     let tree = await compare('boot');
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : Promise.reject(new Error(`unknown op ${op}`));
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; }
       try { await run(J); } catch (e) { fail(line, `js: ${e.message.split('\n')[0]}`); continue; }
       await settle();

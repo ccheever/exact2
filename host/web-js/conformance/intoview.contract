@@ -1,0 +1,40 @@
+// data: carousel
+// Synthetic conformance plan: `scrollIntoView` on a virtualized list (LLP
+// 1070.000, list.js), on Carousel's sources and wasm — the command from an
+// action (a far row centred, a near one to the end, a key the list lacks,
+// refused) and the agent's `tap <list> into <key>`. Rows are their
+// estimate, as in lists.contract.
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component IntoView
+  resource cards = cards(2000) as shape list<Card>
+  state shown = ""
+  action far writes shown
+    shown = "far"
+    scrollIntoView("long", "c1500", block="center")
+  action near writes shown
+    shown = "near"
+    scrollIntoView("long", "c40", block="end")
+  action missing writes shown
+    shown = "missing"
+    scrollIntoView("long", "c99999")
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      row gap=8 padding=8 flex-shrink=0
+        button press=far testId="far"
+          text "far"
+        button press=near testId="near"
+          text "near"
+        button press=missing testId="missing"
+          text "missing"
+        text shown testId="shown"
+      list id="long" virtualized=true estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        each c in cards key=c.id
+          row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+            column width=12 height=12 border-radius=6 background-color=c.color
+            text c.label font-size=14

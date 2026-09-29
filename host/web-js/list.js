@@ -5,9 +5,9 @@
 // web host's own browser half (`collection-glue.js`, loaded after the first
 // paint as the wasm build loads it), which reports the same facts to it.
 // Imported by an app's module only when its plan has a virtualized list.
-// Not carried (refused at build): `scrollIntoView`, reorder, dynamic
-// `virtualized`.
-import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal } from "./rt.js";
+// `scrollIntoView` (LLP 1070.000, into_view.rs) is carried; not carried
+// (refused at build): reorder, dynamic `virtualized`.
+import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal, Hosts } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -176,15 +176,15 @@ class Collection {
     this.bootstrap = Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [] });
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null });
     this.edges = [o.start, o.end];
   }
   snapshot() {
     const g = this.geometry;
-    return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}),
+    return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}), ...(this.target ? { seeking: true } : {}),
       revision: this.revision, scrollSequence: g ? g.scroll_sequence : 0, count: this.index.len, totalExtent: this.index.total,
       rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
-      pending: this.pending, correction: this.correction };
+      pending: this.pending || !!this.target, correction: this.correction }; // an into-view request wants its next report
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
@@ -447,6 +447,7 @@ class Collection {
     if (!this.dims(f)) fill.limit = null;
     if (fill.ancestorMoving) fill.limit = 0;
     const previous = this.snapshot();
+    this.followIntoView(fill);
     let measurements = f.measurements;
     if (this.axis === "x" && !changedWidth) {
       const first = [];
@@ -460,6 +461,7 @@ class Collection {
     if (changedWidth) this.invalidateEstimates();
     else for (const r of measurements) this.measure(byView, r);
     this.restore(anchor);
+    this.settleIntoView(f.offset);
     this.realize(false, fill);
     const now = this.snapshot();
     now.scrollSequence = previous.scrollSequence;
@@ -474,7 +476,7 @@ class Collection {
       const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
       return this.index.token(key) === m.token && !(this.index.measured(key) && this.index.h[m.position] === r.size && (r.size === 0) === this.zeros.has(key));
     };
-    if (f.measurements.some(remeasures) || this.restoredAt || this.pending || this.correction || !this.dims(f)) return undefined;
+    if (f.measurements.some(remeasures) || this.restoredAt || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
     if (Math.abs(this.index.restoreAnchor(a, g.port_main) - f.offset) > 0.01) return undefined;
     const pins = this.pins();
@@ -484,6 +486,77 @@ class Collection {
     if (k !== this.mounted.length) return undefined;
     this.geometry = { ...f, measurements: [] };
     return this.edge();
+  }
+  // ------------------------------------------------ scrollIntoView (into_view.rs)
+  /** A key's row identity here, or why it is refused (LLP 1070.000 §2.2);
+   * the agent types a key as text, which a list keyed by numbers reads as one. */
+  resolve(key) {
+    const exactly = k => {
+      let text; try { text = keyText(k); } catch { return [null, "the key is not a string, number or bool"]; }
+      if (!this.index.pos.has(text)) return [null, `no row keyed ${text} in the list`];
+      if (this.index.pos.has("d1:" + text)) return [null, `the list holds ${text} more than once`];
+      return [text];
+    };
+    if (typeof key === "string" && key.trim() !== "" && isFinite(Number(key))) { const r = exactly(Number(key)); if (r[0]) return r; }
+    return exactly(key);
+  }
+  /** The row root's margins on this axis: its wrapper encloses them, and the
+   * web aligns the element's border box. */
+  margins(p) {
+    const m = this.mounted.find(m => m.position === p), root = m?.wrapper.firstElementChild;
+    if (!root) return [0, 0];
+    const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
+    return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
+  }
+  aligned(p, align, current) {
+    const [before, after] = this.margins(p);
+    const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
+    const at = align === "start" ? start : align === "center" ? start + size / 2 - port / 2 : align === "end" ? start + size - port
+      : start < current ? start : start + size > current + port ? (size > port ? start : start + size - port) : current;
+    return Math.min(Math.max(at, 0), Math.max(this.index.total - port, 0));
+  }
+  /** Start a request: its window is built at the destination now, and the
+   * host told to move there before it paints (the correction). */
+  intoView(key, align) {
+    const p = this.index.pos.get(key), g = this.geometry;
+    const offset = this.aligned(p, align, g ? g.offset : this.startOffset);
+    this.restoredAt = null;
+    this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
+    this.status = [key, "pending"];
+    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
+    else { this.startOffset = offset; this.correction = { scrollSequence: 0, offset }; }
+    this.realize(false, {});
+    this.revision++;
+  }
+  end(status) { this.status = [this.target.key, status]; this.target = null; }
+  /** The reader's own travel, two reports running, cancels it. */
+  followIntoView(fill) {
+    const t = this.target;
+    if (!t) return;
+    t.travelling = (fill.velocity ?? 0) !== 0 ? t.travelling + 1 : 0;
+    if (t.travelling >= 2) this.end("cancelled");
+  }
+  /** After a report's measurements: where the target now aligns, judged
+   * where the host says the port is; done when it holds for two reports
+   * with every row up to it measured, else corrected, six times at most. */
+  settleIntoView(reported) {
+    const t = this.target, g = this.geometry;
+    if (!t) return;
+    const p = this.index.pos.get(t.key);
+    if (p === undefined) return this.end("cancelled");
+    if (!g) return;
+    const desired = this.aligned(p, t.align, reported);
+    const first = Math.min(this.mounted[0]?.position ?? p, p);
+    if (Math.abs(desired - reported) <= 0.5) {
+      t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+      if (t.aligned >= 2) this.end("done");
+      return;
+    }
+    t.aligned = 0;
+    if (t.reports >= 6) return this.end("unconverged");
+    g.offset = desired;
+    this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
+    t.reports++;
   }
   edge() {
     const reached = [false, false], g = this.geometry;
@@ -536,6 +609,32 @@ export function vl(el, subject, key, row, o) {
   load();
 }
 let jumps = null;
+const ALIGN = ["start", "center", "end", "nearest"];
+const Refused = [];
+/** The command (`scrollIntoView("id", key, block=, inline=, behavior=,
+ * row=)`) and the agent's `tap <list> into <key>` (`view`), as the runner's
+ * `scroll_into_view` (runner/src/runner/into_view.rs). */
+function intoView(list, key, block, inline, row, view) {
+  const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
+  for (const a of [block, inline]) if (!ALIGN.includes(a)) { if (view != null) throw new Error(`no alignment ${a}: start, center, end or nearest`); return refuse(`no alignment ${a}`); }
+  const begin = (c, k) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline); return true; };
+  if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
+  else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
+  else {
+    const outer = [...Lists.values()].find(c => !c.up && c.resolve(row)[0]);
+    if (!outer) { let t = ""; try { t = keyText(row); } catch {} return refuse(`no virtualized list holds a row keyed ${t}`); }
+    if (!begin(outer, row)) return;
+    const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
+    if (!m) return refuse("the outer row did not mount");
+    const c = m.inner.find(c => c.el.id === list);
+    if (!c) return refuse(`the row holds no list with id ${list}`);
+    begin(c, key);
+  }
+  settled();
+}
+Hosts.scrollIntoView = (list, key, block, inline, behavior, row) => intoView(list, key, block ?? "start", inline ?? "nearest", row);
+/** `state.scrollIntoView`: each list's latest request, then refusals. */
+const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
 function publish() {
   // As the web host sends `collections`: only when a snapshot changed.
   const snapshots = [...Lists.values()].sort((a, b) => a.view - b.view).map(c => c.snapshot());
@@ -561,7 +660,8 @@ function load() {
     Published = "";
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
-  (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading };
+  (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading,
+    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState };
 }
 // A report from the browser half (runner/collection.rs `collection_feedback_filled`).
 function report(bytes, f, fill) {

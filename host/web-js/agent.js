@@ -85,6 +85,12 @@ export function install(exact) {
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
       case 'tap':
+        // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
+        if (req.into) {
+          if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
+          try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message }; }
+          return { tapped: req.id, into: req.into };
+        }
         // The browser's own traversal (LLP 1038 D11); popstate reaches the app.
         if (req.history) { history.go(req.history); await new Promise(r => setTimeout(r, 300)); return { history: req.history, delivery: 'platform' }; }
         return {};

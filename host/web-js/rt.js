@@ -198,7 +198,8 @@ function drain() {
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
-const Hosts = {
+/** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
+export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
