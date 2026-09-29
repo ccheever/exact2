@@ -163,6 +163,21 @@ impl Parser {
                 self.expect_punct(")")?;
                 Ok(e)
             }
+            // `[]` is the empty list; `[a, b]` is not a Contract expression
+            // (LLP 1017.003 D4): a list with items comes from a source, a
+            // shape field, or `map`/`filter`.
+            TokenKind::Punct("[") => {
+                if !self.eat_punct("]") {
+                    return self.err(
+                        "syntax-expected",
+                        format!(
+                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items: a list comes from a source, a shape field, or `map`/`filter`",
+                            describe(self.peek_kind())
+                        ),
+                    );
+                }
+                Ok(Expr::EmptyList(span))
+            }
             TokenKind::Ident(w) => match w.as_str() {
                 "true" => Ok(Expr::Bool(true, span)),
                 "false" => Ok(Expr::Bool(false, span)),

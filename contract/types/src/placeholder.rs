@@ -128,8 +128,8 @@ fn build(
     Some(value)
 }
 
-/// A constant of type `ty`: a literal, `-` a number, `none`, `some(v)`, or
-/// a nested `empty(…)` for a record.
+/// A constant of type `ty`: a literal, `-` a number, `none`, `some(v)`,
+/// `[]`, or a nested `empty(…)` for a record.
 fn constant(
     ty: &Ty,
     e: &Expr,
@@ -169,6 +169,7 @@ fn constant(
         }
         (Ty::Bool, Expr::Bool(b, _)) => Some(Value::Bool(*b)),
         (Ty::Option(_), Expr::None(_)) => Some(Value::Option(None)),
+        (Ty::List(_), Expr::EmptyList(_)) => Some(Value::list(Vec::new())),
         (Ty::Option(inner), Expr::Some(v, _)) => {
             constant(inner, v, shapes, path, errors).map(Value::some)
         }
@@ -179,13 +180,14 @@ fn constant(
         (_, Expr::Str(..)) => mismatch(errors, "a string"),
         (_, Expr::Bool(..)) => mismatch(errors, "a bool"),
         (_, Expr::None(_) | Expr::Some(..)) => mismatch(errors, "an option"),
+        (_, Expr::EmptyList(_)) => mismatch(errors, "a list"),
         (_, Expr::Call(name, _, _)) if name == EMPTY => mismatch(errors, "a record"),
         _ => {
             error(
                 errors,
                 "type-placeholder-value",
                 format!(
-                    "`{path}` must be a constant: a literal, `none`, `some(…)`, or `empty(…)`; use `else source(…)` for a computed placeholder"
+                    "`{path}` must be a constant: a literal, `none`, `some(…)`, `[]`, or `empty(…)`; use `else source(…)` for a computed placeholder"
                 ),
                 e.span(),
             );

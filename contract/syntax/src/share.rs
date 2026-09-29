@@ -94,7 +94,12 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
                 }
             }
         }
-        Expr::Ident(..) | Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::Ident(..)
+        | Expr::Number(..)
+        | Expr::Str(..)
+        | Expr::Bool(..)
+        | Expr::None(_)
+        | Expr::EmptyList(_) => {}
     }
 }
 
@@ -160,7 +165,7 @@ fn names(e: &Expr, out: &mut Vec<String>) {
                 names(x, out);
             }
         }),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
     }
 }
 
@@ -275,7 +280,12 @@ fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
                 f(x);
             }
         }),
-        Expr::Ident(..) | Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::Ident(..)
+        | Expr::Number(..)
+        | Expr::Str(..)
+        | Expr::Bool(..)
+        | Expr::None(_)
+        | Expr::EmptyList(_) => {}
     }
 }
 

@@ -227,7 +227,11 @@ impl Parser {
                         let value = self.expr()?;
                         if !matches!(
                             value,
-                            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
+                            Expr::Number(..)
+                                | Expr::Str(..)
+                                | Expr::Bool(..)
+                                | Expr::None(_)
+                                | Expr::EmptyList(_)
                         ) {
                             return Err(SyntaxError {
                                 id: "syntax-expected-step",

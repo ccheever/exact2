@@ -463,7 +463,12 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
                 f(x)
             }
         }),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+        Expr::Number(..)
+        | Expr::Str(..)
+        | Expr::Bool(..)
+        | Expr::None(_)
+        | Expr::EmptyList(_)
+        | Expr::Ident(..) => {}
     }
 }
 

@@ -166,13 +166,25 @@ pub(crate) fn check_component(
         match infer(&d.expr, &scope, shapes) {
             // What types only incompletely depends on itself; what fails to
             // type is refused for that reason alone.
-            Ok(t) if !t.is_complete() => sink.push(TypeError {
-                id: "type-derive-cycle",
-                message: format!(
-                    "cannot infer the type of `{}`: it depends on itself through other derives",
-                    d.name
-                ),
-                span: d.span,
+            // An `[]` nothing pairs with a typed list is the one leaf that
+            // leaves a `?` without a cycle.
+            Ok(t) if !t.is_complete() => sink.push(match empty_list_in(&d.expr) {
+                Some(span) => TypeError {
+                    id: "type-cannot-infer",
+                    message: format!(
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        d.name
+                    ),
+                    span,
+                },
+                None => TypeError {
+                    id: "type-derive-cycle",
+                    message: format!(
+                        "cannot infer the type of `{}`: it depends on itself through other derives",
+                        d.name
+                    ),
+                    span: d.span,
+                },
             }),
             Ok(t) => ct.derives[i] = t,
             Err(e) => sink.push(e),
@@ -545,7 +557,11 @@ fn derive_order(c: &Component) -> Vec<usize> {
                     names(x, out)
                 }
             }),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+            Expr::Number(..)
+            | Expr::Str(..)
+            | Expr::Bool(..)
+            | Expr::None(_)
+            | Expr::EmptyList(_) => {}
         }
     }
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
@@ -579,6 +595,40 @@ fn derive_order(c: &Component) -> Vec<usize> {
     order
 }
 
+/// The first `[]` in `e`, whose element type nothing fixed when `e` typed
+/// as a `list<?>`.
+fn empty_list_in(e: &Expr) -> Option<Span> {
+    match e {
+        Expr::EmptyList(span) => Some(*span),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
+            None
+        }
+        Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
+            TemplatePart::Expr(x) => empty_list_in(x),
+            _ => None,
+        }),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Unary(_, x, _) => empty_list_in(x),
+        Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
+        Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
+        Expr::Ternary(a, b, c, _) => empty_list_in(a)
+            .or_else(|| empty_list_in(b))
+            .or_else(|| empty_list_in(c)),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => empty_list_in(subject)
+            .or_else(|| empty_list_in(some))
+            .or_else(|| empty_list_in(none)),
+        Expr::Let { value, body, .. } => empty_list_in(value).or_else(|| empty_list_in(body)),
+        Expr::Arrow { body, .. } => empty_list_in(body),
+    }
+}
+
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
@@ -592,7 +642,11 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
         match e {
             Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
                 .then(|| (name.clone(), *span)),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::Number(..)
+            | Expr::Str(..)
+            | Expr::Bool(..)
+            | Expr::None(..)
+            | Expr::EmptyList(..) => None,
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
                 TemplatePart::Expr(x) => walk(x, scope, bound),
                 _ => None,
