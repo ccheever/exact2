@@ -950,6 +950,48 @@ its cells only just before they appear.
 
   The iPad's footprint peak rose (64 → 81 MB); not yet explained.
 
+### 5.2.1 Far module views hidden, then released (2026-09-29, `perf/far-maps`)
+
+The coordinator's call for Charlie (asleep; matching the SwiftUI baseline
+needs no ruling): UIKit's collection view hides the cells it keeps off
+screen and recycles the rest, and SwiftUI's map rows make a map per cell
+that comes near (475 maps over the Extra Heavy map feed's fling, against
+exact2's 169 with reuse). So, for a native-module view in a collection's row:
+
+- **Hidden** while its row is more than a quarter viewport (the margin a leaf
+  is made within) from what shows, shown again inside it (291cd58b).
+- **Released** when its row is more than one viewport beyond that (1.25
+  viewports; hysteresis against the quarter): its instance goes as a
+  destroyed node's does (parked for reuse, or destroyed; callbacks from the
+  old incarnation are dropped), and the node waits, as any held leaf (§5.1),
+  to be made again when it comes near. Not while VoiceOver or Switch Control
+  runs, when nothing waits.
+- **State.** The recreated instance takes the node's current props, so
+  state the app binds (a map's latitude, longitude, span, selection) comes
+  back; state it does not bind (a pan, a zoom, a callout the person opened)
+  resets, as a row's content does in the web's virtualized list when it is
+  recreated. `load` fires again for the new instance.
+- **Never blank or stale.** A new or reused map is made a quarter viewport
+  ahead; a reused one stays transparent until it has drawn its region
+  (b8c2c080, 61899ff4), a new one shows MapKit's own ground until its tiles
+  arrive, as a first mount does.
+- `state.pool.native` counts `hidden` and `released`.
+
+Measured (M1 iPad Pro, fling, three alternating rounds against the build
+without it and the SwiftUI baseline; the full feed two):
+
+| | peak MB | CPU ms/s | fps |
+|---|---|---|---|
+| map feed, before → released (SwiftUI) | 1,299 → 917 (886) | 2,493 → 2,711 (3,120) | 99.2 → 95.4 (57.1) |
+| 19-kind feed, before → released (SwiftUI) | 353 → 343 (324) | 644 → 639 (625) | 115.5 → 115.3 (107.1) |
+
+A reused map keeps what it drew for earlier rows (§0.3), and parking holds
+two of them: with a map reused at most twice the map feed peaks at 889 MB
+(CPU 2,833, 89.4 fps), and with no reuse at 667 (CPU 2,865, 73.5 fps; the
+19-kind feed 315 MB at 688 ms/s over one run). MapKit has no call that
+empties a parked map's caches, so a lower `reuseLimit` is the purge; which
+limit is ruled with the iPhone's numbers.
+
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
 **Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about

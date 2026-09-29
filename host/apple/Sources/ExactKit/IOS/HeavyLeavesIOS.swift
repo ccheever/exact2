@@ -91,12 +91,26 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
         if !pending.isEmpty { start() }
     }
     /// A made module view in a collection's row hides beyond the margin a
-    /// leaf is made within, and shows inside it (`NativeViews.hideFar`).
+    /// leaf is made within (a quarter viewport), and shows inside it; one
+    /// viewport beyond that its instance goes, and it waits to be made again
+    /// when it comes near, as any held leaf (`NativeViews.recycleFar`). Not
+    /// while VoiceOver or Switch Control runs, when nothing waits.
     private func hideFar() {
-        presenter.session?.natives.hideFar { [self] node in
-            guard list(holding: node) != nil else { return nil }
-            return !near(node).near
+        guard let natives = presenter.session?.natives else { return }
+        let assistive = presenter.swipeActions.assistive
+        let gone = natives.recycleFar(hide: 0.25, release: assistive ? .infinity : 1.25) { [self] node in
+            list(holding: node) != nil ? distance(node) : nil
         }
+        for node in gone where !hold(node) { natives.release(node) }
+    }
+    /// How far `node`'s box is from what the window shows, in viewports
+    /// (0 when they meet; the larger of the two axes).
+    private func distance(_ node: NodeView) -> CGFloat {
+        guard let window = node.window else { return .infinity }
+        let box = node.convert(node.bounds, to: nil), shown = window.bounds
+        let dx = max(0, box.minX - shown.maxX, shown.minX - box.maxX) / max(shown.width, 1)
+        let dy = max(0, box.minY - shown.maxY, shown.minY - box.maxY) / max(shown.height, 1)
+        return max(dx, dy)
     }
     private func make(_ node: NodeView) {
         guard node.kind == "video" || node.kind == "iframe" else { node.embedPlatformView(presenter); return }
