@@ -746,6 +746,9 @@ fn presence_decls(css: &mut String) -> String {
             "--exact-animation-timeline:",
             "--exact-animation-range:",
             "--exact-timeline-scope:",
+            // The press feedback's factor (LLP 1061), which input-glue.js
+            // reads from the element's own style.
+            "--exact-press:",
         ]
         .iter()
         .any(|p| decl.starts_with(p))
@@ -969,6 +972,11 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = presence_decls(&mut css);
+        // A node with press feedback: the web host's input piece shows it.
+        if presence.contains("--exact-press:") {
+            let press = self.uses.rt("pressFeedback");
+            let _ = write!(self.out, "{press}();");
+        }
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }

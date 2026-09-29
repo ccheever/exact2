@@ -1,0 +1,6 @@
+# Held: the pressed button shows its scale; lifted: the press runs and the
+# scale returns. A button without press-scale shows nothing held.
+down shrinks
+up
+down plain
+up

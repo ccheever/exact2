@@ -1275,6 +1275,16 @@ measured; brotli):
   rastered differently from run to run, on either target; calling
   `decode()` on every image made it constant rather than rare).
 
+**Press feedback** (landed 2026-09-29, measured; brotli): a node's
+`press-scale` showed nothing on the JS target, since the web host's own
+`input-glue.js` reads the factor from the element's own `--exact-press`
+and the JS target wrote it in the class. It is inline now (as the timeline
+and presence rows are), and a plan with press feedback fetches
+`input-glue.js` after first paint (`pressFeedback`, 351 B in `app.js`; the
+chunk 2,016 B, loaded). Synthetic `press.contract` 8/8: a held button shows
+its scale (conform.mjs gains `down` and `up`), one without press-scale
+shows none.
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**

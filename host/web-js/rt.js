@@ -790,6 +790,9 @@ export function mde(e) {
 }
 /** `select`: the editor's facts at each selection change (runner Event::Select). */
 export function onSelect(e, f) { e.$select = f; }
+/** Press feedback (LLP 1061): the web host's input piece shows it, from
+ * the node's own `--exact-press` (css.rs). */
+export const pressFeedback = () => input();
 /** The web host's input piece (input-glue.js), after first paint: pans. */
 let Input = null, Inputs = null;
 function input() {
