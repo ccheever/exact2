@@ -1,0 +1,42 @@
+// Synthetic conformance plan: localized strings (LLP 1060) and the page's
+// facts. The agent's locale is en-US, which reads the en-US table, a
+// translation that lags the base (a missing key reads `en`'s). exactTime's
+// resolvedLocale names that table; exactPage and exactDelivery are answered
+// by the runtime, and exactSurface with no surface publishing is its shape's
+// zero record.
+shape Time
+  locale: string
+  resolvedLocale: string
+shape Page
+  visibilityState: string
+  onLine: bool
+  canShare: bool
+shape Delivery
+  stream: string
+  seq: number
+  staged: bool
+  sunset: string
+shape Hud
+  score: number
+  label: string
+  tags: list<string>
+component Locale
+  resource time = exactTime() as shape Time
+  resource page = exactPage() as shape Page
+  resource delivery = exactDelivery() as shape Delivery
+  resource hud = exactSurface("world") as shape Hud
+  state n = 2
+  state greeting = t("title")
+  action more writes n
+    n = n + 1
+  view
+    column testId="root" padding=10
+      text greeting testId="greeting"
+      text t("count", n=n, who="you") testId="count"
+      text t("escaped") testId="escaped"
+      text `${time.locale} ${time.resolvedLocale}` testId="time"
+      text `${page.visibilityState} ${page.onLine} ${page.canShare}` testId="page"
+      text `${delivery.stream} ${delivery.seq} ${delivery.staged} [${delivery.sunset}]` testId="delivery"
+      text `${hud.score} [${hud.label}] ${length(hud.tags)}` testId="hud"
+      button press=more testId="more"
+        text t("more")

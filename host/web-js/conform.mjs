@@ -14,7 +14,7 @@
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
 //   --build makes each named app's wasm dist there first (and Caltrain's,
 //   for --synthetic);
-//   --synthetic adds host/web-js/conformance/*.contract, run on
+//   --synthetic adds host/web-js/conformance/*.contract (and */app.contract), run on
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module. A
 //   plan whose first lines say `// data: <app>` runs on that app's dist
@@ -238,7 +238,8 @@ const report = { at: new Date().toISOString(), targets: {}, steps: [], failures:
 const urls = argv.indexOf('--urls');
 const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const sdir = resolve(here, 'conformance');
-const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).filter(f => f.endsWith('.contract')).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+// A plan with its own files (`strings/`) is a directory holding `app.contract`.
+const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
 if (argv.includes('--build')) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const b = spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
@@ -248,7 +249,7 @@ const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }))
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (argv.includes('--synthetic')) {
   for (const { f, data } of synthetic) {
-    const name = 'synthetic-' + basename(f, '.contract'), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
+    const name = 'synthetic-' + (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.

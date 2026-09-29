@@ -194,18 +194,9 @@ struct Em<'a> {
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
-/// facts, never the build's (`exactTime` in the entry, `exactViewport` in
-/// facts.js).
-const HOST_FACTS: &[&str] = &["exactViewport", "exactTime"];
-/// `exactViewport`'s fields (runner/src/viewport.rs), filled by name.
-const VIEWPORT_FIELDS: &[&str] = &[
-    "width",
-    "height",
-    "prefersReducedMotion",
-    "prefersReducedTransparency",
-    "prefersContrast",
-    "prefersColorScheme",
-];
+/// facts, never the build's (`exactTime` in the entry, the rest in
+/// facts.js). `exactDelivery` answers what the build baked (facts.js).
+const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
     let fonts = crate::faces::fonts(plan)?;
@@ -261,10 +252,49 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             slot.0
         );
     }
+    // Localized strings (LLP 1060): the tables, and the locale slot (the
+    // base) before any initializer, which may call `t`; after boot the page's
+    // locale picks the table (rt.js `language`, the runner's `set_place`).
+    if let Some(slot) = plan.locale {
+        let tables: Vec<String> = plan
+            .locales
+            .iter()
+            .map(|row| {
+                let texts: Vec<String> = plan.texts[row.texts.start as usize..]
+                    [..row.texts.len as usize]
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "{}:{}",
+                            serde_json::to_string(plan.str(t.key)).unwrap(),
+                            serde_json::to_string(plan.str(t.text)).unwrap()
+                        )
+                    })
+                    .collect();
+                format!(
+                    "[{},{},{{{}}}]",
+                    serde_json::to_string(plan.str(row.name)).unwrap(),
+                    row.rtl as u8,
+                    texts.join(",")
+                )
+            })
+            .collect();
+        let init = code::expression(plan, plan.code(plan.slot(slot).init), &top, &mut em.uses)?;
+        let (strings, sig) = (em.uses.rt("strings"), em.uses.rt("sig"));
+        let _ = write!(
+            body,
+            "{strings}([{}]);const s_{}={sig}({init},\"s\");",
+            tables.join(","),
+            slot.0
+        );
+    }
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
-        if r.owner.is_some() || plan.router == Some(exact_plan::SlotsId(i as u32)) {
-            continue; // a row slot lives on its row; the router is launched above
+        if r.owner.is_some()
+            || plan.router == Some(exact_plan::SlotsId(i as u32))
+            || plan.locale == Some(exact_plan::SlotsId(i as u32))
+        {
+            continue; // a row slot lives on its row; the router and locale are above
         }
         let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
@@ -285,32 +315,8 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
     }
-    // `exactViewport`: its declared fields, filled by name (facts.js).
-    let viewport = plan
-        .resources
-        .iter()
-        .find(|r| plan.str(r.source) == "exactViewport");
-    if let Some(r) = viewport {
-        let t = &plan.types[r.ty.0 as usize];
-        if t.kind != exact_plan::TypeKind::Record {
-            return Err(format!(
-                "resource {}: `exactViewport` answers a record",
-                plan.str(r.name)
-            ));
-        }
-        let mut names = Vec::new();
-        for f in t.fields.iter() {
-            let name = plan.str(plan.fields[f.0 as usize].name);
-            if !VIEWPORT_FIELDS.contains(&name) {
-                return Err(format!(
-                    "resource {}: `exactViewport` has no `{name}`",
-                    plan.str(r.name)
-                ));
-            }
-            names.push(serde_json::to_string(name).unwrap());
-        }
-        let _ = write!(body, "$viewport([{}]);", names.join(","));
-    }
+    // The reserved sources facts.js answers, their declared fields filled by name.
+    let facts = reserved(plan, &mut body)?;
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
         for a in r.args.iter() {
@@ -427,6 +433,10 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     }
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
+    if let Some(slot) = plan.locale {
+        let language = em.uses.rt("language");
+        let _ = write!(body, "{language}(s_{});", slot.0);
+    }
     if let Some(slot) = plan.router {
         let router = em.uses.rt("router");
         let _ = write!(body, "{router}(s_{},$navigation);", slot.0);
@@ -564,7 +574,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         // Loaded pieces, imported only where the plan uses them.
         [
             (em.list, "import{vl as $vl}from\"./list.js\";"),
-            (viewport.is_some(), "import{viewport as $viewport}from\"./facts.js\";"),
+            (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
         ]
         .iter()
@@ -677,6 +687,76 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
 
 /// A type for the agent's typed JSON: `"n"`, `"b"`, `"s"`, `"u"`,
 /// `["?",T]`, `["[",T]`, `{"field":T,…}` in field order.
+/// The reserved sources facts.js answers (LLP 1071 §7): each declared
+/// record's fields checked against the runner's names and passed by name;
+/// `exactSurface` readers with their surface and shape. Returns the import.
+fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
+    use exact_runner::{delivery, page, surface_record, viewport};
+    let mut imports = Vec::new();
+    for (source, fields, name) in [
+        ("exactViewport", viewport::FIELDS, "viewport"),
+        ("exactPage", page::FIELDS, "page"),
+        ("exactDelivery", &delivery::FIELDS[..], "delivery"),
+        ("exactSurface", &[][..], "surfaces"),
+    ] {
+        // Each reader by its resource name: its fields (by its own shape),
+        // with what the build baked for delivery, or its surface and shape.
+        let mut readers = Vec::new();
+        for r in plan
+            .resources
+            .iter()
+            .filter(|r| plan.str(r.source) == source)
+        {
+            let resource = plan.str(r.name);
+            let t = &plan.types[r.ty.0 as usize];
+            if t.kind != exact_plan::TypeKind::Record {
+                return Err(format!("resource {resource}: `{source}` answers a record"));
+            }
+            let entry = if source == "exactSurface" {
+                let surface = surface_record::surface_name(plan, r).ok_or_else(|| {
+                    format!(
+                        "resource {resource}: `exactSurface` takes one string-literal surface name"
+                    )
+                })?;
+                format!(
+                    "{},{}",
+                    serde_json::to_string(surface).unwrap(),
+                    type_json(plan, r.ty)
+                )
+            } else {
+                let mut names = Vec::new();
+                for f in t.fields.iter() {
+                    let field = plan.str(plan.fields[f.0 as usize].name);
+                    if !fields.contains(&field) {
+                        return Err(format!("resource {resource}: `{source}` has no `{field}`"));
+                    }
+                    names.push(serde_json::to_string(field).unwrap());
+                }
+                let baked = plan.bytes(r.initial);
+                if source == "exactDelivery" && !baked.is_empty() {
+                    let v = Value::from_bytes(baked).map_err(|e| e.to_string())?;
+                    format!("[{}],{}", names.join(","), value_js(&v))
+                } else {
+                    format!("[{}]", names.join(","))
+                }
+            };
+            readers.push(format!(
+                "{}:[{entry}]",
+                serde_json::to_string(resource).unwrap()
+            ));
+        }
+        if !readers.is_empty() {
+            let _ = write!(body, "${name}({{{}}});", readers.join(","));
+            imports.push(format!("{name} as ${name}"));
+        }
+    }
+    Ok(if imports.is_empty() {
+        String::new()
+    } else {
+        format!("import{{{}}}from\"./facts.js\";", imports.join(","))
+    })
+}
+
 fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
     let t = &plan.types[ty.0 as usize];
     match t.kind {

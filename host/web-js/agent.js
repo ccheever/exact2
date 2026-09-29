@@ -119,7 +119,8 @@ export function install(exact) {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         return { slots, derives, resources, ...tags() };
       }
-      case 'prefer': return { page: {} };
+      // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
+      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

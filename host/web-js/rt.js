@@ -1,4 +1,4 @@
-import { renderMarkup } from "./navigation.js";
+import { renderMarkup, reportPlace } from "./navigation.js";
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -281,8 +281,8 @@ function send(t, land) {
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });
 }
-function ask(source, args) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source]() } : data.answer(source, args, Store);
+function ask(source, args, name) {
+  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
   if (a && a.then) { const p = a; return { promise: p }; }
   return a;
 }
@@ -321,7 +321,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
       if (r.ticket && eq(a, r.ticket.args)) return r.value;
     }
     let ans;
-    try { ans = ask(source, a); }
+    try { ans = ask(source, a, name); }
     catch (e) { if (e instanceof Refusal) throw e; flag(fail, String(e.message)); say(`resource ${name}: ${e.message}`); return r.value; }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
@@ -525,9 +525,13 @@ export function gs(e, name, values) {
     if (queued) queued.values = v; else pending.push({ id, name, values: v, generation: 0 });
     if (!Gpu && typeof requestAnimationFrame === "function" && !globalThis.__exactRender) {
       x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root");
-      // A surface's published records reach the runner in the wasm host
-      // (LLP 1009 D6); this runtime has no source reading them yet: dropped.
-      (x.wasm ??= {}).exact_surface_record ??= () => 0; x.writeIn ??= () => 0; x.send ??= () => {};
+      // A surface's published record (LLP 1009 D6), as the glue hands it to
+      // the wasm host: `name` or `name\0json`, to `exactSurface` readers
+      // (facts.js); dropped where no resource reads one.
+      let written = "";
+      x.writeIn ??= t => { written = t; return 0; };
+      (x.wasm ??= {}).exact_surface_record ??= () => { const at = written.indexOf("\0"); x.surfaceRecord?.(at < 0 ? written : written.slice(0, at), at < 0 ? null : written.slice(at + 1)); return 0; };
+      x.send ??= () => {};
       if (clock.agent) x.now = () => clock.now;
       inflight.n++;
       Gpu = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import(new URL("gpu-glue.js", document.baseURI).href)).then(() => x.gpu?.settled?.()).catch(err => say(`gpu: ${err.message}`)).finally(() => inflight.n--);
@@ -771,6 +775,48 @@ export function x_formatTime(ms, off) {
 export const x_formatCountdownMinutes = (at, now) => String(Math.max(0, Math.ceil((at - now) / 6e4)));
 export const x_formatDistance = m => (m /= 1609.344) < 0.1 ? "nearby" : `${(Math.round(m * 10) / 10).toFixed(1)} mi`;
 export const x_formatWalk = m => `${Math.max(1, Math.ceil(m / 80))} min walk`;
+
+// ---------------------------------------------------------------- localized strings (LLP 1060)
+// The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
+// starts at the base, and after boot holds the table the viewer's locale
+// reads, as the runner's `set_place` writes it; `t` reads that table, else
+// the base.
+let Texts = [];
+export function strings(tables) { Texts = tables; }
+/** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
+ * subtag prefix a table is named for, without case, else the base. */
+function locale() {
+  let tag = "en-US";
+  try { tag = reportPlace().split("\0")[0]; } catch {}
+  for (;;) {
+    const t = Texts.find(r => r[0].toLowerCase() === tag.toLowerCase());
+    if (t) return t[0];
+    const i = tag.lastIndexOf("-");
+    if (i < 0) return Texts[0][0];
+    tag = tag.slice(0, i);
+  }
+}
+const table = name => Texts.find(r => r[0] === name);
+/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
+ * unfilled name keeps its spelling; `\{ \} \\` escape. */
+export function x_t(name, key, pairs) {
+  const text = table(name)?.[2][key] ?? Texts[0][2][key];
+  if (text == null) throw new Refusal(`t: no text ${key}`);
+  const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };
+  return text.replace(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g, (m, e, n) => e ?? at(n) ?? m);
+}
+/** The resolved table sets the document's `lang` and `dir` (LLP 1060, ruled). */
+let LocaleSlot = null;
+/** `exactTime.resolvedLocale`: the table the strings read, "" with none (runner/src/runner/time.rs). */
+export const resolvedLocale = () => LocaleSlot ? (table(LocaleSlot()) ?? Texts[0])[0] : "";
+export function language(slot) {
+  LocaleSlot = slot;
+  // As the host's first `set_place`: the table the viewer's locale reads,
+  // written to the slot, and `exactTime` answered again, in one commit.
+  commit(() => { W(slot, locale()); for (const r of Resources) if (r.source === "exactTime") R(r); }, "place");
+  if (typeof document !== "object" || !document.documentElement) return;
+  effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
+}
 
 // ---------------------------------------------------------------- the router (LLP 1038; route/src)
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
