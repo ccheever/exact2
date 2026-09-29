@@ -254,11 +254,14 @@ LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
 < <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
 { case some(x) => a, case none => b }`.
 
-`contains(text, substring) -> bool` performs a case-sensitive literal substring
-search (the empty substring matches). The Markdown toolbar uses it with spaces
-around both the token list and the requested token, so `code` never matches
-`codeblock`. The declared roster and the runner provide this operation to every
-host; it does not execute app JavaScript.
+`includes(text, substring) -> bool` performs a case-sensitive literal substring
+search (the empty substring matches), as the web's `String.prototype.includes`
+does; `startsWith(text, prefix)` and `endsWith(text, suffix)` are the web's
+too (renamed from `contains` on 2026-09-28: the words are the web's, LLP 1017
+§8.1). The Markdown toolbar uses `includes` with spaces around both the token
+list and the requested token, so `code` never matches `codeblock`. The declared
+roster and the runner provide these operations to every host; they do not
+execute app JavaScript.
 
 **Types** come from initializers, shapes, props, and the roster; `none` alone
 is `option<?>` and the `?` is filled by the first write that says what it

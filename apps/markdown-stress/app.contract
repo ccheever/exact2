@@ -396,9 +396,9 @@ component DocumentBody
               MarkdownTool(name="code", label="Code", formats=formats, unavailable=unavailable, apply=applyFormat)
               MarkdownTool(name="bullet", label="List", formats=formats, unavailable=unavailable, apply=applyFormat)
               MarkdownTool(name="quote", label="Quote", formats=formats, unavailable=unavailable, apply=applyFormat)
-              button press=heading retainFocus=true testId="format-heading" aria-label=(contains(` ${formats} `, " heading2 ") ? "Heading 2 active" : "Heading 2") border-width=1 border-color=(contains(` ${formats} `, " heading2 ") ? theme.ink : "#00000000") disabled=contains(` ${unavailable} `, " heading ") min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
+              button press=heading retainFocus=true testId="format-heading" aria-label=(includes(` ${formats} `, " heading2 ") ? "Heading 2 active" : "Heading 2") border-width=1 border-color=(includes(` ${formats} `, " heading2 ") ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, " heading ") min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
                 text "H2" font-size=13 color=theme.ink
-              button press=openLink retainFocus=true testId="format-link" aria-label=(contains(` ${formats} `, " link ") ? "Link active" : "Link") border-width=1 border-color=(contains(` ${formats} `, " link ") ? theme.ink : "#00000000") disabled=contains(` ${unavailable} `, " link ") min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
+              button press=openLink retainFocus=true testId="format-link" aria-label=(includes(` ${formats} `, " link ") ? "Link active" : "Link") border-width=1 border-color=(includes(` ${formats} `, " link ") ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, " link ") min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
                 text "Link" font-size=13 color=theme.ink
             when linkOpen
               row gap=6 align-items="center" width="100%"
@@ -435,5 +435,5 @@ component MarkdownTool
     unavailable: string
     apply: action
   view
-    button press=apply(name) retainFocus=true testId=`format-${name}` aria-label=(contains(` ${formats} `, ` ${name} `) ? `${label} active` : label) border-width=1 border-color=(contains(` ${formats} `, ` ${name} `) ? theme.ink : "#00000000") disabled=contains(` ${unavailable} `, ` ${name} `) min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
-      text label font-size=13 font-weight=(contains(` ${formats} `, ` ${name} `) ? 700 : 400) color=theme.ink
+    button press=apply(name) retainFocus=true testId=`format-${name}` aria-label=(includes(` ${formats} `, ` ${name} `) ? `${label} active` : label) border-width=1 border-color=(includes(` ${formats} `, ` ${name} `) ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, ` ${name} `) min-height=40 justify-content="center" padding=8 background-color=theme.control border-radius=6
+      text label font-size=13 font-weight=(includes(` ${formats} `, ` ${name} `) ? 700 : 400) color=theme.ink

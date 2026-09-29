@@ -141,7 +141,7 @@ component RealWorld
     page = 1
     tagInput = ""
     commentDraft = ""
-    if contains(url, "/editor")
+    if includes(url, "/editor")
       editorSession = editorSession + 1
     nav = push(nav, url)
   action back writes nav

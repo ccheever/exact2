@@ -21,7 +21,7 @@ const SOURCE: &str = r#"component App
     mixed = s.mixed
     link = s.link
     unavailable = s.unavailable
-    boldActive = contains(` ${s.formats} `, " bold ")
+    boldActive = includes(` ${s.formats} `, " bold ")
   action bold()
     format("editor", "bold")
   action setLink()
