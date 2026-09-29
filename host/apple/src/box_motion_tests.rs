@@ -30,6 +30,9 @@ keyframes glow
 keyframes fade
   from background-color="#16a34a"
   to background-color="rgba(37, 99, 235, 0.5)"
+keyframes drop
+  from cy=10
+  to cy=30
 component A
   state on = false
   action go writes on
@@ -51,6 +54,10 @@ component A
       box testId="fading" width=64 height=64 animation=(on ? "fade 1s ease infinite" : "none")
       svg width=40 height=40 viewBox="0 0 40 40"
         rect testId="shape" x=10 y=10 width=20 height=20 fill="#0ea5e9" transform-box="fill-box" transform-origin="center" animation=(on ? "spin 1s linear infinite" : "none")
+        circle testId="ball" cx=20 cy=10 r=4 fill="#f97316" animation=(on ? "drop 1s linear infinite" : "none")
+        circle testId="clipped" cx=20 cy=10 r=4 filter="blur(1px)" animation=(on ? "drop 1s linear infinite" : "none")
+        g filter="blur(1px)"
+          rect testId="inside" x=10 y=10 width=8 height=8 transform-box="fill-box" transform-origin="center" animation=(on ? "spin 1s linear infinite" : "none")
 "##;
 
 fn id(host: &Host<NoData>, test_id: &str) -> u32 {
@@ -125,10 +132,37 @@ fn a_boxs_transform_and_colour_keyframes_play_in_core_animation() {
             .collect::<Vec<_>>(),
         [0.0, 8.0]
     );
+    // An SVG element's transform plays on its transform pair's outer
+    // layer, and a circle's centre as its layer's position.
+    let scene = |on: &str| -> String {
+        let v: serde_json::Value = serde_json::from_str(on).unwrap();
+        v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|op| op["op"] == "svg")
+            .map(|op| op.to_string())
+            .unwrap_or_default()
+    };
+    let svg_op = scene(&on);
+    assert!(svg_op.contains("transform.rotation.z"), "{svg_op}");
+    assert!(svg_op.contains("position.y"), "{svg_op}");
+    for lowered in ["shape", "ball"] {
+        assert!(
+            !host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(&host, lowered)).unwrap().key
+            )),
+            "{lowered}"
+        );
+    }
     // What Core Animation cannot say as CSS does is sampled: a corner
     // origin, a box that takes input or holds one that does, a bordered
-    // box's colour, two alphas, and an SVG element's transform.
-    for sampled in ["corner", "pressed", "holder", "framed", "fading"] {
+    // box's colour, two alphas, a filtered circle's centre (its picture is
+    // made for one place), and anything drawn inside a filter's picture.
+    for sampled in [
+        "corner", "pressed", "holder", "framed", "fading", "clipped", "inside",
+    ] {
         assert!(keys(&on, id(&host, sampled)).is_empty(), "{sampled}: {on}");
         assert!(
             host.engine.node_sampled(exact_kernel::motion::motion_node(

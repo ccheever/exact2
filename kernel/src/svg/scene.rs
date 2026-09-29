@@ -483,7 +483,15 @@ impl Resolver<'_, '_> {
             .value(key, Property::Scale)
             .map_or(style.scale, |v| v.x as f32);
         let matrix = style.transform.matrix();
-        if translate == (0.0, 0.0) && rotate == 0.0 && scale == 1.0 && tf::is_identity(matrix) {
+        // An animated element keeps its transform (its origin) even at the
+        // identity: a host that plays the animation itself needs somewhere
+        // to play it (Apple's transform pair, LLP 1055.001).
+        if translate == (0.0, 0.0)
+            && rotate == 0.0
+            && scale == 1.0
+            && tf::is_identity(matrix)
+            && !style.mask.has(StyleId::Animation)
+        {
             return None;
         }
         let origin = if style.mask.has(StyleId::TransformOrigin) {

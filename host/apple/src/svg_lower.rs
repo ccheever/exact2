@@ -165,6 +165,9 @@ pub(crate) fn specs(
                 ],
                 Property::Opacity => &[(0, "opacity")],
                 Property::StrokeDashoffset => &[(0, "lineDashPhase")],
+                // A centred circle's layer sits at its centre.
+                Property::Cx => &[(0, "position.x")],
+                Property::Cy => &[(0, "position.y")],
                 Property::Fill => &[(0, "fillColor")],
                 Property::Stroke => &[(0, "strokeColor")],
                 Property::Scale => &[(0, "transform.scale")],
@@ -314,9 +317,16 @@ pub(crate) fn eligibility(
         // A drag timeline's consumer (LLP 1057.003 D2) runs on the drag,
         // not Core Animation's clock: the engine samples it in the frame
         // (and the hold's reply) that moves its source.
-        let sampled = if paired || engine.timeline_bound(*node) || (boxed && svg) {
+        let moves = props
+            .iter()
+            .any(|p| matches!(p, Property::Cx | Property::Cy));
+        let sampled = if paired
+            || engine.timeline_bound(*node)
+            || (boxed && svg && !svg_turns(kernel, &n, &props))
+            || (moves && !circle_moves(kernel, &n, &props))
+        {
             true
-        } else if boxed {
+        } else if boxed && !svg {
             !box_eligible(kernel, &n, &props, interactive)
         } else if n.node_type.is_svg_shape()
             && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
@@ -359,6 +369,71 @@ pub(crate) fn eligibility(
 
 /// Whether Core Animation plays a box's lowered transform and background
 /// colour as CSS does (see [`eligibility`]).
+/// Whether an SVG element's `translate`, `rotate` and `scale` animations
+/// play on its transform pair's outer layer (iOS; LLP 1055.001 as a box's):
+/// an element, not the `svg` (a box), with nothing drawn for one scale: no
+/// non-scaling stroke, filter or mask.
+fn svg_turns(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
+    let s = n.style;
+    n.node_type.is_svg_element()
+        && !in_picture(kernel, n)
+        && !props.contains(&Property::BackgroundColor)
+        && s.vector_effect != exact_kernel::VectorEffect::NonScalingStroke
+        && s.filter.is_none()
+        && s.svg_mask.url().is_none()
+}
+
+/// Whether a `cx`/`cy` animation plays as a circle layer's position: a
+/// circle (its layer sits at its centre) whose drawing does not depend on
+/// where the centre is in its user space: no transform (a fill-box origin
+/// follows the centre), clip, mask, filter or paint server.
+fn circle_moves(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
+    use exact_kernel::svg::Paint;
+    let s = n.style;
+    let served = |p: &Paint| matches!(p, Paint::Url(..));
+    n.node_type == NodeType::SvgCircle
+        && !in_picture(kernel, n)
+        && !props
+            .iter()
+            .any(|p| matches!(p, Property::Translate | Property::Rotate | Property::Scale))
+        && s.translate.x == 0.0
+        && s.translate.y == 0.0
+        && s.rotate == 0.0
+        && s.scale == 1.0
+        && exact_kernel::svg::transform::is_identity(s.transform.matrix())
+        && s.vector_effect != exact_kernel::VectorEffect::NonScalingStroke
+        && s.clip_path.url().is_none()
+        && s.svg_mask.url().is_none()
+        && s.filter.is_none()
+        && !served(&s.fill)
+        && !served(&s.stroke)
+}
+
+/// Whether an element is drawn only into pixels, where a layer's own
+/// animation would not show: under a filtered or masked element (an
+/// island), or inside a definition (a mask's, pattern's, marker's or clip
+/// path's content, `defs`, a `symbol`).
+fn in_picture(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    let mut up = n.parent;
+    while let Some(a) = up.and_then(|id| kernel.node(id)) {
+        match a.node_type {
+            NodeType::Svg => return false,
+            NodeType::SvgMask
+            | NodeType::SvgPattern
+            | NodeType::SvgMarker
+            | NodeType::SvgClipPath
+            | NodeType::SvgDefs
+            | NodeType::SvgSymbol => return true,
+            _ => {}
+        }
+        if !a.style.filter.is_none() || a.style.svg_mask.url().is_some() {
+            return true;
+        }
+        up = a.parent;
+    }
+    false
+}
+
 fn box_eligible(
     kernel: &Kernel,
     n: &exact_kernel::NodeRef<'_>,

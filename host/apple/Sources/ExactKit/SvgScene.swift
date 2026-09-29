@@ -169,6 +169,9 @@ final class SvgScene {
     private var layers: [Int: CALayer] = [:]
     /// The transform pair around an element, by id.
     private var wrappers: [Int: (outer: CALayer, inner: CALayer)] = [:]
+    /// The transform animations each wrapper plays, for the agent clock's re-seek.
+    private var wrapSpecs: [Int: [[String: Any]]] = [:]
+    private var wrapInstalled: [Int: [String: String]] = [:]
     private var installed: [Int: [String: String]] = [:]
     /// Each masked element's mask island, by the digest of what drew it.
     private var islands: [Int: (key: Int, layer: CALayer)] = [:]
@@ -219,6 +222,7 @@ final class SvgScene {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
             layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id)
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
+            wrapSpecs.removeValue(forKey: id); wrapInstalled.removeValue(forKey: id)
             node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
             nodeOf.removeValue(forKey: id); pressable.remove(id); passes.remove(id)
         }
@@ -284,21 +288,24 @@ final class SvgScene {
     /// Re-seek every animation to an agent-owned clock (or back to real time).
     func seek(clock: Double?) {
         for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]]) } }
+        for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]]) } }
     }
 
     /// Everything off (the view is destroyed or parked).
     func reset() {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
-        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; islands = [:]; pictures = [:]
+        for pair in wrappers.values { pair.outer.removeAllAnimations() }
+        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]
         node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
     }
 
     /// The layer to place for an element: itself, or the outer of its
     /// transform pair, the element inside the inner.
-    private func wrap(_ id: Int, _ layer: CALayer, _ tf: [String: Any]?) -> CALayer {
+    private func wrap(_ id: Int, _ layer: CALayer, _ tf: [String: Any]?, clock: Double?) -> CALayer {
         guard let tf else {
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
+            wrapSpecs.removeValue(forKey: id); wrapInstalled.removeValue(forKey: id)
             return layer
         }
         let pair = wrappers[id] ?? { let p = (outer: still(CALayer()), inner: still(CALayer())); p.outer.addSublayer(p.inner); wrappers[id] = p; return p }()
@@ -311,6 +318,12 @@ final class SvgScene {
         pair.outer.setAffineTransform(affine(tf["i"]) ?? .identity)
         pair.inner.setAffineTransform(affine(tf["m"]) ?? .identity)
         if layer.superlayer !== pair.inner { layer.removeFromSuperlayer(); pair.inner.addSublayer(layer) }
+        // The individual properties' lowered animations play on the outer
+        // layer (LLP 1055.001, as a box's on iOS): each key path replaces
+        // one component of its transform and keeps the others.
+        let list = tf["a"] as? [[String: Any]] ?? []
+        wrapSpecs[id] = list.isEmpty ? nil : list
+        CssAnimations.apply(list, to: pair.outer, clock: clock, installed: &wrapInstalled[id, default: [:]])
         return pair.outer
     }
 
@@ -413,7 +426,7 @@ final class SvgScene {
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
             CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])
-            let placed = wrap(id, layer, e["tf"] as? [String: Any])
+            let placed = wrap(id, layer, e["tf"] as? [String: Any], clock: clock)
             SvgIsland.blend(placed, mode: Int(num(e["bl"])), isolate: e["iso"] != nil, scale: scale)
             order.append(placed)
         }

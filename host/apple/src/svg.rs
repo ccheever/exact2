@@ -26,10 +26,12 @@ use exact_motion::{Engine, Property, Value};
 use std::fmt::Write as _;
 
 /// The properties Core Animation plays for a CSS animation on Apple.
-pub(crate) const LOWERED: [Property; 5] = [
+pub(crate) const LOWERED: [Property; 7] = [
     Property::Opacity,
     Property::StrokeDashoffset,
     Property::R,
+    Property::Cx,
+    Property::Cy,
     Property::Fill,
     Property::Stroke,
 ];
@@ -530,6 +532,28 @@ fn element(
             affine_json(t.individual(), s);
             s.push_str(",\"m\":");
             affine_json(t.matrix, s);
+            // The individual properties' lowered animations, for the outer
+            // layer (iOS: LLP 1055.001, as a box's), over the row's values.
+            let turns: Vec<Property> = [Property::Translate, Property::Rotate, Property::Scale]
+                .into_iter()
+                .filter(|p| engine.is_lowered(*p))
+                .collect();
+            if !turns.is_empty() {
+                let underlying = |p: Property| match p {
+                    Property::Translate => {
+                        (Value::new(t.translate.0 as f64, t.translate.1 as f64), 1.0)
+                    }
+                    Property::Rotate => {
+                        (Value::scalar(t.rotate as f64), std::f64::consts::PI / 180.0)
+                    }
+                    Property::Scale => (Value::scalar(t.scale as f64), 1.0),
+                    _ => (Value::ZERO, 1.0),
+                };
+                let specs = specs(engine, key, &turns, &underlying);
+                if specs != "[]" {
+                    let _ = write!(s, ",\"a\":{specs}");
+                }
+            }
             s.push('}');
         }
         (None, false) => {}
@@ -761,6 +785,8 @@ fn shape_json(
         Property::Opacity => (Value::scalar(opacity), 1.0),
         Property::StrokeDashoffset => (Value::scalar(offset), scale),
         Property::R => (Value::scalar(r), 1.0),
+        Property::Cx => (Value::scalar(shape.circle.map_or(0.0, |c| c.0 as f64)), 1.0),
+        Property::Cy => (Value::scalar(shape.circle.map_or(0.0, |c| c.1 as f64)), 1.0),
         Property::Fill => paint(shape.fill.as_ref()),
         Property::Stroke => paint(shape.stroke.as_ref()),
         _ => (Value::ZERO, 1.0),
