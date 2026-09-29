@@ -999,6 +999,20 @@ two and four reuses stayed over SwiftUI's peak (map feed 889 and 917 against
 886 MB; 19-kind 339 and 343 against 324). So two: a map serves at most three
 rows, then goes.
 
+**Landing soak** at `e957fed1` (stamped builds, fling, three alternating
+rounds against the SwiftUI baseline, 2026-09-29):
+
+| | peak MB | CPU ms/s | fps |
+|---|---|---|---|
+| iPad, map feed | 808 (SwiftUI 898) | 2,940 (3,119) | 88.8 (57.1) |
+| iPad, 19-kind feed | 332 (316) | 666 (628) | 115.8 (106.1) |
+| iPhone, map feed | 889 (1,427) | 3,028 (3,347) | 87.6 (46.0) |
+| iPhone, 19-kind feed | 306 (274) | 629 (568) | 109.7 (102.4) |
+
+The map feed now beats SwiftUI on all three counts on both devices. The
+19-kind feed is ahead on fps and behind on peak (+16 and +32 MB) and CPU
+(+38 and +61 ms/s); maps are not that gap (one or two in the window).
+
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
 **Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about
