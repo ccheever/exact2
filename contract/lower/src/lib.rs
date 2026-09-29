@@ -853,18 +853,24 @@ impl<'a> Lowerer<'a> {
                     .as_ref()
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
+                // @ref LLP 1024 D1 — a module tag's own attribute named like
+                // a row its box never uses is refused, not bound to nothing;
+                // a class's rows are the style's, never a prop. By name over
+                // the authored list: `expanded` is rewritten above (an
+                // animation shorthand and its longhands compose), so a
+                // position in it does not say whose an attribute is.
+                let own: Vec<&Attr> = attrs.iter().filter(|a| a.name != "class").collect();
+                let refused: Vec<&str> = own
+                    .iter()
+                    .filter(|a| native::refused(tag, a).is_some())
+                    .map(|a| a.name.as_str())
+                    .collect();
+                for a in &own {
+                    self.errors.extend(native::refused(tag, a));
+                }
                 for (index, a) in expanded.iter().enumerate() {
-                    if native::leftover(tag, a) {
+                    if native::leftover(tag, a) || refused.contains(&a.name.as_str()) {
                         continue;
-                    }
-                    // @ref LLP 1024 D1 — a module tag's own attribute named
-                    // like a row its box never uses is refused, not bound to
-                    // nothing; a class's rows are the style's, never a prop.
-                    if index >= class_len {
-                        if let Some(e) = native::refused(tag, a) {
-                            self.errors.push(e);
-                            continue;
-                        }
                     }
                     if let Err(e) = self.attr(
                         tag,

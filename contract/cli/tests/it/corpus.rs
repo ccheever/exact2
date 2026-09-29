@@ -523,9 +523,9 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
     );
     for (attr, what) in [
         ("appearance=\"none\"", "a form control's row"),
-        ("value=\"x\"", "a form control's"),
-        ("placeholder=\"x\"", "a form control's"),
-        ("autofocus=true", "a form control's"),
+        ("value=\"x\"", "a form control's prop"),
+        ("placeholder=\"x\"", "a form control's prop"),
+        ("autofocus=true", "a form control's prop"),
         ("color=\"#fff\"", "a text row"),
     ] {
         let src =
@@ -560,6 +560,13 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         Some(r#"{"cwd":"/tmp","mode":"x","scheme":"dark"}"#)
     );
     assert_eq!(node.style.width, Dimension::Points(320.0));
+    // The check is by name over the tag's own attributes, not by position
+    // in the expanded list: a class's `animation` composed with an own
+    // longhand rewrites that list, and the own `font-size` is still refused.
+    let src = "keyframes breathe\n  from opacity=1\n  to opacity=0.5\nstyle Spin\n  animation=\"breathe 1s\"\ncomponent A\n  view\n    ghostty-terminal font-size=13 testId=\"term\" width=320 height=200 class=Spin animation-delay=\"0.1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "lower-native-attr", "{e}");
+    assert!(e.message.contains("`font-size`"), "{e}");
 }
 
 #[test]

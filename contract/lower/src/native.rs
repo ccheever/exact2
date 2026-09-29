@@ -96,7 +96,7 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
                 return None;
             }
         }
-        _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's",
+        _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's prop",
         _ => return None,
     };
     Some(LowerError {
