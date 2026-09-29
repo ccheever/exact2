@@ -1,11 +1,11 @@
 # LLP 1071: Building list rows off the main thread
 
 **Type:** RFC
-**Status:** Draft r2. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folds every P1 and P2 of that review (§0) and records the rulings on r1's questions (§0.1). Nothing is built.
+**Status:** Draft r3. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). Stage 1 is being built.
 **Systems:**
 - Apple host: `Bridge.swift`'s `Runtime`, `Session.swift` (`wire`, `apply`, `Frames`, boot, pressure), `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/CollectionIOS.swift`, `Mac/PresenterMac.swift`, `Mac/RegionReaderMac.swift`, `Agent.swift`, `Text.swift`, `NodeText.swift`, `Canvas2D*.swift`, `NativeModule.swift`.
 - Apple Rust library: `abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `abi_collections.rs`, `app_module.rs`, `markup.rs`, `textflow.rs`.
-- Runner: the collection's retiring rows and `CollectionFeedback` v4, §5 only.
+- Runner: a create-only mode for collection feedback (`CollectionFeedback` v4 adds one `mode` word; v3 stays accepted), §5 only.
 - Agent API: LLP 1012's `clock` result names `owner` as an unsettled reason.
 - Web host and Linux host: none.
 
@@ -14,7 +14,7 @@
 **Date:** 2026-09-28 (r1 and r2)
 **Related:**
 - Charlie's ruling, 2026-09-28: "move the mount off the main thread … leaving only the UIKit/CA apply on main. Resumable rows are not chosen."
-- The review: `llp/reviews/1071-building-rows-off-the-main-thread.astra.md`.
+- The reviews: `llp/reviews/1071-building-rows-off-the-main-thread.astra.md` (r1) and `…astra-r2.md` (r2's retirement handshake).
 - `QUEUE.md` "A heavy list row still mounts as one lump" and its diagnosis (commit `ee0f8b70`): the evidence in §1.
 - LLP 1022, the serial runtime owner, parked 2026-08-30. This RFC revives it in narrower form. Its findings are acceptance tests here (§10, §11).
 - LLP 1044: F4, F5 and §3 put all list work on main, synchronously.
@@ -46,7 +46,8 @@ Core Animation, the presenter and one **apply coordinator**.
      main and applied by the coordinator in owner order.
   2. **The display-link frame job when a fill is in flight (§7.1).**
 - **Three handshakes keep the asynchrony honest:**
-  - A fill never destroys a row main can still touch (§5).
+  - A fill only creates. Every destruction stays synchronous: eviction,
+    timer commits and edge actions (§5).
   - Main re-checks coverage against current geometry before it presents
     (§6).
   - The agent's `clock` drains every kind of pending work to a fixed point,
@@ -63,7 +64,7 @@ Core Animation, the presenter and one **apply coordinator**.
 | T3 | Asynchronous: the collection fill during motion, and the display-link frame job while a fill is in flight. Nothing else |
 | T4 | One non-reentrant apply coordinator on main applies batches in owner sequence. A synchronous call returns after its own batch has applied. Reports that an apply triggers are deferred until the coordinator is empty. Geometry is gathered after the drain, and a report the runner rejects as stale stays dirty and is retried |
 | T5 | Callback service is one-way. The owner reaches main only through `Owner.callMain`. A main callback cannot synchronously re-enter a runtime: that is refused by name. Notifications and logging are deferred as owner jobs. Each callback is claimed once, and locks are released before it runs |
-| T6 | A fill does not retire. The rows it would retire become *retiring*: alive, event-capable, out of the window. The next report retires them only if main acknowledges; main keeps any row touched, focused, selected, composing or accessibility-focused since the fill was posted |
+| T6 | An asynchronous fill only creates. It evicts nothing and dispatches no edge action; it says whether eviction or an edge is owed. After applying its batch, main runs a synchronous report with fresh pins that evicts and dispatches, exactly as today. Timer advances stay synchronous |
 | T7 | Coverage is verified before presentation. After a drain, main re-reads current geometry, rescues uncovered owed rows synchronously, and checks that the viewport is covered, apart from D3's pending rows and 1068's held leaves |
 | T8 | Text measurement and text painting have separate mutable caches. Measurement publishes immutable line geometry keyed by content, width and font generation. No `CTLine` crosses threads |
 | T9 | Agent settlement is a fixed point over fills, frame jobs, publications, apply-generated reports and the existing conditions. It is re-checked after the request and after native completion turns. When work remains after the bound, it answers `settled: false` with reason `owner` |
@@ -91,10 +92,62 @@ whole-runtime owner thread." Each finding and where r2 answers it:
 | #11 (P2) | Stage order 1 → 2 → 4 (if profiled) → 3 → 5, with its gates, including 25 µs per round trip in stage 1 | §11 |
 
 **What changed in the architecture.** The owner thread, synchronous calls
-and published batches stand as reviewed. One piece is new: §5's retirement
-handshake needs the runner to keep *retiring* rows. That is a runner change,
-and `CollectionFeedback` goes to v4. r1 said "no runner change". The
-coordinator should judge whether §5 needs its own review.
+and published batches stand as reviewed. r2's retirement handshake was
+reviewed on its own and replaced in r3 (§0.2).
+
+## 0.2 What r3 changed (the second review)
+
+The focused review of r2's retirement handshake
+(`llp/reviews/1071-building-rows-off-the-main-thread.astra-r2.md`) said "go
+with named changes" but "not complete enough for stage 2". Its P1s were:
+
+1. An acknowledged row could be destroyed while a touch still targets it.
+2. Retiring rows needed a topology contract: kernel parentage, native
+   attachment, `Tree::find`, `emit_children`/`placeChildren`.
+3. Revival needed a transition table covering reversal, `scrollIntoView`,
+   deletion and key reuse, and revival broke parity with the synchronous
+   path.
+4. A historical touched set is not a pin model.
+5. Nested retirement had to be settled as a hierarchy.
+6. v4 needed an explicit synchronous mode and coordinated ABI delivery.
+7. Asynchronous timer advances and edge actions made destructive commits
+   that bypassed the handshake.
+
+Its P2 asked for a residency bound on retiring rows.
+
+The coordinator asked for the simpler shape to be weighed with numbers:
+**asynchronous fills only create**. Eviction, meaning the destruction of rows
+the window no longer wants, stays synchronous.
+
+**The number.** In the iPhone live-feed trace (§1, 1k–6k pt/s, 12 s), the
+Rust side of eviction is 6.5 ms/s of main time, about 0.6 ms per mounted
+row, or 2.7% of the mount. That covers:
+- the runner dropping retired rows;
+- `Detach::flush` and the layout-tree removals;
+- the motion engine's `remove` and the host mirror's removals;
+- the runner's `Mounted` map removals.
+
+The Swift side (`NodePool.retire`, `FlatLeaves.destroy`) is 12 ms/s. It runs
+on main in either design. Keeping eviction synchronous leaves 0.6 ms of
+blocked main time per row where r2 would have moved it.
+
+**Chosen: create-only** (§5, T6). It keeps destruction where it is today,
+so every P1 above either becomes moot or is answered:
+- **#1:** the eviction is a synchronous report issued after a fresh
+  main-side interaction check. Its destroy batch applies before main does
+  anything else.
+- **#2–#5:** there is no retiring state, so no topology, revival, pin or
+  hierarchy rules are needed. Pins are LLP 1010's and 1070's current ones.
+- **#6:** v4 adds one `mode` word. Synchronous callers (v3, `EXACT_FILL_SYNC`,
+  web, Linux) evict in the same operation, as today, with no observable
+  extra phase.
+- **#7:** timer advances and edge actions stay synchronous (§5, §7.1).
+- **P2:** there is nothing to bound. A row lives in the window, or it is
+  destroyed by the next synchronous report.
+
+The residual cost is 0.6 ms per row of blocked main plus one hop. Stage 2
+measures it, and it is the first thing to revisit if the late-frame gate is
+missed.
 
 ## 0.1 Rulings on r1's questions (Charlie, 2026-09-28, through the coordinator)
 
@@ -222,9 +275,9 @@ owner.
 
 1. **Drain first.** Main drains the coordinator (§3.2).
 2. **Gather facts.** It reads the scrollport geometry, the focus and
-   interaction owners, the measured sizes of applied rows and the retirement
-   acknowledgements (§5).
-3. **Post.** It posts `exact_collection_feedback` as an asynchronous job,
+   interaction owners, and the measured sizes of applied rows.
+3. **Post.** It posts `exact_collection_feedback`, in create-only mode
+   (§5), as an asynchronous job,
    with main's `now` and the session generation.
 4. **Owner side.** The owner runs the report, the commit, layout with text
    measurement, `present`, `finish` and the decode. It publishes the
@@ -345,62 +398,86 @@ The contract:
      waited more than 250 ms on the owner while the owner is inside
      `callMain`.
 
-## 5. Retirement and interaction (T6)
+## 5. Asynchronous fills only create (T6)
 
-A fill can retire rows whose UIKit views are still present
-(`collection/mod.rs:708`). Between the fill's post and its batch's apply, the
-user can:
-- touch a row;
-- move focus to it;
-- select text in it;
-- begin IME composition in it;
-- land VoiceOver's focus on it.
+Today one report both builds the rows the window wants and destroys the rows
+it no longer wants (`collection/mod.rs:708`). It also dispatches
+`reachstart`/`reachend` edge actions (`runner/collection.rs:124`), whose data
+updates can destroy anything. r2's review showed that any destruction
+committed asynchronously opens an interval in which UIKit still shows, and
+hit-tests, views the runner has already forgotten. An event in that interval
+fails as `UnknownView` (`runner/event.rs:789`).
 
-The event then reaches the runner after the fill and fails as `UnknownView`
-(`runner/event.rs:789`). This interval is new, so r2 closes it with a
-handshake.
+r3 therefore splits a moving list's report in two:
 
-1. **Retiring, not retired.** An asynchronous report does not retire. The
-   rows it would retire become **retiring** in the runner:
-   - their instances, slots and views stay alive, and events to them are
-     delivered;
-   - they leave the window and are not measured.
+1. **The asynchronous fill creates.** Its feedback carries
+   `mode = create-only` (`CollectionFeedback` v4, one `u32` after v3's
+   fields). The runner:
+   - realizes the rows the window wants;
+   - neither evicts rows outside the window nor dispatches edge actions;
+   - sets two flags in the snapshot the batch carries: `evict_owed` and
+     `edge_owed`.
    
-   The batch lists them.
-2. **Main acknowledges.** When the batch applies, main acknowledges every
-   retiring row that has not been interacted with since the fill was
-   posted. Main tracks a per-list set of view ids touched since each posted
-   report. Rows entered through five kinds of interaction count as touched:
-   - touch-down;
-   - a focus change;
-   - accessibility focus;
-   - a selection;
-   - marked text.
-3. **The next report settles each one.** It carries `acked: [view]` and
-   `kept: [view]` (`CollectionFeedback` v4).
-   - The runner retires the acknowledged rows; their destroy ops ride that
-     report's batch.
-   - A kept row becomes an interaction pin until main releases it (LLP 1010
-     §6.2's pin rules).
-4. **Synchronous reports retire at once, as today.** There is no interval
-   to protect.
-5. **The bound.** A retiring row lives at most until the next accepted
-   report. The runner retires any it still holds at rest, in a synchronous
-   report.
+   The window may briefly hold more rows than the retention cap, by at most
+   one fill's worth.
+2. **Main evicts synchronously, after the apply.** When the coordinator
+   applies a create-only batch whose snapshot says `evict_owed` or
+   `edge_owed`, the next turn's first collection work is a synchronous
+   report for that list. It runs after the drain, gathers fresh facts, and
+   uses mode `immediate` with `limit = 0` so it builds nothing. The facts
+   carry the *current* focus and interaction owners (`Collection.swift:390`),
+   read on main at that moment. The runner evicts and dispatches exactly as
+   today's reports do, respecting current pins. Its batch, with the destroy
+   ops, applies before the call returns.
+3. **Nothing else destroys asynchronously.**
+   - Timer advances (`host.rs:837`) are always synchronous (§7.1).
+   - Frame jobs never advance timers.
+   - Edge actions run only in immediate reports.
 
-`TextAreaIOS`'s marked-text protection (`:235`) guards value replacement,
-not the editor's destruction. Under this protocol the editor is kept, never
-destroyed mid-composition.
+**What this preserves.** Between a fill's post and its apply, nothing the
+user can see or touch loses its runner instance: the fill only adds. From
+the eviction report's post to its apply, main is blocked, so no event can
+arrive in between. Pins, the nested traversal, `keep_positions` and data
+deletion are untouched; they run in immediate reports as today.
 
-**Tests, with publication held** (a test hook holds a fill before commit,
-before publication, or before apply). For each point:
-- touch-down then click;
-- focus transfer into the retiring row;
+**Parity.** A create-only fill followed by an immediate `limit = 0` report
+builds the same rows and destroys the same rows as one immediate report with
+the fill's limit, given the same facts. The runner's differential test gains
+exactly that pairing. `EXACT_FILL_SYNC=1` sends immediate reports only.
+Under the agent, every boundary drains both halves (§7.2).
+
+**Wire and ABI** (the review's #6):
+- **v4 = v3 + `mode: u32`.** 0 is immediate and 1 is create-only; any other
+  value is refused before mutation. The decoder accepts v3 as immediate.
+  Web and Linux keep writing v3 and are unchanged.
+- **Snapshot fields.** The Apple snapshot JSON gains `evictOwed` and
+  `edgeOwed`, absent when false.
+- **ABI version.** `EXACT_ABI_VERSION` is bumped (LLP 1031 D2). ExactKit
+  and the archive must match, and a mixed-version pair is refused in both
+  directions, as today's compatibility cohort does.
+
+**Cost.** Eviction's Rust side stays on main as blocked time: 6.5 ms/s on
+the live fling, about 0.6 ms a row (§0.2). Stage 2 reports it separately. If
+stage 2 misses its late-frame gate, the first thing to revisit is running
+the `limit = 0` eviction report asynchronously while the pump defers input
+to the list. That needs its own design and review.
+
+**Tests, with publication held.** A test hook holds a create-only fill:
+- before commit;
+- before publication;
+- before apply;
+- between the fill's apply and the eviction report.
+
+At each hold point these must deliver their event with no `UnknownView`:
+- touch-down then click on a row the window no longer wants;
+- focus transfer into it;
 - VoiceOver focus;
 - a selection drag;
-- IME composition.
+- IME composition;
+- a timer and an edge action removing the displayed target.
 
-Each must deliver its event, and the kept row must survive.
+The tree and state at the next settle must equal the `EXACT_FILL_SYNC=1`
+run.
 
 ## 6. Never blank (T7)
 
@@ -451,9 +528,13 @@ layout and advances Canvas 2D (`host.rs:1065`).
 The frame job:
 - **No fill in flight:** steps 1 and 2 run as one synchronous owner job, as
   today.
-- **A fill in flight:** main does not wait. It submits one asynchronous
-  frame job that carries the frame's captured virtual timestamps: the timer
-  check's `now` and the tick's `now`.
+- **A fill in flight, no timer due:** main does not wait. It submits one
+  asynchronous frame job carrying the frame's captured virtual `now`, which
+  runs step 2 only.
+- **A fill in flight and a timer due:** step 1 stays synchronous (§5, r3).
+  A timer's commit can destroy what the user touches, so main waits for the
+  fill, then runs steps 1 and 2 as one synchronous job. A late timer frame
+  during a fling is the price; stage 2 counts these waits.
 - **Coalescing:**
   - A frame job that has not started may be replaced by a newer one, only
     if no event or timer job was submitted after it. Those are barriers.
@@ -620,7 +701,7 @@ The amendment is written into 1050.000's D3 as a dated note pointing here.
 | synchronous reentry from a serviced callback | a refused call | the named `busy` refusal and a journal line. Stage 1 runs native-module apps (the map module) and asserts zero |
 | out-of-order application | a missing parent, a stale style | owner sequence stamped on every batch. The coordinator asserts it increases (debug) and journals a gap (release) |
 | stale geometry dropped for good | a list stops refining | the `stale` flag and dirty retry (§3.3). A counter of stale rejections and retries |
-| an event on a retiring row | `UnknownView` | §5's handshake. A counter of `UnknownView` refusals from list rows; the gate is zero |
+| an event on a row an asynchronous commit destroyed | `UnknownView` | §5: asynchronous fills only create, and every destruction is synchronous. A counter of `UnknownView` refusals from list rows; the gate is zero |
 | an unintended gap | a blank band | §6's verification counters. The probe's blank count |
 | a stale batch after reload or destroy | old-plan views | the generation tag. The reload smoke |
 | owner-only state touched on main | a crash or rare corruption | `Owner.assertOwner()` (pthread identity) on owner-only entry points in debug builds. The §2.3 audit |
@@ -662,7 +743,9 @@ T8, T10, §8.1's macOS fix and the §2.3 audit.
   session's input-to-apply p95 must be within 2 ms of it running alone.
 
 **Stage 2: asynchronous fills on iOS.** It covers T3, T6, T7, T9, T12,
-`CollectionFeedback` v4 and §5's runner change.
+`CollectionFeedback` v4's create-only mode, the runner's `evict_owed` and
+`edge_owed`, and the ABI version bump (§5). Eviction's blocked main time is
+reported on its own line.
 - iPhone live fling: at most 3 late frames per second (from 8–9; SwiftUI
   1.1).
 - Unintended gaps (§6): 0.
