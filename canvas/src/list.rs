@@ -211,7 +211,12 @@ impl Default for Writer {
 impl Writer {
     /// An empty list: the header alone.
     pub fn new() -> Writer {
-        let mut bytes = Vec::with_capacity(256);
+        Writer::with_capacity(256)
+    }
+
+    /// An empty list with room for `bytes` (at most [`SEAL_BYTES`]).
+    pub fn with_capacity(bytes: usize) -> Writer {
+        let mut bytes = Vec::with_capacity(bytes.clamp(HEADER, SEAL_BYTES));
         bytes.extend_from_slice(&MAGIC.to_le_bytes());
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         Writer { bytes, ops: 0 }
@@ -220,6 +225,7 @@ impl Writer {
     /// One record.
     pub fn op(&mut self, op: Op, operands: &[f64]) {
         debug_assert!(op.arity().is_none_or(|n| n == operands.len()));
+        self.bytes.reserve(8 + operands.len() * 8);
         self.bytes.extend_from_slice(&(op as u32).to_le_bytes());
         self.bytes
             .extend_from_slice(&(operands.len() as u32).to_le_bytes());
@@ -295,6 +301,19 @@ impl std::fmt::Display for Malformed {
 /// wrong operand count or a truncated record. Structural only (LLP 1056 D3):
 /// the recorder settled semantics at the call.
 pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
+    let mut out = Vec::new();
+    each(bytes, |r| {
+        out.push(r);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// [`records`], one at a time to `f`, without collecting them; the count.
+fn each<'a>(
+    bytes: &'a [u8],
+    mut f: impl FnMut(Record<'a>) -> Result<(), Malformed>,
+) -> Result<usize, Malformed> {
     let bad = |m: String| Err(Malformed(m));
     if bytes.len() < HEADER {
         return bad("shorter than its header".into());
@@ -306,7 +325,7 @@ pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
     if word(4) != VERSION {
         return bad(format!("version {}, this host reads {VERSION}", word(4)));
     }
-    let mut out = Vec::new();
+    let mut count = 0;
     let mut at = HEADER;
     while at < bytes.len() {
         if at + 8 > bytes.len() {
@@ -323,13 +342,14 @@ pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
         if end > bytes.len() {
             return bad(format!("{} at byte {at} is truncated", op.name()));
         }
-        out.push(Record {
+        f(Record {
             op,
             raw: &bytes[at + 8..end],
-        });
+        })?;
+        count += 1;
         at = end;
     }
-    Ok(out)
+    Ok(count)
 }
 
 /// The per-canvas structural check: [`records`], plus object ids
@@ -337,8 +357,7 @@ pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
 /// this generation, and finite enum operands in range. `ids` carries the
 /// ids created by earlier lists of the generation.
 pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
-    let recs = records(bytes)?;
-    for r in &recs {
+    each(bytes, |r| {
         let known = |id: f64, g: &Vec<u32>| g.contains(&(id as u32));
         let unknown = |at: usize| {
             Err(Malformed(format!(
@@ -410,8 +429,8 @@ pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
                 r.op.name()
             )));
         }
-    }
-    Ok(recs.len())
+        Ok(())
+    })
 }
 
 /// A readable form for the agent's `layout` (LLP 1056 §5): one call a line,

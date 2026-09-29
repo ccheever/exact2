@@ -146,18 +146,22 @@ pub fn ellipse(
 ) -> ((f64, f64), Vec<Seg>) {
     let (s, e) = angles(start, end, anticlockwise);
     let (sin_r, cos_r) = rotation.sin_cos();
-    let at = |t: f64| {
-        let (x, y) = (rx * t.cos(), ry * t.sin());
+    // Each angle's sine and cosine are taken once, for its point and its
+    // tangent both (the same calls, so the same bits).
+    let trig = |t: f64| (t.sin(), t.cos());
+    let at = |(sin, cos): (f64, f64)| {
+        let (x, y) = (rx * cos, ry * sin);
         (cx + x * cos_r - y * sin_r, cy + x * sin_r + y * cos_r)
     };
-    let tangent = |t: f64| {
-        let (x, y) = (-rx * t.sin(), ry * t.cos());
+    let tangent = |(sin, cos): (f64, f64)| {
+        let (x, y) = (-rx * sin, ry * cos);
         (x * cos_r - y * sin_r, x * sin_r + y * cos_r)
     };
-    let first = at(s);
+    let start = trig(s);
+    let first = at(start);
     let mut out = Vec::new();
     if rx == 0.0 || ry == 0.0 {
-        let last = at(e);
+        let last = at(trig(e));
         out.push(Seg::Line(last.0, last.1));
         return (first, out);
     }
@@ -168,10 +172,12 @@ pub fn ellipse(
     let n = ((sweep.abs() / FRAC_PI_2) - 1e-9).ceil().max(1.0) as usize;
     let step = sweep / n as f64;
     let k = 4.0 / 3.0 * (step / 4.0).tan();
+    let mut c0 = start;
     for i in 0..n {
-        let (t0, t1) = (s + step * i as f64, s + step * (i + 1) as f64);
-        let (p0, p1) = (at(t0), if i + 1 == n { at(e) } else { at(t1) });
-        let (d0, d1) = (tangent(t0), tangent(t1));
+        let c1 = trig(s + step * (i + 1) as f64);
+        let (p0, p1) = (at(c0), if i + 1 == n { at(trig(e)) } else { at(c1) });
+        let (d0, d1) = (tangent(c0), tangent(c1));
+        c0 = c1;
         out.push(Seg::Cubic(
             p0.0 + k * d0.0,
             p0.1 + k * d0.1,

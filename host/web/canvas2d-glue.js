@@ -33,10 +33,17 @@ const GENERIC = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy
 const REPEAT = ["repeat", "repeat-x", "repeat-y", "no-repeat"];
 const MAGIC = 0x44324345;
 
-function decode(text) {
-  const bin = atob(text), bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new DataView(bytes.buffer);
+// A colour record's CSS text, kept for the colours a list repeats (the
+// context parses it again on assignment either way).
+const colors = new Map();
+function colorText(r, g, b, a) {
+  if ((r & 255) !== r || (g & 255) !== g || (b & 255) !== b) return `rgba(${r}, ${g}, ${b}, ${a})`;
+  const key = r * 16777216 + g * 65536 + b * 256;
+  let byAlpha = colors.get(key);
+  if (!byAlpha) { if (colors.size > 4096) colors.clear(); colors.set(key, byAlpha = new Map()); }
+  let text = byAlpha.get(a);
+  if (text === undefined) { text = `rgba(${r}, ${g}, ${b}, ${a})`; if (byAlpha.size < 64) byAlpha.set(a, text); }
+  return text;
 }
 const textOf = (k, from, count) => { let s = ""; for (let i = from; i < count; i++) s += String.fromCodePoint(k[i]); return s; };
 // A declared family is registered under its stack's alias (host.rs `font_faces`).
@@ -58,11 +65,15 @@ class Replayer {
     // Assigning the bitmap's size clears it and resets the context (HTML).
     el.width = op.w; el.height = op.h;
     this.ctx = el.getContext("2d");
-    this.base = op.scale; this.author = [1, 0, 0, 1, 0, 0]; this.stack = []; this.objects = new Map(); this.srcs = new Map();
+    this.base = op.scale; this.author = [1, 0, 0, 1, 0, 0]; this.plain = true; this.stack = []; this.objects = new Map(); this.srcs = new Map();
     this.scratch = new Path2D();
     this.ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
   }
+  /** The author matrix, and whether it is the identity (a paint then needs
+   *  no transform of its own). */
+  setAuthor(m) { this.author = m; this.plain = m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && m[4] === 0 && m[5] === 0; }
   paint(f, extra) {
+    if (this.plain && !extra) { f(this.ctx); return; }
     const [a, b, c, d, e, g] = this.author, s = this.base;
     this.ctx.setTransform(s * a, s * b, s * c, s * d, s * e, s * g);
     if (extra) this.ctx.transform(...extra);
@@ -82,101 +93,108 @@ class Replayer {
     if (view.byteLength < 8 || view.getUint32(0, true) !== MAGIC || view.getUint32(4, true) !== 1) return false;
     const ctx = this.ctx;
     let n = new Float64Array(64);
-    const rgba = (i) => `rgba(${n[i]}, ${n[i + 1]}, ${n[i + 2]}, ${n[i + 3]})`;
+    const rgba = (i) => colorText(n[i], n[i + 1], n[i + 2], n[i + 3]);
+    // A list in wasm memory is 8-aligned, as its records are: read it
+    // through typed arrays over the memory itself (little-endian, as wasm
+    // is); a DataView otherwise.
+    const aligned = view.byteOffset % 8 === 0 && view.byteLength % 8 === 0;
+    const words = aligned ? new Uint32Array(view.buffer, view.byteOffset, view.byteLength >> 2) : null;
+    const doubles = aligned ? new Float64Array(view.buffer, view.byteOffset, view.byteLength >> 3) : null;
     let at = 8;
     while (at + 8 <= view.byteLength) {
-      const code = view.getUint32(at, true), count = view.getUint32(at + 4, true);
+      const code = aligned ? words[at >> 2] : view.getUint32(at, true), count = aligned ? words[(at >> 2) + 1] : view.getUint32(at + 4, true);
       at += 8;
       if (at + count * 8 > view.byteLength || !OPS[code]) return false;
       if (count > n.length) n = new Float64Array(count);
       const k = n;
-      for (let i = 0; i < count; i++) k[i] = view.getFloat64(at + i * 8, true);
+      if (aligned) { const from = at >> 3; for (let i = 0; i < count; i++) k[i] = doubles[from + i]; }
+      else for (let i = 0; i < count; i++) k[i] = view.getFloat64(at + i * 8, true);
       at += count * 8;
-      switch (OPS[code]) {
-        case "save": this.stack.push(this.author); ctx.save(); break;
-        case "restore": if (this.stack.length) { this.author = this.stack.pop(); ctx.restore(); } break;
-        case "reset":
-          this.stack.length = 0; this.author = [1, 0, 0, 1, 0, 0]; this.scratch = new Path2D();
+      switch (code) { // numbers: a jump table, where names compare one by one
+        case 1: /* save */ this.stack.push(this.author); ctx.save(); break;
+        case 2: /* restore */ if (this.stack.length) { this.setAuthor(this.stack.pop()); ctx.restore(); } break;
+        case 3: /* reset */
+          this.stack.length = 0; this.setAuthor([1, 0, 0, 1, 0, 0]); this.scratch = new Path2D();
           if (ctx.reset) ctx.reset(); else this.el.width = this.el.width;
           ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
           break;
-        case "setTransform": this.author = [k[0], k[1], k[2], k[3], k[4], k[5]]; break;
-        case "fillColor": ctx.fillStyle = rgba(0); break;
-        case "strokeColor": ctx.strokeStyle = rgba(0); break;
-        case "fillGradient": case "fillPattern": ctx.fillStyle = this.objects.get(k[0]) ?? "transparent"; break;
-        case "strokeGradient": case "strokePattern": ctx.strokeStyle = this.objects.get(k[0]) ?? "transparent"; break;
-        case "lineWidth": ctx.lineWidth = k[0]; break;
-        case "lineCap": ctx.lineCap = CAPS[k[0]]; break;
-        case "lineJoin": ctx.lineJoin = JOINS[k[0]]; break;
-        case "miterLimit": ctx.miterLimit = k[0]; break;
-        case "lineDash": ctx.setLineDash(Array.from(k.subarray(0, count))); break;
-        case "lineDashOffset": ctx.lineDashOffset = k[0]; break;
-        case "globalAlpha": ctx.globalAlpha = k[0]; break;
-        case "composite": ctx.globalCompositeOperation = COMPOSITE[k[0]]; break;
+        case 4: /* setTransform */ this.setAuthor([k[0], k[1], k[2], k[3], k[4], k[5]]); break;
+        case 10: /* fillColor */ ctx.fillStyle = rgba(0); break;
+        case 12: /* strokeColor */ ctx.strokeStyle = rgba(0); break;
+        case 11: /* fillGradient */ case 36: /* fillPattern */ ctx.fillStyle = this.objects.get(k[0]) ?? "transparent"; break;
+        case 13: /* strokeGradient */ case 37: /* strokePattern */ ctx.strokeStyle = this.objects.get(k[0]) ?? "transparent"; break;
+        case 14: /* lineWidth */ ctx.lineWidth = k[0]; break;
+        case 15: /* lineCap */ ctx.lineCap = CAPS[k[0]]; break;
+        case 16: /* lineJoin */ ctx.lineJoin = JOINS[k[0]]; break;
+        case 17: /* miterLimit */ ctx.miterLimit = k[0]; break;
+        case 18: /* lineDash */ ctx.setLineDash(Array.from(k.subarray(0, count))); break;
+        case 19: /* lineDashOffset */ ctx.lineDashOffset = k[0]; break;
+        case 20: /* globalAlpha */ ctx.globalAlpha = k[0]; break;
+        case 21: /* composite */ ctx.globalCompositeOperation = COMPOSITE[k[0]]; break;
         // Shadows are in bitmap pixels whatever the transform (HTML): canvas
         // units times the base scale.
-        case "shadowColor": ctx.shadowColor = rgba(0); break;
-        case "shadowBlur": ctx.shadowBlur = k[0] * this.base; break;
-        case "shadowOffset": ctx.shadowOffsetX = k[0] * this.base; ctx.shadowOffsetY = k[1] * this.base; break;
-        case "smoothing": ctx.imageSmoothingEnabled = k[0] === 1; ctx.imageSmoothingQuality = ["low", "medium", "high"][k[1]]; break;
-        case "linearGradient": this.objects.set(k[0], ctx.createLinearGradient(k[1], k[2], k[3], k[4])); break;
-        case "radialGradient": this.objects.set(k[0], ctx.createRadialGradient(k[1], k[2], k[3], k[4], k[5], k[6])); break;
-        case "conicGradient": this.objects.set(k[0], ctx.createConicGradient(k[1], k[2], k[3])); break;
-        case "colorStop": this.objects.get(k[0])?.addColorStop(k[1], rgba(2)); break;
-        case "image": this.srcs.set(k[0], textOf(k, 1, count)); break;
-        case "pattern": { const el = this.image(k[1]); this.objects.set(k[0], el ? ctx.createPattern(el, REPEAT[k[2]]) : null); break; }
-        case "patternTransform": this.objects.get(k[0])?.setTransform({ a: k[1], b: k[2], c: k[3], d: k[4], e: k[5], f: k[6] }); break;
-        case "beginPath": ctx.beginPath(); break;
-        case "moveTo": ctx.moveTo(k[0], k[1]); break;
-        case "lineTo": ctx.lineTo(k[0], k[1]); break;
-        case "quadTo": ctx.quadraticCurveTo(k[0], k[1], k[2], k[3]); break;
-        case "cubicTo": ctx.bezierCurveTo(k[0], k[1], k[2], k[3], k[4], k[5]); break;
-        case "closePath": ctx.closePath(); break;
-        case "fill": { const rule = k[0] === 1 ? "evenodd" : "nonzero"; this.paint(c => c.fill(rule)); break; }
-        case "stroke": this.paint(c => c.stroke()); break;
-        case "clip": ctx.clip(k[0] === 1 ? "evenodd" : "nonzero"); break;
-        case "fillRect": { const [x, y, w, h] = k; this.paint(c => c.fillRect(x, y, w, h)); break; }
-        case "strokeRect": { const [x, y, w, h] = k; this.paint(c => c.strokeRect(x, y, w, h)); break; }
-        case "clearRect": { const [x, y, w, h] = k; this.paint(c => c.clearRect(x, y, w, h)); break; }
-        case "font": {
+        case 22: /* shadowColor */ ctx.shadowColor = rgba(0); break;
+        case 23: /* shadowBlur */ ctx.shadowBlur = k[0] * this.base; break;
+        case 24: /* shadowOffset */ ctx.shadowOffsetX = k[0] * this.base; ctx.shadowOffsetY = k[1] * this.base; break;
+        case 25: /* smoothing */ ctx.imageSmoothingEnabled = k[0] === 1; ctx.imageSmoothingQuality = ["low", "medium", "high"][k[1]]; break;
+        case 30: /* linearGradient */ this.objects.set(k[0], ctx.createLinearGradient(k[1], k[2], k[3], k[4])); break;
+        case 31: /* radialGradient */ this.objects.set(k[0], ctx.createRadialGradient(k[1], k[2], k[3], k[4], k[5], k[6])); break;
+        case 33: /* conicGradient */ this.objects.set(k[0], ctx.createConicGradient(k[1], k[2], k[3])); break;
+        case 32: /* colorStop */ this.objects.get(k[0])?.addColorStop(k[1], rgba(2)); break;
+        case 70: /* image */ this.srcs.set(k[0], textOf(k, 1, count)); break;
+        case 34: /* pattern */ { const el = this.image(k[1]); this.objects.set(k[0], el ? ctx.createPattern(el, REPEAT[k[2]]) : null); break; }
+        case 35: /* patternTransform */ this.objects.get(k[0])?.setTransform({ a: k[1], b: k[2], c: k[3], d: k[4], e: k[5], f: k[6] }); break;
+        case 40: /* beginPath */ ctx.beginPath(); break;
+        case 41: /* moveTo */ ctx.moveTo(k[0], k[1]); break;
+        case 42: /* lineTo */ ctx.lineTo(k[0], k[1]); break;
+        case 43: /* quadTo */ ctx.quadraticCurveTo(k[0], k[1], k[2], k[3]); break;
+        case 44: /* cubicTo */ ctx.bezierCurveTo(k[0], k[1], k[2], k[3], k[4], k[5]); break;
+        case 45: /* closePath */ ctx.closePath(); break;
+        case 50: /* fill */ { const rule = k[0] === 1 ? "evenodd" : "nonzero"; if (this.plain) ctx.fill(rule); else this.paint(c => c.fill(rule)); break; }
+        case 51: /* stroke */ if (this.plain) ctx.stroke(); else this.paint(c => c.stroke()); break;
+        case 52: /* clip */ ctx.clip(k[0] === 1 ? "evenodd" : "nonzero"); break;
+        case 53: /* fillRect */ { const [x, y, w, h] = k; this.paint(c => c.fillRect(x, y, w, h)); break; }
+        case 54: /* strokeRect */ { const [x, y, w, h] = k; this.paint(c => c.strokeRect(x, y, w, h)); break; }
+        case 55: /* clearRect */ { const [x, y, w, h] = k; this.paint(c => c.clearRect(x, y, w, h)); break; }
+        case 60: /* font */ {
           ctx.font = fontCss(k, count);
           ctx.fontStretch = STRETCH[k[3]] ?? "normal"; ctx.fontVariantCaps = VARIANT_CAPS[k[4]] ?? "normal";
           ctx.fontKerning = KERNING[k[5]] ?? "auto"; ctx.textRendering = RENDERING[k[6]] ?? "auto";
           ctx.letterSpacing = `${k[7]}px`; ctx.wordSpacing = `${k[8]}px`;
           break;
         }
-        case "fillText": case "strokeText": {
+        case 61: /* fillText */ case 62: /* strokeText */ {
           // The run's left end on its alphabetic baseline, squeezed by maxWidth.
-          const text = textOf(k, 4, count), fill = OPS[code] === "fillText";
+          const text = textOf(k, 4, count), fill = code === 61;
           ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.direction = k[3] === 1 ? "rtl" : "ltr";
           this.paint(c => (fill ? c.fillText(text, 0, 0) : c.strokeText(text, 0, 0)), [k[2], 0, 0, 1, k[0], k[1]]);
           break;
         }
-        case "drawImage": {
+        case 71: /* drawImage */ {
           const el = this.image(k[0]);
           if (el) { const a = Array.from(k.subarray(1, 9)); this.paint(c => c.drawImage(el, ...a)); }
           break;
         }
-        case "putImageData": {
+        case 72: /* putImageData */ {
           const [x, y, w, h] = k, px = new Uint8ClampedArray(w * h * 4);
           for (let i = 0; i < w * h; i++) { const v = k[4 + i]; px[i * 4] = Math.floor(v / 16777216); px[i * 4 + 1] = (v >>> 16) & 255; px[i * 4 + 2] = (v >>> 8) & 255; px[i * 4 + 3] = v & 255; }
           ctx.putImageData(new ImageData(px, w, h), x, y);
           break;
         }
-        case "pMoveTo": this.scratch.moveTo(k[0], k[1]); break;
-        case "pLineTo": this.scratch.lineTo(k[0], k[1]); break;
-        case "pQuadTo": this.scratch.quadraticCurveTo(k[0], k[1], k[2], k[3]); break;
-        case "pCubicTo": this.scratch.bezierCurveTo(k[0], k[1], k[2], k[3], k[4], k[5]); break;
-        case "pClose": this.scratch.closePath(); break;
-        case "fillPath": {
+        case 80: /* pMoveTo */ this.scratch.moveTo(k[0], k[1]); break;
+        case 81: /* pLineTo */ this.scratch.lineTo(k[0], k[1]); break;
+        case 82: /* pQuadTo */ this.scratch.quadraticCurveTo(k[0], k[1], k[2], k[3]); break;
+        case 83: /* pCubicTo */ this.scratch.bezierCurveTo(k[0], k[1], k[2], k[3], k[4], k[5]); break;
+        case 84: /* pClose */ this.scratch.closePath(); break;
+        case 85: /* fillPath */ {
           // Canvas coordinates under the base, but styles in user space: the
           // path taken back through the author matrix, painted under it.
           const p = this.userPath(this.scratch), rule = k[0] === 1 ? "evenodd" : "nonzero";
           if (p) this.paint(c => c.fill(p, rule));
           this.scratch = new Path2D(); break;
         }
-        case "strokePath": { const p = this.userPath(this.scratch); if (p) this.paint(c => c.stroke(p)); this.scratch = new Path2D(); break; }
-        case "clipPath": ctx.clip(this.scratch, k[0] === 1 ? "evenodd" : "nonzero"); this.scratch = new Path2D(); break;
+        case 86: /* strokePath */ { const p = this.userPath(this.scratch); if (p) this.paint(c => c.stroke(p)); this.scratch = new Path2D(); break; }
+        case 87: /* clipPath */ ctx.clip(this.scratch, k[0] === 1 ? "evenodd" : "nonzero"); this.scratch = new Path2D(); break;
       }
     }
     return at === view.byteLength;
@@ -282,7 +300,8 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
       if (op.fresh) canvases.set(op.id, new Replayer(surface, op));
       const r = canvases.get(op.id);
       if (!r || r.lifetime !== op.lifetime || r.generation !== op.generation) return;
-      for (const text of op.lists ?? []) if (!r.apply(decode(text))) console.error(`exact: canvas ${op.id}: unreadable list`);
+      // Each list is `[address, length]` in the wasm's memory, read in place.
+      for (const [at, len] of op.lists ?? []) if (!r.apply(new DataView(exact.wasm.memory.buffer, at, len))) console.error(`exact: canvas ${op.id}: unreadable list`);
     },
     /** Resolves once every watched canvas has reported its first geometry. */
     settled() {

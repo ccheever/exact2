@@ -15,6 +15,10 @@ use exact_runner::Geometry;
 pub(crate) struct Watch {
     watched: SortedSet<ViewId>,
     frames: bool,
+    /// The lists the last two batches with lists named by address: the glue
+    /// reads them in place while it applies the batch (a batch applied
+    /// inside another's is the second).
+    kept: [Vec<exact_runner::CanvasList>; 2],
 }
 
 impl<D: DataSource> Host<D> {
@@ -41,8 +45,13 @@ impl<D: DataSource> Host<D> {
             self.canvas2d.watched.remove(&v);
         }
         self.runner.draw_canvases(&|_| true);
-        for c in self.runner.take_canvas_lists() {
-            batch.canvas2d(&c);
+        let lists = self.runner.take_canvas_lists();
+        for c in &lists {
+            batch.canvas2d(c);
+        }
+        if !lists.is_empty() {
+            self.canvas2d.kept.swap(0, 1);
+            self.canvas2d.kept[1] = lists;
         }
         // Handles a Rust draw asked for: the page loads them (LLP 1056 D9).
         let images = self.runner.take_canvas_image_requests();

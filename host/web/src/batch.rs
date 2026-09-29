@@ -458,8 +458,10 @@ impl Batch {
             .push(text!("{{\"op\":\"canvas2d\",\"frames\":{}}}", frames));
     }
 
-    /// A 2D canvas's stamped lists (LLP 1056 D4), base64, in order; `fresh`
-    /// starts a new bitmap at `w`×`h`.
+    /// A 2D canvas's stamped lists (LLP 1056 D4), in order, as `[address,
+    /// length]` pairs in this wasm's memory: the glue replays them in place,
+    /// with no text between (the host keeps them alive for the batch);
+    /// `fresh` starts a new bitmap at `w`×`h`.
     pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = text!(
             "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
@@ -477,9 +479,7 @@ impl Batch {
             if i > 0 {
                 s.push(',');
             }
-            s.push('"');
-            s.push_str(&exact_runner::agent::base64(l));
-            s.push('"');
+            push_text!(&mut s, "[{},{}]", l.as_ptr() as usize, l.len());
         }
         s.push_str("]}");
         self.ops.push(s);

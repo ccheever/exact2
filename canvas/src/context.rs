@@ -431,7 +431,9 @@ impl Context2d {
     pub fn take_lists(&self) -> Vec<Vec<u8>> {
         let mut g = self.g();
         let mut out = std::mem::take(&mut g.sealed);
-        let w = std::mem::take(&mut g.writer);
+        // The next draw is likely this one's size: its writer starts there.
+        let next = Writer::with_capacity(g.writer.len());
+        let w = std::mem::replace(&mut g.writer, next);
         if !w.is_empty() {
             out.push(w.finish());
         }
