@@ -68,8 +68,16 @@ extension Canvas2DReplayer {
 /// image handles they draw, and cleanup when a view goes. The bitmap shows
 /// in a sublayer below the view's children, framed to the content box.
 final class Canvas2DHost: Canvas2DEnv {
-    /// The replayers, by view id: touched only on `replay`.
+    /// The replayers, by view id: touched only on `replay`. A canvas that is
+    /// recorded (`Canvas2DRecord.swift`) has none.
     private var replayers: [UInt32: Canvas2DReplayer] = [:]
+    /// Each canvas's tracker and kept lists: touched only on `replay`.
+    private var kept: [UInt32: Canvas2DKept] = [:]
+    /// Each recorded canvas's recording layer, over its bitmap.
+    private var recorders: [UInt32: Canvas2DRecordLayer] = [:]
+    /// Tests (and the parity smoke, EXACT_CANVAS_RECORD=always) record every
+    /// canvas the policy allows, animating or not.
+    static var recordAlways = ProcessInfo.processInfo.environment["EXACT_CANVAS_RECORD"] == "always"
     private var layers: [UInt32: CALayer] = [:]
     /// Replay runs off the main thread, in order (LLP 1056 §8 stage 4, as
     /// built): a list row's canvas cost 130 ms/s of an iPhone's main thread
@@ -203,6 +211,9 @@ final class Canvas2DHost: Canvas2DEnv {
         sequence[id] = seq
         let job = Canvas2DJob(fresh: fresh, w: w, h: h, scale: scale, lifetime: lifetime, generation: generation,
                               lists: lists, images: images, fonts: fonts, seq: seq)
+        // The draw asked for the next frame: it animates.
+        job.animating = (payload["animating"] as? NSNumber)?.boolValue == true || Canvas2DHost.recordAlways
+        job.stretch = (payload["stretch"] as? NSNumber)?.boolValue == true
         lock.lock()
         let joined = waiting[id]?.absorb(job) ?? false
         if !joined { waiting[id] = job }
@@ -229,27 +240,70 @@ final class Canvas2DHost: Canvas2DEnv {
             return
         }
         if job.fresh {
-            replayers[id] = Canvas2DReplayer(width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+            replayers[id] = nil
+            let t = Canvas2DReplayer(trackingWidth: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+            kept[id] = Canvas2DKept(t)
         }
-        var image: CGImage?, unreadable = 0
-        if let r = replayers[id], r.lifetime == job.lifetime, r.generation == job.generation {
-            let env = Canvas2DSnapshot(images: job.images, fonts: job.fonts)  // `env` is weak
-            r.env = env
-            defer { withExtendedLifetime(env) {} }
-            for data in job.lists {
-                guard let data, r.apply(data) else { unreadable += 1; continue }
+        guard let k = kept[id], k.tracker.lifetime == job.lifetime, k.tracker.generation == job.generation else {
+            DispatchQueue.main.async { [weak self] in self?.pending -= 1 }
+            return
+        }
+        let env = Canvas2DSnapshot(images: job.images, fonts: job.fonts)
+        var unreadable = 0
+        let lists = job.lists.compactMap { $0 }
+        unreadable += job.lists.count - lists.count
+        for data in lists { k.keep(data) }
+        // The policy (LLP 1056 §8.4): recorded while it animates, from a
+        // cover, drawing nothing a recording draws differently, within the
+        // bound, at the display's own scale.
+        let record = job.animating && !job.stretch && k.start != nil && !k.refused && k.bounded && job.w > 0 && job.h > 0
+        var contents: Any?, recording: Canvas2DRecordLayer.Frame?
+        if record, let start = k.start {
+            replayers[id] = nil
+            k.recording = true
+            recording = .init(lists: k.lists, start: start, env: env, width: job.w, height: job.h, scale: job.scale)
+        } else {
+            let r: Canvas2DReplayer
+            if let existing = replayers[id], !k.recording {
+                r = existing
+                r.env = env
+                for data in lists where !r.apply(data) { unreadable += 1 }
+            } else {
+                // A new bitmap: from the kept lists when it was recorded (or
+                // it is fresh), which carry every list since their start.
+                r = Canvas2DReplayer(width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+                r.env = env
+                if let start = k.start {
+                    r.restore(start)
+                    for data in k.lists where !r.apply(data) { unreadable += 1 }
+                } else {
+                    for data in lists where !r.apply(data) { unreadable += 1 }
+                }
+                replayers[id] = r
+                k.recording = false
             }
             r.env = nil
-            image = r.image()
+            contents = r.image()
         }
+        // Kept only while it may be recorded: a canvas that does not animate,
+        // or kept past the bound, starts again at its next cover.
+        if !k.bounded || (!job.animating && !k.recording) { k.drop() }
+        withExtendedLifetime(env) {}
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.pending -= 1
             for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
-            // The newest replay done of a canvas still mounted shows.
-            guard let image, self.sequence[id] != nil, job.seq > self.shown[id] ?? 0, let layer = self.layers[id] else { return }
+            // The newest replay done of a canvas still mounted shows: the
+            // bitmap, or the recording.
+            guard self.sequence[id] != nil, job.seq > self.shown[id] ?? 0, let layer = self.layers[id] else { return }
             self.shown[id] = job.seq
-            layer.contents = image
+            layer.contents = contents
+            if let recording {
+                let r = self.recorders[id] ?? { let r = Canvas2DRecordLayer(); layer.addSublayer(r); self.recorders[id] = r; return r }()
+                r.show(recording)
+            } else {
+                self.recorders[id]?.hide()
+            }
         }
     }
 
@@ -283,7 +337,8 @@ final class Canvas2DHost: Canvas2DEnv {
         guard sequence.removeValue(forKey: id) != nil else { return }
         shown.removeValue(forKey: id)
         lock.lock(); waiting.removeValue(forKey: id); lock.unlock()
-        replay.async { [weak self] in self?.replayers.removeValue(forKey: id) }
+        recorders.removeValue(forKey: id)
+        replay.async { [weak self] in self?.replayers.removeValue(forKey: id); self?.kept.removeValue(forKey: id) }
         layers.removeValue(forKey: id)?.removeFromSuperlayer()
     }
 }
@@ -297,6 +352,10 @@ private final class Canvas2DJob {
     var images: [String: CGImage]
     var fonts: [Canvas2DFont: CTFont]
     var seq: Int
+    /// The draw asked for the next frame.
+    var animating = false
+    /// An explicit bitmap, stretched to the box.
+    var stretch = false
     init(fresh: Bool, w: Int, h: Int, scale: Double, lifetime: UInt64, generation: UInt32, lists: [Data?],
          images: [String: CGImage], fonts: [Canvas2DFont: CTFont], seq: Int) {
         self.fresh = fresh; self.w = w; self.h = h; self.scale = scale; self.lifetime = lifetime
@@ -315,16 +374,19 @@ private final class Canvas2DJob {
         images = later.images
         fonts.merge(later.fonts) { _, new in new }
         seq = later.seq
+        animating = later.animating
+        stretch = later.stretch
         return true
     }
 }
 
 /// What one replay reads off the main thread: the images and fonts as they
 /// were when its lists arrived.
-private final class Canvas2DSnapshot: Canvas2DEnv {
+final class Canvas2DSnapshot: Canvas2DEnv {
     let images: [String: CGImage]
     let fonts: [Canvas2DFont: CTFont]
     init(images: [String: CGImage], fonts: [Canvas2DFont: CTFont]) { self.images = images; self.fonts = fonts }
     func canvasFont(_ f: Canvas2DFont) -> CTFont? { fonts[f] }
     func canvasImage(_ src: String) -> CGImage? { images[src] }
 }
+

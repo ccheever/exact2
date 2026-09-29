@@ -113,11 +113,14 @@ final class Canvas2DReplayer {
     let base: CGAffineTransform
     let width: Int, height: Int
     var state = Canvas2DState()
-    private var stack: [Canvas2DState] = []
+    var stack: [Canvas2DState] = []
     /// The current path, in canvas coordinates; it survives painting.
-    private var path = CGMutablePath()
+    var path = CGMutablePath()
     /// A `Path2D`'s segments for the next path paint.
-    private var scratch = CGMutablePath()
+    var scratch = CGMutablePath()
+    /// What a tracker (`Canvas2DRecord.swift`) has seen; nil for a replayer
+    /// that paints.
+    var tracking: Canvas2DTracking?
     var gradients: [UInt32: Canvas2DGradient] = [:]
     var patterns: [UInt32: Canvas2DPattern] = [:]
     var imageSources: [UInt32: String] = [:]
@@ -129,14 +132,22 @@ final class Canvas2DReplayer {
     /// row's canvas replay at 3x (LLP 1056 D10).
     private var blank = true
 
-    init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
-        self.lifetime = lifetime; self.generation = generation
-        self.width = width; self.height = height
-        context = width > 0 && height > 0
+    convenience init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
+        let context = width > 0 && height > 0
             ? CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: canvas2DSRGB, bitmapInfo: canvas2DBitmapInfo)
             : nil
         // Flip once to the canvas's y-down space, then the device scale.
-        base = CGAffineTransform(a: CGFloat(scale), b: 0, c: 0, d: -CGFloat(scale), tx: 0, ty: CGFloat(height))
+        let base = CGAffineTransform(a: CGFloat(scale), b: 0, c: 0, d: -CGFloat(scale), tx: 0, ty: CGFloat(height))
+        self.init(context: context, base: base, width: width, height: height, lifetime: lifetime, generation: generation)
+    }
+
+    /// A replayer into `context`, whose user space `base` maps from canvas
+    /// coordinates.
+    init(context: CGContext?, base: CGAffineTransform, width: Int, height: Int, lifetime: UInt64, generation: UInt32) {
+        self.lifetime = lifetime; self.generation = generation
+        self.width = width; self.height = height
+        self.context = context
+        self.base = base
         if let c = context {
             c.concatenate(base)
             // The root state: `reset` restores to it, dropping every clip.
@@ -194,6 +205,7 @@ final class Canvas2DReplayer {
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func step(_ c: CGContext, _ op: Canvas2DOp, _ n: [Double], _ count: Int) {
+        if tracking != nil, track(op, n) { return }
         switch op {
         case .fill, .fillPath, .stroke, .strokePath, .fillRect, .strokeRect, .fillText, .strokeText, .drawImage, .putImageData:
             blank = false

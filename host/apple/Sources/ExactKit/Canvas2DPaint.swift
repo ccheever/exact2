@@ -29,7 +29,7 @@ extension Canvas2DReplayer {
         c.concatenate(base)
     }
 
-    private var shadows: Bool {
+    var shadows: Bool {
         state.shadowColor.alpha > 0 && (state.shadowBlur > 0 || state.shadowOffset != .zero)
     }
 
@@ -79,6 +79,18 @@ extension Canvas2DReplayer {
     /// Fill `canvasPath` (canvas coordinates) with the fill style.
     func fillPath(_ c: CGContext, _ canvasPath: CGPath, rule: CGPathFillRule) {
         guard !canvasPath.isEmpty else { return }
+        // The common paint, a colour under source-over or a blend with no
+        // shadow, needs no saved state: every paint sets the alpha, the
+        // operator and the colour it uses. Five calls where `render` makes
+        // thirteen, which a recording context records one by one.
+        if case .color(let color) = state.fill, !shadows, !canvas2DClipsExtent(state.composite) {
+            c.setAlpha(state.alpha)
+            c.setBlendMode(canvas2DBlends[state.composite])
+            c.setFillColor(color)
+            c.addPath(canvasPath)
+            c.fillPath(using: rule)
+            return
+        }
         render(c) { c in
             if case .color(let color) = state.fill {
                 c.setFillColor(color)
