@@ -61,6 +61,8 @@ extension NodeView {
 
     private var boxPlan: BoxPlan {
         var p = BoxPlan()
+        // Most nodes paint nothing and clip nothing: nothing to read.
+        guard hasBoxPaint || clipsToBounds || clipBox != nil else { return p }
         // sRGB colours straight from the rows: an NSColor's `cgColor` is
         // made anew on each call, and this runs for every repaint.
         func cg(_ c: [Double]) -> CGColor { CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255) }
@@ -110,8 +112,9 @@ extension NodeView {
     func applyBoxLayer() {
         guard layerBoxEligible else { applyClipOnly(); return }
         let p = boxPlan
-        layerPaintCache = nil
         applyBoxLayer(p)
+        // An image's answer also depends on its pixels' layer, set at paint.
+        layerPaintCache = kind == "image" ? nil : hasBoxPaint && p.drawn
     }
 
     private func applyBoxLayer(_ p: BoxPlan) {

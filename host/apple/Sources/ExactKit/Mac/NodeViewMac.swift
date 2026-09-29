@@ -1131,8 +1131,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.setFrameSize(newSize)
         guard changed else { return }
         layerPaintCache = nil
-        applyClipRadius()
-        applyMaterialRadius()
+        if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
+        if materialView != nil { applyMaterialRadius() }
         // Border, gradient and image sublayers follow the new size.
         if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
     }
@@ -1236,24 +1236,25 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // except into a capture, which sees views and not layer properties.
         let layerPaint = layerBoxEligible && !Capture.capturing
         if layerPaint { applyLayerPaint() }
-        let paintsBox = !layerPaint || boxNeedsDraw
+        let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw)
         let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
-        let path = roundedPath(in: bounds)
-        let bg = color("background_color", .clear)
+        // The box's outline only where something is painted through it.
+        lazy var path = roundedPath(in: bounds)
+        let bg = paintsBox ? color("background_color", .clear) : .clear
         // A layout transition's size shows the surface on its own layer.
         if paintsBox, bg.alphaComponent > 0, surface == nil {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
-        if paintsBox, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
+        if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
-        let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-        let top = color("border_color_top", .clear)
-        let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
         if paintsBox, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
+            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+            let top = color("border_color_top", .clear)
+            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
