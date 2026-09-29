@@ -61,12 +61,19 @@ extension NodeView {
 
     private var boxPlan: BoxPlan {
         var p = BoxPlan()
-        p.fill = channels("background_color").map { TextEngine.color($0).cgColor }.flatMap { $0.alpha > 0 ? $0 : nil }
+        // sRGB colours straight from the rows: an NSColor's `cgColor` is
+        // made anew on each call, and this runs for every repaint.
+        func cg(_ c: [Double]) -> CGColor { CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255) }
+        p.fill = channels("background_color").flatMap { $0[3] > 0 ? cg($0) : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }
-        let top = color("border_color_top", .clear)
-        p.colors = sides.map { color("border_color_" + $0, top).cgColor }
+        if p.widths.contains(where: { $0 > 0 }) {
+            let top = channels("border_color_top")
+            p.colors = sides.map { side in (channels("border_color_" + side) ?? top).map(cg) ?? CGColor(gray: 0, alpha: 0) }
+        } else {
+            p.colors = Array(repeating: CGColor(gray: 0, alpha: 0), count: 4)
+        }
         let width = p.widths[0]
         p.oneBorder = p.widths.allSatisfy { $0 == width } && (width == 0 || p.colors.allSatisfy { $0 == p.colors[0] })
         // One radius over the corners that have one; CSS's reduction first,
@@ -102,12 +109,13 @@ extension NodeView {
     /// only where the overflow clips.
     func applyBoxLayer() {
         guard layerBoxEligible else { applyClipOnly(); return }
-        applyBoxLayer(boxPlan)
+        let p = boxPlan
+        layerPaintCache = nil
+        applyBoxLayer(p)
     }
 
     private func applyBoxLayer(_ p: BoxPlan) {
         guard let layer else { return }
-        layerPaintCache = nil
         let onLayer = !p.drawn
         let away = surface != nil
         let border = !onLayer || away ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
@@ -287,6 +295,9 @@ extension NodeView {
         applyBoxLayer(p)
         applyGradientLayer(p)
         applyImageLayer()
+        // What the plan just decided is what `wantsUpdateLayer` answers
+        // until something it reads changes.
+        layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && symbolView == nil && raster != nil && imageLayer == nil)
     }
 }
 #endif
