@@ -561,16 +561,22 @@ export function c2(e, name, values, types, names) {
   });
 }
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
-export function S(e, prop, unit, f) {
-  effect(() => {
-    const v = f();
-    if (v == null) return e.style.removeProperty(prop);
-    // A value the row refuses is invalid at computed-value time: unset,
-    // never the earlier declaration (LLP 1005 §6).
-    e.style.removeProperty(prop);
-    e.style.setProperty(prop, typeof v === "number" ? v + unit : String(v));
-    if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
-  });
+export function S(e, prop, unit, f) { effect(() => css(e, prop, unit, f())); }
+function css(e, prop, unit, v) {
+  if (v == null) return e.style.removeProperty(prop);
+  // A value the row refuses is invalid at computed-value time: unset,
+  // never the earlier declaration (LLP 1005 §6).
+  e.style.removeProperty(prop);
+  e.style.setProperty(prop, typeof v === "number" ? v + unit : String(v));
+  if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
+}
+/** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
+ * write on a node the motion piece holds (motion.js). */
+export const Hooks = {};
+/** `S` on a node the motion engine follows (`mo`): while a hold owns it, a
+ * write goes to the authored style the hold restores. */
+export function Sm(e, prop, unit, f) {
+  effect(() => { const v = f(); if (!Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) css(e, prop, unit, v); });
 }
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 export function on(e, kind, f) {
@@ -594,6 +600,56 @@ export function on(e, kind, f) {
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); });
     default: return l(kind, () => f());
   }
+}
+/** The motion piece (motion.js over `motion.wasm` and the web host's
+ * `motion-glue.js`), fetched after the first painted frame by a plan that
+ * uses motion; `f(m)` runs at once when it is here, else once it is. */
+let Motion = null, Mo = null;
+function motion(f) {
+  if (Mo) return f(Mo);
+  if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  if (!Motion) {
+    inflight.n++;
+    Motion = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./motion.js"))
+      .then(m => m.engine({ clock, wall: () => performance.now() - start, views: Views, viewId, hooks: Hooks, say }))
+      .then(m => { Mo = m; After.push(() => Mo.flush()); })
+      .catch(err => say(`motion: ${err.message}`)).finally(() => inflight.n--);
+  }
+  Motion.then(() => Mo && f(Mo));
+}
+/** A node the motion engine follows (the kernel's motion seam): `f` gives
+ * its `translate`, `scale`, `rotate`, `opacity` and `transition` as the
+ * plan binds them, told the engine at every commit that changes them. */
+export function mo(e, f) {
+  const id = viewId(e);
+  onEnd(() => motion(m => m.gone(id)));
+  effect(() => { const v = f(); motion(m => m.observe(id, v)); });
+}
+/** `swiperight`: the motion piece's (motion-glue.js `attachSwipe`); the
+ * action runs when the hold passes the knee (motion.js `action`). */
+export function onSwipe(e, f) { e.$swipe = f; motion(m => m.swipe(e)); }
+/** `pan`: the web host's input piece's (input-glue.js), after first paint. */
+export function onPan(e, f) {
+  e.$pan = f; e.exactHandlers ??= e.dataset.exactOn.split(" ");
+  const id = viewId(e); let p;
+  input();
+  e.addEventListener("pointerdown", ev => (p ??= Input?.pan(e, id, (t, g) => e.addEventListener(t, g)))?.(ev));
+}
+/** `panrelease`: its velocity is the motion piece's tracker (LLP 1057 §10.6). */
+export function onPanRelease(e, f) { e.$panrelease = f; motion(() => {}); }
+/** The web host's input piece (input-glue.js), after first paint: pans. */
+let Input = null, Inputs = null;
+function input() {
+  if (Inputs || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  // Its link handler asks the wasm's route table; this runtime routes its own.
+  const x = globalThis.exact ??= {}; (x.wasm ??= {}).exact_route_match ??= () => 0; x.writeIn ??= () => 0;
+  const to = (id, p, k) => Views.get(id)?.[k]?.(...p.split(",").map(Number));
+  Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
+    Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,
+      inertAncestor: el => el.closest("[inert]"), agentMode: clock.agent, dispatch: (id, p) => to(id, p, "$pan"), release: (id, p) => to(id, p, "$panrelease"),
+      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) } });
+  }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
 /** The page's `<head>` fields (LLP 1048.003 D1); a field bound to state
  * follows it while its head is in the tree. */

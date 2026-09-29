@@ -291,14 +291,18 @@ pub fn style_writes(id: u16, press: bool, timeline: bool) -> Result<Vec<Write>, 
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),
         ],
-        // A transition as the author wrote it; a spring is lowered by the
-        // host to frames, and a pressed node's `scale` goes through
-        // `--exact-scale` (css.rs): not yet.
+        // A pressed node's `scale` transitions through `--exact-scale`
+        // (css.rs): not yet.
         StyleId::Transition if press => return Err(
             "a dynamic `transition` on a node whose press feedback scales is not in the JS target"
                 .into(),
         ),
-        StyleId::Transition => one("transition", ""),
+        // A spring is lowered by the engine (motion.js): the declaration
+        // is the rest, as css.rs `transition_css` leaves springs out.
+        StyleId::Transition => vec![with(
+            "transition",
+            "v=>v==null?v:v.split(/,(?![^(]*\\))/).filter(t=>!/spring\\(/.test(t)).join(\",\")||\"none\"",
+        )],
         // The kernel's `clip-path` is `none`, `url(#id)` or `path()` (clip.rs);
         // any other shape, which the browser would take, is refused: unset.
         StyleId::ClipPath => vec![with(

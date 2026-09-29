@@ -698,7 +698,7 @@ from (a) today.
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `swiperight` (messages-stress), `transformgeometry` (exact-live) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), text around shapes (reflow, textflow), events `select` (markdown-stress), `cancel` (fieldnotes), `transformgeometry` (exact-live, interaction-gallery) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -710,9 +710,9 @@ from (a) today.
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | Text around shapes (`wrap-flow`, LLP 1043.000): the JS target writes it as CSS, which lays out no exclusion (found 2026-09-29) | 1–2 days | loaded (`textflow-glue.js`, `textflow.wasm`) |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
-| Events: pan, select, cancel, swiperight, transformgeometry, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
+| Events: ~~pan, panrelease, swiperight~~ (landed 2026-09-29, below); select, cancel, transformgeometry, the height, transform and reorder drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
-| Springs, presence, layout transitions (`motion-glue.js`); Bluesky's header hides on a `translate` spring, which the JS target jumps (the motion capability is in progress: "The runtime gaps") | ~1 week | loaded, 11 KB |
+| ~~Springs~~ (landed 2026-09-29, below), presence, layout transitions (`motion-glue.js`, on the motion piece) | ~1 week | loaded |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), delivery (`deliveryCheck`, `deliveryActivate`; `exactDelivery` answers what the build baked), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
@@ -948,13 +948,55 @@ bytes against a plan without the feature):
   lagging `en-US` table, an rtl table, an escape, the three facts, an
   unpublished surface), intoview 10/10; the auth fixture is its smoke,
   since it needs its local authorization server.
-- **Still open here:** springs, presence and layout transitions, and the
-  agent's `clock settle` across them (Bluesky's two differing steps): the
-  web-js events lane is landing one motion capability (a loaded
-  `motion.wasm` over the Engine and `motion-glue.js`) that carries springs;
-  presence, layout transitions and settle build on it. `exactTime`'s
+- **Still open here:** presence and layout transitions, which build on
+  the motion capability below (it carries springs, and `clock settle`
+  across them). `exactTime`'s
   offset re-answered after an agent's clock move across a DST change (the
   wasm host's `exact_set_time` after `clock`) is not carried.
+
+**Motion: springs, holds, swipes and pans** (landed 2026-09-29, measured;
+brotli):
+- **What.** One motion piece, fetched two frames after first paint by a
+  plan that uses motion (as the wasm host's is): `motion.wasm`, the
+  `exact_motion` Engine every host runs behind a numeric ABI
+  (`host/web-js/motion`, tested natively in the blocking checks), the web
+  host's own `motion-glue.js`, unchanged, and `motion.js` between them, the
+  runner's half. The kernel's motion seam is the compiler's: a node a swipe
+  holds, a swipe's indicator, or one whose `transition` can be a spring is
+  registered (`mo`), and each commit that changes its `translate`, `scale`,
+  `rotate`, `opacity` or `transition` tells the engine (the kernel's
+  `motion_sync`); after each commit the engine lowers what started, and a
+  spring plays as the frames the wasm host would send (`animate` with
+  `at`). A dynamic `transition` is written with its springs left out, as
+  css.rs writes one. A hold (motion-glue `begin`/`move`/`release`) is the
+  engine's; a dynamic style row on a held node goes to the authored text the
+  hold restores (`Sm`, the wasm host's `style` op). `swiperight` is
+  motion-glue's `attachSwipe` (the precedence rule 3's pending contact, the
+  knee, the indicator's companions), its action run while its hold owns the
+  row (`Host::dispatch_held`). `pan` is the web host's own `input-glue.js`
+  (fetched after first paint, one coalesced action per frame, rule 3's
+  boundary and rule 4's click suppression), `panrelease` its release at the
+  engine's tracker's velocity (LLP 1057 §10.6). Under the agent, `clock
+  settle` runs to the last spring's end (`settleAt`), as the wasm host's does.
+- **Cost.** Nothing for a plan without motion (the video player's `app.js`
+  4,903 → 4,901 B). Loaded after first paint: `motion.wasm` 38,878 B (the
+  Engine, its transition and animation grammars and spring sampling; the
+  wasm host carries the same code in `app.wasm`), the motion chunk 13,159 B
+  (`motion-glue.js`, 1,111 lines, is most of it), `input-glue.js` 2,016 B.
+  In `app.js`: Spark 14,407 B (the registration and the loaders), Messages
+  Stress 15,007 B.
+- **Conformance.** Spark 12/12 with scripted fingers (`drag` steps, a real
+  touch contact over real time: throws by position and by velocity, one
+  that springs home, a super like, a photo tap on a panning node, the undo
+  spring back); it joins the async lane. Messages Stress: its three swipes
+  equal (past the knee, short of it, vertical), and Messages' two, on
+  their scripted steps; neither joins the lane (below).
+- **Found.** Messages Stress's auto-tapped `toggle-windowed` at 100,000
+  records differs (the JS list's supplied records 200, the wasm's 100,000)
+  and the wasm page stops answering on `toggle-eager`. Messages' closed
+  popovers (`filter-messages`, the recover and purge confirmations) have
+  boxes in the wasm page's layout and none in the JS page's. Bluesky's header
+  spring now builds on the JS target (b5cc1550 refused it for a day).
 
 ## 8. Rulings and open questions for Charlie
 

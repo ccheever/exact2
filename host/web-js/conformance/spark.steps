@@ -1,0 +1,11 @@
+# Spark's deck, driven by a finger (LLP 1057 §10.6): pans that throw a card
+# by where it is or by how fast it goes (panrelease's velocity), one that
+# springs home, a super like upwards, a photo tap on a panning node (a press
+# without movement, LLP 1057.001 rule 4); the buttons are tapped after.
+drag card-top -250 0 200
+drag card-top 250 0 200
+drag card-top 40 0 500
+drag card-top 0 -320 200
+tap keep-swiping
+tap photo-right
+drag card-top 70 0 40

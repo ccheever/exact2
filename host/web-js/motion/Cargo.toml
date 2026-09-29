@@ -1,0 +1,19 @@
+# The JS target's motion capability (LLP 1071 §7): the same `exact_motion`
+# Engine every host runs — springs, holds, a pan's release velocity — behind
+# a small numeric ABI, built to `motion.wasm` (host/web-js/module.mjs) and
+# fetched after first paint only by a plan that uses motion. The page's half
+# is the web host's own `motion-glue.js`, over `host/web-js/motion.js`.
+[package]
+name = "exact-web-js-motion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The JS target's motion capability: exact_motion's Engine behind a numeric ABI for motion.wasm"
+publish = false
+
+[lib]
+name = "exact_web_js_motion"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-motion = { path = "../../../motion" }

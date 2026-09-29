@@ -1,0 +1,8 @@
+# A swipe to reply (LLP 1057.001): past the knee the row's `swiperight`
+# runs while its hold owns the row, then it springs home; short of the
+# knee it springs home and nothing runs; a vertical move is not a swipe.
+tap toggle-windowed
+tap history-100
+drag reply-hit-m-000001 150 0 250
+drag reply-hit-m-000002 30 0 300
+drag reply-hit-m-000003 4 60 200

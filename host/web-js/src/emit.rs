@@ -16,6 +16,11 @@ use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
+#[path = "motion.rs"]
+mod motion;
+#[path = "rows.rs"]
+mod rows;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Site {
     Node(u32),
@@ -89,6 +94,8 @@ pub struct Output {
     /// Whether a node is a Canvas 2D surface (the page loads its engine,
     /// `canvas2d.js`, and the data module draws).
     pub canvas2d: bool,
+    /// Whether the plan uses motion (the page fetches `motion.wasm`).
+    pub motion: bool,
     /// The declared faces' preloads, for the page's head.
     pub preloads: String,
     pub css: String,
@@ -186,6 +193,7 @@ struct Em<'a> {
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
     canvas2d: bool,
+    motion: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
@@ -214,6 +222,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         row_actions: Default::default(),
         markdown: false,
         canvas2d: false,
+        motion: false,
         list: false,
         symbols: (false, false),
     };
@@ -636,6 +645,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         pages: build_pages(plan),
         markdown: em.markdown,
         canvas2d: em.canvas2d,
+        motion: em.motion,
         preloads: fonts.preloads,
         viewport,
         warnings: em.warnings,
@@ -896,34 +906,6 @@ impl Em<'_> {
         Ok(())
     }
 
-    /// Whether node `i` is a `symbol` or inside one (through regions' arms).
-    fn in_symbol(&self, i: u32) -> bool {
-        let plan = self.plan;
-        let mut at = Some(i);
-        while let Some(n) = at {
-            let row = &plan.nodes[n as usize];
-            if NodeType::from_wire(row.node_type) == Some(NodeType::SvgSymbol) {
-                return true;
-            }
-            at = match (row.parent, row.arm) {
-                (Some(p), _) => Some(p.0),
-                (None, Some(a)) => {
-                    let mut region = plan.arms[a.0 as usize].region;
-                    loop {
-                        let r = &plan.regions[region.0 as usize];
-                        match (r.parent, r.arm) {
-                            (Some(p), _) => break Some(p.0),
-                            (None, Some(a)) => region = plan.arms[a.0 as usize].region,
-                            (None, None) => break None,
-                        }
-                    }
-                }
-                (None, None) => None,
-            };
-        }
-        false
-    }
-
     fn f(&mut self, code: exact_plan::Code, scope: &Scope) -> Result<String, String> {
         code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
     }
@@ -956,6 +938,18 @@ impl Em<'_> {
             let hd = self.uses.rt("hd");
             let _ = write!(self.out, "{hd}({parent},{{{}}});", fields.join(","));
             return Ok(());
+        }
+        // Text around shapes (LLP 1043.000) is the text flow executor's
+        // (`textflow-glue.js`), which this runtime doesn't load yet: CSS
+        // lays out no exclusion.
+        if row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+            b.kind == BindingKind::Style
+                && b.id == StyleId::WrapFlow as u16
+                && !matches!(style::literal(plan, plan.code(b.expr)), Some(v) if v.as_str() == Some("auto"))
+        }) {
+            return Err(format!(
+                "node {i}: text around shapes (`wrap-flow`) is not in the JS target"
+            ));
         }
         let parts = self.parts[i as usize].clone().ok_or("no parts")?;
         let mut virtualized = false;
@@ -1166,47 +1160,10 @@ impl Em<'_> {
                         serde_json::to_string(&name).unwrap()
                     );
                 }
-                BindingKind::Style => {
-                    let press = parts.css.contains("--exact-press:");
-                    let timeline = row.bindings.iter().any(|b| {
-                        let b = plan.binding(b);
-                        b.kind == BindingKind::Style && b.id == StyleId::AnimationTimeline as u16
-                    });
-                    if b.id == StyleId::Transition as u16
-                        && style::can_be(plan, plan.code(b.expr), &|v| v.contains("spring"))
-                    {
-                        return Err(format!(
-                            "node {i}: a dynamic `transition` that can be a spring is not in the JS target"
-                        ));
-                    }
-                    // An id a reference names is scoped per instance by the
-                    // kernel (LLP 1055.000 D3); a dynamic one is not resolved.
-                    if style::can_be(plan, plan.code(b.expr), &|v| v.contains("url(")) {
-                        return Err(format!(
-                            "node {i}: a dynamic `{}` that can reference an element (`url(#…)`) is not in the JS target",
-                            StyleId::from_bit(b.id as u32).map_or("style", |r| r.name())
-                        ));
-                    }
-                    let writes = style::style_writes(b.id, press, timeline)
-                        .map_err(|x| format!("node {i}: {x}"))?;
-                    let s = self.uses.rt("S");
-                    for w in writes {
-                        let (name, unit) = (w.name, w.unit);
-                        match w.map {
-                            Some(m) => {
-                                let _ = write!(
-                                    self.out,
-                                    "{s}({e},\"{name}\",\"{unit}\",()=>({m})(({f})()));"
-                                );
-                            }
-                            None => {
-                                let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
-                            }
-                        }
-                    }
-                }
+                BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }
         }
+        self.motion_node(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);
@@ -1244,7 +1201,10 @@ impl Em<'_> {
                 | EventKind::Ratechange
                 | EventKind::Volumechange
                 | EventKind::Scroll
-                | EventKind::Refresh => {}
+                | EventKind::Refresh
+                | EventKind::Pan => {}
+                // The motion piece's: the swipe's holds, a pan's velocity.
+                EventKind::Swiperight | EventKind::Panrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
                 k => {
                     return Err(format!(
@@ -1263,6 +1223,18 @@ impl Em<'_> {
                 args.push("...v".into());
                 format!("(...v)=>a_{}({})", h.action.0, args.join(","))
             };
+            // The motion and input pieces' events (rt.js), only where used.
+            let piece = match h.event {
+                EventKind::Swiperight => Some("onSwipe"),
+                EventKind::Pan => Some("onPan"),
+                EventKind::Panrelease => Some("onPanRelease"),
+                _ => None,
+            };
+            if let Some(piece) = piece {
+                let f = self.uses.rt(piece);
+                let _ = write!(self.out, "{f}({e},{handler});");
+                continue;
+            }
             if h.event == EventKind::Navigate {
                 let nav = self.uses.rt("navigateTo");
                 let _ = write!(self.out, "{nav}({handler});");

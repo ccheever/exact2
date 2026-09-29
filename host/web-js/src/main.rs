@@ -83,6 +83,9 @@ fn main() -> ExitCode {
             if out_files.canvas2d {
                 let _ = std::fs::write(dir.join("canvas2d.flag"), "");
             }
+            if out_files.motion {
+                let _ = std::fs::write(dir.join("motion.flag"), "");
+            }
             if !out_files.preloads.is_empty() {
                 let _ = std::fs::write(dir.join("preloads.html"), &out_files.preloads);
             }

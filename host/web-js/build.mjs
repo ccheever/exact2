@@ -89,7 +89,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
   ] : ['start();']),
 ].join('\n'));
-for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js']) cpSync(resolve(here, f), resolve(gen, f));
+// The web host's own motion and input pieces, loaded after first paint (motion.js, a pan).
+for (const f of ['motion-glue.js', 'input-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
@@ -153,6 +155,8 @@ ${preloads}<style>${base}${css}</style>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
 if (existsSync(resolve(gen, 'markdown.flag'))) cpSync((await import('./module.mjs')).buildMarkdown(), resolve(out, 'markdown.wasm'));
+// The motion engine (host/web-js/motion), only for a plan that uses motion.
+if (existsSync(resolve(gen, 'motion.flag'))) cpSync((await import('./module.mjs')).buildMotion(), resolve(out, 'motion.wasm'));
 // The app's GPU module, as its wasm build made it, with the web host's glue (a loaded capability).
 const gpuFrom = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
 if (gpuFrom && existsSync(resolve(gpuFrom, 'gpu.js'))) {

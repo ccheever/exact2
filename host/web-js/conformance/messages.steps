@@ -1,0 +1,6 @@
+# Messages: a conversation, then a swipe to reply on a bubble (LLP 1057.001):
+# its indicator follows the hold (opacity and scale, motion-glue's
+# companions), and past the knee `openReplies` runs; a short swipe returns.
+tap conversation-maya
+drag bubble-m1 30 0 300
+drag bubble-m1 150 0 250
