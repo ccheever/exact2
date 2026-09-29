@@ -142,6 +142,7 @@ export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
+  stamp();
   const undo = [], saved = Resources.map(r => r.save()), store = Store.save();
   let ok = true;
   try {
@@ -211,6 +212,17 @@ function command(name, args) {
 
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false };
+// `now()` is elapsed time: the driver's clock under the agent and in a
+// render, else the page's since it started; a timer commits at its due time.
+// A reader of `now()` is re-evaluated at each commit made at a later time,
+// as the runner marks the clock read dirty (instance/deps.rs), and never by
+// the clock moving alone. Not a write: no commit counts it as a change.
+const Now = node(null, 0);
+let Timing = false;
+function stamp() {
+  if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start);
+  if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); }
+}
 /** A timer: `every(ms, action, once)`, due from mount. */
 export function every(ms, action, once) {
   clock.timers.push({ due: clock.now + ms, ms, action, once });
@@ -224,7 +236,8 @@ export function advance(to) {
     if (!next) break;
     clock.now = next.due;
     if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due += next.ms;
-    next.action();
+    Timing = true;
+    try { next.action(); } finally { Timing = false; }
   }
   clock.now = Math.max(clock.now, to);
 }
@@ -693,12 +706,13 @@ export function each(p, list, key, row) {
 /** Build the view into `#exact-root` and start the clock. */
 export function mount(f) {
   const root = document.getElementById("exact-root");
-  start = performance.now();
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
   clock.agent = !!globalThis.__exactRender || new URLSearchParams(location.search).has("agent");
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
+  // Elapsed time continues from where a render's clock stopped.
+  start = performance.now() - clock.now;
   const adopting = Adopt;
   commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false;
@@ -738,7 +752,7 @@ export function checkpoint() {
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
-export const x_now = () => clock.now;
+export const x_now = () => read(Now);
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor, x_max = Math.max, x_min = Math.min;

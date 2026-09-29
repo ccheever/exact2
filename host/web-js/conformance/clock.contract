@@ -1,0 +1,26 @@
+// Synthetic conformance plan: `now()` read by a text and a derive. As in the
+// runner (instance/deps.rs), a reader is re-evaluated at each commit made at
+// a later time — a timer's, a press's — even when nothing it reads changed;
+// the clock moving by itself commits nothing.
+component Clock
+  state ticks = 0
+  state running = false
+  state at = 0
+  derive minute = floor(now() / 60000)
+  action tick writes ticks
+    ticks = running ? ticks + 1 : ticks
+  action toggle writes running
+    running = not running
+  action stamp writes at
+    at = now()
+  task beat mount
+    every(4000, tick)
+  view
+    column testId="root" padding=10
+      text `now ${floor(now() / 1000)}` testId="now"
+      text `minute ${minute}` testId="minute"
+      text `ticks ${ticks} at ${at}` testId="ticks"
+      button press=stamp testId="stamp"
+        text "stamp"
+      button press=toggle testId="toggle"
+        text running ? "stop" : "start"
