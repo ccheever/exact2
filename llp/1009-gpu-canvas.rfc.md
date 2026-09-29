@@ -249,10 +249,15 @@ The spec (1009.000) transcribes the landing.
   acquiring threads 51 ms/s in `nextDrawable`. One submit per tick (D7,
   held): 75 ms/s on the main thread (encoding 22, submit 16, `write_buffer`
   16, present 8) and 57 and 13 on Metal's threads — 120 fps both.
-- **macOS, sampled 2026-09-28** (the same feed at rest, `sample` over
-  10 s): with the drawable acquired on the main thread, 54% of the main
-  thread's samples were in `-[CAMetalLayer nextDrawable]`; acquired off it
+- **macOS, 2026-09-28/29** (the same feed at rest, five canvases on
+  screen; `~/bench/xheavy/gpusubmit/mac`). With the drawable acquired on
+  the main thread, 54% of the main thread's wall-clock samples were waiting
+  in `-[CAMetalLayer nextDrawable]` — blocked, not CPU; acquired off it
   (`gpu/src/acquire.rs`, on macOS since 2026-09-29, as on iOS), none.
+  Four interleaved 40 s runs each, medians: display-link frames late
+  (> 1.5 periods) 2.2/s → 0.16/s, the longest gap 44–58 ms → 21–28 ms,
+  each canvas presenting 117 → 119 times a second, main-thread CPU
+  116 → 98 ms/s, process CPU 351 → 354 ms/s.
 
 ## 4. Open questions
 
