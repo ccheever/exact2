@@ -329,3 +329,44 @@ fn an_inner_list_first_builds_what_its_own_size_shows() {
     let rows = snapshot(&r, inbox).unwrap().rows.len();
     assert_eq!(rows, 2, "ceil(100 / 100) + 1 rows");
 }
+
+/// Items above a kept position that were measured apart from their estimate
+/// (80 against 100) come back as estimates in a new list: their difference is
+/// spread over those estimates, so the kept item starts where it did and the
+/// offset comes back exactly, not only the item (LLP 1070 §4.2).
+#[test]
+fn a_kept_position_comes_back_at_the_same_offset_over_measured_items() {
+    let mut r = boot(STRIP, 100);
+    feed_at(&mut r, 0.0);
+    let strip = view(&r, "strip-1").unwrap();
+    // The reader drags item by item to 1,234 px, every item measured at 80.
+    let mut offset = 0.0;
+    while offset < 1234.0 {
+        offset = (offset + 300.0_f64).min(1234.0);
+        for _ in 0..2 {
+            report(
+                &mut r,
+                strip,
+                offset,
+                400.0,
+                80.0,
+                CollectionFill::default(),
+                None,
+            );
+            if let Some(c) = snapshot(&r, strip).unwrap().correction {
+                offset = c.offset;
+            }
+        }
+    }
+    let left = offset;
+    feed_at(&mut r, 10_000.0);
+    assert!(view(&r, "strip-1").is_none());
+    feed_at(&mut r, 0.0);
+    let strip = view(&r, "strip-1").unwrap();
+    let c = snapshot(&r, strip).unwrap();
+    let back = c.correction.map(|c| c.offset).expect("told where to start");
+    assert!(
+        (back - left).abs() <= 0.5,
+        "the offset it left at: {back} against {left}"
+    );
+}

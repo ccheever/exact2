@@ -17,6 +17,10 @@ pub(crate) const KEPT_POSITIONS: usize = 4096;
 pub(crate) struct KeptPosition {
     pub key: Rc<str>,
     pub within: f64,
+    /// The item's start when its row left: measured items above it may not
+    /// match the estimates a new list starts from, and the difference is
+    /// spread over those so the offset comes back as well as the item.
+    pub start: f64,
     stamp: u64,
 }
 
@@ -32,12 +36,12 @@ impl Kept {
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
-    fn put(&mut self, row: Rc<str>, site: Rc<str>, position: Option<(Rc<str>, f64)>) {
+    fn put(&mut self, row: Rc<str>, site: Rc<str>, position: Option<(Rc<str>, f64, f64)>) {
         let slot = (row, site);
         if let Some(old) = self.entries.remove(&slot) {
             self.order.remove(&old.stamp);
         }
-        let Some((key, within)) = position else {
+        let Some((key, within, start)) = position else {
             return;
         };
         self.clock += 1;
@@ -47,6 +51,7 @@ impl Kept {
             KeptPosition {
                 key,
                 within,
+                start,
                 stamp: self.clock,
             },
         );
@@ -191,10 +196,12 @@ impl Collection {
         out
     }
     /// Where the reader left this list, if anywhere but its start.
-    fn position(&self) -> Option<(Rc<str>, f64)> {
+    fn position(&self) -> Option<(Rc<str>, f64, f64)> {
         // Restored and gone again before any host reported it: still there.
         let Some(g) = self.geometry.as_ref() else {
-            return self.restored_at.clone();
+            let (key, within) = self.restored_at.clone()?;
+            let start = self.index.prefix(self.index.position(&key)?)?;
+            return Some((key, within, start));
         };
         let max = (self.index.total_height() - g.port_main).max(0.0);
         let offset = g.offset.clamp(0.0, max);
@@ -202,8 +209,8 @@ impl Collection {
             return None;
         }
         let row = self.index.row_at(offset).ok()??;
-        let within = offset - self.index.prefix(row)?;
-        Some((self.index.shared_key(row)?.clone(), within))
+        let start = self.index.prefix(row)?;
+        Some((self.index.shared_key(row)?.clone(), offset - start, start))
     }
     /// A mounted row leaves the window: its inner lists' positions are kept
     /// under its key, unless a list opted out (`scroll-restoration:
@@ -259,9 +266,9 @@ impl Collection {
             let kept = (!inner.manual)
                 .then(|| self.kept.get(key, &site))
                 .flatten()
-                .map(|k| (k.key.clone(), k.within));
-            if let Some((anchor, within)) = kept {
-                inner.restore_position(u, &frames, &anchor, within)?;
+                .map(|k| (k.key.clone(), k.within, k.start));
+            if let Some((anchor, within, start)) = kept {
+                inner.restore_position(u, &frames, &anchor, within, start)?;
             } else if again {
                 inner.realize_window(u, &frames, false, CollectionFill::default())?;
             }
@@ -301,10 +308,18 @@ impl Collection {
         frames: &[Frame],
         key: &str,
         within: f64,
+        start: f64,
     ) -> Result<(), InstanceError> {
         let Some(position) = self.index.position(key) else {
             return Ok(()); // the item left: the list starts at its start
         };
+        // The items above were measured when the row left; a new list has
+        // only their estimates. Their difference goes to the estimates, so
+        // the item starts where it did and the offset comes back exactly.
+        let estimated = self.index.prefix(position).unwrap_or(0.0);
+        self.index
+            .spread_estimates(0..position, start - estimated)
+            .map_err(index_error)?;
         let offset = self.index.prefix(position).unwrap_or(0.0) + within;
         self.start_offset = offset;
         self.restored = true;
@@ -354,7 +369,7 @@ mod tests {
     #[test]
     fn kept_positions_are_bounded_by_recency_and_leave_with_their_rows() {
         let mut kept = Kept::default();
-        let at = |n: usize| Some((Rc::from(format!("n:{n}").as_str()), 4.0));
+        let at = |n: usize| Some((Rc::from(format!("n:{n}").as_str()), 4.0, 0.0));
         for row in 0..KEPT_POSITIONS + 10 {
             kept.put(Rc::from(format!("r{row}").as_str()), Rc::from("7"), at(row));
         }

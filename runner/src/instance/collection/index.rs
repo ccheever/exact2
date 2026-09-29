@@ -334,6 +334,33 @@ impl SizeIndex {
         })
     }
 
+    /// Add `delta` over the rows in `range` whose heights are estimates, in
+    /// equal parts, none below zero: a restored position's items above it
+    /// (LLP 1070 §4.2) keep the start they had. O(k log N).
+    pub(crate) fn spread_estimates(
+        &mut self,
+        range: Range<usize>,
+        delta: f64,
+    ) -> Result<(), IndexError> {
+        if !delta.is_finite() || delta.abs() < 0.01 {
+            return Ok(());
+        }
+        let range = range.start.min(self.rows.len())..range.end.min(self.rows.len());
+        let open: Vec<usize> = range
+            .filter(|&i| self.rows[i].measured_epoch != Some(self.epoch))
+            .collect();
+        if open.is_empty() {
+            return Ok(());
+        }
+        let part = delta / open.len() as f64;
+        for i in open {
+            let height = (self.rows[i].height + part).max(0.0);
+            self.tree.set(i, height)?;
+            self.rows[i].height = height;
+        }
+        Ok(())
+    }
+
     /// Returns false for stale, deleted, or mismatched rows. Errors never mutate
     /// metadata; NaN/infinite/negative heights are rejected even for stale reports.
     pub(crate) fn set_measured_height(
