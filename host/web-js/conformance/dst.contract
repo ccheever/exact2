@@ -1,0 +1,15 @@
+// agent: timeZone=America/Los_Angeles epoch=1772960400000
+// Synthetic conformance plan: `exactTime`'s offset after the agent's clock
+// crosses a DST change (LLP 1069.007 D2): Los Angeles an hour before
+// 2026-03-08T02:00 local; `clock +7200000` moves the offset from -480 to
+// -420, which the runtime answers again, as the wasm host does after `clock`.
+shape Time
+  epochAtZero: number
+  utcOffset: number
+  timeZone: string
+component Dst
+  resource time = exactTime() as shape Time
+  view
+    column testId="root" padding=10
+      text `${time.timeZone} ${time.utcOffset}` testId="offset"
+      text formatTime(time.epochAtZero + now(), time.utcOffset, "short") testId="local"

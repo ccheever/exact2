@@ -18,7 +18,8 @@
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module. A
 //   plan whose first lines say `// data: <app>` runs on that app's dist
-//   instead, for its sources and the capabilities it links.
+//   instead, for its sources and the capabilities it links; one that says
+//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -112,9 +113,11 @@ async function target(t, report) {
 async function drive(t, report, fail, dir, ws, js) {
   let W, J;
   try {
-    try { W = await open({ host: 'web', app: t.app, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
+    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
+    const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
+    try { W = await open({ host: 'web', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
     catch (e) { return fail('wasm-open', e.message.split('\n')[0]); }
-    try { J = await open({ host: 'web', app: t.app, url: js.url }); }
+    try { J = await open({ host: 'web', app: t.app, ...facts, url: js.url }); }
     catch (e) { return fail('js-open', e.message.split('\n')[0]); }
     const compare = async step => {
       let st = 0;

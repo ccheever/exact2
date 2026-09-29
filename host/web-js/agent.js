@@ -3,6 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
+import { R, eq } from './rt.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
@@ -78,6 +79,14 @@ export function install(exact) {
   exact.After.push(seek);
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => exact.auth?.holds() ?? [];
+  // After a clock move, `exactTime` is answered again where its answer
+  // changed: the offset at the new virtual instant, which a DST change
+  // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
+  const retime = () => {
+    const time = exact.data.reserved?.exactTime;
+    const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
+    if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
+  };
   exact.agentSettled = async (req) => {
     seek();
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
@@ -131,6 +140,7 @@ export function install(exact) {
             exact.advance(to); seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
+          retime();
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
@@ -145,7 +155,7 @@ export function install(exact) {
           exact.advance(next);
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 15));
         }
-        exact.advance(req.to); seek();
+        exact.advance(req.to); retime(); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         return { clock: exact.clock.now };
       }
