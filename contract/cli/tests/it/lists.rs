@@ -4,7 +4,7 @@
 //! changes.
 
 use exact_kernel::{Kernel, PropValue};
-use exact_plan::{Items, Value};
+use exact_plan::{Items, Plan, Value};
 use exact_runner::instance::InstanceError;
 use exact_runner::{DataError, DataSource, Runner, RunnerError, Trap};
 use std::path::Path;
@@ -490,4 +490,156 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
     // A field named like a method is still a field, and a spaced `(` is not a call.
     let ok = "shape S\n  map: string\ncomponent A\n  resource xs = xs() as shape list<S>\n  view\n    text join(map(xs, x => x.map), \",\")\n";
     contract::compile(ok).unwrap();
+}
+
+/// Two coins from `tick()`, as `empty-list.contract` shapes them.
+struct Tick;
+
+impl DataSource for Tick {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "tick" => Ok(Value::list(vec![
+                Value::record(vec![Value::str("a"), Value::list(vec![Value::str("x")])]),
+                Value::record(vec![Value::str("b"), Value::list(vec![])]),
+            ])),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+/// `[]` is the empty list, typed by the other arm of a `match` or `?:`, a
+/// declared `list<T>`, or a write into the state it initializes (LLP
+/// 1017.003 D4), and it runs as the empty list it names.
+#[test]
+fn an_empty_list_is_typed_from_its_context_and_runs() {
+    let plan = contract::bake(
+        contract::compile(&corpus("empty-list.contract")).unwrap(),
+        Tick,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Tick,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Tick>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    // Before the mutation answers, every list is the empty one.
+    assert_eq!(text(&r, "count"), "0 coins");
+    assert_eq!(text(&r, "shown"), "");
+    assert_eq!(text(&r, "picked"), "");
+    assert_eq!(text(&r, "fn"), "");
+    assert_eq!(text(&r, "tags"), "0 tags");
+    r.act("tick", vec![]).unwrap();
+    assert_eq!(text(&r, "count"), "2 coins");
+    // `shown` is `[]` until toggled, then the coins.
+    assert_eq!(text(&r, "shown"), "");
+    r.act("toggle", vec![]).unwrap();
+    assert_eq!(text(&r, "shown"), "a,b");
+    r.act("toggle", vec![]).unwrap();
+    assert_eq!(text(&r, "shown"), "");
+    // `picked` was `[]`; the write typed it `list<string>`.
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    assert_eq!(text(&r, "picked"), "b");
+    r.act("pick", vec![Value::str("zzz")]).unwrap();
+    assert_eq!(text(&r, "picked"), "");
+}
+
+/// An `[]` nothing types is refused where it is written, not as a cycle;
+/// a state only `[]` initializes is refused as a state nothing writes; a
+/// list literal with items is not Contract.
+#[test]
+fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
+    let e = contract::compile("component A\n  derive xs = []\n  view\n    text join(xs, \",\")\n")
+        .unwrap_err();
+    assert_eq!(e.id, "type-cannot-infer", "{e}");
+    assert!(e.message.contains("what `[]` holds in `xs`"), "{e}");
+    assert_eq!((e.span.line, e.span.col), (2, 15), "{e}");
+    let e = contract::compile(
+        "component A\n  state flag = true\n  derive xs = flag ? [] : []\n  view\n    text join(xs, \",\")\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-cannot-infer", "{e}");
+    assert_eq!((e.span.line, e.span.col), (3, 22), "{e}");
+    let e = contract::compile(
+        "component A\n  state picked = []\n  view\n    text join(picked, \",\")\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-cannot-infer", "{e}");
+    assert!(e.message.contains("nothing writes a value into it"), "{e}");
+    let e = contract::compile(
+        "component A\n  state on = true\n  derive xs = on ? \"a\" : []\n  view\n    text xs\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-branches", "{e}");
+    assert_eq!(e.message, "branches disagree: `string` and `list<?>`");
+    let e = contract::compile("component A\n  derive xs = [1, 2]\n  view\n    text \"a\"\n")
+        .unwrap_err();
+    assert_eq!(e.id, "syntax-expected", "{e}");
+    assert!(e.message.contains("`[]` is the empty list"), "{e}");
+    assert_eq!((e.span.line, e.span.col), (2, 16), "{e}");
+    // A `fn` returning a declared `list<T>` and a `list<T>` prop type it.
+    contract::compile(
+        "fn nothing(): list<number> = []\ncomponent A\n  view\n    column\n      B(xs=[])\n      text `${length(nothing())}`\ncomponent B\n  props\n    xs: list<string>\n  view\n    text join(xs, \",\")\n",
+    )
+    .unwrap();
+    let e = contract::compile("fn nothing(): number = []\ncomponent A\n  view\n    text \"a\"\n")
+        .unwrap_err();
+    assert_eq!(e.id, "type-fn-return", "{e}");
+    // A state a later action writes is a typed source argument, whatever
+    // the declaration order (the second review's two Contracts).
+    for src in [
+        "shape Coin\n  id: string\ncomponent A\n  state q = none\n  action set(s: string) writes q\n    q = some(s)\n  resource xs = src(q) as shape list<Coin>\n  view\n    text `${length(xs)}`\n",
+        "shape Coin\n  id: string\ncomponent A\n  mutation changed as shape list<Coin>\n  state q = none\n  action tick writes changed\n    send changed = tick(q)\n  action set(s: string) writes q\n    q = some(s)\n  view\n    text \"a\"\n",
+        "shape Coin\n  id: string\ncomponent A\n  mutation changed as shape list<Coin>\n  state ids = []\n  resource coins = coins() as shape list<Coin>\n  action tick writes changed\n    send changed = tick(ids)\n  action pick writes ids\n    ids = map(coins, c => c.id)\n  view\n    text \"a\"\n",
+    ] {
+        contract::compile(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    }
+    // A literal `[]` (or `none`) passed to a source has nothing to type it:
+    // refused at the argument, not left for lowering to find at 0:0.
+    for (src, line, col) in [
+        (
+            "shape C\n  id: string\ncomponent A\n  mutation changed as shape list<C>\n  action tick writes changed\n    send changed = tick([])\n  view\n    text \"a\"\n",
+            6,
+            25,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src([]) as shape list<C>\n  view\n    text `${length(xs)}`\n",
+            4,
+            21,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src(none) as shape list<C>\n  view\n    text `${length(xs)}`\n",
+            4,
+            21,
+        ),
+        (
+            "shape C\n  id: string\ncomponent A\n  resource xs = src(1) as shape list<C> else src([])\n  view\n    text `${length(xs)}`\n",
+            4,
+            50,
+        ),
+        // `each` over `[]` has nothing to type its item.
+        (
+            "component A\n  view\n    column\n      each x in [] key=\"k\"\n        text x\n",
+            4,
+            17,
+        ),
+    ] {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, "type-cannot-infer", "{src}: {e}");
+        assert_eq!((e.span.line, e.span.col), (line, col), "{src}: {e}");
+    }
 }

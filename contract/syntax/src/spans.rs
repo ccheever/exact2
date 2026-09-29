@@ -165,6 +165,7 @@ impl VisitSpans for Expr {
             | Self::Str(_, span)
             | Self::Bool(_, span)
             | Self::None(span)
+            | Self::EmptyList(span)
             | Self::Ident(_, span) => visit(span),
             Self::Template(parts, span) => {
                 parts.visit_spans(visit);

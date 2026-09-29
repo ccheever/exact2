@@ -166,13 +166,25 @@ pub(crate) fn check_component(
         match infer(&d.expr, &scope, shapes) {
             // What types only incompletely depends on itself; what fails to
             // type is refused for that reason alone.
-            Ok(t) if !t.is_complete() => sink.push(TypeError {
-                id: "type-derive-cycle",
-                message: format!(
-                    "cannot infer the type of `{}`: it depends on itself through other derives",
-                    d.name
-                ),
-                span: d.span,
+            // An `[]` nothing pairs with a typed list is the one leaf that
+            // leaves a `?` without a cycle.
+            Ok(t) if !t.is_complete() => sink.push(match empty_list_in(&d.expr) {
+                Some(span) => TypeError {
+                    id: "type-cannot-infer",
+                    message: format!(
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        d.name
+                    ),
+                    span,
+                },
+                None => TypeError {
+                    id: "type-derive-cycle",
+                    message: format!(
+                        "cannot infer the type of `{}`: it depends on itself through other derives",
+                        d.name
+                    ),
+                    span: d.span,
+                },
             }),
             Ok(t) => ct.derives[i] = t,
             Err(e) => sink.push(e),
@@ -183,7 +195,7 @@ pub(crate) fn check_component(
         let args: Vec<Ty> = r
             .args
             .iter()
-            .map(|arg| sink.keep(infer(arg, &scope, shapes)))
+            .map(|arg| sink.keep(crate::source_argument(arg, &r.source, &scope, shapes)))
             .collect();
         resource_args.push(args);
     }
@@ -193,24 +205,32 @@ pub(crate) fn check_component(
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
     sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
-    // Action bodies: writes refine slots; assignments must unify.
-    for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types.component_scope(c, &ct);
-        scope.push(
-            a.params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    (
-                        p.name.clone(),
-                        Ref::Param(i as u32),
-                        ct.actions[ai][i].clone(),
-                    )
-                })
-                .collect(),
-        );
-        scope.enter_action();
-        check_stmts(&a.body, &scope, c, &mut ct, shapes, sink);
+    // Action bodies: writes refine slots; assignments must unify. Two
+    // rounds, so a `send` whose argument is a state a later action writes
+    // (`state q = none`, typed by `q = some(s)`) records the written type
+    // whatever the declaration order: the first round refines the slots and
+    // its findings are dropped, the second reports.
+    for round in 0..2 {
+        let mut scratch = Sink::default();
+        let report = if round == 0 { &mut scratch } else { &mut *sink };
+        for (ai, a) in c.actions.iter().enumerate() {
+            let mut scope = types.component_scope(c, &ct);
+            scope.push(
+                a.params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        (
+                            p.name.clone(),
+                            Ref::Param(i as u32),
+                            ct.actions[ai][i].clone(),
+                        )
+                    })
+                    .collect(),
+            );
+            scope.enter_action();
+            check_stmts(&a.body, &scope, c, &mut ct, shapes, report);
+        }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
     // the final scope, unified with the sends' (recorded as their bodies were
@@ -225,7 +245,23 @@ pub(crate) fn check_component(
                 .zip(&resource_args[i])
                 .map(|(arg, before)| match before {
                     Ty::Unknown => Ty::Unknown,
-                    _ => infer(arg, &scope, shapes).unwrap_or(Ty::Unknown),
+                    _ => {
+                        let t = infer(arg, &scope, shapes).unwrap_or(Ty::Unknown);
+                        // Every write has now typed the slots; what is still
+                        // `?` here has no plan type (a source's parameter
+                        // is not filled in by another site).
+                        if t != Ty::Unknown && !t.is_complete() {
+                            sink.push(TypeError {
+                                id: "type-cannot-infer",
+                                message: format!(
+                                    "cannot infer the type of this argument to `{}`: it is `{t}` after every write",
+                                    r.source
+                                ),
+                                span: arg.span(),
+                            });
+                        }
+                        t
+                    }
                 })
                 .collect();
             let result = ct.resources[i].clone();
@@ -267,7 +303,7 @@ pub(crate) fn check_component(
             let params = p
                 .args
                 .iter()
-                .map(|arg| sink.keep(infer(arg, &values, shapes)))
+                .map(|arg| sink.keep(crate::source_argument(arg, &p.source, &values, shapes)))
                 .collect();
             let result = ct.resources[i].clone();
             sink.keep_unit(record_source(&mut ct, &p.source, params, result, p.span));
@@ -545,7 +581,11 @@ fn derive_order(c: &Component) -> Vec<usize> {
                     names(x, out)
                 }
             }),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+            Expr::Number(..)
+            | Expr::Str(..)
+            | Expr::Bool(..)
+            | Expr::None(_)
+            | Expr::EmptyList(_) => {}
         }
     }
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
@@ -579,6 +619,40 @@ fn derive_order(c: &Component) -> Vec<usize> {
     order
 }
 
+/// The first `[]` in `e`, whose element type nothing fixed when `e` typed
+/// as a `list<?>`.
+fn empty_list_in(e: &Expr) -> Option<Span> {
+    match e {
+        Expr::EmptyList(span) => Some(*span),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
+            None
+        }
+        Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
+            TemplatePart::Expr(x) => empty_list_in(x),
+            _ => None,
+        }),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Unary(_, x, _) => empty_list_in(x),
+        Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
+        Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
+        Expr::Ternary(a, b, c, _) => empty_list_in(a)
+            .or_else(|| empty_list_in(b))
+            .or_else(|| empty_list_in(c)),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => empty_list_in(subject)
+            .or_else(|| empty_list_in(some))
+            .or_else(|| empty_list_in(none)),
+        Expr::Let { value, body, .. } => empty_list_in(value).or_else(|| empty_list_in(body)),
+        Expr::Arrow { body, .. } => empty_list_in(body),
+    }
+}
+
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
@@ -592,7 +666,11 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
         match e {
             Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
                 .then(|| (name.clone(), *span)),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::Number(..)
+            | Expr::Str(..)
+            | Expr::Bool(..)
+            | Expr::None(..)
+            | Expr::EmptyList(..) => None,
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
                 TemplatePart::Expr(x) => walk(x, scope, bound),
                 _ => None,

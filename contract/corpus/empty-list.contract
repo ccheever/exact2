@@ -1,0 +1,45 @@
+// Accept fixture: `[]` is the empty list (LLP 1017.003 D4, 2026-09-28). Its
+// element type comes from where it is written: the other arm of a `match`
+// or `?:`, a declared `list<T>` (a `fn` return, a prop), or a write into
+// the state it initializes. Before it, an empty arm was spelled
+// `filter(xs, c => false)`.
+shape Coin
+  id: string
+  tags: list<string>
+
+fn nothing(): list<string> = []
+
+component EmptyList
+  mutation changed as shape list<Coin>
+  // The `some` arm types the `none` arm.
+  derive coins = match changed { case some(m) => m, case none => [] }
+  state showAll = false
+  // The other branch types the empty one.
+  derive shown = showAll ? coins : []
+  // Initialized empty; the write in `pick` says what it holds.
+  state picked = []
+  action pick(id: string) writes picked
+    picked = map(filter(coins, c => c.id == id), c => c.id)
+  action toggle writes showAll
+    showAll = not showAll
+  action tick writes changed
+    send changed = tick()
+  view
+    column testId="root"
+      text `${length(coins)} coins` testId="count"
+      text join(map(shown, c => c.id), ",") testId="shown"
+      text join(picked, ",") testId="picked"
+      text join(nothing(), ",") testId="fn"
+      Tags(tags=[])
+      button press=toggle testId="toggle"
+        text "toggle"
+      button press=tick testId="tick"
+        text "tick"
+      button press=pick("b") testId="pick-b"
+        text "pick b"
+
+component Tags
+  props
+    tags: list<string>
+  view
+    text `${length(tags)} tags` testId="tags"

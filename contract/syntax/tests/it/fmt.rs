@@ -173,6 +173,31 @@ fn nested_multiline_values_stay_stable_when_attribute_wrapping_adds_a_level() {
 }
 
 #[test]
+fn an_empty_list_is_spelled_without_a_space() {
+    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear writes picked\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
+    let after = preserved(src);
+    assert!(!after.contains("[ "), "{after}");
+    assert_eq!(after.matches("[]").count(), 4, "{after}");
+    assert!(after.contains("    picked = []\n"), "{after}");
+    // Only spans move; every `[]` is still the empty list.
+    let empties = |src: &str| {
+        let file = contract_syntax::parse(src).unwrap();
+        let c = &file.components[0];
+        (
+            matches!(c.states[1].expr, contract_syntax::Expr::EmptyList(_)),
+            matches!(
+                &c.derives[0].expr,
+                contract_syntax::Expr::Ternary(_, a, b, _)
+                    if matches!(**a, contract_syntax::Expr::EmptyList(_))
+                        && matches!(**b, contract_syntax::Expr::EmptyList(_))
+            ),
+        )
+    };
+    assert_eq!(empties(src), (true, true));
+    assert_eq!(empties(&after), (true, true));
+}
+
+#[test]
 fn authored_test_steps_and_nested_types_keep_their_values() {
     let src = r#"shape Record
   values:list<option<string>>

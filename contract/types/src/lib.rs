@@ -54,7 +54,8 @@ pub enum Ty {
     Record(String),
     /// An action reference with its parameter types.
     Action(Vec<Ty>),
-    /// Not yet known (only inside an `option` from `none`, or an untyped parameter).
+    /// Not yet known (only inside an `option` from `none`, a `list` from
+    /// `[]`, or an untyped parameter).
     Unknown,
 }
 
@@ -599,6 +600,38 @@ impl Types {
     }
 }
 
+/// A source's argument. The seam's signature (LLP 1027 D2) is built from
+/// the call sites, so a literal `[]` or `none` (or `some(…)` of one) passed
+/// to a source has nothing to complete its `?` and is refused here, at the
+/// argument. Any other argument is inferred as it stands: a state a later
+/// action writes is `?` now and complete once every body has been checked,
+/// which the seam's final pass confirms.
+pub(crate) fn source_argument(
+    arg: &Expr,
+    source: &str,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    fn untyped_literal(e: &Expr) -> bool {
+        match e {
+            Expr::EmptyList(_) | Expr::None(_) => true,
+            Expr::Some(inner, _) => untyped_literal(inner),
+            _ => false,
+        }
+    }
+    let t = infer(arg, scope, shapes)?;
+    if t.is_complete() || !untyped_literal(arg) {
+        return Ok(t);
+    }
+    err(
+        "type-cannot-infer",
+        format!(
+            "cannot infer what `{t}` passes to `{source}`: nothing here says its type; pass a typed value (a state, `some(x)`, a list from a source or `map`/`filter`)"
+        ),
+        arg.span(),
+    )
+}
+
 /// Infer an expression's type in `scope`.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
@@ -621,6 +654,10 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             Ty::String
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        // `[]` is a `list<?>` as `none` is an `option<?>`: the other arm of a
+        // `match` or `?:`, a declared `list<T>`, or a write into the state
+        // it initializes fills the `?` through `unify`.
+        Expr::EmptyList(_) => Ty::List(Box::new(Ty::Unknown)),
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::NamedArg(_, _, span) => {
             return err(

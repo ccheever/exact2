@@ -96,6 +96,10 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
+        Expr::EmptyList(_) => {
+            asm.list(0);
+            Ty::List(Box::new(Ty::Unknown))
+        }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;
             asm.simple(Opcode::Some);

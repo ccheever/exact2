@@ -757,6 +757,11 @@ pub enum Expr {
     Bool(bool, Span),
     /// `none`.
     None(Span),
+    /// `[]`: the empty list. Its element type comes from where it is
+    /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
+    /// a write into the state it initializes); Contract has no list literal
+    /// with items (LLP 1017.003 D4).
+    EmptyList(Span),
     /// `some(expr)`.
     Some(Box<Expr>, Span),
     /// A name.
@@ -831,6 +836,7 @@ impl Expr {
             | Expr::Template(_, s)
             | Expr::Bool(_, s)
             | Expr::None(s)
+            | Expr::EmptyList(s)
             | Expr::Some(_, s)
             | Expr::Ident(_, s)
             | Expr::Member(_, _, s)

@@ -270,6 +270,8 @@ fn rejections_carry_stable_ids_and_spans() {
             "syntax-expected-declaration",
             3,
         ),
+        // `[]` is the empty list; a list literal with items is not Contract.
+        ("component A\n  derive xs = [1, 2]\n", "syntax-expected", 2),
     ];
     for (src, id, line) in cases {
         let err = parse(src).unwrap_err();

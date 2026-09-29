@@ -242,7 +242,9 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
                 .collect(),
             *span,
         ),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => e.clone(),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {
+            e.clone()
+        }
     }
 }
 
@@ -382,7 +384,7 @@ fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
                 }
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
     }
 }
 
@@ -414,7 +416,9 @@ fn occurs(e: &Expr, name: &str) -> bool {
         Expr::Template(parts, _) => parts
             .iter()
             .any(|p| matches!(p, TemplatePart::Expr(x) if occurs(x, name))),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {
+            false
+        }
     }
 }
 

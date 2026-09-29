@@ -244,7 +244,13 @@ with a whole positive number of milliseconds (`lower-timer-interval`). **View.**
 indented children; component uses `Name(arg=expr, …)`; `when cond … else …`;
 `each x in list key=expr`; `match subject` with `case some(x)` and `case
 none`. **Expressions.** Numbers, strings, templates with `${…}`, `true`/
-`false`, `none`, `some(e)`, names, `a.b`, roster calls, `+ - * / %`, `== !=
+`false`, `none`, `some(e)`, `[]` (the empty list, 2026-09-28: its element
+type comes from the other arm of a `match` or `?:`, a declared `list<T>`, or
+a write into the state it initializes, as `none`'s does; an `[]` nothing
+types, in a derive, a source argument, or an `each` list, is
+`type-cannot-infer` at the `[]`, and a state only `[]` initializes is
+refused as a state nothing writes; a list literal with items stays out,
+LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
 < <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
 { case some(x) => a, case none => b }`.
 

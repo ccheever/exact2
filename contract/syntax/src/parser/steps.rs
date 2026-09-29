@@ -227,11 +227,15 @@ impl Parser {
                         let value = self.expr()?;
                         if !matches!(
                             value,
-                            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
+                            Expr::Number(..)
+                                | Expr::Str(..)
+                                | Expr::Bool(..)
+                                | Expr::None(_)
+                                | Expr::EmptyList(_)
                         ) {
                             return Err(SyntaxError {
                                 id: "syntax-expected-step",
-                                message: "`expect state name ==` takes a number, a string, a bool, or `none`".into(),
+                                message: "`expect state name ==` takes a number, a string, a bool, `none`, or `[]`".into(),
                                 span,
                             });
                         }
