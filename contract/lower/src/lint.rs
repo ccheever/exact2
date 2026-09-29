@@ -67,6 +67,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             .iter()
                             .filter(|a| a.name != "class" && !native::leftover(tag, a))
                         {
+                            if let Some(e) = native::refused(tag, a) {
+                                errors.push(e);
+                                continue;
+                            }
                             let checked = match tags::attr(&a.name) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.

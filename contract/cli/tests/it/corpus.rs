@@ -508,6 +508,60 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     assert_eq!(r.take_commands()[0].name, "setScheme");
 }
 
+/// LLP 1024 D1: a module tag's leftover attributes are its props, one
+/// object; a known row its box never uses is refused by name instead of
+/// being bound to nothing, and a class's rows on the tag stay the style's.
+#[test]
+fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
+    let src = "component A\n  state dark = true\n  view\n    ghostty-terminal testId=\"term\" width=320 height=200 scheme=(dark ? \"dark\" : \"light\") cwd=\"/tmp\" mode=\"x\" font-size=13\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "lower-native-attr");
+    assert!(
+        e.message
+            .contains("`font-size` on `ghostty-terminal` is a text row"),
+        "{e}"
+    );
+    for (attr, what) in [
+        ("appearance=\"none\"", "a form control's row"),
+        ("value=\"x\"", "a form control's"),
+        ("placeholder=\"x\"", "a form control's"),
+        ("autofocus=true", "a form control's"),
+        ("color=\"#fff\"", "a text row"),
+    ] {
+        let src =
+            format!("component A\n  view\n    ghostty-terminal testId=\"term\" width=320 {attr}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, "lower-native-attr", "{attr}: {e}");
+        assert!(e.message.contains(what), "{attr}: {e}");
+    }
+    let src = src.replace(" font-size=13", "");
+    let src = format!(
+        "style Term\n  color=\"#fff\" font-size=13\n{}",
+        src.replace("mode=\"x\"", "mode=\"x\" class=Term")
+    );
+    let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("term")[0];
+    let node = r.kernel().node_by_key(key).unwrap();
+    assert_eq!(node.node_type, NodeType::NativeView);
+    assert_eq!(
+        node.props.str(PropId::NativeViewModuleName),
+        Some("ghostty-terminal")
+    );
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"cwd":"/tmp","mode":"x","scheme":"dark"}"#)
+    );
+    assert_eq!(node.style.width, Dimension::Points(320.0));
+}
+
 #[test]
 fn the_iframe_fixture_lowers_and_records_its_events() {
     let src = corpus("iframe.contract");

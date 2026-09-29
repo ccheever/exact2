@@ -857,6 +857,15 @@ impl<'a> Lowerer<'a> {
                     if native::leftover(tag, a) {
                         continue;
                     }
+                    // @ref LLP 1024 D1 — a module tag's own attribute named
+                    // like a row its box never uses is refused, not bound to
+                    // nothing; a class's rows are the style's, never a prop.
+                    if index >= class_len {
+                        if let Some(e) = native::refused(tag, a) {
+                            self.errors.push(e);
+                            continue;
+                        }
+                    }
                     if let Err(e) = self.attr(
                         tag,
                         a,

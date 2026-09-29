@@ -5,7 +5,9 @@
 //! @ref LLP 1024 D1 (HTML's potential-custom-element-name, lowercase only,
 //! the SVG/MathML reserved names refused; a fixed `display: block` row; the
 //! known attribute table binds first and its renamed spellings stay refused;
-//! an SVG element's own props, `svg::svg_only_prop`, stay the module's)
+//! an SVG element's own props, `svg::svg_only_prop`, stay the module's; a
+//! known name the leaf box never uses, a text row or a form control's, is
+//! refused by name rather than bound to nothing, `refused`)
 
 use crate::tags::{self, Tag};
 use crate::{err, LowerError, Lowerer};
@@ -61,6 +63,74 @@ pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
         && (tags::attr(&a.name).is_none() || crate::svg::svg_only_prop(&a.name))
         && tags::renamed(&a.name).is_none()
 }
+
+/// A known attribute a module tag cannot use, refused by name. The table
+/// binds before the module (LLP 1024 D1), so `appearance="dark"` on
+/// `ghostty-terminal` would set a style row the leaf box never draws and
+/// the module would never see the prop: rows of a text leaf (the schema's
+/// text mask, `color`, `text-decoration-line`) and of a form control
+/// (LLP 1069.001 D6's `appearance`, `accent-color`, `caret-color`, and the
+/// control props) are refused on a module tag, naming what the word means.
+/// Layout, box and paint rows, the handlers, `testId`, `id` and ARIA stay
+/// the box's: the author sizes and places a module like any leaf.
+pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
+    if !is_module_tag(tag) || leftover(tag, a) {
+        return None;
+    }
+    let what = match tags::attr(&a.name)? {
+        tags::AttrTarget::Styles(rows) => {
+            let text = |r: &StyleId| {
+                r.affects_text() || matches!(r, StyleId::TextColor | StyleId::TextDecorationLine)
+            };
+            let control = |r: &StyleId| {
+                matches!(
+                    r,
+                    StyleId::Appearance | StyleId::AccentColor | StyleId::CaretColor
+                )
+            };
+            if rows.iter().any(control) {
+                "a form control's row"
+            } else if rows.iter().any(text) {
+                "a text row"
+            } else {
+                return None;
+            }
+        }
+        _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's",
+        _ => return None,
+    };
+    Some(LowerError {
+        id: "lower-native-attr",
+        message: format!(
+            "`{}` on `{tag}` is {what}, which a native module's box never uses; a known attribute binds to the box, not the module (LLP 1024 D1), so give the module prop another name",
+            a.name
+        ),
+        span: a.span,
+    })
+}
+
+/// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
+/// no use for. `checked` is refused on every tag but `input` before this
+/// runs (`controls::control`); it is listed so the set reads whole.
+const CONTROL_PROPS: [&str; 17] = [
+    "value",
+    "placeholder",
+    "autofocus",
+    "type",
+    "min",
+    "max",
+    "step",
+    "accept",
+    "multiple",
+    "readonly",
+    "inputmode",
+    "autocapitalize",
+    "autocorrect",
+    "spellcheck",
+    "markup",
+    "emojiPicker",
+    "checked",
+];
 
 /// Every module tag the file's views name, with where: the driver checks
 /// them against the app's roster (`bake-unknown-module`).
@@ -176,6 +246,84 @@ mod tests {
         for name in ["width", "fill", "x", "filter"] {
             assert!(!super::leftover("exact-fixture", &attr(name)), "{name}");
         }
+    }
+
+    /// A row the leaf box never uses is refused on a module tag, by name;
+    /// the box's own rows, the events and the module's props are not.
+    #[test]
+    fn a_text_or_control_row_on_a_module_tag_is_refused_by_name() {
+        let attr = |name: &str| contract_syntax::Attr {
+            name: name.into(),
+            value: contract_syntax::Expr::Ident("v".into(), Default::default()),
+            span: Default::default(),
+        };
+        for name in [
+            "appearance",
+            "accent-color",
+            "caret-color",
+            "font-size",
+            "font-family",
+            "color",
+            "line-height",
+            "text-align",
+            "white-space",
+            "text-decoration-line",
+            "value",
+            "placeholder",
+            "autofocus",
+            "type",
+            "readonly",
+            "inputmode",
+            "spellcheck",
+            "markup",
+        ] {
+            let e = super::refused("ghostty-terminal", &attr(name))
+                .unwrap_or_else(|| panic!("{name} was not refused"));
+            assert_eq!(e.id, "lower-native-attr");
+            assert!(
+                e.message
+                    .starts_with(&format!("`{name}` on `ghostty-terminal` is ")),
+                "{}",
+                e.message
+            );
+        }
+        for name in [
+            "width",
+            "height",
+            "flex",
+            "min-height",
+            "padding",
+            "margin-top",
+            "background-color",
+            "opacity",
+            "border-radius",
+            "display",
+            "position",
+            "z-index",
+            "transition",
+            "testId",
+            "id",
+            "aria-label",
+            "role",
+            "inert",
+            "load",
+            "press",
+            "change",
+            "message",
+            "scheme",
+            "mode",
+            "seed",
+            "photo",
+            "class",
+            "fontSize",
+        ] {
+            assert!(
+                super::refused("ghostty-terminal", &attr(name)).is_none(),
+                "{name}"
+            );
+        }
+        assert!(super::refused("text", &attr("appearance")).is_none());
+        assert!(super::refused("input", &attr("value")).is_none());
     }
 
     #[test]

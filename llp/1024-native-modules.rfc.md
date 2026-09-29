@@ -600,6 +600,19 @@ implementation is `exact_runner::stdlib::native_props`: keys sorted, values
 carried as strings (numbers as JavaScript prints them), an option’s `none`
 leaves its key out, JSON escaping of `"`, `\` and C0 only.
 
+- **Addition (2026-09-28) — a colliding name is refused, not bound to
+  nothing.** The table binding first meant `ghostty-terminal appearance=…`
+  set a style row the leaf never draws while the module waited for a prop
+  that never came. A module tag's own attribute whose name is a text row
+  (the schema's text mask, `color`, `text-decoration-line`) or a form
+  control's (LLP 1069.001 D6's `appearance`, `accent-color`, `caret-color`
+  and the control props: `value`, `placeholder`, `autofocus`, `type`, …) is
+  `lower-native-attr`, naming what the word means and asking for another
+  prop name (`native::refused`). Layout, box and paint rows, the handlers,
+  `testId`, `id` and ARIA stay the box's, as does every row a `class=` set
+  carries. Words another tag alone reads (`video`'s `volume`, `poster`) are
+  still bound to nothing on a module tag; the refusal can grow by group.
+
 - **Deviation — computed leftovers are in.** §5 cut them until “a module prop
   that is a function of state”. The photo editor is that consumer: its
   Rotate 90° and Reset controls are state the module must see. A leftover

@@ -273,6 +273,13 @@ component A
     input value=q change=set
       text "inside an input"
 ---
+== lower-native-attr
+# LLP 1024 D1: a known row a module's box never uses is refused, not bound
+# to nothing while the module waits for the prop.
+component A
+  view
+    ghostty-terminal testId="term" width=320 height=200 appearance="dark"
+---
 == lower-attr-value
 component A
   view
