@@ -1,0 +1,41 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Ocho",
+  "short_name": "Ocho",
+  "id": "dev.getfirewood.ocho",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "background_color_dark": "#1f1f1f",
+  "app": {
+    "id": "dev.getfirewood.ocho",
+    "name": "Ocho"
+  },
+  "modules": [
+    "ghostty-terminal"
+  ],
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1240,
+        "height": 800,
+        "minWidth": 820,
+        "minHeight": 520
+      },
+      "link": [
+        "-lc++"
+      ]
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}
