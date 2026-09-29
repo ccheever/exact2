@@ -310,7 +310,10 @@ impl<D: DataSource> Host<D> {
                 .collect();
             self.queue_layout(id);
             for child in &children {
-                if !previous.contains(child) {
+                // A child this batch creates was queued at its create, and so
+                // was each node under it: walking its subtree again from every
+                // ancestor made a new row's mount quadratic in its depth.
+                if !previous.contains(child) && !batch.creates(*child) {
                     self.queue_layout_subtree(*child);
                 }
             }
