@@ -85,6 +85,7 @@ async function settled() {
         for (const entry of surfaces.values()) if (entry.id && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
         }
+        flush();
         if (!drew) break;
         if (performance.now() >= deadline) {
           for (const entry of surfaces.values()) if (entry.id && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
@@ -234,6 +235,13 @@ function recoverDevice() {
   return recoveringDevice;
 }
 
+// A render records into the module's open frame; `flush` submits every
+// canvas recorded since the last one once (LLP 1009 D7). It runs before the
+// task that rendered ends, which is when the browser presents the canvases.
+function flush(module = gpu) {
+  if (module && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
+}
+
 function render(entry, now) {
   if ((hidden && !exact.now) || recoveringDevice) return;
   const { w, h, s } = size(entry.el);
@@ -283,6 +291,7 @@ function frame(now) {
     if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, at);
     more ||= entry.wants;
   }
+  flush();
   // Under the agent's clock a frame is asked for by `clock`, never by the
   // last frame: a surface that wants more renders again when time moves.
   if (more && !exact.now) schedule();
@@ -309,7 +318,7 @@ function create(entry, module, carry) {
   }
 }
 function attach(entry) {
-  entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, frameAt ?? performance.now()); });
+  entry.observer = new ResizeObserver(() => { if (entry.id) { render(entry, frameAt ?? performance.now()); flush(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
@@ -846,6 +855,7 @@ async function swap(version) {
       supplyChildren(entry, next, true);
       if (next.gpu_render(entry.id, w, h, s, clockFor(frameAt ?? performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
     }
+    if (!next.gpu_flush()) throw new Error(`surfaces: flush: ${next.gpu_error()}`);
   } catch (error) {
     for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
     next.gpu_unload(); exact.devError?.(String(error)); throw error;

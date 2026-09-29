@@ -407,6 +407,7 @@ impl Surface for StackSurface {
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
@@ -497,7 +498,6 @@ impl Surface for StackSurface {
         }
         order.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let gpu = self.gpu.as_ref().unwrap();
-        let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("stack"),
@@ -521,7 +521,6 @@ impl Surface for StackSurface {
                 pass.draw(0..6, 0..1);
             }
         }
-        queue.submit([encoder.finish()]);
         !self.settled
     }
 }

@@ -194,7 +194,14 @@ final class GpuModule {
 
     let create: CreateFn
     let bind: BindFn
+    /// Records a canvas's frame; nothing is shown until `flush()`.
     let render: RenderFn
+    private var flushFn: SyncFn?
+    /// Submit the frame every canvas rendered since the last flush, once, and
+    /// present them (LLP 1009 D7): after a tick's renders.
+    func flush() {
+        if flushFn?() == 1 { FileHandle.standardError.write(Data("exact gpu: \(error())\n".utf8)) }
+    }
     let dirty: DirtyFn
     let destroy: DestroyFn
     /// The canvas's children as pixels; whether the surface wants them (LLP 1014).
@@ -241,7 +248,7 @@ final class GpuModule {
             return unsafeBitCast(p, to: T.self)
         }
         guard let load = sym("gpu_load", LoadFn.self), let create = sym("gpu_create", CreateFn.self), let bind = sym("gpu_bind", BindFn.self),
-              let render = sym("gpu_render", RenderFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
+              let render = sym("gpu_render", RenderFn.self), let flush = sym("gpu_flush", SyncFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
               let texture = sym("gpu_texture", TextureFn.self), let childrenMode = sym("gpu_children_mode", WantsFn.self),
               let readback = sym("gpu_readback", ReadbackFn.self),
               let child = sym("gpu_child_view", ChildFn.self),
@@ -250,6 +257,7 @@ final class GpuModule {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
         }
         let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), childrenMode: childrenMode, readback: readback, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), published: sym("gpu_published", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
+        module.flushFn = flush
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         module.recover = sym("gpu_recover", LoadFn.self)
         module.deviceID = sym("gpu_device_registry_id", DeviceIDFn.self)

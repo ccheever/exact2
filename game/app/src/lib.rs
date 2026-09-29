@@ -153,6 +153,7 @@ mod tests {
                 _: &exact_gpu::Frame,
                 _: &exact_gpu::wgpu::Device,
                 _: &exact_gpu::wgpu::Queue,
+                _: &mut exact_gpu::wgpu::CommandEncoder,
                 _: &exact_gpu::wgpu::TextureView,
                 _: exact_gpu::wgpu::TextureFormat,
             ) -> bool {

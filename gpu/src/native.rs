@@ -250,7 +250,8 @@ pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
     }
 }
 
-/// Render one frame. Returns 1 when the surface wants another frame, 0
+/// Record one frame into the tick's open frame (LLP 1009 D7); nothing is
+/// shown until [`flush`]. Returns 1 when the surface wants another frame, 0
 /// otherwise, 2 on failure, 3 when presentation has no device.
 pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
     let frame = Frame {
@@ -268,6 +269,15 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         Some(false) => 0,
         None if with(|m| m.instances.contains_key(&id) && !m.has_device(id)).unwrap_or(false) => 3,
         None => 2,
+    }
+}
+
+/// Submit the tick's recorded frame once and present every canvas in it
+/// (LLP 1009 D7). 0 on success, 1 when a surface failed (see [`error`]).
+pub fn flush() -> u32 {
+    match with(|m| m.flush()) {
+        Some(false) => 1,
+        _ => 0,
     }
 }
 
@@ -572,10 +582,17 @@ macro_rules! module {
             $crate::native::bind_at(id, text, Some(at_ms))
         }
 
-        /// Render one frame: 1 = wants another, 0 = done, 2 = failed.
+        /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.
         #[no_mangle]
         pub extern "C" fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::native::render(id, width, height, scale, now_ms)
+        }
+
+        /// Submit the tick's frame once and present its canvases: after
+        /// the tick's renders. 0 on success, 1 on a surface's failure.
+        #[no_mangle]
+        pub extern "C" fn gpu_flush() -> u32 {
+            $crate::native::flush()
         }
 
         /// Child composition: overlay=0, composite=1, composite/history=2, each=3.
@@ -853,6 +870,7 @@ mod placement_abi_tests {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -1179,6 +1197,7 @@ mod device_loss_tests {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {

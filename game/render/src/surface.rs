@@ -60,6 +60,8 @@ pub struct WorldSurface<
     hook_clock: crate::hooks::HookClock,
     hook_poses: crate::hooks::Poses,
     gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
+    /// What the last `render` encoded, for timing once the module submits it.
+    encoded: Option<(crate::Needs, bool, (u32, bool))>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     payloads: textures::Payloads,
@@ -94,6 +96,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
             hook_clock: Default::default(),
             hook_poses: Default::default(),
             gpu_timing: None,
+            encoded: None,
             render: None,
             format: None,
             payloads: Default::default(),
@@ -533,10 +536,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        self.render_frame(frame, device, queue, target, format)
+        self.render_frame(frame, device, queue, encoder, target, format)
+    }
+    fn submitted(&mut self) {
+        self.frame_submitted();
     }
     fn children_mode(&self) -> exact_gpu::ChildrenMode {
         if self.sim.as_ref().is_some_and(|sim| {

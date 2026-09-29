@@ -86,6 +86,7 @@ impl Surface for WeatherSurface {
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
@@ -122,7 +123,6 @@ impl Surface for WeatherSurface {
             wind: self.wind,
         };
         queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
-        let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("weather sky"),
@@ -144,7 +144,6 @@ impl Surface for WeatherSurface {
             pass.set_bind_group(0, &gpu.bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
-        queue.submit([encoder.finish()]);
         self.animated
     }
 }

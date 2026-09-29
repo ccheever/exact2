@@ -116,7 +116,10 @@ pub fn render(
         view_formats: &[],
     });
     let view = texture.create_view(&Default::default());
-    let wants = surface.render(frame, &gpu.device, &gpu.queue, &view, format);
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    let wants = surface.render(frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
+    gpu.queue.submit([encoder.finish()]);
+    surface.submitted();
     Ok((read(gpu, &texture)?, wants))
 }
 

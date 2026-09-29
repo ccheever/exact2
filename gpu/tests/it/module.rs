@@ -187,6 +187,7 @@ mod seams {
         for _ in 0..400 {
             let r = gpu_render(id, w, h, scale, now);
             if gpu_starved(id) == 0 {
+                gpu_flush();
                 return r;
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -258,6 +259,7 @@ mod seams {
             frame: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -500,6 +502,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -628,6 +631,7 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -682,6 +686,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -787,6 +792,7 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -845,6 +851,7 @@ fn retirement_reissues_live_dependencies_in_the_same_drain() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -889,6 +896,7 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
             _: &Frame,
             _: &wgpu::Device,
             _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &wgpu::TextureView,
             _: wgpu::TextureFormat,
         ) -> bool {
@@ -985,6 +993,7 @@ fn child_count_shrink_retires_each_index_exactly_once() {
             _: &exact_gpu::Frame,
             _: &exact_gpu::wgpu::Device,
             _: &exact_gpu::wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
             _: &exact_gpu::wgpu::TextureView,
             _: exact_gpu::wgpu::TextureFormat,
         ) -> bool {

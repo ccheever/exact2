@@ -95,6 +95,8 @@ final class Canvases {
     var failed: String?
     var loadedMs: Double?
     var rendered = 0
+    /// Modules a render recorded into since their last flush (LLP 1009 D7).
+    var unflushed: [GpuModule] = []
     /// Captures since launch (LLP 1014 D3).
     var captures = 0
     /// The measure's window (EXACT_FPS): renders and captures since the last
@@ -509,6 +511,7 @@ final class Canvases {
             renderNow(m, e, metal, now)
             more = more || e.wants
         }
+        flushRecorded()
         lastTickNow = now
         captureIfNeeded()
         return more
@@ -521,6 +524,7 @@ final class Canvases {
         let scale = Float(metal.layer.contentsScale)
         let t0 = CACurrentMediaTime()
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+        recorded(m)
         windowRenders += 1
         windowRenderSeconds += CACurrentMediaTime() - t0
         if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
@@ -542,6 +546,7 @@ final class Canvases {
             guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal, onScreen(metal) else { continue }
             renderNow(m, e, metal, now)
         }
+        flushRecorded()
     }
 }
 #endif

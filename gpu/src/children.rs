@@ -27,6 +27,7 @@ impl Module {
         size: [u32; 2],
         bytes: &[u8],
     ) -> bool {
+        self.settle(id);
         let [width, height] = size;
         self.check_device();
         if !frame.iter().all(|n| n.is_finite()) || frame[2] < 0. || frame[3] < 0. {
@@ -130,6 +131,7 @@ impl Module {
     /// How many direct children a canvas has now (LLP 1014 D5): the textures
     /// past it are dropped and the surface told.
     pub fn children_count(&mut self, id: u32, count: usize) -> bool {
+        self.settle(id);
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
@@ -157,6 +159,7 @@ impl Module {
     /// replaces the texture at a new size, writes the pixels, and marks the
     /// canvas dirty.
     pub fn texture(&mut self, id: u32, width: u32, height: u32, bytes: &[u8]) -> bool {
+        self.settle(id);
         self.check_device();
         let expected = (width as usize)
             .checked_mul(height as usize)

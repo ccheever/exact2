@@ -224,7 +224,8 @@ pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
     with(|m| m.bind_json(id, values, at_ms)).unwrap_or(false)
 }
 
-/// Render one frame: 1 = wants another, 0 = done, 2 = failed.
+/// Record one frame into the open frame (shown at [`flush`]): 1 = wants
+/// another, 0 = done, 2 = failed.
 pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
     let frame = Frame {
         width,
@@ -243,6 +244,13 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         None => 2,
     })
     .unwrap_or(2)
+}
+
+/// Submit the frame the canvases recorded, once (LLP 1009 D7): before the
+/// task that rendered them ends, which is when the browser presents.
+/// `true` on success; a surface's failure is [`error`]'s.
+pub fn flush() -> bool {
+    with(|m| m.flush()).unwrap_or(true)
 }
 
 /// Whether the host should supply per-child kernel frames.
@@ -427,10 +435,16 @@ macro_rules! module {
             $crate::web::bind_at(id, values, at_ms)
         }
 
-        /// Render one frame: 1 = wants another, 0 = done, 2 = failed.
+        /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::web::render(id, width, height, scale, now_ms)
+        }
+
+        /// Submit the recorded frame once; before the rendering task ends.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_flush() -> bool {
+            $crate::web::flush()
         }
 
         /// Supply child frames when requested; the browser composites their elements.

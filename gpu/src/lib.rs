@@ -33,6 +33,7 @@ pub use wgpu;
 mod acquire;
 mod binding;
 mod children;
+mod frame;
 mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
@@ -215,16 +216,28 @@ pub trait Surface {
     fn restore(&mut self, _bytes: &[u8], _mode: Restore) -> Result<(), String> {
         Err("this surface carries no state".into())
     }
-    /// One frame into `target` (of `format`). Returns whether another
-    /// frame is wanted without new inputs.
+    /// One frame into `target` (of `format`), recorded into `encoder`.
+    /// Returns whether another frame is wanted without new inputs.
+    ///
+    /// The encoder is the module's, shared by every canvas the host renders
+    /// in this tick, and submitted once after the last of them (LLP 1009
+    /// D7): a surface records its passes and never submits. Writes through
+    /// `queue` (`write_buffer`, `write_texture`) land before any of the
+    /// tick's commands run — so a resource another canvas's commands read in
+    /// the same tick is not rewritten here; per-instance resources behave as
+    /// if this canvas were submitted alone.
     fn render(
         &mut self,
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// The commands the last `render` recorded were submitted: map what it
+    /// copied for reading (a map cannot precede the submit of the copy).
+    fn submitted(&mut self) {}
     /// A presentation target acquired a device, before its first draw. Its
     /// granted features (e.g. block-compressed textures) choose what to fetch.
     fn device_ready(&mut self, _features: wgpu::Features) {}
@@ -335,6 +348,9 @@ pub struct Module {
     error: String,
     seekable: bool,
     period_ms: f64,
+    /// The tick's commands, recorded by every canvas rendered since the last
+    /// flush (LLP 1009 D7).
+    open: Option<frame::Open>,
 }
 
 /// The wgpu device.
@@ -415,12 +431,15 @@ impl Module {
             error: String::new(),
             seekable: false,
             period_ms: 0.0,
+            open: None,
         }
     }
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
         self.check_device();
+        // A frame recorded on another device is never submitted on this one.
+        self.open = None;
         self.instance = Some(gpu.instance.clone());
         self.device_lost = Arc::new(AtomicBool::new(false));
         let lost = self.device_lost.clone();
@@ -511,6 +530,7 @@ impl Module {
     /// frame renders through the new pipeline. `false`, with the reason in
     /// [`Module::take_error`], on a refusal.
     pub fn set_shader(&mut self, name: &str, text: String) -> bool {
+        self.flush();
         let Some(expected) = self.expected_digest(name) else {
             self.error = format!("no shader named `{name}` in this module");
             return false;
@@ -624,6 +644,8 @@ impl Module {
 
     /// Release presentation resources while preserving every surface's state.
     pub fn lose_device(&mut self) {
+        // The recorded frame and its drawables go before their surfaces do.
+        self.open = None;
         for inst in self.instances.values_mut() {
             inst.presentation = None;
             #[cfg(not(target_arch = "wasm32"))]
@@ -661,6 +683,7 @@ impl Module {
 
     /// Set once by an agent host: every frame honours the seekable clock.
     pub fn set_seekable(&mut self, on: bool) {
+        self.flush();
         if self.seekable == on {
             return;
         }
@@ -674,6 +697,7 @@ impl Module {
     /// Deliver host lifecycle codes: 0 hidden, 1 visible, 2 interrupted, 3 resumed.
     /// Unknown codes are ignored, including from a newer host.
     pub fn lifecycle(&mut self, id: u32, code: u32) {
+        self.settle(id);
         let event = match code {
             0 => Lifecycle::Hidden,
             1 => Lifecycle::Visible,
@@ -696,6 +720,7 @@ impl Module {
 
     /// Deliver one device event and mark the canvas dirty.
     pub fn input(&mut self, id: u32, event: &InputEvent) -> bool {
+        self.settle(id);
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
@@ -733,6 +758,7 @@ impl Module {
 
     /// Ask this canvas an agent question; an answer or posted message marks it dirty.
     pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
+        self.settle(id);
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
@@ -754,6 +780,7 @@ impl Module {
     /// New inputs for a canvas; a refusal is reported and the surface keeps
     /// its last accepted inputs.
     pub fn bind(&mut self, id: u32, inputs: &[Value], at_ms: Option<f64>) -> bool {
+        self.settle(id);
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
@@ -817,6 +844,7 @@ impl Module {
 
     /// Deliver one requested asset, with None for a missing file; works without a device.
     pub fn asset(&mut self, id: u32, name: &str, bytes: Result<&[u8], AssetError>) -> bool {
+        self.settle(id);
         if !asset_name(name) {
             self.error = format!("asset `{name}`: invalid relative asset path");
             return false;
@@ -856,6 +884,7 @@ impl Module {
 
     /// Restore atomically; successful state is published before the next frame.
     pub fn restore(&mut self, id: u32, bytes: &[u8], mode: Restore) -> bool {
+        self.settle(id);
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
@@ -887,98 +916,6 @@ impl Module {
                 .is_some_and(|i| i.dirty || i.surface.preparing())
     }
 
-    /// Render one frame for a canvas at the given size; returns whether the
-    /// surface wants another frame. None with no error means no device/target.
-    /// Nothing happens before the first bind.
-    pub fn render(&mut self, id: u32, frame: &Frame) -> Option<bool> {
-        self.check_device();
-        let (w, h) = frame.pixels();
-        let Some(inst) = self.instances.get_mut(&id) else {
-            return self.fail("no such canvas");
-        };
-        let gpu = self.gpu.as_ref()?;
-        if !inst.bound {
-            return Some(false);
-        }
-        let target = inst.presentation.as_ref()?;
-        let config = inst.config.as_mut()?;
-        inst.surface
-            .prepare_assets(&gpu.device, &gpu.queue, config.format);
-        // Off the presenter's thread (`acquire`) unless the clock is the
-        // agent's, whose frames are rendered when asked for.
-        #[cfg(not(target_arch = "wasm32"))]
-        let off_thread = acquire::Acquire::ENABLED && !self.seekable;
-        if config.width != w || config.height != h {
-            // The texture in flight was acquired at the old size.
-            #[cfg(not(target_arch = "wasm32"))]
-            drop(inst.acquire.take(true));
-            config.width = w;
-            config.height = h;
-            target.configure(&gpu.device, config);
-        }
-        use wgpu::CurrentSurfaceTexture as Current;
-        #[cfg(not(target_arch = "wasm32"))]
-        let current = if off_thread {
-            inst.acquire.request(target);
-            match inst.acquire.take_or_starve() {
-                Some(current) => current,
-                // Not released by the compositor yet: this canvas keeps its
-                // last frame, and its inputs stay dirty.
-                None => return Some(true),
-            }
-        } else {
-            match inst.acquire.take(true) {
-                Some(current) => current,
-                None => target.get_current_texture(),
-            }
-        };
-        #[cfg(target_arch = "wasm32")]
-        let current = target.get_current_texture();
-        let texture = match current {
-            Current::Success(t) => t,
-            Current::Suboptimal(t) => {
-                target.configure(&gpu.device, config);
-                t
-            }
-            // Nothing to draw into this frame; the inputs stay dirty.
-            Current::Timeout | Current::Occluded => return Some(true),
-            Current::Lost => {
-                self.lose_device();
-                return None;
-            }
-            other => {
-                self.error = format!("surface: {other:?}");
-                return None;
-            }
-        };
-        let view = texture.texture.create_view(&Default::default());
-        let frame = Frame {
-            seekable: self.seekable,
-            period_ms: self.period_ms,
-            children_generation: inst.children_generation,
-            shader_generation: shaders::shader_generation(),
-            ..*frame
-        };
-        let wants = inst
-            .surface
-            .render(&frame, &gpu.device, &gpu.queue, &view, config.format);
-        inst.drain();
-        if let Some(SurfaceError(e)) = inst.surface.take_error() {
-            self.error = e;
-            return None;
-        }
-        gpu.queue.present(texture);
-        // The next drawable, waited for while this frame is composited.
-        #[cfg(not(target_arch = "wasm32"))]
-        if off_thread && wants {
-            if let Some(target) = &inst.presentation {
-                inst.acquire.request(target);
-            }
-        }
-        inst.dirty = false;
-        Some(wants)
-    }
-
     /// Whether a canvas's last render went without a drawable (`acquire`):
     /// the presenter renders it again when the module says one arrived.
     #[cfg(not(target_arch = "wasm32"))]
@@ -990,7 +927,8 @@ impl Module {
     /// a host that hands the module textures it renders itself waits here
     /// before drawing into one the module may still be reading — sampling
     /// it, or copying it into the previous children.
-    pub fn sync(&self) -> bool {
+    pub fn sync(&mut self) -> bool {
+        self.flush();
         match self.gpu() {
             Some(gpu) => gpu
                 .device
@@ -1005,6 +943,7 @@ impl Module {
 
     /// Drop a canvas's surface.
     pub fn destroy(&mut self, id: u32) {
+        self.settle(id);
         self.instances.remove(&id);
     }
 
@@ -1023,6 +962,7 @@ impl Module {
         raw: *mut std::ffi::c_void,
     ) -> bool {
         self.check_device();
+        self.settle(id);
         use objc2::rc::Retained;
         use objc2::runtime::ProtocolObject;
         use objc2_metal::MTLTexture;
@@ -1162,6 +1102,7 @@ impl Module {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
         self.check_device();
+        self.flush();
         let gpu = self.gpu.as_ref()?;
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
@@ -1198,9 +1139,12 @@ impl Module {
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
-        let wants = inst
-            .surface
-            .render(&frame, &gpu.device, &gpu.queue, &view, format);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        let wants =
+            inst.surface
+                .render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
+        gpu.queue.submit([encoder.finish()]);
+        inst.surface.submitted();
         let result = fixture::read(gpu, &texture).map(|pixels| (pixels, wants));
         inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {

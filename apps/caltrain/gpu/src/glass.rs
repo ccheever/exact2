@@ -105,6 +105,7 @@ impl Surface for GlassSurface {
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
@@ -180,7 +181,6 @@ impl Surface for GlassSurface {
             sky_height: sh as f32,
         };
         queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
-        let mut encoder = device.create_command_encoder(&Default::default());
         {
             let sky = &gpu.sky.as_ref().unwrap().2;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -224,7 +224,6 @@ impl Surface for GlassSurface {
             pass.set_bind_group(0, &gpu.compose_group, &[]);
             pass.draw(0..3, 0..1);
         }
-        queue.submit([encoder.finish()]);
         // Lit from the clock, and a fade may be running: another frame, always.
         true
     }

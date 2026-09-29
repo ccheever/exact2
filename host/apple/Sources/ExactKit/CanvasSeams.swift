@@ -151,6 +151,17 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    /// A render recorded into `m`'s open frame (LLP 1009 D7): shown at `flushRecorded`.
+    func recorded(_ m: GpuModule) {
+        if !unflushed.contains(where: { $0 === m }) { unflushed.append(m) }
+    }
+    /// One submit per module for the tick's renders, then their presents.
+    func flushRecorded() {
+        let modules = unflushed
+        unflushed = []
+        for m in modules { m.flush() }
+    }
+
     func surfaceWork(_ op: [String: Any], generation owner: Int) {
         guard let s = session, owner == s.generation,
               let number = op["ticket"] as? NSNumber else { return }

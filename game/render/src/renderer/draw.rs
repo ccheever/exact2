@@ -17,13 +17,29 @@ pub(super) struct Resolved {
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
+    /// Encode, submit, and map this frame's readbacks: a renderer that owns its queue.
     pub(crate) fn draw_assets(
         &mut self,
         target: &wgpu::TextureView,
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
-        self.draw_hooked(
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let stats = self.encode_assets(&mut encoder, target, size_px, frame);
+        self.queue.submit([encoder.finish()]);
+        self.submitted();
+        stats
+    }
+
+    fn encode_assets(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        size_px: (u32, u32),
+        frame: &FrameInput<'_>,
+    ) -> Stats {
+        self.encode_hooked(
+            encoder,
             target,
             size_px,
             frame,
@@ -35,12 +51,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         .expect("empty hooks cannot refuse")
     }
 
+    /// After the encoded frame's submit: map what it copied for reading.
+    pub(crate) fn submitted(&mut self) {
+        self.cull.map_counts();
+    }
+
     // Order: skinning → hook compute → culling → shadows → forward (opaque, hook
     // opaque, sky, background[, translucent]) → [surface + translucent] → post →
     // bloom → tone. @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn draw_hooked<H: crate::Hooks>(
+    /// Encode the frame into `encoder` (the GPU module's, LLP 1009 D7); the
+    /// caller submits it and then calls [`Self::submitted`].
+    pub(crate) fn encode_hooked<H: crate::Hooks>(
         &mut self,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
@@ -80,7 +104,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .as_mut()
                 .unwrap()
                 .record(times, hooks.work(), false);
-            return Ok(self.draw_assets(target, size_px, frame));
+            return Ok(self.encode_assets(encoder, target, size_px, frame));
         }
         if H::ENABLED && ASSETS {
             self.check_custom_materials(hooks.materials())?;
@@ -115,33 +139,29 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             times,
             draws: 0,
         };
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.environment.encode(&mut encoder);
+        self.environment.encode(encoder);
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
-                skin.encode(&mut encoder, frame.timestamps);
+                skin.encode(encoder, frame.timestamps);
             }
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
-            timing::encoder_stamp(&self.device, &mut encoder, frame.timestamps, 17, false);
+            timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, false);
             hooks
-                .compute(&mut encoder, &view)
+                .compute(encoder, &view)
                 .map_err(|e| hook_error("compute", e))?;
-            timing::encoder_stamp(&self.device, &mut encoder, frame.timestamps, 17, true);
+            timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, true);
             state.times[1] = start.map(|s| s.elapsed());
         }
-        self.cull
-            .encode(&mut encoder, self.current, frame.timestamps);
-        state.draws += self.encode_shadows(&mut encoder, frame, hooks.materials());
-        self.encode_forward(&mut encoder, &mut state, frame, hooks, &view)?;
+        self.cull.encode(encoder, self.current, frame.timestamps);
+        state.draws += self.encode_shadows(encoder, frame, hooks.materials());
+        self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if scene_copy {
-            self.encode_surface(&mut encoder, &mut state, frame, hooks, &view)?;
+            self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }
-        self.encode_post(&mut encoder, target, &mut state, frame, hooks, &view)?;
-        self.cull.copy_counts(&self.device, &mut encoder);
-        self.queue.submit([encoder.finish()]);
-        self.cull.map_counts();
+        self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
+        self.cull.copy_counts(&self.device, encoder);
         Ok(self.finish_stats(hooks, &state))
     }
 

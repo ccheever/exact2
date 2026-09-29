@@ -18,12 +18,12 @@ impl Surface for Fill {
     fn render(
         &mut self,
         _: &Frame,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        _: &wgpu::Device,
+        _: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         _: wgpu::TextureFormat,
     ) -> bool {
-        let mut encoder = device.create_command_encoder(&Default::default());
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -45,7 +45,6 @@ impl Surface for Fill {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        queue.submit([encoder.finish()]);
         false
     }
 }
@@ -112,13 +111,16 @@ fn a_bgra_texture_comes_back_rgba() {
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
     fill.render(
         &frame,
         &gpu.device,
         &gpu.queue,
+        &mut encoder,
         &view,
         wgpu::TextureFormat::Bgra8Unorm,
     );
+    gpu.queue.submit([encoder.finish()]);
     let px = fixture::read(&gpu, &bgra).unwrap();
     assert_eq!(px.at(0, 0), [51, 102, 153, 255], "swizzled to RGBA");
 }

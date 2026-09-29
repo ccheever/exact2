@@ -104,6 +104,8 @@ final class Canvases {
     var failed: String?
     var loadedMs: Double?
     var rendered = 0
+    /// Modules a render recorded into since their last flush (LLP 1009 D7).
+    var unflushed: [GpuModule] = []
     /// Captures since launch (LLP 1014 D3).
     var captures = 0
     private var captureScheduled = false
@@ -465,6 +467,7 @@ final class Canvases {
             if wall < e.starvedUntil { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            recorded(m)
             if CACurrentMediaTime() - wall > 0.2 {
                 e.starvedUntil = CACurrentMediaTime() + 1.0
                 if ExactEnv.agentMode { FileHandle.standardError.write(Data("exact gpu: canvas \(e.view.id) waited \(Int((CACurrentMediaTime() - wall) * 1000)) ms for a drawable; not presenting for a second\n".utf8)) }
@@ -476,6 +479,7 @@ final class Canvases {
             readPlacements(m, e)
             messages(e)
         }
+        flushRecorded()
         lastTickNow = now
         captureIfNeeded()
         return more
@@ -496,12 +500,14 @@ final class Canvases {
             guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            recorded(m)
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
             rendered(e, r)
             rendered += 1
             readPlacements(m, e)
             messages(e)
         }
+        flushRecorded()
     }
 }
 #endif

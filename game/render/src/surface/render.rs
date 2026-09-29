@@ -7,6 +7,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         frame: &Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
@@ -208,7 +209,8 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         renderer
             .quads
             .children(&renderer.device, &renderer.queue, &self.placed);
-        self.perf.stats = match renderer.draw_hooked(
+        self.perf.stats = match renderer.encode_hooked(
+            encoder,
             target,
             frame.pixels(),
             &input,
@@ -250,11 +252,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
             );
             trace.times = [0.; 3];
         }
-        if let Some(timing) = &mut self.gpu_timing {
-            let culled = !renderer.cull.groups.is_empty() && !renderer.cull.direct;
-            let passes = (cascades, culled);
-            timing.submitted(queue, self.hooks.needs(), self.hooks.drawable(), passes);
-        }
+        // Timed once submitted (`submitted`): the module submits the frame.
+        let culled = !renderer.cull.groups.is_empty() && !renderer.cull.direct;
+        self.encoded = Some((
+            self.hooks.needs(),
+            self.hooks.drawable(),
+            (cascades, culled),
+        ));
         if self.perf.armed() {
             self.perf.culled = renderer.culled();
         }
@@ -263,5 +267,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         wants
             || self.hooks.needs().contains(crate::Needs::ANIMATE)
             || self.hooks.needs().contains(crate::Needs::PENDING)
+    }
+
+    /// The module submitted the frame `render_frame` encoded: map its
+    /// readbacks and start its pass timings.
+    pub(super) fn frame_submitted(&mut self) {
+        let Some((needs, drawable, passes)) = self.encoded.take() else {
+            return;
+        };
+        let Some((renderer, _)) = &mut self.render else {
+            return;
+        };
+        renderer.submitted();
+        if let Some(timing) = &mut self.gpu_timing {
+            timing.submitted(&renderer.queue, needs, drawable, passes);
+        }
     }
 }
