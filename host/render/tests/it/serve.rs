@@ -130,7 +130,7 @@ fn dist(name: &str) -> PathBuf {
     dir
 }
 
-fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> SocketAddr {
+fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> Served {
     super::warm_transport();
     let serve = Serve {
         dist: dist(name),
@@ -147,12 +147,34 @@ fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> SocketAddr 
     run(serve)
 }
 
-fn run(serve: Serve) -> SocketAddr {
+/// A test's server, drained when the test ends: its workers and their
+/// executors end with it, so the tests' servers never reach the process's
+/// native-worker cap (a leak that turned renders elsewhere `Busy`).
+struct Served {
+    addr: SocketAddr,
+    stopper: exact_render::Stopper,
+    serving: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        self.stopper.stop();
+        if let Some(serving) = self.serving.take() {
+            let _ = serving.join();
+        }
+    }
+}
+
+fn run(serve: Serve) -> Served {
     let plan = contract::compile(SRC).unwrap();
     let server = Server::bind(serve, plan, Posts.grants()).unwrap();
-    let addr = server.addr();
-    std::thread::spawn(move || server.run(|| Posts));
-    addr
+    let (addr, stopper) = (server.addr(), server.stopper());
+    let serving = Some(std::thread::spawn(move || server.run(|| Posts)));
+    Served {
+        addr,
+        stopper,
+        serving,
+    }
 }
 
 /// Status, headers (lowercased names) and body of one request.
@@ -225,7 +247,8 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 
 #[test]
 fn each_route_answers_by_its_policy() {
-    let addr = start("policy", 2, 8, 300);
+    let served = start("policy", 2, 8, 300);
+    let addr = served.addr;
     // A cached route: the document, kept by shared caches for its lifetime.
     let (status, headers, body) = get(addr, "/post/7");
     assert_eq!(status, 200);
@@ -326,7 +349,8 @@ fn each_route_answers_by_its_policy() {
 
 #[test]
 fn a_render_that_misses_its_deadline_or_fails_is_not_kept() {
-    let addr = start("failure", 2, 8, 300);
+    let served = start("failure", 2, 8, 300);
+    let addr = served.addr;
     let (status, headers, body) = get(addr, "/post/slow");
     assert_eq!(status, 503);
     assert_eq!(header(&headers, "retry-after"), Some("1"));
@@ -343,7 +367,8 @@ fn a_render_that_misses_its_deadline_or_fails_is_not_kept() {
 
 #[test]
 fn files_health_and_the_edges_of_http() {
-    let addr = start("edges", 1, 8, 300);
+    let served = start("edges", 1, 8, 300);
+    let addr = served.addr;
     let (status, headers, body) = get(addr, "/glue.js");
     assert_eq!(status, 200);
     assert_eq!(body, "// the glue\n");
@@ -393,7 +418,8 @@ fn a_full_queue_answers_503_at_once() {
     // One render at a time, and nothing may wait for it.
     // The slow render holds the only worker for a second. A probe that
     // reaches the worker first (a loaded machine) is simply served.
-    let addr = start("queue", 1, 0, 1000);
+    let served = start("queue", 1, 0, 1000);
+    let addr = served.addr;
     // A probe on the worker can turn the slow request away too: it asks
     // again until it holds the worker.
     let slow = std::thread::spawn(move || {
@@ -430,7 +456,8 @@ fn a_full_queue_answers_503_at_once() {
 
 #[test]
 fn cached_pages_reuse_public_answers_and_honor_request_cache_controls() {
-    let addr = start("origin-cache", 1, 8, 1000);
+    let served = start("origin-cache", 1, 8, 1000);
+    let addr = served.addr;
     let (status, _, first) = get(addr, "/post/cache-probe");
     assert_eq!(status, 200);
     assert!(first.contains("Read 1"));
@@ -462,7 +489,8 @@ fn cached_pages_reuse_public_answers_and_honor_request_cache_controls() {
 
 #[test]
 fn the_sitemap_lists_each_rendered_route_and_its_listed_pages() {
-    let addr = start("sitemap", 1, 8, 300);
+    let served = start("sitemap", 1, 8, 300);
+    let addr = served.addr;
     let (status, headers, body) = get(addr, "/sitemap.xml");
     assert_eq!(status, 200);
     assert_eq!(
@@ -626,7 +654,8 @@ fn decoded(headers: &[(String, String)], body: &[u8]) -> String {
 
 #[test]
 fn pages_and_files_go_compressed_as_the_client_accepts() {
-    let addr = start("encoding", 1, 8, 300);
+    let served = start("encoding", 1, 8, 300);
+    let addr = served.addr;
     let page = |accept: &str| {
         fetch_bytes(
             addr,
@@ -690,7 +719,8 @@ fn pages_and_files_go_compressed_as_the_client_accepts() {
 
 #[test]
 fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
-    let addr = start("best", 1, 8, 300);
+    let served = start("best", 1, 8, 300);
+    let addr = served.addr;
     let request = "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n";
     // The render's own response is compressed as it is sent.
     let (status, first_headers, first) = fetch_bytes(addr, request);
@@ -734,7 +764,8 @@ fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
 fn a_kept_page_goes_against_a_dictionary_the_browser_holds() {
     use sha2::{Digest, Sha256};
     const USE: &str = "match=\"/*\", match-dest=(\"document\")";
-    let addr = start("dictionary", 1, 8, 300);
+    let served = start("dictionary", 1, 8, 300);
+    let addr = served.addr;
     // A kept page says a browser may keep it as a dictionary; its hash names it.
     let (status, headers, dictionary) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\n\r\n");
     assert_eq!(
@@ -838,7 +869,7 @@ fn a_named_build_goes_against_the_earlier_one_the_browser_holds() {
     std::fs::create_dir_all(&kept).unwrap();
     let hex = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
     std::fs::write(kept.join(format!("{}.wasm", hex(&earlier))), &earlier).unwrap();
-    let addr = run(Serve {
+    let served = run(Serve {
         dist,
         port: 0,
         name: "Blog".into(),
@@ -850,6 +881,7 @@ fn a_named_build_goes_against_the_earlier_one_the_browser_holds() {
         lifetime: Duration::from_secs(120),
         generations: Some(kept.clone()),
     });
+    let addr = served.addr;
     // The server keeps the build it serves beside the earlier one.
     assert!(kept.join(format!("{}.wasm", hex(&build))).is_file());
     let named = format!("/app.wasm?v={}", &hex(&build)[..16]);
@@ -922,7 +954,8 @@ fn a_named_build_goes_against_the_earlier_one_the_browser_holds() {
 
 #[test]
 fn a_file_the_dist_lacks_is_a_plain_404() {
-    let addr = start("favicon", 1, 8, 300);
+    let served = start("favicon", 1, 8, 300);
+    let addr = served.addr;
     // A browser's icon request doesn't render the not-found document…
     let (status, headers, body) = get(addr, "/favicon.ico");
     assert_eq!((status, body.as_str()), (404, "not found\n"));
@@ -1000,7 +1033,8 @@ fn a_drained_server_answers_what_it_took_and_stops() {
 
 #[test]
 fn a_dist_file_revalidates_by_its_etag() {
-    let addr = start("validators", 1, 8, 300);
+    let served = start("validators", 1, 8, 300);
+    let addr = served.addr;
     let conditional = |target: &str, accept: &str, etag: &str| {
         fetch_bytes(
             addr,
@@ -1050,7 +1084,8 @@ fn a_dist_file_revalidates_by_its_etag() {
 
 #[test]
 fn unsafe_canonical_paths_are_refused_before_redirecting() {
-    let addr = start("unsafe-paths", 1, 8, 300);
+    let served = start("unsafe-paths", 1, 8, 300);
+    let addr = served.addr;
     for target in [
         "/\\evil.com/",
         "//\\evil.com",
@@ -1070,7 +1105,8 @@ fn unsafe_canonical_paths_are_refused_before_redirecting() {
 
 #[test]
 fn large_static_files_stream_with_lengths_validators_and_head() {
-    let addr = start("large-stream", 1, 8, 300);
+    let served = start("large-stream", 1, 8, 300);
+    let addr = served.addr;
     let path = std::env::temp_dir()
         .join(format!(
             "exact-render-serve-large-stream-{}",
@@ -1122,7 +1158,7 @@ fn a_connection_is_kept_for_the_next_request() {
     super::warm_transport();
     let dir = dist("kept");
     std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
-    let addr = run(Serve {
+    let served = run(Serve {
         dist: dir,
         port: 0,
         name: "Blog".into(),
@@ -1134,6 +1170,7 @@ fn a_connection_is_kept_for_the_next_request() {
         lifetime: Duration::from_secs(120),
         generations: None,
     });
+    let addr = served.addr;
     let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
     stream.set_read_timeout(Some(BOUND)).unwrap();
     let mut pending = Vec::new();
@@ -1227,7 +1264,7 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     super::warm_transport();
     let dir = dist("flush");
     std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
-    let addr = run(Serve {
+    let served = run(Serve {
         dist: dir,
         port: 0,
         name: "Blog".into(),
@@ -1239,6 +1276,7 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
         lifetime: Duration::from_secs(120),
         generations: None,
     });
+    let addr = served.addr;
     let navigate = |target: &str| {
         format!(
             "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\n\r\n"

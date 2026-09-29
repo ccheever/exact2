@@ -220,6 +220,12 @@ impl Server {
                                 state.1 -= 1;
                                 break stream;
                             }
+                            // Drained: the worker ends, and its thread's
+                            // executors with it (their workers count against
+                            // the process's native-worker cap).
+                            if stop.load(Ordering::SeqCst) {
+                                return;
+                            }
                             state = ready.wait(state).unwrap();
                         }
                     };
@@ -284,6 +290,7 @@ impl Server {
         }
         // A worker is free while it closes its last connection.
         std::thread::sleep(Duration::from_millis(250));
+        waiting.1.notify_all();
         Ok(())
     }
 }
