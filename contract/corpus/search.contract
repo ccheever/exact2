@@ -1,0 +1,26 @@
+// Accept fixture: `includes`, `startsWith` and `endsWith`, the web's string
+// searches under the web's names (LLP 1017 §8.1). A launcher in miniature:
+// the rows whose two-digit code starts with the digit typed are highlighted,
+// the rows whose name includes the typed text are counted, and a file's kind
+// is read from its suffix, all in the view and none in the data source.
+shape Session
+  code: string
+  name: string
+  file: string
+
+component Search
+  resource sessions = sessions() as shape list<Session>
+  state typed = ""
+  action edit(value: string) writes typed
+    typed = value
+  derive named = filter(sessions, s => includes(s.name, typed))
+  view
+    column testId="root"
+      input value=typed change=edit testId="typed"
+      text `${length(named)} named` testId="named"
+      each s in sessions key=s.code
+        row testId=`row-${s.code}` background-color=((typed != "" and startsWith(s.code, typed)) ? "#ffe08a" : "#ffffff")
+          text s.code
+          text (startsWith(s.code, typed) ? "*" : "") testId=`hit-${s.code}`
+          text s.name
+          text (endsWith(s.file, ".md") ? "markdown" : "plain") testId=`kind-${s.code}`

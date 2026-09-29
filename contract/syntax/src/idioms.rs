@@ -8,11 +8,12 @@
 pub fn method_fix(name: &str) -> String {
     match name {
         "map" | "filter" => format!(
-            "write `{name}(xs, (x, i) => …)`: Contract spells the web's array methods as roster functions (`contains(s, t)` is `s.includes(t)`)"
+            "write `{name}(xs, (x, i) => …)`: Contract spells the web's array methods as roster functions (`includes(s, t)` is `s.includes(t)`)"
         ),
-        "join" => "write `join(xs, \", \")`: Contract spells the web's array methods as roster functions (`contains(s, t)` is `s.includes(t)`)".into(),
+        "join" => "write `join(xs, \", \")`: Contract spells the web's array methods as roster functions (`includes(s, t)` is `s.includes(t)`)".into(),
         "length" => "write `length(xs)`: Contract spells the web's `.length` as a roster function".into(),
-        "includes" => "write `contains(s, t)` for text; `includes` on a list is refused (LLP 1017.003)".into(),
+        "includes" => "write `includes(s, t)` for text; `includes` on a list is refused (LLP 1017.003)".into(),
+        "startsWith" | "endsWith" => format!("write `{name}(s, t)`"),
         "toString" => "write `toString(x)`".into(),
         "trim" => "write `trim(s)`".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),

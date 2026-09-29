@@ -98,7 +98,15 @@ fn call_value(
                 }
             }
         }
-        Stdlib::Contains => Value::Bool(args.first()?.as_str()?.contains(args.get(1)?.as_str()?)),
+        // The web's `String.prototype.includes`, `startsWith` and `endsWith`:
+        // literal, case-sensitive, and the empty needle matches. A substring
+        // of well-formed text is the same in UTF-8 and UTF-16, so Rust's
+        // searches answer as JavaScript's do.
+        Stdlib::Includes => Value::Bool(args.first()?.as_str()?.contains(args.get(1)?.as_str()?)),
+        Stdlib::StartsWith => {
+            Value::Bool(args.first()?.as_str()?.starts_with(args.get(1)?.as_str()?))
+        }
+        Stdlib::EndsWith => Value::Bool(args.first()?.as_str()?.ends_with(args.get(1)?.as_str()?)),
         Stdlib::Trim => {
             let v = args.first()?;
             let s = v.as_str()?;
@@ -543,6 +551,69 @@ mod tests {
             Ok(Value::Option(None))
         );
     }
+    #[test]
+    fn includes_starts_with_and_ends_with_answer_as_javascript_does() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let search = |f: Stdlib, args: &[Value]| call(f, args, 0.0, &plan, None, None, None);
+        let strs = |a: &str, b: &str| [Value::str(a), Value::str(b)];
+        // (haystack, needle, includes, startsWith, endsWith), from Bun.
+        for (s, t, inc, start, end) in [
+            ("", "", true, true, true),
+            ("21", "", true, true, true),
+            ("21", "1", true, false, true),
+            ("12", "1", true, true, false),
+            ("12", "12", true, true, true),
+            ("1", "12", false, false, false),
+            ("todo.md", ".md", true, false, true),
+            ("build log", "o", true, false, false),
+            ("build log", "O", false, false, false),
+            (" heading2 ", " heading2 ", true, true, true),
+            ("😀é", "é", true, false, true),
+            ("😀é", "😀", true, true, false),
+            ("😀é", "\u{301}", false, false, false),
+        ] {
+            let args = strs(s, t);
+            assert_eq!(
+                search(Stdlib::Includes, &args),
+                Ok(Value::Bool(inc)),
+                "{s:?}.includes({t:?})"
+            );
+            assert_eq!(
+                search(Stdlib::StartsWith, &args),
+                Ok(Value::Bool(start)),
+                "{s:?}.startsWith({t:?})"
+            );
+            assert_eq!(
+                search(Stdlib::EndsWith, &args),
+                Ok(Value::Bool(end)),
+                "{s:?}.endsWith({t:?})"
+            );
+        }
+        // Text longer than the inline form, so both text forms are searched.
+        let long = strs("a sentence longer than fourteen bytes", "fourteen bytes");
+        assert_eq!(search(Stdlib::Includes, &long), Ok(Value::Bool(true)));
+        assert_eq!(search(Stdlib::EndsWith, &long), Ok(Value::Bool(true)));
+        assert_eq!(search(Stdlib::StartsWith, &long), Ok(Value::Bool(false)));
+        // Anything but two strings is a type mismatch, never a coercion.
+        for f in [Stdlib::Includes, Stdlib::StartsWith, Stdlib::EndsWith] {
+            assert_eq!(
+                search(f, &[Value::Number(12.0), Value::str("1")]),
+                Err(CallError::TypeMismatch)
+            );
+            assert_eq!(
+                search(f, &[Value::str("12"), Value::Number(1.0)]),
+                Err(CallError::TypeMismatch)
+            );
+            assert_eq!(
+                search(f, &[Value::list(vec![Value::str("12")]), Value::str("12")]),
+                Err(CallError::TypeMismatch)
+            );
+            assert_eq!(search(f, &[Value::str("12")]), Err(CallError::TypeMismatch));
+        }
+    }
+
     #[test]
     fn trim_strips_what_javascript_strips() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)

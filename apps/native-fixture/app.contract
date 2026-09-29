@@ -42,7 +42,7 @@ component NativeFixture
   action onSubmit writes events
     events = events + "submit;"
   action onMessage(m: string) writes events, received
-    if contains(m, "props:")
+    if includes(m, "props:")
       received = m
     else
       events = events + "message:" + m + ";"

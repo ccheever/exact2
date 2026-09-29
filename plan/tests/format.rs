@@ -621,6 +621,9 @@ fn router_format_round_trips_and_checks_semantic_links() {
         ("params", vec!["Router", "string"], "list<string>"),
         ("searchParam", vec!["Entry", "string"], "string"),
         ("encodeURIComponent", vec!["string"], "string"),
+        ("includes", vec!["string", "string"], "bool"),
+        ("startsWith", vec!["string", "string"], "bool"),
+        ("endsWith", vec!["string", "string"], "bool"),
     ] {
         let f = Stdlib::from_name(name).unwrap();
         assert_eq!(f.params(), params);

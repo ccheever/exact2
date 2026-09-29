@@ -694,7 +694,8 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 other => {
                     // `xs.length`, `xs.map`: the web's properties and methods.
                     let fix = match field.as_str() {
-                        "length" | "map" | "filter" | "join" | "includes" => {
+                        "length" | "map" | "filter" | "join" | "includes" | "startsWith"
+                        | "endsWith" => {
                             format!(": {}", contract_syntax::idioms::method_fix(field))
                         }
                         _ => String::new(),

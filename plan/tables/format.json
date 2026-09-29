@@ -1060,9 +1060,10 @@
       "returns": "string"
     },
     {
-      "name": "contains",
+      "name": "includes",
       "params": ["string", "string"],
-      "returns": "bool"
+      "returns": "bool",
+      "_comment": "The web's `String.prototype.includes(needle)`: a case-sensitive literal substring search; the empty needle matches. The web's optional position argument is not taken."
     },
     {
       "name": "trim",
@@ -1129,6 +1130,18 @@
       "params": ["any", "number"],
       "returns": "any",
       "_comment": "@ref LLP 1006 §3: JavaScript's Array.prototype.at — `some` of the item at an index truncated toward zero, counted from the end when negative, `none` past either end; `any` is `list<T>` in and `option<T>` out (the type checker's)."
+    },
+    {
+      "name": "startsWith",
+      "params": ["string", "string"],
+      "returns": "bool",
+      "_comment": "The web's `String.prototype.startsWith(prefix)`: whether the text begins with the prefix, case-sensitive; the empty prefix matches. The web's optional position argument is not taken."
+    },
+    {
+      "name": "endsWith",
+      "params": ["string", "string"],
+      "returns": "bool",
+      "_comment": "The web's `String.prototype.endsWith(suffix)`: whether the text ends with the suffix, case-sensitive; the empty suffix matches. The web's optional end-position argument is not taken."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",
