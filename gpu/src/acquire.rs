@@ -45,8 +45,12 @@ pub(crate) struct Acquire {
 
 impl Acquire {
     /// Whether this platform acquires off the presenter's thread: iOS, where
-    /// it was measured. The AppKit presenter keeps its own occlusion guard.
-    pub(crate) const ENABLED: bool = cfg!(target_os = "ios");
+    /// it was measured first, and macOS, where the shader-only Extra Heavy
+    /// feed spent 54% of the main thread in `nextDrawable` (2026-09-28). An
+    /// occluded window's drawable wait now starves the canvas instead of
+    /// holding the main thread; the AppKit presenter's guard stays for the
+    /// agent's clock, which acquires on the main thread.
+    pub(crate) const ENABLED: bool = cfg!(any(target_os = "ios", target_os = "macos"));
 
     /// Ask for `target`'s next texture, unless one is already in flight.
     pub(crate) fn request(&mut self, target: &Arc<wgpu::Surface<'static>>) {

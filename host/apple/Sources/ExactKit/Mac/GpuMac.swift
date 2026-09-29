@@ -476,8 +476,32 @@ final class Canvases {
             readPlacements(m, e)
             messages(e)
         }
+        lastTickNow = now
         captureIfNeeded()
         return more
+    }
+
+    /// The frame time of the last tick: a starved canvas's late render draws that frame.
+    private var lastTickNow: Double?
+
+    /// A starved canvas's drawable arrived (gpu/src/acquire.rs): the canvases
+    /// whose render at the tick went without one draw the tick's frame now,
+    /// instead of the main thread waiting in `nextDrawable` at the tick.
+    func renderStarved() {
+        guard !modules.isEmpty, visible, !settling, let now = lastTickNow else { return }
+        let previous = frameNow
+        frameNow = now
+        defer { frameNow = previous }
+        for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
+            guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
+            let scale = Float(metal.layer?.contentsScale ?? 2)
+            let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
+            rendered(e, r)
+            rendered += 1
+            readPlacements(m, e)
+            messages(e)
+        }
     }
 }
 #endif

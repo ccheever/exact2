@@ -181,6 +181,18 @@ mod seams {
     use std::cell::RefCell;
     thread_local! { static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
     thread_local! { static BINDS: RefCell<Vec<Option<f64>>> = const { RefCell::new(Vec::new()) }; }
+    /// A live-clock render once the canvas's drawable, acquired off this
+    /// thread, has arrived: a starved render draws nothing and wants a frame.
+    fn fed(id: u32, w: f32, h: f32, scale: f32, now: f64) -> u32 {
+        for _ in 0..400 {
+            let r = gpu_render(id, w, h, scale, now);
+            if gpu_starved(id) == 0 {
+                return r;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("no drawable in two seconds")
+    }
     struct Unload;
     impl Drop for Unload {
         fn drop(&mut self) {
@@ -345,7 +357,7 @@ mod seams {
         assert_eq!(gpu_published(id), u32::MAX);
         FRAMES.with(|f| assert!(f.borrow().last().unwrap().seekable));
         gpu_seekable(false);
-        let result = gpu_render(id, 4.0, 4.0, 1.0, 13.0);
+        let result = fed(id, 4.0, 4.0, 1.0, 13.0);
         assert_eq!(result, 0, "{}", exact_gpu::native::error());
         assert_eq!(
             exact_gpu::native::messages(id).as_deref(),
@@ -387,12 +399,12 @@ mod seams {
         assert_eq!(exact_gpu::native::error(), "no such canvas");
         assert!(!unsafe { gpu_restore(id, std::ptr::null(), 1, 0) });
         assert!(exact_gpu::native::error().contains("gpu_restore"));
-        assert_eq!(gpu_render(id, 4., 4., 1., 13.), 0);
+        assert_eq!(fed(id, 4., 4., 1., 13.), 0);
         assert_eq!(unsafe { gpu_agent(id, b"null".as_ptr(), 4) }, 0);
         assert_eq!(gpu_dirty(id), 0, "an unanswered read costs no frame");
         assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);
         assert_eq!(gpu_dirty(id), 1, "a posted message dirties the surface");
-        assert_eq!(gpu_render(id, 4.0, 4.0, 1.0, 13.0), 0);
+        assert_eq!(fed(id, 4.0, 4.0, 1.0, 13.0), 0);
         assert_ne!(unsafe { gpu_agent(id, request.as_ptr(), request.len()) }, 0);
         assert_eq!(gpu_dirty(id), 1, "an answer dirties the surface");
         assert_eq!(unsafe { gpu_input(id, std::ptr::null(), 1) }, 1);
@@ -426,11 +438,11 @@ mod seams {
         };
         assert_ne!(id, 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 999.) }, 0);
-        assert_eq!(gpu_render(id, 4., 4., 1., 0.), 2);
+        assert_eq!(fed(id, 4., 4., 1., 0.), 2);
         assert_eq!(exact_gpu::native::error(), "advance capacity");
         assert_eq!(exact_gpu::native::error(), "");
         assert_eq!(gpu_dirty(id), 1);
-        assert_eq!(gpu_render(id, 4., 4., 1., -13.), 2);
+        assert_eq!(fed(id, 4., 4., 1., -13.), 2);
         assert_eq!(exact_gpu::native::error(), "render capacity");
         let mut pixels = [0; 64];
         assert_eq!(
@@ -442,7 +454,7 @@ mod seams {
         assert_eq!(exact_gpu::native::error(), "input capacity");
         assert_eq!(exact_gpu::native::agent(id, "fail"), "");
         assert_eq!(exact_gpu::native::error(), "agent capacity");
-        assert_eq!(gpu_render(id, 4., 4., 1., 0.), 0);
+        assert_eq!(fed(id, 4., 4., 1., 0.), 0);
         gpu_destroy(id);
         exact_gpu::native::unload();
     }
