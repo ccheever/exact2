@@ -146,6 +146,95 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(button.superview === p.views[1]?.scroll)
     }
 
+    // LLP 1068 §4.2.1: a row that holds an inner virtualized list pools with
+    // it, its scroll view reset and its cards reused.
+
+    /// Outer list 1's collection and inner list `inner`'s, `cards` its rows.
+    private func nested(_ row: Int, inner: Int, cards: [Int]) -> [String: Any] {
+        ["op": "collections", "items": [
+            ["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 5000,
+             "rows": [["view": row, "root": row, "epoch": 1]], "correction": NSNull()],
+            ["view": inner, "axis": "x", "parent": 1, "revision": 1, "scrollSequence": 0, "count": 30, "totalExtent": 3600,
+             "rows": cards.map { ["view": $0, "root": $0, "epoch": 1] }, "correction": NSNull()]]]
+    }
+    /// A carousel row: a title (`base + 1`) and an inner list (`base + 2`)
+    /// of cards `base + 10 * k` (k = 1, 2), each a box holding an image.
+    private func carouselOps(_ base: Int, y: Double) -> [[String: Any]] {
+        let list = base + 2, cards = [base + 10, base + 20]
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
+            ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 15.0]],
+            ["op": "create", "id": list, "kind": "list", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+        ]
+        for (i, card) in cards.enumerated() {
+            ops += [["op": "create", "id": card, "kind": "view", "props": ["testId": "card-\(card)"]],
+                    ["op": "create", "id": card + 1, "kind": "image", "props": ["imageSource": "symbol:bookmark", "symbolName": "bookmark"],
+                     "style": ["font_size": 17.0]],
+                    ["op": "children", "id": card, "ids": [card + 1]],
+                    ["op": "frame", "id": card, "x": Double(i) * 120, "y": 0.0, "w": 112.0, "h": 100.0],
+                    ["op": "frame", "id": card + 1, "x": 0.0, "y": 0.0, "w": 112.0, "h": 100.0]]
+        }
+        ops += [["op": "children", "id": list, "ids": cards], ["op": "children", "id": base, "ids": [base + 1, list]],
+                ["op": "frame", "id": base, "x": 0.0, "y": y, "w": 300.0, "h": 140.0],
+                ["op": "frame", "id": base + 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 20.0],
+                ["op": "frame", "id": list, "x": 0.0, "y": 30.0, "w": 300.0, "h": 100.0],
+                ["op": "content", "id": list, "w": 3600.0, "h": 100.0]]
+        return ops
+    }
+    private func carouselIDs(_ base: Int) -> [Int] { [base, base + 1, base + 2, base + 10, base + 11, base + 20, base + 21] }
+
+    func testARowHoldingAnInnerListPoolsWithItsScrollResetAndItsCardsReused() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        p.apply(wireBatch([nested(100, inner: 102, cards: [110, 120]),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + carouselOps(100, y: 0)
+            + [["op": "children", "id": 1, "ids": [100]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 5000.0]]))
+        let row = try XCTUnwrap(p.views[100]), list = try XCTUnwrap(p.views[102])
+        let scroll = try XCTUnwrap(list.scroll)
+        let card = try XCTUnwrap(p.views[110]), other = try XCTUnwrap(p.views[120])
+        scroll.contentOffset = CGPoint(x: 240, y: 0)
+        let before = list.incarnation
+
+        // The row retires and a row of the same shape is built.
+        p.apply(wireBatch([nested(200, inner: 202, cards: [210, 220])] + destroy(carouselIDs(100)) + carouselOps(200, y: 140)
+            + [["op": "children", "id": 1, "ids": [200]]]))
+        XCTAssertTrue(p.views[200] === row, "the row's view came back")
+        XCTAssertTrue(p.views[202] === list, "its inner list's view came back")
+        XCTAssertTrue(list.scroll === scroll, "with its scroll view")
+        XCTAssertEqual(scroll.contentOffset, .zero, "at a new list's offset")
+        XCTAssertEqual(scroll.contentSize.width, 3600, "sized by the new content op")
+        XCTAssertTrue(p.views[210] === card && p.views[220] === other, "the cards came back under the same list")
+        XCTAssertTrue(card.superview === scroll)
+        XCTAssertNotEqual(list.incarnation, before)
+        XCTAssertFalse(row.isHidden || card.isHidden || other.isHidden)
+        XCTAssertEqual(p.pool.count, 0); XCTAssertEqual(p.pool.innerCount, 0)
+        XCTAssertTrue(p.scrollers.contains(202) && !p.scrollers.contains(102))
+    }
+
+    func testARowWhoseInnerListIsMovingIsDestroyedAsBefore() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        p.apply(wireBatch([nested(100, inner: 102, cards: [110, 120]),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + carouselOps(100, y: 0)
+            + [["op": "children", "id": 1, "ids": [100]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 5000.0]]))
+        let row = try XCTUnwrap(p.views[100]), list = try XCTUnwrap(p.views[102])
+        // An authored scroll still pending on the inner list: not at rest.
+        list.pendingScrollLeft = 480
+        p.apply(wireBatch([nested(200, inner: 202, cards: [210, 220])] + destroy(carouselIDs(100)) + carouselOps(200, y: 140)
+            + [["op": "children", "id": 1, "ids": [200]]]))
+        XCTAssertFalse(p.views[200] === row)
+        XCTAssertNil(row.superview, "destroyed")
+        XCTAssertEqual(p.pool.count, 0)
+    }
+
     // LLP 1068 stage 1: a row pools around its heavy leaves.
 
     /// A row (`base`) holding a symbol (`base + 1`), a heavy leaf of `kind`

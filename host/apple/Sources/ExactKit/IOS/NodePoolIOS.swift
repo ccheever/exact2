@@ -71,13 +71,18 @@ final class NodePool {
     /// hole (nil) for each heavy leaf, the sources its images showed (a tree
     /// showing the new row's symbols again sets no image: UIKit resolves
     /// each one it is given), and when it parked.
-    private struct Tree { let views: [NodeView?]; let images: String; let parked: UInt64 }
+    /// `list`: an inner list's card, parked under that list's view (LLP 1068
+    /// §4.2.1), counted apart from the rows.
+    private struct Tree { let views: [NodeView?]; let images: String; let parked: UInt64; var list: ObjectIdentifier? = nil }
     private var parked: [String: [Tree]] = [:]
     private var roots = Set<ObjectIdentifier>()
     private(set) var count = 0
     private var generation: UInt64 = 0
     /// Enough for the rows one fill slice retires before the next builds.
     static let perShape = 8, capacity = 32
+    /// Cards parked under inner lists (LLP 1068 §4.2.1): per list and in all.
+    static let perList = 12, innerCapacity = 96
+    private(set) var innerCount = 0
     static let kinds: Set<String> = ["view", "text", "image", "button", "scroll", "svg"]
     /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
     /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
@@ -138,7 +143,8 @@ final class NodePool {
     /// A tree leaves the pool: its views are forgotten and its root leaves the list.
     private func drop(_ tree: Tree) {
         let root = tree.views[0]!
-        roots.remove(ObjectIdentifier(root)); count -= 1
+        roots.remove(ObjectIdentifier(root))
+        if tree.list != nil { innerCount -= 1 } else { count -= 1 }
         for view in tree.views { view?.forget() }
         root.removeFromSuperview()
     }
@@ -146,11 +152,12 @@ final class NodePool {
     /// goes, of that shape when it is full, else of any shape.
     private func makeRoom(for shape: String) {
         var victim: (shape: String, index: Int)?
-        if let trees = parked[shape], trees.count >= Self.perShape {
-            victim = (shape, 0)
+        if let trees = parked[shape], trees.filter({ $0.list == nil }).count >= Self.perShape {
+            victim = trees.firstIndex { $0.list == nil }.map { (shape, $0) }
         } else if count >= Self.capacity {
-            let oldest = parked.min { $0.value[0].parked < $1.value[0].parked }
-            victim = oldest.map { ($0.key, 0) }
+            let oldest = parked.compactMap { key, trees in trees.first { $0.list == nil }.map { (key, $0) } }
+                .min { $0.1.parked < $1.1.parked }
+            victim = oldest.flatMap { key, tree in parked[key]?.firstIndex { $0.parked == tree.parked }.map { (key, $0) } }
         }
         guard let victim, var trees = parked[victim.shape] else { return }
         let tree = trees.remove(at: victim.index)
@@ -184,7 +191,15 @@ final class NodePool {
     }
     /// `view`'s shape, its views appended in preorder with a hole (nil) for
     /// each heavy leaf, which goes to `leaves`; nil if it cannot park.
-    private func shape(_ view: NodeView, _ views: inout [NodeView?], _ leaves: inout [NodeView]) -> String? {
+    private func shape(_ view: NodeView, _ views: inout [NodeView?], _ leaves: inout [NodeView],
+                       _ lists: inout [NodeView]) -> String? {
+        // An inner list at rest parks with its row; its content is not part
+        // of the row's shape (LLP 1068 §4.2.1).
+        if view.kind == "list", view.scroll != nil {
+            guard !lists.isEmpty || !views.isEmpty, atRest(view) else { return nil }
+            views.append(view); lists.append(view)
+            return "list[]"
+        }
         if Self.leaves.contains(view.kind) {
             let inside: UIView = view.overlay ?? view
             guard !inside.subviews.contains(where: { $0 is NodeView }) else { return nil }
@@ -195,10 +210,20 @@ final class NodePool {
         views.append(view)
         var shape = view.kind + "("
         for child in children {
-            guard let inner = self.shape(child, &views, &leaves) else { return nil }
+            guard let inner = self.shape(child, &views, &leaves, &lists) else { return nil }
             shape += inner
         }
         return shape + ")"
+    }
+    /// An inner list that nothing moves: not under the reader's hand,
+    /// decelerating or animating, not being corrected, no refresh running,
+    /// unzoomed, no authored scroll pending (LLP 1068 §4.2.1).
+    private func atRest(_ list: NodeView) -> Bool {
+        guard let sv = list.scroll else { return false }
+        return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && sv.refreshControl?.isRefreshing != true && sv.zoomScale == 1
+            && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
+            && sv.layer.animationKeys()?.isEmpty ?? true
     }
     private func destroyedIDs() -> Set<UInt32> {
         if let destroyed { return destroyed }
@@ -214,11 +239,27 @@ final class NodePool {
         guard depth == 1, presenter.reorder == nil, !presenter.swipeActions.assistive,
               !Self.leaves.contains(root.kind), list(holding: root) != nil,
               root.canvasAbove == nil, !presenter.modals.retainsRemovedView(root) else { return false }
-        var views: [NodeView?] = [], leaves: [NodeView] = []
-        guard let shape = shape(root, &views, &leaves) else { return false }
+        return park(root, under: nil)
+    }
+    /// Park `root`'s tree: a collection's row (`under` nil), or an inner
+    /// list's card (LLP 1068 §4.2.1). False, and nothing touched, when any of
+    /// it is ineligible.
+    private func park(_ root: NodeView, under list: NodeView?) -> Bool {
+        var views: [NodeView?] = [], leaves: [NodeView] = [], lists: [NodeView] = []
+        guard let shape = shape(root, &views, &leaves, &lists), list == nil || lists.isEmpty else { return false }
         let destroyed = destroyedIDs()
         guard views.allSatisfy({ $0.map { destroyed.contains($0.id) && recyclable($0) } ?? true }),
               leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) }) else { return false }
+        // The cards an inner list shows park under it before the list itself
+        // is reset; the rest of its content goes by its own destroy ops.
+        var cards: [(NodeView, NodeView)] = []
+        for inner in lists {
+            // A spacer (a box with no node children) is not a card.
+            for case let card as NodeView in inner.scroll?.subviews ?? []
+                where destroyed.contains(card.id) && card.container.subviews.contains(where: { $0 is NodeView }) {
+                cards.append((card, inner))
+            }
+        }
         // The heavy leaves go as any destroyed view goes (their arms run
         // unchanged), then the rest park.
         for leaf in leaves {
@@ -226,7 +267,7 @@ final class NodePool {
             let gone = presenter.release(leaf.id) { $0.forget() }
             gone?.removeFromSuperview()
         }
-        makeRoom(for: shape)
+        if let list { makeRoom(under: list) } else { makeRoom(for: shape) }
         let images = views.lazy.compactMap { $0 }.filter { $0.kind == "image" }.map { $0.imageSource ?? "" }.joined(separator: "|")
         for case let view? in views {
             view.incarnation = 0
@@ -236,13 +277,35 @@ final class NodePool {
         // Past the rows, so the list's next children op moves none of them.
         root.superview?.bringSubviewToFront(root)
         generation += 1
-        parked[shape, default: []].append(Tree(views: views, images: images, parked: generation))
-        roots.insert(ObjectIdentifier(root)); count += 1; parks += 1
+        parked[shape, default: []].append(Tree(views: views, images: images, parked: generation, list: list.map(ObjectIdentifier.init)))
+        roots.insert(ObjectIdentifier(root)); parks += 1
+        if list != nil { innerCount += 1 } else { count += 1 }
+        for (card, inner) in cards where parkedCards(under: inner) < Self.perList { _ = park(card, under: inner) }
+        for inner in lists { inner.recycleScroll() }
         return true
+    }
+    private func parkedCards(under list: NodeView) -> Int {
+        let key = ObjectIdentifier(list)
+        return parked.values.joined().filter { $0.list == key }.count
+    }
+    /// Room for one more card under `list`: its least recently parked card
+    /// goes when the list holds 12, the oldest card of any list at 96.
+    private func makeRoom(under list: NodeView) {
+        let key = ObjectIdentifier(list)
+        let cards = parked.flatMap { shape, trees in trees.filter { $0.list != nil }.map { (shape, $0) } }
+        let mine = cards.filter { $0.1.list == key }
+        let victim = mine.count >= Self.perList ? mine.min { $0.1.parked < $1.1.parked }
+            : innerCount >= Self.innerCapacity ? cards.min { $0.1.parked < $1.1.parked } : nil
+        guard let (shape, tree) = victim, var trees = parked[shape],
+              let index = trees.firstIndex(where: { $0.parked == tree.parked }) else { return }
+        trees.remove(at: index)
+        parked[shape] = trees.isEmpty ? nil : trees
+        drop(tree)
+        evictions += 1
     }
     /// Nothing about the view outlives its row's reset.
     private func recyclable(_ v: NodeView) -> Bool {
-        presenter.views[v.id] === v && v.scroll == nil && !v.scrollNeeded
+        presenter.views[v.id] === v && (v.scroll == nil || v.kind == "list") && !v.scrollNeeded
             && v.field == nil && v.textArea == nil && v.video == nil && v.web == nil && v.metal == nil
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
@@ -298,9 +361,10 @@ final class NodePool {
     /// leaf's id is a hole: nil, and the caller builds it.
     func take(_ id: UInt32) -> NodeView? {
         if let view = claims.removeValue(forKey: id) { return rebound(view, id) }
-        guard depth == 1, count > 0, batch != nil, let c = createdNodes() else { return nil }
+        guard depth == 1, count + innerCount > 0, batch != nil, let c = createdNodes() else { return nil }
         var root = id
-        while let up = c.parent[root], c.kind[up] != nil { root = up }
+        // An inner list's cards claim their own trees (LLP 1068 §4.2.1).
+        while let up = c.parent[root], c.kind[up] != nil, !presenter.collections.owns(up) { root = up }
         guard tried.insert(root).inserted, let list = c.parent[root].flatMap({ presenter.views[$0] }),
               list.kind == "list", presenter.collections.owns(list.id),
               let kind = c.kind[root], !Self.leaves.contains(kind) else { return nil }
@@ -308,6 +372,7 @@ final class NodePool {
         func shape(_ node: UInt32) -> String? {
             guard let kind = c.kind[node] else { return nil }
             ids.append(node)
+            if kind == "list", node != root, presenter.collections.owns(node) { return "list[]" }
             if Self.leaves.contains(kind) {
                 guard c.children[node]?.isEmpty ?? true else { return nil }
                 holes.append(kind)
@@ -323,9 +388,16 @@ final class NodePool {
         }
         guard let key = shape(root), var trees = parked[key], !trees.isEmpty else { return nil }
         let images = ids.lazy.compactMap { c.image[$0] }.joined(separator: "|")
-        let tree = trees.remove(at: trees.lastIndex { $0.images == images } ?? trees.count - 1)
+        // A card prefers one parked under its own (reused) list view.
+        let here = list.scroll.map(ObjectIdentifier.init)
+        let mine = trees.indices.filter { trees[$0].list != nil && trees[$0].views[0]!.superview.map(ObjectIdentifier.init) == here }
+        // In the order they parked: a list's cards come back where they were.
+        let pick = mine.first { trees[$0].images == images } ?? mine.first
+            ?? trees.lastIndex { $0.images == images } ?? trees.count - 1
+        let tree = trees.remove(at: pick)
         parked[key] = trees.isEmpty ? nil : trees
-        roots.remove(ObjectIdentifier(tree.views[0]!)); count -= 1; takes += 1
+        roots.remove(ObjectIdentifier(tree.views[0]!)); takes += 1
+        if tree.list != nil { innerCount -= 1 } else { count -= 1 }
         for kind in holes { leavesBuilt[kind, default: 0] += 1 }
         for (new, view) in zip(ids, tree.views) {
             guard let view else { continue }
@@ -369,6 +441,23 @@ extension NodeView {
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
+    }
+    /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
+    /// list's scroll, with its delegate detached while it resets.
+    func recycleScroll() {
+        guard let sv = scroll else { return }
+        let delegate = sv.delegate
+        sv.delegate = nil
+        sv.setContentOffset(.zero, animated: false)
+        sv.contentSize = .zero
+        sv.delegate = delegate
+        content = .zero
+        if let e = extras {
+            e.beforeLayoutScroll = nil; e.hiddenScroll = nil; e.followedScroll = nil
+            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = .zero
+            e.readingAnchors.removeAll(); e.activeReadingAnchor = nil
+            e.pendingScrollTop = nil; e.pendingScrollLeft = nil
+        }
     }
     /// Taken for `newID`: a fresh view's state, before its create ops, and
     /// a never-used incarnation (LLP 1068 §4.9). The create ops that install

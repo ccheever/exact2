@@ -59,6 +59,7 @@ shape it:
 | Any row with heavy leaves | Pool the row around them: plain views reused, each heavy leaf destroyed at park and created fresh at take | 1 |
 | Material (`UIVisualEffectView`) | Treated as a heavy leaf: destroyed and recreated (0.33 ms); the row pools | 1 |
 | Nested scroll view (carousel) | Pool when fully at rest, with the full scroll reset (§4.2) | 2 |
+| Row holding an inner virtualized list (LLP 1070) | Pool the row with the list's scroll view, and reuse its cards (§4.2.1) | decided 2026-09-29 |
 | Text field / text area | Pool when idle, with the full editor reset (§4.3) | 2 |
 | 2D canvas (`canvas2d`) | As LLP 1056 D10 rules (children allowed) | LLP 1056 stage 3 |
 | GPU canvas | Profile `gpu_create` in the real app first; then, if it pays, pool the `MetalView` and layer with a fresh instance (LLP 1009 D2 holds) and a presentation signal before unhiding | 2 (profile), 3 (pool) |
@@ -497,6 +498,146 @@ worth 0.2 ms. `materialNodes` is restored under the new id (§4.0).
   `syncScroll()` and `updateRefresh()` from the new node.
 - **Proven by:** a carousel row scrolled, retired and taken shows offset 0,
   and a later layout does not restore the old offset.
+
+### 4.2.1 Rows that hold an inner virtualized list (decided 2026-09-29)
+
+**Decision** (the coordinator, for Charlie, 2026-09-29, under his "ideal end
+states rather than a smooth journey"): a row whose subtree holds an inner
+virtualized list (LLP 1070) pools. The inner list's view and its
+`UIScrollView` go with the row, and the list's own cards are reused. This is
+what UIKit does with a collection view nested in a reused cell.
+
+**Why.** On the iPad, a feed of only carousel rows at 24k pt/s held 104–113
+fps against SwiftUI's 120. Its main thread was UIKit churn: in the −24k
+window `Presenter.apply` took 234 ms/s, of which `addSubview` was 54,
+`removeFromSuperview` 30, `release`/`forget` 30 and `NodeView.init` 16, while
+the pool parked and took almost nothing (4.5 and 5 ms/s). `children()`
+refuses any view with a live scroll view, so every carousel, filmstrip and
+inbox row was built new and torn down on retirement, and its inner list's
+cards with it.
+
+**Eligible.** Everything §4.0 already asks of the row, and for each inner
+list, which is at rest:
+- not tracking, dragging or decelerating;
+- no animated `setContentOffset` in flight;
+- no correction being applied (`CollectionHost.correcting`);
+- no refresh control refreshing, and a zoom scale of 1;
+- no pending authored scroll (`pendingScrollTop`/`pendingScrollLeft`).
+
+Otherwise the row is destroyed as before. A row list's content is never RTL
+(LLP 1070 §3.2), so a list's start edge is offset 0.
+
+**Park.** The row's plain views park as §4.0 parks them. Each inner list
+parks with them:
+- **Shape.** The list is one token, `list[]`. Its content (spacers and
+  cards) is not part of the row's shape, because how many cards a list
+  mounted changes with its offset.
+- **Cards.** Each card whose subtree is eligible parks as its own tree
+  under the same list view: at most 12 per list and 96 in all, least
+  recently parked first out.
+- **The rest of the content** (spacers, ineligible cards, cards over the
+  cap) is released and removed as a destroy would.
+
+**Reset of the list view**, with its scroll delegate detached while it
+runs:
+- `contentOffset` to zero, `contentSize` to zero, the node's `content` to
+  zero;
+- exact2's own scroll state:
+  - `beforeLayoutScroll`, `hiddenScroll`, `followedScroll`;
+  - reading anchors, `anchoredScrollTop`, `retainedScrollTop`;
+  - `lastScrollEvent`;
+  - `scrollNeeded`.
+
+The `scrollers` entry, the pump's travel and costs, and the collection
+host's entry leave with the old id: `release` forgets the first two, and
+the batch's snapshot list drops the third. A fill slice, rescue or
+correction owed to the old id finds no entry and does nothing.
+
+**Offsets, anchors and kept positions.** The host keeps none. The runner
+keeps an inner list's position when its outer row retires (LLP 1070 Q1:
+anchor key and offset, keyed by the outer row's key and the list's site).
+A reused list view comes back under a new id as a new collection. Its first
+snapshot restores the kept anchor through a correction, exactly as a freshly
+built list does. Reuse changes nothing `innerkeep` measures. It must stay
+12/12 exact on the iPad.
+
+**Focus and interaction.** Unchanged from §4.0: a focused, editing, placed,
+pressed or accessibility-focused view anywhere in the row keeps it out of
+the pool. While VoiceOver or Switch Control runs, nothing parks.
+
+**Incarnations** (§4.9). Every view of the tree, the list view and every
+parked card among them, has its incarnation zeroed at park, before the
+reset, and gets a never-used one at take. A scroll callback delivered to a
+parked list finds its view released (`presenter.views[id] !== self`) and
+does nothing.
+
+**Take.** A node this batch creates under a collection list claims a
+parked tree of its shape, as §4.0 describes, with two changes:
+- **Where a new subtree starts.** The walk up to its root stops at a
+  collection list: an inner list's cards claim their own trees, after the
+  row that holds the list has claimed its tree.
+- **Which card tree.** A card prefers a tree parked under the same list
+  view. Otherwise any tree of its shape moves to the new list. That is a move
+  within the window, cheaper than a new view.
+
+The list view is taken under its new id. Its create ops restyle it
+(`syncScroll`), its `content` op sizes it (`fitScroll`), and the collection
+host's entry for the new id comes from the batch's snapshots.
+
+**Memory.**
+- **Cards.** Parked cards under inner lists are counted apart from §6's 32
+  trees, at 12 per list and 96 in all.
+- **Rows.** A parked row that holds an inner list counts as one of the 32
+  trees.
+- **Dropping.** Dropping a row takes its lists' parked cards out of the
+  window, so `end()` drops them with it.
+- **Pressure.** A memory warning drops everything (`reset()`).
+
+**With LLP 1071** (r3, `perf/late-frames`): parking happens where destroy
+ops are applied, and eviction stays synchronous on main (1071 §5: an
+asynchronous fill only creates). Taking happens where create ops are
+applied, on main, by the apply coordinator (1071 §3.2). A create-only
+batch's creates may claim trees that the previous eviction parked. The pool
+stays main-only state, and nothing here runs on the owner thread.
+
+**Proven by:**
+- an XCTest:
+  - a row holding an inner list parks and comes back under new ids;
+  - the list's offset is zero, and its content size is the new content op's;
+  - the list's cards are the same views;
+  - a list mid-deceleration keeps its row out of the pool;
+- on the iPad: `innerkeep` stays 12/12 exact;
+- carousel, filmstrip and inbox rows appear in the pool's counters (`state`,
+  §6).
+
+**As built** (2026-09-29, `perf/pool-inner-lists`), `NodePoolIOS.swift`:
+- **What changed:**
+  - `park(_:under:)` parks a row, or a card under its inner list.
+  - `shape` makes an at-rest inner list one `list[]` token.
+  - `makeRoom(under:)` holds cards to 12 per list and 96 in all.
+  - `take` stops its walk at a collection list and prefers the list's own
+    cards, in the order they parked.
+  - `recycleScroll()` resets a parked list's scroll.
+- **Tests:** two XCTests in `NodePoolIOSTests`.
+
+On the iPad, carousel-only feed, 2 runs:
+- 24k/−24k fling: 118.9/117.0 and 117.9/116.0 fps. Before: 113.5/104.0 (1
+  run). SwiftUI: 120.
+- CPU: 444–455 ms/s. The kinds table had 534 before; SwiftUI 474.
+
+On the iPad, the full feed, 2 rounds, against the lead-two build:
+- fling 24k and inbox: flat;
+- ladder 48k: 67.5 fps (1 run), against 54.5;
+- inner blanks: 32, against 41;
+- CPU: 629 ms/s, against 659.
+
+`innerkeep` is 9/12 on the iPad. All three misses are the inbox's near trip
+at −8 pt. That miss is older than this change: the series-19 r2 run
+measured 8/12, with misses of ±8 pt. It comes from anchoring, not reuse: the
+probe sets 5432 and reads back 5448, because anchoring moves the offset
+when the rows above are measured. The kept anchor then comes back 24 pt
+higher in offset, because those rows are estimates again. It is `QUEUE.md`'s
+item.
 
 ### 4.3 Text fields and text areas (stage 2)
 
