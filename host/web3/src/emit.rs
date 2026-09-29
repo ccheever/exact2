@@ -97,7 +97,7 @@ pub fn value_js(v: &Value) -> String {
     match v {
         Value::Number(n) => code::number(*n),
         Value::Bool(b) => if *b { "!0" } else { "!1" }.into(),
-        Value::Str(s) => serde_json::to_string(&**s).unwrap(),
+        text @ exact_plan::str_value!() => serde_json::to_string(text.text()).unwrap(),
         Value::Unit => "null".into(),
         Value::Option(None) => "null".into(),
         Value::Option(Some(x)) => value_js(x),
@@ -183,6 +183,14 @@ struct Em<'a> {
 }
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
+    // Declared fonts are not loaded by this runtime yet (LLP 1071 §7's gaps):
+    // text would lay out in the fallback face.
+    for (i, stack) in plan.stacks.iter().enumerate() {
+        let first = plan.stack_member(stack.members.iter().next().ok_or("an empty font stack")?);
+        if first.kind == exact_plan::StackMemberKind::Family {
+            return Err(format!("font stack {i}: declared fonts are not in the JS target"));
+        }
+    }
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
     let parts = style::project(plan, &sites, &mut warnings)?;
@@ -730,10 +738,10 @@ impl Em<'_> {
                 let b = plan.binding(b);
                 let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                 match style::literal(plan, plan.code(b.expr)) {
-                    Some(Value::Str(s)) => fields.push(format!(
+                    Some(text @ exact_plan::str_value!()) => fields.push(format!(
                         "{}:{}",
                         serde_json::to_string(prop.name()).unwrap(),
-                        serde_json::to_string(&*s).unwrap()
+                        serde_json::to_string(text.text()).unwrap()
                     )),
                     _ => {
                         let f = self.f(b.expr, scope)?;
@@ -749,6 +757,15 @@ impl Em<'_> {
             return Ok(());
         }
         let parts = self.parts[i as usize].clone().ok_or("no parts")?;
+        let virtualized = row.bindings.iter().any(|b| {
+            let b = plan.binding(b);
+            b.kind == BindingKind::Prop
+                && b.id == PropId::Virtualized as u16
+                && !matches!(style::literal(plan, plan.code(b.expr)), Some(Value::Bool(false)))
+        });
+        if virtualized {
+            return Err(format!("node {i}: a virtualized list is not in the JS target"));
+        }
         let element = if parts.tag == "canvas" {
             "div"
         } else {
@@ -811,6 +828,15 @@ impl Em<'_> {
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];
+            // A surface this runtime paints is one the app's GPU module
+            // draws (the build names them); a Canvas 2D one, drawn by a data
+            // source, is not in the JS target yet.
+            let name = plan.str(sf.name);
+            if !gpu_surfaces().iter().any(|s| s == name) {
+                return Err(format!(
+                    "node {i}: the Canvas 2D surface `{name}` is not in the JS target"
+                ));
+            }
             let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
             let mut values = Vec::new();
             for a in sf.args.iter() {
@@ -843,7 +869,7 @@ impl Em<'_> {
                 let b = plan.binding(b);
                 b.kind == BindingKind::Prop
                     && b.id == PropId::Markup as u16
-                    && matches!(style::literal(plan, plan.code(b.expr)), Some(Value::Str(s)) if &*s == "markdown")
+                    && matches!(style::literal(plan, plan.code(b.expr)), Some(v) if v.as_str() == Some("markdown"))
             });
         if markdown {
             self.markdown = true;
@@ -1034,4 +1060,15 @@ impl Em<'_> {
         }
         Ok(())
     }
+}
+
+/// The surfaces the app's GPU module draws, as the build names them
+/// (`EXACT_JS_GPU_SURFACES`, comma-separated; host/web-js/build.mjs).
+fn gpu_surfaces() -> Vec<String> {
+    std::env::var("EXACT_JS_GPU_SURFACES")
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
