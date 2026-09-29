@@ -1,0 +1,2 @@
+# libghostty links C++ (glslang, spirv-cross, breakpad) and libstdc++.
+-lc++

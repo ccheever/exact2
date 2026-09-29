@@ -1,0 +1,12 @@
+[package]
+name = "ocho-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ocho's data source: every answer is a long native call to the app's module, which owns the fleet feed and the open terminals"
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+serde_json = "1.0"

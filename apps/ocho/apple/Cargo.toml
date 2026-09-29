@@ -1,0 +1,23 @@
+[package]
+name = "ocho-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ocho on macOS: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "ocho_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+
+ocho-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+ocho-data = { path = "../data" }

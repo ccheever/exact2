@@ -1,0 +1,730 @@
+// Ocho — a client for Fleet: your machines, your sessions, in one window.
+//
+// The view is Contract. Everything that reaches outside the process lives in
+// the app's one native module (`modules/`): the `fleet snapshot --watch` feed,
+// the open tabs, and each tab's terminal, a `<ghostty-terminal>` backed by
+// libghostty running `fleet attach` (macOS) or a placeholder (web).
+
+shape Machine
+  id: string
+  name: string
+  online: bool
+  status: string
+  sessions: number
+  active: number
+  detail: string
+  local: bool
+  home: string
+  index: number
+shape Session
+  id: string
+  machineId: string
+  machine: string
+  title: string
+  provider: string
+  account: string
+  state: string
+  cwd: string
+  model: string
+  summary: string
+  updated: string
+  pinned: bool
+  live: bool
+  index: number
+shape Account
+  handle: string
+  email: string
+  provider: string
+  status: string
+  connected: bool
+  usage: string
+shape Tab
+  id: string
+  slot: number
+  title: string
+  subtitle: string
+  provider: string
+  machineId: string
+  sessionId: string
+  state: string
+  status: string
+  depth: number
+  folder: bool
+  collapsed: bool
+shape Choice
+  id: string
+  code: string
+  group: string
+  label: string
+  detail: string
+  provider: string
+shape Fleet
+  ready: bool
+  message: string
+  machines: list<Machine>
+  sessions: list<Session>
+  accounts: list<Account>
+  tabs: list<Tab>
+  accountChoices: list<Choice>
+  machineChoices: list<Choice>
+  recentDirs: list<Choice>
+  liveCount: number
+  revision: number
+  terminalBackground: string
+shape Models
+  key: string
+  ready: bool
+  message: string
+  models: list<Choice>
+shape Media
+  prefersColorScheme: string
+shape Receipt
+  ok: bool
+  message: string
+  tabId: string
+  version: number
+
+fn stateColor(s: string): string = s == "running" ? "#10a37f" : (s == "blocked" or s == "limited" ? "#f59e0b" : (s == "idle" ? "#3b82f6" : (s == "exited" ? "#ef4444" : "light-dark(#c7c7c7, #5a5a5a)")))
+fn providerColor(provider: string): string = provider == "claude" ? "#d97757" : (provider == "codex" ? "#7b85fe" : (provider == "opencode" ? "#5c9cf5" : "light-dark(#8f8f8f, #9b9b9b)"))
+fn providerName(provider: string): string = provider == "claude" ? "Claude" : (provider == "codex" ? "Codex" : (provider == "opencode" ? "OpenCode" : (provider == "shell" ? "Shell" : provider)))
+fn stateName(s: string): string = s == "running" ? "Working" : (s == "blocked" ? "Needs you" : (s == "limited" ? "Rate limited" : (s == "idle" ? "Idle" : (s == "paused" ? "Paused" : (s == "starting" ? "Starting" : (s == "exited" ? "Ended" : (s == "closed" ? "Closed" : s)))))))
+fn codeMatches(code: string, group: string, typed: string): bool = typed != "" and (code == typed or group == typed)
+
+style SideRow
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=10
+  width="100%"
+  box-sizing="border-box"
+  padding-left=10
+  padding-right=8
+  height=32
+  border-radius=8
+  background-color="rgba(0,0,0,0)"
+  transition="background-color 120ms ease-out"
+style SideRowHot
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=10
+  width="100%"
+  box-sizing="border-box"
+  padding-left=10
+  padding-right=8
+  height=32
+  border-radius=8
+  background-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))"
+  transition="background-color 120ms ease-out"
+style ListRow
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=14
+  width="100%"
+  box-sizing="border-box"
+  padding-left=14
+  padding-right=14
+  padding-top=10
+  padding-bottom=10
+  border-radius=10
+  background-color="rgba(0,0,0,0)"
+  transition="background-color 120ms ease-out"
+style ListRowHot
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=14
+  width="100%"
+  box-sizing="border-box"
+  padding-left=14
+  padding-right=14
+  padding-top=10
+  padding-bottom=10
+  border-radius=10
+  background-color="light-dark(rgba(0,0,0,0.045), rgba(255,255,255,0.06))"
+  transition="background-color 120ms ease-out"
+style ChoiceRow
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=12
+  width="100%"
+  box-sizing="border-box"
+  padding-left=12
+  padding-right=12
+  height=40
+  border-radius=8
+  background-color="rgba(0,0,0,0)"
+style ChoiceRowHot
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  gap=12
+  width="100%"
+  box-sizing="border-box"
+  padding-left=12
+  padding-right=12
+  height=40
+  border-radius=8
+  background-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.08))"
+style Pill
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  justify-content="center"
+  gap=6
+style Ink
+  color="light-dark(#0d0d0d, #ececec)"
+style Muted
+  color="light-dark(#7d7d7d, #9b9b9b)"
+style Ellipsis
+  white-space="nowrap"
+  overflow="hidden"
+  text-overflow="ellipsis"
+  min-width=0
+
+keyframes pop
+  from opacity=0 scale=0.985 translate="0px 6px"
+keyframes fade
+  from opacity=0
+
+component Ocho
+  state page = "sessions"
+  state query = ""
+  state chosenTab = ""
+  state chosenVersion = 0
+  state version = 0
+  state hoverId = ""
+  state launcher = false
+  state pickedAccount = ""
+  state pickedAccountLabel = ""
+  state pickedProvider = ""
+  state pickedMachine = ""
+  state pickedMachineLabel = ""
+  state typed = ""
+  state cwd = ""
+  state termNote = ""
+  state scheme = "system"
+  state cursor = -1
+  resource fleet = fleet(query) as shape Fleet
+  resource media = exactViewport() as shape Media
+  derive appearance = scheme == "system" ? (media.prefersColorScheme == "dark" ? "dark" : "light") : scheme
+  mutation opened as shape Receipt
+  mutation closed as shape Receipt
+  mutation toggled as shape Receipt
+  mutation launched as shape Receipt
+  mutation acted as shape Receipt
+  mutation models as shape Models
+  derive openedVersion = match opened { case some(r) => r.ok ? r.version : 0, case none => 0 }
+  derive openedTab = match opened { case some(r) => r.tabId, case none => "" }
+  derive launchedVersion = match launched { case some(r) => r.ok ? r.version : 0, case none => 0 }
+  derive launchedTab = match launched { case some(r) => r.tabId, case none => "" }
+  derive activeTab = (openedVersion > chosenVersion and openedVersion > launchedVersion) ? openedTab : ((launchedVersion > chosenVersion) ? launchedTab : chosenTab)
+  derive activeTabs = filter(fleet.tabs, t => t.id == activeTab)
+  derive activeTitle = match first(activeTabs) { case some(t) => t.title, case none => "" }
+  derive activeSubtitle = match first(activeTabs) { case some(t) => t.subtitle, case none => "" }
+  derive activeState = match first(activeTabs) { case some(t) => t.state, case none => "" }
+  derive showingTerminal = activeTab != "" and length(activeTabs) > 0
+  derive launchStep = pickedAccount == "" ? 1 : (pickedMachine == "" ? 2 : 3)
+  derive modelsKey = `${pickedMachine}|${pickedProvider}|${pickedAccount}|${cwd}`
+  derive modelChoices = match models { case some(m) => filter(m.models, c => m.key == modelsKey), case none => filter(fleet.accountChoices, c => false) }
+  derive modelsReady = match models { case some(m) => m.key == modelsKey and m.ready, case none => false }
+  derive modelsMessage = match models { case some(m) => m.key == modelsKey ? m.message : "", case none => "" }
+  derive machineDirs = filter(fleet.recentDirs, d => d.detail == pickedMachine)
+  derive lastReceipt = match acted { case some(r) => r.message, case none => "" }
+  derive onlineMachines = filter(fleet.machines, m => m.online)
+  derive pageTitle = page == "machines" ? "Machines" : (page == "accounts" ? "Accounts" : "Sessions")
+  derive rowCount = page == "machines" ? length(fleet.machines) : (page == "accounts" ? length(fleet.accounts) : length(fleet.sessions))
+  derive cursorSession = first(filter(fleet.sessions, s => s.index == cursor))
+  derive cursorMachine = first(filter(fleet.machines, m => m.index == cursor))
+
+  action showPage(name: string) writes page, chosenTab, chosenVersion, version, cursor
+    page = name
+    version = version + 1
+    chosenVersion = version
+    chosenTab = ""
+    cursor = -1
+    focus("manager")
+  action focusManager
+    focus("manager")
+  action navKey(name: string) writes cursor, page, chosenTab, chosenVersion, version, launcher, typed, pickedAccount, pickedAccountLabel, pickedProvider, pickedMachine, pickedMachineLabel, opened, termNote
+    if (name == "j" or name == "ArrowDown") and rowCount > 0
+      cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == ((cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1))))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+    if (name == "k" or name == "ArrowUp") and rowCount > 0
+      cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == ((cursor - 1 < 0 ? 0 : cursor - 1))))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+    if name == "G" and rowCount > 0
+      cursor = rowCount - 1
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == (rowCount - 1)))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = rowCount - 1
+    if name == "g" and rowCount > 0
+      cursor = 0
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == (0)))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = 0
+    if name == "Enter" or name == "l"
+      if page == "sessions"
+        match cursorSession
+          case some(s)
+            version = version + 1
+            termNote = ""
+            send opened = openTab(s.machineId, s.id, false, version + 1)
+          case none
+            version = version
+      if page == "machines"
+        match cursorMachine
+          case some(m)
+            version = version + 1
+            termNote = ""
+            send opened = openShell(m.id, version + 1)
+          case none
+            version = version
+    if name == "Escape"
+      cursor = -1
+    if name == "/"
+      focus("search")
+    if name == "n"
+      launcher = true
+      typed = ""
+      pickedAccount = ""
+      pickedAccountLabel = ""
+      pickedProvider = ""
+      pickedMachine = ""
+      pickedMachineLabel = ""
+      focus("launcher-code-1")
+    if name == "1"
+      page = "sessions"
+      version = version + 1
+      chosenVersion = version + 1
+      chosenTab = ""
+      cursor = -1
+    if name == "2"
+      page = "machines"
+      version = version + 1
+      chosenVersion = version + 1
+      chosenTab = ""
+      cursor = -1
+    if name == "3"
+      page = "accounts"
+      version = version + 1
+      chosenVersion = version + 1
+      chosenTab = ""
+      cursor = -1
+  action searchKey(name: string) writes cursor, opened, version, termNote
+    if name == "ArrowDown" and rowCount > 0
+      cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == ((cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1))))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = (cursor + 1 >= rowCount ? rowCount - 1 : cursor + 1)
+    if name == "ArrowUp" and rowCount > 0
+      cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+      if page == "sessions"
+        match first(filter(fleet.sessions, s => s.index == ((cursor - 1 < 0 ? 0 : cursor - 1))))
+          case some(s)
+            scrollIntoView("sessions", s.id, block="nearest")
+          case none
+            cursor = (cursor - 1 < 0 ? 0 : cursor - 1)
+    if name == "Enter"
+      if page == "sessions"
+        match cursorSession
+          case some(s)
+            version = version + 1
+            termNote = ""
+            send opened = openTab(s.machineId, s.id, false, version + 1)
+          case none
+            version = version
+      if page == "machines"
+        match cursorMachine
+          case some(m)
+            version = version + 1
+            termNote = ""
+            send opened = openShell(m.id, version + 1)
+          case none
+            version = version
+    if name == "Escape"
+      focus("manager")
+  action showTab(id: string) writes chosenTab, chosenVersion, version
+    version = version + 1
+    chosenVersion = version
+    chosenTab = id
+  action openSession(machineId: string, sessionId: string) writes opened, version, termNote
+    version = version + 1
+    termNote = ""
+    send opened = openTab(machineId, sessionId, false, version + 1)
+  action openShell(machineId: string) writes opened, version, termNote
+    version = version + 1
+    termNote = ""
+    send opened = openShell(machineId, version + 1)
+  action closeTab(id: string) writes closed, chosenTab, chosenVersion, version
+    send closed = closeTab(id)
+    if id == activeTab
+      version = version + 1
+      chosenVersion = version
+      chosenTab = ""
+  action closeActive writes closed, chosenTab, chosenVersion, version
+    if activeTab != ""
+      send closed = closeTab(activeTab)
+      version = version + 1
+      chosenVersion = version
+      chosenTab = ""
+      focus("manager")
+  task boot mount
+    after(50, focusManager)
+  action toggleFolder(id: string) writes toggled
+    send toggled = toggleFolder(id)
+  action act(machineId: string, sessionId: string, what: string) writes acted
+    send acted = sessionAction(machineId, sessionId, what)
+  action setQuery(value) writes query
+    query = value
+  action focusSearch writes page, chosenTab, chosenVersion, version
+    if page != "sessions"
+      page = "sessions"
+    version = version + 1
+    chosenVersion = version
+    chosenTab = ""
+    focus("search")
+  action hover(id: string, over: bool) writes hoverId
+    hoverId = over ? id : (hoverId == id ? "" : hoverId)
+  action termMessage(text: string) writes termNote
+    termNote = text
+  action openAppearance writes hoverId
+    hoverId = hoverId
+  action setAppearance(name: string) writes scheme
+    scheme = name
+    setScheme(name)
+
+  action openLauncher writes launcher, typed, pickedAccount, pickedAccountLabel, pickedProvider, pickedMachine, pickedMachineLabel
+    launcher = true
+    typed = ""
+    pickedAccount = ""
+    pickedAccountLabel = ""
+    pickedProvider = ""
+    pickedMachine = ""
+    pickedMachineLabel = ""
+    focus("launcher-code-1")
+  action closeLauncher writes launcher
+    launcher = false
+  action pickAccount(id: string, label: string, provider: string) writes pickedAccount, pickedAccountLabel, pickedProvider, typed
+    pickedAccount = id
+    pickedAccountLabel = label
+    pickedProvider = provider
+    typed = ""
+    focus("launcher-code-2")
+  action pickMachine(id: string, label: string, home: string) writes pickedMachine, pickedMachineLabel, typed, cwd, models
+    pickedMachine = id
+    pickedMachineLabel = label
+    typed = ""
+    if cwd == ""
+      cwd = home
+    send models = models(id, pickedProvider, pickedAccount, cwd == "" ? home : cwd)
+    focus("launcher-code-3")
+  action setCwd(value) writes cwd, models
+    cwd = value
+    if pickedMachine != ""
+      send models = models(pickedMachine, pickedProvider, pickedAccount, value)
+  action useDir(dir: string) writes cwd, models
+    cwd = dir
+    send models = models(pickedMachine, pickedProvider, pickedAccount, dir)
+    focus("launcher-code-3")
+  action pickModel(id: string) writes launched, launcher, version, termNote
+    version = version + 1
+    termNote = ""
+    send launched = launch(pickedAccount, pickedMachine, id, cwd, version + 1)
+    launcher = false
+  action stepBack writes pickedMachine, pickedMachineLabel, pickedAccount, pickedAccountLabel, pickedProvider, typed
+    typed = ""
+    if pickedMachine != ""
+      pickedMachine = ""
+      pickedMachineLabel = ""
+    else
+      pickedAccount = ""
+      pickedAccountLabel = ""
+      pickedProvider = ""
+  action typedChanged(value) writes typed, pickedAccount, pickedAccountLabel, pickedProvider, pickedMachine, pickedMachineLabel, cwd, models, launched, launcher, version, termNote
+    typed = value
+    if length(value) >= 2
+      if launchStep == 1
+        match first(filter(fleet.accountChoices, c => c.code == value))
+          case some(c)
+            pickedAccount = c.id
+            pickedAccountLabel = c.label
+            pickedProvider = c.provider
+            typed = ""
+          case none
+            typed = ""
+      else
+        if launchStep == 2
+          match first(filter(fleet.machineChoices, c => c.code == value))
+            case some(c)
+              pickedMachine = c.id
+              pickedMachineLabel = c.label
+              typed = ""
+              if cwd == ""
+                cwd = c.detail
+              send models = models(c.id, pickedProvider, pickedAccount, cwd == "" ? c.detail : cwd)
+            case none
+              typed = ""
+        else
+          match first(filter(modelChoices, c => c.code == value))
+            case some(c)
+              version = version + 1
+              termNote = ""
+              send launched = launch(pickedAccount, pickedMachine, c.id, cwd, version + 1)
+              launcher = false
+              typed = ""
+            case none
+              typed = ""
+  action launcherKey(name: string) writes launcher, pickedMachine, pickedMachineLabel, pickedAccount, pickedAccountLabel, pickedProvider, typed
+    if name == "Escape"
+      launcher = false
+    if name == "Backspace" and typed == ""
+      if pickedMachine != ""
+        pickedMachine = ""
+        pickedMachineLabel = ""
+      else
+        pickedAccount = ""
+        pickedAccountLabel = ""
+        pickedProvider = ""
+  action launchDefault writes launched, launcher, version, termNote
+    if launchStep == 3 and typed == ""
+      match first(modelChoices)
+        case some(c)
+          version = version + 1
+          termNote = ""
+          send launched = launch(pickedAccount, pickedMachine, c.id, cwd, version + 1)
+          launcher = false
+        case none
+          launcher = launcher
+
+  view
+    main testId="ocho" viewport-fit="cover" display="flex" flex-direction="row" width="100%" height="100%" font-family="system-ui" font-size=13 line-height="18px" color="light-dark(#0d0d0d, #ececec)" background-color="light-dark(#ffffff, #212121)" position="relative"
+      head title=(showingTerminal ? `${activeTitle} — Ocho` : "Ocho")
+      column testId="sidebar" width=264 flex-shrink=0 height="100%" box-sizing="border-box" backgroundMaterial="sidebar" background-color="light-dark(#f4f4f4, #171717)" padding-top="env(safe-area-inset-top)" border-right-style="solid" border-right-width=1 border-right-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.06))"
+        column padding-left=10 padding-right=10 padding-top=10 gap=1 flex-shrink=0
+          button press=openLauncher testId="new-session" aria-label="New session" aria-keyshortcuts="Control+N Meta+N" hover=hover("new") class=(hoverId == "new" ? SideRowHot : SideRow) press-scale=0.985
+            image "symbol:compose" font-size=15 tint-color="light-dark(#0d0d0d, #ececec)"
+            text "New session" flex=1 text-align="left" font-weight=500
+            text "⌃N" font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+          button press=focusSearch testId="find" aria-label="Search sessions" aria-keyshortcuts="Meta+F" hover=hover("find") class=(hoverId == "find" ? SideRowHot : SideRow) press-scale=0.985
+            image "symbol:search" font-size=15 tint-color="light-dark(#0d0d0d, #ececec)"
+            text "Search" flex=1 text-align="left" font-weight=500
+            text "⌘F" font-size=11 color="light-dark(#9a9a9a, #7a7a7a)"
+        column padding-left=10 padding-right=10 padding-top=14 gap=1 flex-shrink=0
+          button press=showPage("sessions") testId="nav-sessions" aria-keyshortcuts="Meta+0" hover=hover("nav-sessions") class=SideRow background-color=((not showingTerminal and page == "sessions") ? "light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))" : (hoverId == "nav-sessions" ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))" : "rgba(0,0,0,0)"))
+            image "symbol:activity" font-size=15 tint-color="light-dark(#0d0d0d, #ececec)"
+            text "Sessions" flex=1 text-align="left"
+            text toString(fleet.liveCount) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+          button press=showPage("machines") testId="nav-machines" hover=hover("nav-machines") class=SideRow background-color=((not showingTerminal and page == "machines") ? "light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))" : (hoverId == "nav-machines" ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))" : "rgba(0,0,0,0)"))
+            image "symbol:layers" font-size=15 tint-color="light-dark(#0d0d0d, #ececec)"
+            text "Machines" flex=1 text-align="left"
+            text toString(length(fleet.machines)) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+          button press=showPage("accounts") testId="nav-accounts" hover=hover("nav-accounts") class=SideRow background-color=((not showingTerminal and page == "accounts") ? "light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))" : (hoverId == "nav-accounts" ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))" : "rgba(0,0,0,0)"))
+            image "symbol:people" font-size=15 tint-color="light-dark(#0d0d0d, #ececec)"
+            text "Accounts" flex=1 text-align="left"
+            text toString(length(fleet.accounts)) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+        row padding-left=20 padding-right=20 padding-top=22 padding-bottom=6 align-items="center" justify-content="space-between" flex-shrink=0
+          text "Open" font-size=11 font-weight=600 letter-spacing=0.4 color="light-dark(#8a8a8a, #808080)"
+          when length(fleet.tabs) > 0
+            text toString(length(fleet.tabs)) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+        scroll testId="tabs" flex=1 min-height=0 width="100%"
+          column padding-left=10 padding-right=10 padding-bottom=10 gap=1 width="100%" box-sizing="border-box"
+            when length(fleet.tabs) == 0
+              column padding-left=10 padding-right=10 padding-top=6 gap=4
+                text "Nothing open yet." font-size=12 color="light-dark(#9a9a9a, #7a7a7a)"
+                text "Pick a session, or press ⌃N to start one." font-size=12 color="light-dark(#9a9a9a, #7a7a7a)"
+            each t in fleet.tabs key=t.id
+              when t.folder
+                button press=toggleFolder(t.id) testId=`folder-${t.id}` aria-label=(t.collapsed ? `Expand ${t.title}` : `Collapse ${t.title}`) hover=hover(`tab-${t.id}`) class=SideRow height=28 padding-left=(6 + t.depth * 14) background-color=(hoverId == `tab-${t.id}` ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))" : "rgba(0,0,0,0)")
+                  image "symbol:forward-chevron" font-size=9 font-weight=600 tint-color="light-dark(#9a9a9a, #7a7a7a)" rotate=(t.collapsed ? 0 : 90) transition="rotate 160ms ease-out"
+                  text t.title class=Ellipsis text-align="left" font-size=12 font-weight=600 color="light-dark(#6f6f6f, #a0a0a0)"
+              else
+                row position="relative" width="100%"
+                  button press=showTab(t.id) testId=`tab-${t.id}` aria-label=t.title aria-keyshortcuts=(t.slot >= 1 and t.slot <= 9 ? `Meta+${t.slot}` : "") hover=hover(`tab-${t.id}`) class=SideRow background-color=(t.id == activeTab ? "light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))" : (hoverId == `tab-${t.id}` ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.07))" : "rgba(0,0,0,0)")) height=44 padding-left=(10 + t.depth * 14)
+                    row width=8 height=8 border-radius=4 flex-shrink=0 background-color=stateColor(t.state) transition="background-color 240ms ease-out"
+                    column flex=1 min-width=0 gap=1 padding-right=18
+                      text t.title class=Ellipsis text-align="left" font-weight=(t.id == activeTab ? 600 : 500)
+                      text (t.status == "" ? t.subtitle : t.status) class=Ellipsis text-align="left" font-size=11 color=(t.state == "running" ? "#10a37f" : (t.state == "blocked" ? "#d97706" : "light-dark(#8a8a8a, #8a8a8a)"))
+                  when hoverId == `tab-${t.id}` or hoverId == `close-${t.id}` or t.id == activeTab
+                    button press=closeTab(t.id) testId=`close-${t.id}` aria-label=`Close ${t.title}` aria-keyshortcuts=(t.id == activeTab ? "Meta+W" : "") hover=hover(`close-${t.id}`) position="absolute" right=6 top=12 width=20 height=20 border-radius=5 align-items="center" justify-content="center" background-color=(hoverId == `close-${t.id}` ? "light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.14))" : "rgba(0,0,0,0)") animation="fade 120ms ease-out both"
+                      image "symbol:close" font-size=11 font-weight=600 tint-color="light-dark(#4a4a4a, #c0c0c0)"
+        row padding-left=20 padding-right=10 padding-top=8 padding-bottom=10 gap=8 align-items="center" flex-shrink=0 border-top-style="solid" border-top-width=1 border-top-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.06))" position="relative"
+          row width=7 height=7 border-radius=4 background-color=(fleet.ready ? "#10a37f" : "#f59e0b") flex-shrink=0
+          text (fleet.ready ? `${toString(length(onlineMachines))} of ${toString(length(fleet.machines))} machines online` : (fleet.message == "" ? "Connecting to fleet…" : fleet.message)) class=Ellipsis flex=1 font-size=11 color="light-dark(#8a8a8a, #8a8a8a)" testId="status"
+          button press=openAppearance popovertarget="appearance-menu" testId="appearance" aria-label="Appearance" hover=hover("appearance") height=24 padding-left=8 padding-right=8 border-radius=6 flex-direction="row" align-items="center" gap=4 background-color=(hoverId == "appearance" ? "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.08))" : "rgba(0,0,0,0)") transition="background-color 120ms ease-out"
+            text (scheme == "light" ? "Light" : (scheme == "dark" ? "Dark" : "Auto")) font-size=11 color="light-dark(#6f6f6f, #a0a0a0)"
+            image "symbol:forward-chevron" font-size=8 tint-color="light-dark(#9a9a9a, #7a7a7a)" rotate=90
+          column id="appearance-menu" popover="auto" role="menu" aria-label="Appearance" position="absolute" right=10 bottom=40 width=160 padding=6 border-width=0 border-radius=10 background-color="light-dark(#ffffff, #2b2b2b)" box-shadow="0 8px 24px rgba(0,0,0,0.2)" gap=1
+            button press=setAppearance("system") popovertarget="appearance-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(scheme == "system") testId="appearance-system" height=30 padding-left=10 padding-right=10 border-radius=6 display="flex" flex-direction="row" align-items="center"
+              text "Match system" font-size=13 text-align="left"
+            button press=setAppearance("light") popovertarget="appearance-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(scheme == "light") testId="appearance-light" height=30 padding-left=10 padding-right=10 border-radius=6 display="flex" flex-direction="row" align-items="center"
+              text "Light" font-size=13 text-align="left"
+            button press=setAppearance("dark") popovertarget="appearance-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(scheme == "dark") testId="appearance-dark" height=30 padding-left=10 padding-right=10 border-radius=6 display="flex" flex-direction="row" align-items="center"
+              text "Dark" font-size=13 text-align="left"
+
+      column testId="content" flex=1 min-width=0 height="100%" box-sizing="border-box" position="relative"
+        when showingTerminal
+          column testId="terminal-pane" flex=1 min-height=0 width="100%" height="100%" position="relative" padding-top="env(safe-area-inset-top)" box-sizing="border-box" background-color=(fleet.terminalBackground == "" ? "light-dark(#f4f4f4, #1b1e24)" : fleet.terminalBackground)
+            when launcher
+              column flex=1 min-height=0 width="100%"
+            else
+              ghostty-terminal testId="terminal" tab=activeTab scheme=appearance flex=1 min-height=0 width="100%" message=termMessage aria-label=`Terminal for ${activeTitle}`
+            when termNote == "exited"
+              row position="absolute" top="env(safe-area-inset-top)" left=16 right=16 height=36 margin-top=8 padding-left=14 padding-right=8 align-items="center" gap=10 border-radius=9 background-color="light-dark(#fff7ed, #3a2a12)" box-shadow="0 4px 16px rgba(0,0,0,0.2)" animation="fade 160ms ease-out both" z-index=2
+                text "This session's terminal ended." font-size=12 flex=1
+                button press=closeActive testId="close-ended" class=Pill padding-left=10 padding-right=10 height=24 border-radius=6 background-color="light-dark(#0d0d0d, #ececec)"
+                  text "Close" font-size=12 font-weight=600 color="light-dark(#ffffff, #0d0d0d)"
+        else
+          column id="manager" testId="manager" key=navKey flex=1 min-height=0 width="100%" height="100%" padding-top="env(safe-area-inset-top)" box-sizing="border-box"
+            row height=64 flex-shrink=0 align-items="center" gap=16 padding-left=28 padding-right=20
+              text pageTitle font-size=20 font-weight=600 letter-spacing=-0.2 flex=1 testId="page-title"
+              when page == "sessions"
+                row width=280 height=32 align-items="center" gap=8 padding-left=10 padding-right=10 border-radius=9 box-sizing="border-box" background-color="light-dark(rgba(0,0,0,0.05), rgba(255,255,255,0.07))"
+                  image "symbol:search" font-size=13 tint-color="light-dark(#8a8a8a, #8a8a8a)"
+                  input id="search" testId="search" value=query input=setQuery key=searchKey placeholder="Search sessions" aria-label="Search sessions" visibility=(launcher ? "hidden" : "visible") flex=1 min-width=0 height=18 line-height="18px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=13 color="light-dark(#0d0d0d, #ececec)"
+              button press=openLauncher testId="new-session-main" aria-label="New session" hover=hover("new-main") height=32 padding-left=12 padding-right=14 border-radius=9 flex-direction="row" align-items="center" gap=6 background-color=(hoverId == "new-main" ? "light-dark(#2a2a2a, #d9d9d9)" : "light-dark(#0d0d0d, #ececec)") transition="background-color 120ms ease-out" press-scale=0.97
+                image "symbol:add" font-size=12 font-weight=700 tint-color="light-dark(#ffffff, #0d0d0d)"
+                text "New" font-size=13 font-weight=600 color="light-dark(#ffffff, #0d0d0d)"
+            when page == "sessions"
+              when length(fleet.sessions) == 0
+                column padding=40 gap=6 align-items="center" testId="sessions-empty"
+                  text (fleet.ready ? (query == "" ? "No sessions yet." : "No sessions match.") : "Loading sessions…") font-size=15 font-weight=500
+                  text (fleet.ready and query == "" ? "Press ⌃N to start one." : "") font-size=13 color="light-dark(#8a8a8a, #8a8a8a)"
+              list virtualized=true id="sessions" testId="sessions" width="100%" flex=1 min-height=0 overflow-x="hidden" visibility=(launcher ? "hidden" : "visible") estimated-item-height=68 padding-left=14 padding-right=14 box-sizing="border-box"
+                each s in fleet.sessions key=s.id
+                  button press=openSession(s.machineId, s.id) testId=`session-${s.id}` aria-label=`${s.title}, ${stateName(s.state)} on ${s.machine}` hover=hover(`s-${s.id}`) class=((hoverId == `s-${s.id}` or s.index == cursor) ? ListRowHot : ListRow)
+                    row width=8 height=8 border-radius=4 flex-shrink=0 background-color=stateColor(s.state) transition="background-color 240ms ease-out"
+                    column flex=1 min-width=0 gap=2
+                      row align-items="baseline" gap=8 min-width=0
+                        text s.title class=Ellipsis text-align="left" font-weight=600 font-size=13 flex-shrink=1
+                        when s.pinned
+                          image "symbol:pin" font-size=10 tint-color="light-dark(#8a8a8a, #8a8a8a)"
+                        text `${s.machine} · ${s.cwd}` class=Ellipsis text-align="left" font-size=12 color="light-dark(#8a8a8a, #8a8a8a)" flex-shrink=1000
+                      text (s.summary == "" ? (s.model == "" ? stateName(s.state) : `${stateName(s.state)} · ${s.model}`) : s.summary) class=Ellipsis text-align="left" font-size=12 color="light-dark(#6f6f6f, #a0a0a0)"
+                    row align-items="center" gap=8 flex-shrink=0
+                      when hoverId == `s-${s.id}` and s.live and (s.state == "running" or s.state == "blocked")
+                        button press=act(s.machineId, s.id, "interrupt") testId=`interrupt-${s.id}` class=Pill aria-label="Interrupt" height=24 padding-left=8 padding-right=8 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.12), rgba(255,255,255,0.16))" animation="fade 120ms ease-out both"
+                          text "Interrupt" font-size=11 font-weight=500
+                      text s.updated font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums" flex-shrink=0
+                      row height=20 padding-left=7 padding-right=7 border-radius=5 align-items="center" background-color=providerColor(s.provider) flex-shrink=0
+                        text providerName(s.provider) font-size=10 font-weight=700 color="#ffffff" letter-spacing=0.2
+            when page == "machines"
+              scroll testId="machines" flex=1 min-height=0 width="100%"
+                column padding-left=14 padding-right=14 padding-bottom=20 gap=2 width="100%" box-sizing="border-box"
+                  when length(fleet.machines) == 0
+                    column padding=40 gap=6 align-items="center"
+                      text (fleet.ready ? "No machines enrolled." : "Loading machines…") font-size=15 font-weight=500
+                  each m in fleet.machines key=m.id
+                    row hover=hover(`m-${m.id}`) class=((hoverId == `m-${m.id}` or m.index == cursor) ? ListRowHot : ListRow) testId=`machine-${m.id}` padding-top=14 padding-bottom=14
+                      row width=8 height=8 border-radius=4 flex-shrink=0 background-color=(m.online ? "#10a37f" : (m.status == "pending" ? "#f59e0b" : "#ef4444"))
+                      column flex=1 min-width=0 gap=2
+                        row align-items="baseline" gap=8
+                          text m.name font-weight=600 font-size=13 class=Ellipsis flex-shrink=1
+                          when m.local
+                            text "This Mac" font-size=11 color="light-dark(#8a8a8a, #8a8a8a)"
+                        text m.detail class=Ellipsis font-size=12 color="light-dark(#6f6f6f, #a0a0a0)"
+                      row align-items="center" gap=8 flex-shrink=0
+                        text (m.active > 0 ? `${toString(m.active)} working · ${toString(m.sessions)} live` : `${toString(m.sessions)} live`) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)" font-variant-numeric="tabular-nums"
+                        button press=openShell(m.id) testId=`shell-${m.id}` class=Pill aria-label=`Open a shell on ${m.name}` hover=hover(`shell-${m.id}`) height=26 padding-left=10 padding-right=10 border-radius=7 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.12), rgba(255,255,255,0.16))" background-color=(hoverId == `shell-${m.id}` ? "light-dark(rgba(0,0,0,0.05), rgba(255,255,255,0.08))" : "rgba(0,0,0,0)")
+                          text "Shell" font-size=11 font-weight=500
+            when page == "accounts"
+              scroll testId="accounts" flex=1 min-height=0 width="100%"
+                column padding-left=14 padding-right=14 padding-bottom=20 gap=2 width="100%" box-sizing="border-box"
+                  when length(fleet.accounts) == 0
+                    column padding=40 gap=6 align-items="center"
+                      text (fleet.ready ? "No accounts connected." : "Loading accounts…") font-size=15 font-weight=500
+                  each a in fleet.accounts key=a.handle
+                    row hover=hover(`a-${a.handle}`) class=(hoverId == `a-${a.handle}` ? ListRowHot : ListRow) testId=`account-${a.handle}` padding-top=12 padding-bottom=12
+                      row width=28 height=28 border-radius=14 align-items="center" justify-content="center" background-color=providerColor(a.provider) flex-shrink=0
+                        text (a.provider == "claude" ? "C" : (a.provider == "codex" ? "X" : "O")) font-size=12 font-weight=700 color="#ffffff"
+                      column flex=1 min-width=0 gap=2
+                        text a.email font-weight=600 font-size=13 class=Ellipsis
+                        text (a.usage == "" ? providerName(a.provider) : `${providerName(a.provider)} · ${a.usage}`) class=Ellipsis font-size=12 color="light-dark(#6f6f6f, #a0a0a0)"
+                      row align-items="center" gap=6 flex-shrink=0
+                        row width=6 height=6 border-radius=3 background-color=(a.connected ? "#10a37f" : "#f59e0b")
+                        text (a.connected ? "Connected" : a.status) font-size=11 color="light-dark(#9a9a9a, #7a7a7a)"
+
+      when launcher
+        column testId="launcher-scrim" position="absolute" top=0 left=0 right=0 bottom=0 z-index=20 background-color="light-dark(rgba(0,0,0,0.22), rgba(0,0,0,0.5))" align-items="center" padding-top=88 animation="fade 140ms ease-out both"
+          button press=closeLauncher testId="launcher-dismiss" aria-label="Close" aria-keyshortcuts="Escape" position="absolute" top=0 left=0 right=0 bottom=0 width="100%" height="100%" background-color="rgba(0,0,0,0)"
+          column testId="launcher" width=580 max-height="72%" border-radius=14 background-color="light-dark(#ffffff, #2b2b2b)" box-shadow="0 24px 64px rgba(0,0,0,0.28)" border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.08), rgba(255,255,255,0.1))" animation="pop 180ms ease-out both" overflow="hidden" position="relative" z-index=1
+            row height=52 align-items="center" gap=10 padding-left=18 padding-right=14 flex-shrink=0
+              text "New session" font-size=15 font-weight=600 flex=1
+              row height=22 padding-left=7 padding-right=7 border-radius=6 align-items="center" background-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))"
+                text "⌃N" font-size=11 font-weight=600 color="light-dark(#6f6f6f, #a0a0a0)"
+            row padding-left=18 padding-right=18 gap=6 align-items="center" flex-shrink=0 flex-wrap="wrap"
+              row height=26 padding-left=10 padding-right=10 border-radius=13 align-items="center" gap=6 background-color=(launchStep == 1 ? "light-dark(#0d0d0d, #ececec)" : "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))")
+                text (pickedAccount == "" ? "Account" : pickedAccountLabel) font-size=12 font-weight=500 color=(launchStep == 1 ? "light-dark(#ffffff, #0d0d0d)" : "light-dark(#0d0d0d, #ececec)")
+              image "symbol:forward-chevron" font-size=10 tint-color="light-dark(#b0b0b0, #666666)"
+              row height=26 padding-left=10 padding-right=10 border-radius=13 align-items="center" background-color=(launchStep == 2 ? "light-dark(#0d0d0d, #ececec)" : "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))")
+                text (pickedMachine == "" ? "Machine" : pickedMachineLabel) font-size=12 font-weight=500 color=(launchStep == 2 ? "light-dark(#ffffff, #0d0d0d)" : "light-dark(#0d0d0d, #ececec)")
+              image "symbol:forward-chevron" font-size=10 tint-color="light-dark(#b0b0b0, #666666)"
+              row height=26 padding-left=10 padding-right=10 border-radius=13 align-items="center" background-color=(launchStep == 3 ? "light-dark(#0d0d0d, #ececec)" : "light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))")
+                text "Model" font-size=12 font-weight=500 color=(launchStep == 3 ? "light-dark(#ffffff, #0d0d0d)" : "light-dark(#0d0d0d, #ececec)")
+            row padding-left=18 padding-right=18 padding-top=14 padding-bottom=10 gap=10 align-items="center" flex-shrink=0
+              when launchStep == 1
+                row flex=1 height=40 align-items="center" padding-left=12 padding-right=12 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.12), rgba(255,255,255,0.14))" background-color="light-dark(#ffffff, #1f1f1f)"
+                  input id="launcher-code-1" testId="launcher-code-1" value=typed input=typedChanged key=launcherKey submit=launchDefault autofocus=true placeholder="Type an account number" aria-label="Number" flex=1 min-width=0 height=20 line-height="20px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=15 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)"
+              when launchStep == 2
+                row flex=1 height=40 align-items="center" padding-left=12 padding-right=12 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.12), rgba(255,255,255,0.14))" background-color="light-dark(#ffffff, #1f1f1f)"
+                  input id="launcher-code-2" testId="launcher-code-2" value=typed input=typedChanged key=launcherKey submit=launchDefault autofocus=true placeholder="Type a machine number" aria-label="Number" flex=1 min-width=0 height=20 line-height="20px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=15 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)"
+              when launchStep == 3
+                row flex=1 height=40 align-items="center" padding-left=12 padding-right=12 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.12), rgba(255,255,255,0.14))" background-color="light-dark(#ffffff, #1f1f1f)"
+                  input id="launcher-code-3" testId="launcher-code-3" value=typed input=typedChanged key=launcherKey submit=launchDefault autofocus=true placeholder="Type a model number, or press Return for the default" aria-label="Number" flex=1 min-width=0 height=20 line-height="20px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=15 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)"
+            when launchStep == 3
+              row padding-left=18 padding-right=18 padding-bottom=8 gap=8 align-items="center" flex-shrink=0 flex-wrap="wrap"
+                text "in" font-size=12 color="light-dark(#8a8a8a, #8a8a8a)"
+                row flex=1 min-width=160 height=28 align-items="center" padding-left=8 padding-right=8 box-sizing="border-box" border-radius=7 border-style="solid" border-width=1 border-color="light-dark(rgba(0,0,0,0.1), rgba(255,255,255,0.12))"
+                  input testId="launcher-cwd" value=cwd input=setCwd placeholder="Directory" aria-label="Directory" flex=1 min-width=0 height=16 line-height="16px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=12 font-family="ui-monospace" color="light-dark(#0d0d0d, #ececec)"
+                each d in machineDirs key=d.id
+                  when d.id != cwd
+                    button press=useDir(d.id) testId=`dir-${d.id}` class=Pill height=24 padding-left=8 padding-right=8 border-radius=6 background-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.1))"
+                      text d.label font-size=11 font-family="ui-monospace"
+            scroll testId="launcher-list" flex=1 min-height=0 max-height=380 width="100%"
+              column padding-left=10 padding-right=10 padding-bottom=10 gap=1 width="100%" box-sizing="border-box"
+                when launchStep == 1
+                  each c in fleet.accountChoices key=c.id
+                    button press=pickAccount(c.id, c.label, c.provider) testId=`choice-${c.code}` hover=hover(`c-${c.id}`) class=((codeMatches(c.code, c.group, typed) or hoverId == `c-${c.id}`) ? ChoiceRowHot : ChoiceRow)
+                      text c.code font-size=13 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)" width=24
+                      row width=8 height=8 border-radius=4 background-color=providerColor(c.provider) flex-shrink=0
+                      text c.label flex=1 text-align="left" class=Ellipsis
+                      text c.detail font-size=12 color="light-dark(#8a8a8a, #8a8a8a)"
+                when launchStep == 2
+                  each c in fleet.machineChoices key=c.id
+                    button press=pickMachine(c.id, c.label, c.detail) testId=`choice-${c.code}` hover=hover(`c-${c.id}`) class=((codeMatches(c.code, c.group, typed) or hoverId == `c-${c.id}`) ? ChoiceRowHot : ChoiceRow)
+                      text c.code font-size=13 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)" width=24
+                      text c.label flex=1 text-align="left" class=Ellipsis
+                      text c.detail font-size=12 color="light-dark(#8a8a8a, #8a8a8a)" class=Ellipsis flex-shrink=1000
+                when launchStep == 3
+                  when not modelsReady and length(modelChoices) == 0
+                    row padding=14 gap=8 align-items="center"
+                      text (modelsMessage == "" ? "Loading models…" : modelsMessage) font-size=12 color="light-dark(#8a8a8a, #8a8a8a)"
+                  each c in modelChoices key=c.id
+                    button press=pickModel(c.id) testId=`choice-${c.code}` hover=hover(`c-${c.id}`) class=((codeMatches(c.code, c.group, typed) or hoverId == `c-${c.id}`) ? ChoiceRowHot : ChoiceRow)
+                      text c.code font-size=13 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#0d0d0d, #ececec)" width=24
+                      text c.label flex=1 text-align="left" class=Ellipsis font-weight=500
+                      text c.detail font-size=12 color="light-dark(#8a8a8a, #8a8a8a)" class=Ellipsis flex-shrink=1000
+            row height=40 align-items="center" gap=14 padding-left=18 padding-right=18 flex-shrink=0 border-top-style="solid" border-top-width=1 border-top-color="light-dark(rgba(0,0,0,0.06), rgba(255,255,255,0.08))"
+              text (launchStep == 1 ? "Type two digits to pick an account" : (launchStep == 2 ? "Type two digits to pick a machine · ⌫ back" : "Two digits launch · Return launches the default · ⌫ back")) font-size=11 color="light-dark(#8a8a8a, #8a8a8a)" flex=1
+              text "Esc close" font-size=11 color="light-dark(#8a8a8a, #8a8a8a)"
