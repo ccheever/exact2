@@ -9,13 +9,15 @@ import Foundation
 final class Owner: @unchecked Sendable {
     static let shared = Owner()
 
+    // A job's and a call's body is released before it is marked done: the
+    // waiter's non-escaping closure must have no other owner when it returns.
     private final class Job {
-        let body: () -> Void
+        var body: (() -> Void)?
         var done = false
         init(_ body: @escaping () -> Void) { self.body = body }
     }
     private final class MainCall {
-        let body: () -> Void
+        var body: (() -> Void)?
         /// 0 posted, 1 claimed, 2 done: each call runs once.
         var state = 0
         init(_ body: @escaping () -> Void) { self.body = body }
@@ -65,8 +67,9 @@ final class Owner: @unchecked Sendable {
             while jobs.isEmpty && later.isEmpty { condition.wait() }
             let job = jobs.isEmpty ? later.removeFirst() : jobs.removeFirst()
             condition.unlock()
-            autoreleasepool { job.body() }
+            autoreleasepool { job.body?() }
             condition.lock()
+            job.body = nil
             job.done = true
             condition.broadcast()
             condition.unlock()
@@ -157,9 +160,10 @@ final class Owner: @unchecked Sendable {
         mailbox.removeAll { $0 === call }
         condition.unlock()
         serving += 1
-        call.body()
+        call.body?()
         serving -= 1
         condition.lock()
+        call.body = nil
         call.state = 2
         condition.broadcast()
     }
