@@ -20,11 +20,12 @@ replaces.
   (`type-class-name`); the workaround is `class=Plain` plus an overriding
   `background-color=(…)` with the nested ternary. Allowing any expression
   whose branches are all style names would keep the styles where they belong.
-- **No string search in the stdlib.** Neither `includes` nor `startsWith`
-  exist for strings, so highlighting the launcher rows whose two-digit code
-  starts with the digit typed needed a `group` field computed by the module.
-  `filter`/`map`/`join`/`length`/`first` exist for lists; a small string set
-  (`includes`, `startsWith`, `lower`) would close this.
+- **String search is not under the web's name.** The roster has `contains(s,
+  t)` for strings, which the author did not find while looking for the web's
+  `includes`; neither `startsWith` nor `endsWith` exist, so highlighting the
+  launcher rows whose two-digit code starts with the digit typed needed a
+  `group` field computed by the module. PR #59 renames `contains` to
+  `includes` and adds the other two.
 - **`box-shadow` takes one shadow.** The common "soft shadow + hairline ring"
   idiom (`0 24px 64px …, 0 0 0 1px …`) is refused; the workaround is a border.
   The kernel row exists; the comma list is the missing part (the message says so).
