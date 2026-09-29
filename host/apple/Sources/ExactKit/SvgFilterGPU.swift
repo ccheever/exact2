@@ -33,7 +33,10 @@ enum SvgFilterGPU {
         func make(_ working: CGColorSpace, _ format: CIFormat) -> CIContext {
             CIContext(mtlCommandQueue: metal.queue, options: [.workingColorSpace: working, .outputColorSpace: srgb,
                                                               .workingFormat: NSNumber(value: format.rawValue),
-                                                              .cacheIntermediates: false])
+                                                              .cacheIntermediates: false,
+                                                              // Its render tasks allocate about this much (MB), so a
+                                                              // big island does not keep hundreds of MB.
+                                                              CIContextOption(rawValue: "kCIContextMemoryLimit"): NSNumber(value: 64)])
         }
         return (make(srgb, .RGBA8), make(linearSRGB, .RGBAh))
     }()
@@ -71,7 +74,6 @@ enum SvgFilterGPU {
               let contexts else { return nil }
         let bounds = CGRect(x: 0, y: 0, width: w, height: h)
         let context = linear ? contexts.linear : contexts.srgb
-        defer { context.clearCaches() }
         return context.createCGImage(image, from: bounds, format: .RGBA8, colorSpace: srgb)
     }
 
@@ -202,6 +204,18 @@ enum SvgFilterGPU {
         return input == nil ? (true, nil) : (true, (last.cropped(to: bounds), linear))
     }
 
+    /// Start rendering a chain's result into `surface` on the GPU, in the
+    /// order of `queue`'s work; the task to wait on, or `nil`.
+    /// `size` is the picture's, drawn at the surface's top left.
+    static func start(_ image: CIImage, linear: Bool, size: CGSize, into surface: IOSurface) -> CIRenderTask? {
+        guard let contexts else { return nil }
+        let destination = CIRenderDestination(ioSurface: surface)
+        destination.colorSpace = srgb
+        destination.isFlipped = true
+        return try? (linear ? contexts.linear : contexts.srgb).startTask(toRender: image, from: CGRect(origin: .zero, size: size),
+                                                                         to: destination, at: .zero)
+    }
+
     /// Render a chain's result into `surface` on the GPU, in the order of
     /// `queue`'s work, and wait for it.
     static func render(_ image: CIImage, linear: Bool, into surface: IOSurface) -> Bool {
@@ -212,9 +226,6 @@ enum SvgFilterGPU {
         let context = linear ? contexts.linear : contexts.srgb
         guard let task = try? context.startTask(toRender: image, to: destination) else { return false }
         _ = try? task.waitUntilCompleted()
-        // What the context kept for this frame's graph is not reused by the
-        // next (its source is a new image each frame): let it go.
-        context.clearCaches()
         return true
     }
 }

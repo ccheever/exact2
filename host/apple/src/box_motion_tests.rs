@@ -56,8 +56,13 @@ component A
         rect testId="shape" x=10 y=10 width=20 height=20 fill="#0ea5e9" transform-box="fill-box" transform-origin="center" animation=(on ? "spin 1s linear infinite" : "none")
         circle testId="ball" cx=20 cy=10 r=4 fill="#f97316" animation=(on ? "drop 1s linear infinite" : "none")
         circle testId="clipped" cx=20 cy=10 r=4 filter="blur(1px)" animation=(on ? "drop 1s linear infinite" : "none")
-        g filter="blur(1px)"
+        defs
+          filter id="soft"
+            feGaussianBlur stdDeviation=1
+        g filter="url(#soft)"
           rect testId="inside" x=10 y=10 width=8 height=8 transform-box="fill-box" transform-origin="center" animation=(on ? "spin 1s linear infinite" : "none")
+        g filter="blur(1px)"
+          rect testId="followed" x=10 y=10 width=8 height=8 transform-box="fill-box" transform-origin="center" animation=(on ? "spin 1s linear infinite" : "none")
 "##;
 
 fn id(host: &Host<NoData>, test_id: &str) -> u32 {
@@ -148,7 +153,9 @@ fn a_boxs_transform_and_colour_keyframes_play_in_core_animation() {
     let svg_op = scene(&on);
     assert!(svg_op.contains("transform.rotation.z"), "{svg_op}");
     assert!(svg_op.contains("position.y"), "{svg_op}");
-    for lowered in ["shape", "ball"] {
+    // A CSS function filter's picture follows its content on the GPU on
+    // iOS, so what turns inside it lowers too.
+    for lowered in ["shape", "ball", "followed"] {
         assert!(
             !host.engine.node_sampled(exact_kernel::motion::motion_node(
                 host.runner.kernel().node(id(&host, lowered)).unwrap().key
@@ -159,7 +166,8 @@ fn a_boxs_transform_and_colour_keyframes_play_in_core_animation() {
     // What Core Animation cannot say as CSS does is sampled: a corner
     // origin, a box that takes input or holds one that does, a bordered
     // box's colour, two alphas, a filtered circle's centre (its picture is
-    // made for one place), and anything drawn inside a filter's picture.
+    // made for one place), and anything drawn inside a `filter` element's
+    // picture.
     for sampled in [
         "corner", "pressed", "holder", "framed", "fading", "clipped", "inside",
     ] {

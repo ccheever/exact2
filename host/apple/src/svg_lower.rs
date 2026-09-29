@@ -323,8 +323,11 @@ pub(crate) fn eligibility(
         let sampled = if paired
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
-            || (boxed && svg && !svg_turns(kernel, &n, &props))
-            || (moves && !circle_moves(kernel, &n, &props))
+            // Drawn into an island's pixels, which Core Animation does not
+            // animate (except a live filter picture on iOS).
+            || (svg && in_picture(kernel, &n, box_motion))
+            || (boxed && svg && !svg_turns(&n, &props))
+            || (moves && !circle_moves(&n, &props))
         {
             true
         } else if boxed && !svg {
@@ -368,16 +371,13 @@ pub(crate) fn eligibility(
     }
 }
 
-/// Whether Core Animation plays a box's lowered transform and background
-/// colour as CSS does (see [`eligibility`]).
 /// Whether an SVG element's `translate`, `rotate` and `scale` animations
 /// play on its transform pair's outer layer (iOS; LLP 1055.001 as a box's):
 /// an element, not the `svg` (a box), with nothing drawn for one scale: no
 /// non-scaling stroke, filter or mask.
-fn svg_turns(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
+fn svg_turns(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
     let s = n.style;
     n.node_type.is_svg_element()
-        && !in_picture(kernel, n)
         && !props.contains(&Property::BackgroundColor)
         && s.vector_effect != exact_kernel::VectorEffect::NonScalingStroke
         && s.filter.is_none()
@@ -388,12 +388,11 @@ fn svg_turns(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Property])
 /// circle (its layer sits at its centre) whose drawing does not depend on
 /// where the centre is in its user space: no transform (a fill-box origin
 /// follows the centre), clip, mask, filter or paint server.
-fn circle_moves(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
+fn circle_moves(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
     use exact_kernel::svg::Paint;
     let s = n.style;
     let served = |p: &Paint| matches!(p, Paint::Url(..));
     n.node_type == NodeType::SvgCircle
-        && !in_picture(kernel, n)
         && !props
             .iter()
             .any(|p| matches!(p, Property::Translate | Property::Rotate | Property::Scale))
@@ -433,7 +432,16 @@ fn under_box_filter(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
 /// animation would not show: under a filtered or masked element (an
 /// island), or inside a definition (a mask's, pattern's, marker's or clip
 /// path's content, `defs`, a `symbol`).
-fn in_picture(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+///
+/// A CSS function filter (`blur()`, `drop-shadow()`, the colour functions)
+/// is an exception on iOS (`live`): its picture follows its content on the
+/// GPU (`SvgFilterLive`), where Core Animation renders the content with its
+/// animations each frame, so what is inside it lowers as anywhere else.
+fn in_picture(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, live: bool) -> bool {
+    use exact_kernel::svg::filter::FilterFn;
+    let followed = |f: &exact_kernel::svg::filter::FilterList| {
+        live && !f.0.iter().any(|x| matches!(x, FilterFn::Url(_)))
+    };
     let mut up = n.parent;
     while let Some(a) = up.and_then(|id| kernel.node(id)) {
         match a.node_type {
@@ -446,7 +454,9 @@ fn in_picture(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
             | NodeType::SvgSymbol => return true,
             _ => {}
         }
-        if !a.style.filter.is_none() || a.style.svg_mask.url().is_some() {
+        if (!a.style.filter.is_none() && !followed(&a.style.filter))
+            || a.style.svg_mask.url().is_some()
+        {
             return true;
         }
         up = a.parent;
@@ -454,6 +464,8 @@ fn in_picture(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     false
 }
 
+/// Whether Core Animation plays a box's lowered transform and background
+/// colour as CSS does (see [`eligibility`]).
 fn box_eligible(
     kernel: &Kernel,
     n: &exact_kernel::NodeRef<'_>,

@@ -72,7 +72,7 @@ private func circle(_ r: Double) -> CGPath {
 enum CssAnimations {
     /// Replace `layer`'s CSS animations with `specs`, keeping any whose spec
     /// is unchanged (a data tick must not restart a running pulse).
-    static func apply(_ specs: [[String: Any]], to layer: CALayer, clock: Double?, installed: inout [String: String]) {
+    static func apply(_ specs: [[String: Any]], to layer: CALayer, clock: Double?, installed: inout [String: String], offscreen: Bool = false) {
         var keep: Set<String> = []
         for spec in specs {
             guard let id = spec["id"] as? String else { continue }
@@ -83,7 +83,7 @@ enum CssAnimations {
             if installed[id] == signature { continue }
             installed[id] = signature
             layer.removeAnimation(forKey: id)
-            if let animation = make(spec, layer: layer, clock: clock) { layer.add(animation, forKey: id) }
+            if let animation = make(spec, layer: layer, clock: clock, offscreen: offscreen) { layer.add(animation, forKey: id) }
         }
         for id in installed.keys where !keep.contains(id) {
             layer.removeAnimation(forKey: id)
@@ -108,7 +108,10 @@ enum CssAnimations {
         }
     }
 
-    static func make(_ spec: [String: Any], layer: CALayer, clock: Double?) -> CAAnimation? {
+    /// `offscreen`: for a tree `CARenderer` draws (a live filter picture),
+    /// which plays running animations but not one held at `speed` 0: a
+    /// held one runs from where it is held, and the picture is drawn at once.
+    static func make(_ spec: [String: Any], layer: CALayer, clock: Double?, offscreen: Bool = false) -> CAAnimation? {
         let key = spec["k"] as? String ?? ""
         let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
         let times = nums(spec["t"])
@@ -140,12 +143,17 @@ enum CssAnimations {
         if let local = held {
             let active = local - delay
             if active < 0 && !backwards { return nil }
-            a.speed = 0
             // At or past a finite end CA wraps to the next cycle's start; CSS
             // holds the last frame (with a forwards fill), so stay a hair inside.
             let total = repeatCount < 0 ? Double.infinity : duration * repeatCount
-            a.timeOffset = min(max(0, active), total - 1e-6)
-            a.beginTime = 0
+            let at = min(max(0, active), total - 1e-6)
+            if offscreen {
+                a.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - at
+            } else {
+                a.speed = 0
+                a.timeOffset = at
+                a.beginTime = 0
+            }
         } else {
             a.beginTime = layer.convertTime(ExactEnv.t0 + start + delay, from: nil)
         }
@@ -196,6 +204,9 @@ final class SvgScene {
     /// renders only what can show there (`SvgIsland.extent`).
     private var clipped: CGRect?
 
+    /// Drawn by a `CARenderer` (a live filter picture's sub-scene).
+    var offscreen = false
+
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
     #if os(iOS)
@@ -206,14 +217,23 @@ final class SvgScene {
     /// A shown filtered picture whose input changed: on iOS, the same layer
     /// redrawn on the GPU after this commit (`SvgFilterLive`); `nil` for a
     /// first picture, or a chain or host the GPU path does not take.
-    private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool) -> CALayer? {
+    private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool, clock: Double?) -> CALayer? {
         #if os(iOS)
-        guard let shown = pictures[id]?.layer, SvgFilterLive.takes(fl),
+        // A picture whose content animates follows it from its first frame:
+        // its animations play in its sub-scene (`svg_lower::in_picture`).
+        let animated = SvgFilterLive.animated(fl["c"] as Any)
+        guard pictures[id] != nil || animated, SvgFilterLive.takes(fl),
               let e = SvgIsland.filterExtent(fl, k: k, seen: seen(fl)), e.gpu else { return nil }
+        let shown = pictures[id]?.layer ?? {
+            let l = CALayer()
+            l.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "contentsRect": NSNull()]
+            l.anchorPoint = .zero
+            return l
+        }()
         let picture = live[id].flatMap { $0.layer === shown ? $0 : nil } ?? SvgFilterLive(layer: shown)
         live[id] = picture
         picture.update(els: fl["c"] as? [Any] ?? [], rect: e.rect, w: e.w, h: e.h, k: e.k, program: e.program,
-                       dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                       dark: dark, fonts: fonts ?? SvgScene.systemFonts, clock: clock, now: pictures[id] == nil)
         return shown
         #else
         return nil
@@ -222,7 +242,7 @@ final class SvgScene {
 
     private func forget(_ id: Int) {
         #if os(iOS)
-        live.removeValue(forKey: id)
+        live.removeValue(forKey: id)?.stop()
         #endif
     }
 
@@ -354,9 +374,13 @@ final class SvgScene {
     }
 
     /// Re-seek every animation to an agent-owned clock (or back to real time).
-    func seek(clock: Double?) {
-        for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]]) } }
-        for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]]) } }
+    func seek(clock: Double?, force: Bool = false) {
+        if force { installed = [:]; wrapInstalled = [:] }
+        for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]], offscreen: offscreen) } }
+        for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]], offscreen: offscreen) } }
+        #if os(iOS)
+        for l in live.values { l.seek(clock) }
+        #endif
     }
 
     /// Everything off (the view is destroyed or parked).
@@ -366,6 +390,7 @@ final class SvgScene {
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]; drawn = [:]; shadows = [:]
         #if os(iOS)
+        for l in live.values { l.stop() }
         live = [:]
         #endif
         node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
@@ -394,7 +419,7 @@ final class SvgScene {
         // one component of its transform and keeps the others.
         let list = tf["a"] as? [[String: Any]] ?? []
         wrapSpecs[id] = list.isEmpty ? nil : list
-        CssAnimations.apply(list, to: pair.outer, clock: clock, installed: &wrapInstalled[id, default: [:]])
+        CssAnimations.apply(list, to: pair.outer, clock: clock, installed: &wrapInstalled[id, default: [:]], offscreen: offscreen)
         return pair.outer
     }
 
@@ -457,7 +482,7 @@ final class SvgScene {
                     let key = h.finalize()
                     let k = CGFloat(num(fl["k"])) * scale
                     let picture = pictures[id].flatMap { $0.key == key ? $0.layer : nil }
-                        ?? follow(id, fl, k: k, dark: dark)
+                        ?? follow(id, fl, k: k, dark: dark, clock: clock)
                         ?? SvgIsland.filter(fl, k: k, seen: seen(fl), dark: dark, fonts: fonts ?? SvgScene.systemFonts)
                     if pictures[id]?.layer !== picture { pictures[id]?.layer.removeFromSuperlayer() }
                     pictures[id] = (key, picture)
@@ -516,7 +541,7 @@ final class SvgScene {
             node[ObjectIdentifier(layer)] = (id, UInt32(num(e["n"])))
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
-            CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])
+            CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]], offscreen: offscreen)
             let placed = wrap(id, layer, e["tf"] as? [String: Any], clock: clock)
             SvgIsland.blend(placed, mode: Int(num(e["bl"])), isolate: e["iso"] != nil, scale: scale)
             order.append(placed)
