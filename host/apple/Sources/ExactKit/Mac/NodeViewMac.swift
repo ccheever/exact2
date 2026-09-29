@@ -80,6 +80,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// `box-shadow` (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
     var clipBox: NSView?
+    /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
+    var boxBorder: CALayer?
+    var boxFill: CALayer?
+    var boxGradient: CAGradientLayer?
+    var imageLayer: CALayer?
     var materialView: NSView?
     private var materialContent: NSView?
     private var materialKind: String?
@@ -950,8 +955,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return !hasBoxPaint && !Capture.capturing && canvasAbove == nil
         }
         if kind == "text" { return rastersText }
-        return !hasBoxPaint && !Capture.capturing && kind != "image"
-            && kind != "canvas" && kind != "iframe"
+        // A box the layer can say keeps no backing store (`BoxLayerMac.swift`).
+        return layerBoxEligible && !Capture.capturing && !drawsPaint
     }
     override func updateLayer() {
         if let readerParagraph {
@@ -967,6 +972,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if textRaster != nil { presentTextRaster() } else { layer?.contents = nil }
         } else {
             layer?.contents = nil
+            applyLayerPaint()
         }
         repaintThrough()
         if presenter?.views[id] === self { firstDraw() }
@@ -1039,7 +1045,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
         let clipped = (clips || clamped) && clipBox == nil
         if clipsToBounds != clipped { clipsToBounds = clipped }
-        clipsCorners = clips
         applyClipRadius()
         applyShadow()
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
@@ -1109,14 +1114,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// `overflow: hidden` clips to the rounded corners: one radius rides the
     /// clipping layer, reduced as CSS reduces it to fit the box (Core
     /// Animation draws nothing for a radius past half the shorter side);
-    /// differing radii clip to the bounds, as UIKit's layer path does.
-    private var clipsCorners = false
-    func applyClipRadius() {
-        guard let l = clipBox?.layer ?? layer else { return }
-        let radii = cornerRadii(in: bounds)
-        let radius = clipsCorners && radii.allSatisfy({ abs($0 - radii[0]) < 0.01 }) ? radii[0] : 0
-        if l.cornerRadius != radius { l.cornerRadius = radius }
-    }
+    /// differing radii clip to the bounds, as UIKit's layer path does. The
+    /// box's own layer paint decides the radius with it (`applyBoxLayer`).
+    func applyClipRadius() { applyBoxLayer() }
 
     /// The reduction depends on the size, which the kernel's layout sets
     /// after the style.
@@ -1126,6 +1126,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard changed else { return }
         applyClipRadius()
         applyMaterialRadius()
+        // Border, gradient and image sublayers follow the new size.
+        if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
     }
 
     func prepareToMount() {
@@ -1152,6 +1154,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         if textRaster != nil { textRasterKey = nil; textRasterPending = false; needsDisplay = true }
+        // A border's device pixels follow the scale (`BoxLayerMac.swift`).
+        if layerBoxEligible && hasBoxPaint { needsDisplay = true }
     }
 
     override func layout() {
@@ -1221,15 +1225,20 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
         if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
+        // What the layer shows (`BoxLayerMac.swift`) is not painted again,
+        // except into a capture, which sees views and not layer properties.
+        let layerPaint = layerBoxEligible && !Capture.capturing
+        if layerPaint { applyLayerPaint() }
+        let paintsBox = !layerPaint || boxNeedsDraw
         let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
         let path = roundedPath(in: bounds)
         let bg = color("background_color", .clear)
         // A layout transition's size shows the surface on its own layer.
-        if bg.alphaComponent > 0, surface == nil {
+        if paintsBox, bg.alphaComponent > 0, surface == nil {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
-        if let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
+        if paintsBox, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
@@ -1237,10 +1246,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let top = color("border_color_top", .clear)
         let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
         let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
-        if let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
+        if paintsBox, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
-        if kind == "image", symbolView == nil, let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

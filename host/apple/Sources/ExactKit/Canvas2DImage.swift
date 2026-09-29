@@ -161,7 +161,16 @@ final class Canvas2DHost: Canvas2DEnv {
             l.magnificationFilter = .linear; l.minificationFilter = .linear
             layers[id] = l; return l
         }()
-        if layer.superlayer !== parent { parent.insertSublayer(layer, at: 0) }
+        if layer.superlayer !== parent {
+            #if os(macOS)
+            // Replaced content paints over its box: above the box's own
+            // sublayers where AppKit's box is layers (`BoxLayerMac.swift`).
+            if let node = parent.delegate as? NodeView, let top = node.boxSublayersTop { parent.insertSublayer(layer, above: top) }
+            else { parent.insertSublayer(layer, at: 0) }
+            #else
+            parent.insertSublayer(layer, at: 0)
+            #endif
+        }
         let box = (payload["box"] as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
         if box.count == 4 { layer.frame = CGRect(x: box[0], y: box[1], width: box[2], height: box[3]) }
         // A rounded canvas clips its bitmap to the content edge's curve, as

@@ -88,7 +88,7 @@ enum BorderParity {
     }
 
     /// Every case against one of Chrome's pictures; the failures, named.
-    static func check(flipped: Bool, dark: Bool, render: (NodeStyle, Bool, CGColor) -> [UInt8]) -> [String] {
+    static func check(flipped: Bool, dark: Bool, band: (mean: Double, over: Double) = (2, 2), render: (NodeStyle, Bool, CGColor) -> [UInt8]) -> [String] {
         let reference = chrome(dark ? "borders.web-dark.png" : "borders.web.png")
         let page = dark ? CGColor(srgbRed: 0x12 / 255, green: 0x12 / 255, blue: 0x12 / 255, alpha: 1) : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         var failures: [String] = []
@@ -96,7 +96,7 @@ enum BorderParity {
             let (mean, over) = compare(render(c.style, dark, page), reference, at: c.x, c.y)
             print("border parity \(dark ? "dark" : "light") \(c.name): mean \(String(format: "%.2f", mean))/255, \(String(format: "%.2f", over))% beyond 48")
             // Measured 2026-09-25 against Chrome; the band is that with room.
-            if mean > 2 || over > 2 { failures.append("\(c.name) \(dark ? "dark" : "light"): mean \(mean), \(over)% beyond 48") }
+            if mean > band.mean || over > band.over { failures.append("\(c.name) \(dark ? "dark" : "light"): mean \(mean), \(over)% beyond 48") }
         }
         return failures
     }

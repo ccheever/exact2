@@ -15,7 +15,10 @@ final class BoxPaintMacTests: XCTestCase {
         p.root.addSubview(node); p.views[1] = node
         node.applyStyle(style)
         let rep = node.bitmapImageRepForCachingDisplay(in: node.bounds)!
+        // As the agent's screenshot and a canvas's surface capture it.
+        Capture.capturing = true
         node.cacheDisplay(in: node.bounds, to: rep)
+        Capture.capturing = false
         return rep
     }
     /// sRGB components of the pixel under a point in the view's own (flipped) space.

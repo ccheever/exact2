@@ -47,10 +47,15 @@ final class TextGeometryTests: XCTestCase {
     func testEmptyContainerReleasesPaintAndKeepsItsChildren() {
         let presenter = Presenter()
         let container = NodeView(id: 1, kind: "view", presenter: presenter)
+        container.frame = NSRect(x: 0, y: 0, width: 100, height: 40)
         let child = NodeView(id: 2, kind: "text", presenter: presenter)
         container.addSubview(child)
         container.applyStyle(["background_color": [1.0, 0.0, 0.0, 1.0]])
-        XCTAssertFalse(container.wantsUpdateLayer)
+        // A background is the layer's own colour, not a bitmap (`BoxLayerMac.swift`).
+        XCTAssertTrue(container.wantsUpdateLayer)
+        container.applyStyle(["background_color": [1.0, 0.0, 0.0, 1.0], "border_width_left": 2.0, "border_width_top": 1.0,
+                              "border_color_left": [0.0, 0.0, 255.0, 255.0], "border_color_top": [255.0, 0.0, 0.0, 255.0]])
+        XCTAssertFalse(container.wantsUpdateLayer, "sides in two colours draw")
         // The previous bitmap must not survive removal of the decoration.
         container.layer?.contents = NSImage(size: NSSize(width: 20, height: 20))
         container.applyStyle([:])
@@ -58,10 +63,10 @@ final class TextGeometryTests: XCTestCase {
         container.updateLayer()
         XCTAssertNil(container.layer?.contents)
         XCTAssertTrue(child.superview === container)
-        container.applyStyle(["border_width_left": 2.0])
-        XCTAssertFalse(container.wantsUpdateLayer)
+        container.applyStyle(["border_width_left": 2.0, "border_color_left": [0.0, 0.0, 255.0, 255.0], "border_radius_top_left": 4.0])
+        XCTAssertFalse(container.wantsUpdateLayer, "a rounded one-sided border draws")
         XCTAssertFalse(child.wantsUpdateLayer)
-        for kind in ["image", "canvas", "iframe"] {
+        for kind in ["canvas", "iframe"] {
             let node = NodeView(id: 3, kind: kind, presenter: presenter)
             node.applyStyle([:])
             XCTAssertFalse(node.wantsUpdateLayer)
