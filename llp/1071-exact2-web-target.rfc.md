@@ -294,16 +294,19 @@ build, by name, as LLP 1047 D6 refuses an unlinked one. That lets the runtime
 grow one capability at a time.
 
 As landed, the backend and `host/web-js/build.mjs` refuse by name: a
-dynamic `virtualized`, `scrollIntoView`, a Canvas 2D surface drawn by a
-TypeScript source, a TypeScript and a Rust source in one app, native
-modules, the events and dynamic rows in §7's table. `host/web/build.mjs`
-prints the refusal and builds the wasm target. RealWorld, the video player,
-completion-storm, Motion Gallery, Typetour and Carousel build JS, and so does
-Bluesky, outside the repo (`EXACT_APP_DIR`, §7 below); Caltrain and
-Weatherlight (their GPU modules, which only the wasm build makes yet),
-Canvas Gallery (its TypeScript draws) and Update Lab build wasm. Given the wasm
-build's GPU module (`--plan`, as conformance builds it), Caltrain builds JS
-and is equal on every step.
+dynamic `virtualized`, a dynamic canvas bitmap size, the events and the
+dynamic rows in §7's table. `host/web/build.mjs` prints the refusal and
+builds the wasm target. RealWorld, the video player, completion-storm,
+Motion Gallery, Typetour, Carousel, LLP, Markdown, auth-fixture, Sparkline,
+SVG Gallery, Spark, Messages, Messages Stress, Markdown Stress, Reflow and
+Text Flow build JS,
+and so does Bluesky, outside the repo
+(`EXACT_APP_DIR`, §7 below); since 2026-09-29 (§7, "Build and toolchain
+gaps") so do Caltrain and Weatherlight (the build makes their GPU modules),
+Canvas Gallery (TypeScript draws), Update Lab (a TypeScript and a Rust
+source) and the native-module apps (native-fixture, photo-editor, map-demo,
+recorder). Three build wasm, for a runtime feature: exact-live and
+interaction-gallery (`reorderdrop`) and fieldnotes (a file input).
 
 ### D6 — Documents, activation and resumability
 
@@ -697,24 +700,20 @@ from (a) today.
 |---|---|
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
-| runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), a file input (fieldnotes), the event `reorderdrop` (exact-live, interaction-gallery) |
+| every step equal, since the build gaps closed (2026-09-29, below) | Canvas Gallery 9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5, recorder 3/3 |
+| refused at build, by name | a file input (fieldnotes), the event `reorderdrop` (exact-live, interaction-gallery) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
 | Gap | Work | Bytes |
 |---|---|---|
 | Reorder on a virtualized list (`reorder.rs`; a drag, on the motion capability) | 2–3 days | ~1 KB, in `list.js` |
-| Canvas 2D surfaces drawn by a TypeScript source (the bake's recorder in the page) | 1–2 days | loaded |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
-| Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height and transform drags~~ (landed 2026-09-29, below); the reorder drag (`reorderdrop`: `reorder_drag.rs` and motion-glue's `arrangeController`, with reorder on a virtualized list); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 3–5 days | loaded (`motion-glue.js`, `picker-glue.js`) |
-| TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| State carried across a dev reload (the loop rebuilds and reloads), delivery (`deliveryCheck`, `deliveryActivate`; `exactDelivery` answers what the build baked), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
-| The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
+| State carried across a dev reload (the loop rebuilds and reloads), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
 ### The tools (2026-09-29)
 
@@ -727,7 +726,8 @@ content-named.
 
 | Tool | Target | How |
 |---|---|---|
-| Dev loop (`host/web/dev.mjs`) | JS when it takes the app | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`build.mjs --js` into a stage renamed over dist) and every page reloads; a failed build's errors show in the page, which keeps the last good build. ~2.2 s edit → first frame (video player; the compiler, the plan, the Rust data module and the bundles each a process), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Dev loop (`host/web/dev.mjs`) | JS when it takes the app | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 307 ms for Caltrain, whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Delivery (`scripts/deploy.mjs`) | the web root JS when it takes the app | the production wasm bake stays the streams' bundle and receipts; its baked plan compiled to JS (`--production`) is the web root (below, "Delivery on the web") |
 | Agent, web host (`scripts/agent.mjs web`) | what dist holds | a JS dist is served as a tree; the tree reply carries `roots`, the journal a `boot:` line |
 | Smoke (`smoke.mjs web`), the app drive and its tests | the default build | the staged-core check is the wasm's only |
 | Metrics: bytes, browser startup, dev loop, `--rebuild` | the default build | a JS build reports `app.js` bytes; the dev row times five edits across the reload |
@@ -735,22 +735,23 @@ content-named.
 
 What stays on the wasm target, and why:
 
-- **Delivery** (`deploy.mjs`): its bake is the signed bundle every platform's
-  update stream publishes — `exact.json`, the baked plan, the production-trust
-  bake receipt — and the web release it publishes is a program the update
-  client (`exactDelivery`, `deliveryActivate`) activates. The JS build makes
-  none of these (the delivery row above).
+- **Delivery's bake** (`deploy.mjs`): the production wasm bake is still what
+  makes the streams' signed bundle — the baked plan, the assets, the
+  production-trust receipt — which the web root now shares (below,
+  "Delivery on the web"); only the root's program moved.
 - **Native clients on the dev URL** (`build.mjs --url`, `/__dev/open`,
-  `exact run`'s live plan): they read the wasm loop's envelope and dev
-  generations (LLP 1023), which the JS loop does not serve; it answers them
-  with a 404 naming `--wasm`.
+  `exact run`'s live plan): they read the resident loop's envelope and dev
+  generations (LLP 1023), which the JS loop does not serve, by decision
+  (below, "Native clients' live reload"); it answers them with a 404 naming
+  `--wasm`.
 - **The smoke's bare-plan fixtures and router sweep**: they swap arbitrary
   plans into a running page (`--plan`, `exact.reload`); the JS target
   compiles one plan ahead of time. `agent.mjs --plan` refuses a JS dist by
   name.
 - **The parity smokes**: `motionparity` takes Chrome as the reference for
   animated images on the agent's clock (`image-glue.js`, a gap above);
-  `canvasparity`'s apps draw Canvas 2D surfaces from TypeScript, which the JS target refuses.
+  `canvasparity`'s probes read the runner's canvas records (`state.canvas`:
+  draws, generation, errors, the bitmap), which the JS agent does not report.
 - **Conformance** (`conform.mjs`): the wasm run is the oracle it compares against.
 - **Metrics `--long`'s web bytes**: the wasm's code by capability (LLP 1047 D9).
 
@@ -775,7 +776,7 @@ brotli):
   (the chunk: 4,014 the glue, the rest the engine and the draw client), 28 B in `rust-data.js`; the module
   grows by the draw code and the recorder it now links, 10.5 KB for
   Caltrain's (35,769 → 46,265, a size build; app.wasm carries the same code).
-  Still refused: TypeScript draws; not carried: a Rust draw's `measureText`
+  TypeScript draws landed later the same day (below); not carried: a Rust draw's `measureText`
   and images (no text engine or image table crosses the seam).
 - **Declared fonts** cost the runtime nothing: each face is an `@font-face`
   rule in the build's stylesheet under the web host's family name, with
@@ -1119,6 +1120,121 @@ runners now do (LLP 1010's 2026-09-29 paragraph). `paging.contract` pins it: fiv
 to the new end. Found with it: in a long clock jump the JS target delivers list
 feedback between timers (a jump's `$jump` reports at once), the wasm target
 after them; the fixture's source is bounded, which hides it.
+
+### Build and toolchain gaps (landed 2026-09-29, measured; brotli)
+
+Every app in `apps/` that the backend compiles now builds on the JS target
+with no wasm build beside it; what still builds wasm is refused for a
+runtime feature (the events in the table above), not the build.
+Conformance (`conform.mjs --build`, each against its wasm build): Caltrain
+12/12 and Weatherlight 12/12 with their own GPU modules, Canvas Gallery
+9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5,
+recorder 3/3.
+
+- **The GPU module.** `host/web-js/build.mjs` builds the app's GPU crates
+  itself, with the wasm build's own steps (`webGpuArtifacts`,
+  `scripts/app.mjs`: the crate for wasm32 under the `web` profile,
+  wasm-bindgen, wasm-opt; the wasm build calls the same function), cached
+  under the app's target (`web-js-gpu`) with the shaders while Cargo's
+  dep-info and the shader roots say nothing changed. Conformance no longer
+  borrows the wasm build's module.
+- **Canvas 2D drawn by a TypeScript source** (`host/web-js/ts-draw.js`):
+  the app's `draw` with the bake's TypeScript recorder
+  (`canvas/recorder.js`), one recorder per canvas generation as its
+  `canvasSeam` keeps them, the lists handed to the glue as bytes (no seam,
+  so no base64). Text is measured and images sized by the glue's own
+  `canvas2dHost`, as the wasm host's module realm asks it; each image not
+  yet loaded is counted in flight. Draws start once the page's declared
+  faces have loaded, as a module arriving after first pixel finds them
+  (Canvas Gallery's text fixtures draw on a kept context, so a `font`
+  redraw doubled them). The recorder installs its `Path2D` as the global,
+  as a draw expects; the page's glue replays with the browser's, so the
+  global is the recorder's only during a draw. Found on the way: an
+  explicit bitmap size (`bitmap-width`/`bitmap-height`) was dropped for
+  Rust draws too; it is carried now (a dynamic one is refused). Cost: the
+  2D chunk is 19.3 KB loaded for Canvas Gallery against 6.1 KB for
+  Caltrain's Rust draws (the recorder is the difference); nothing in
+  `app.js`.
+- **A TypeScript and a Rust source in one app** (LLP 1027.002): the
+  TypeScript module is in the page from boot, the Rust module arrives after
+  first pixel. Once it is ready it is asked first, and a source it calls
+  `UnknownSource` goes to the TypeScript module; until then a source the
+  TypeScript module throws on is not ready and is asked again at
+  `data.ready`. An app whose web build bakes with no single Rust source
+  builds its own `rust.module.package` crate (Update Lab's).
+- **Native modules** (LLP 1024): `NativeProps` compiles (`NP`, the JSON
+  `stdlib::native_props` writes), and a custom element is the module
+  element (`nm`), attached by the wasm host's `native-glue.js`, unchanged,
+  in a chunk (`native.js`, 2.0 KB) fetched after first paint, over the
+  app's module artifact (`modules/`); a module's event reaches the
+  handlers as an `exact-native` event on its element. A TypeScript source
+  gets `native` as on the wasm web host: `later` goes to the artifact's
+  `later`, `watch` re-asks the answer's resources when the artifact's
+  `connect` announces the topic, and the web has no synchronous `call`.
+  Found on the way: a store reader's compiled value (the plan's `reader`)
+  is the empty store's answer, a placeholder the runner asks past at boot;
+  the JS target took it as settled. It asks now (the recorder's status,
+  which reads `native.available`, showed "not available"). The runtime pays
+  55 B in every `app.js` (the handler check and the agent gate below).
+
+**Delivery on the web.** The web is delivery's origin row (LLP 1030.000):
+each publish writes an immutable release and swaps one pointer last, so a
+fresh load is current, and an open tab keeps loading its own release's
+content-named chunks until it reloads. The web holds no update store and
+no stream: `exactDelivery` answers the embedded entry with nothing staged
+(L = 0), which is what a bake compiles. So the JS runtime needs no update
+client, and a browser needs none of the signed bundle — the envelope, the
+baked plan and the production receipt are the native streams' payload.
+What the web root must keep is narrower: the same plan the streams
+publish, so one release is one program everywhere; the origin files (the
+web manifest, install and auth pages, the association file, sitemap and
+robots); and the envelope link a native client follows from the page URL
+(LLP 1023 D1). The smallest path that keeps all three: `deploy.mjs` keeps
+its production wasm bake as the producer of the bundle and the receipts,
+and when the JS target takes the app it compiles that bake's baked plan
+(`host/web-js/build.mjs --plan <bake>/app.plan --production`: agent mode
+refused, as the wasm host's files are gated, LLP 1069.007 D2; the bake's
+origin files and head links carried; pages rendered over the release
+shell with the manifest's origin) and publishes it as the web root; else
+the wasm bake is the root, the refusal printed. The root publishes the
+wasm root's allowlist of files plus the JS build's whole tree (its
+content-named chunks and rendered pages), each document anchored in its
+immutable release, and the runtime resolves a root-named app file
+(`/deck/…`, `/assets/…`) in the release, as the web host's
+`localAssetURL` does. `smoke.mjs deploy` drives it; a release admits no
+agent mode, so the smoke reads the published page as a browser shows it
+(the agent's tree and logs were unavailable there since the production
+gate, for the wasm root too). When the wasm program retires on the web, the bake stays: what the
+streams need from it is the `<app>-web` crate's build script (the baked
+plan and its receipt), not `app.wasm`.
+
+**Native clients' live reload.** The JS loop does not serve the native
+envelope, by decision. A native client consumes a generation: the plan
+plus each executor's native artifact (Hermes bytecode for a TypeScript
+source, a native Rust module), which the resident loop's producers make
+(LLP 1023, 1027, 1029); the JS loop makes browser artifacts. Serving the
+envelope from it would mean running those producers — the resident loop a
+second time. A native client opens `dev.mjs --wasm`, and the JS loop's 404
+says so. Retiring the wasm web target needs the resident loop's producers
+and generation stream without its wasm page (a browser on the JS build,
+reloading at each generation); that is in QUEUE.
+
+**Dev reload.** The loop's ~2.2 s an edit was mostly processes that
+rebuilt nothing. Now: the Rust data module is built only when Cargo's
+dep-info (and the `rerun-if-changed` of the build scripts behind it) says
+something it was built from changed (`module.mjs` `fresh`; its generated
+crate is rewritten only when it differs), into this checkout's target
+(it was `/tmp/e3-mod`, which every checkout shared); the compiler runs as
+its built binary on the same test and writes `app.plan` itself (no second
+compile); the GPU module is cached likewise; Bun's bundler runs in
+process; the dev build renders no pages (`--render none`: a render entry's
+crate bakes the plan, so it rebuilt on every Contract edit) and makes no
+server bundle; the loop runs the JS build directly, with a 5 ms debounce.
+Measured (metrics' dev row, five edits, p50): video player 104 ms (p95
+182; was ~2.2 s), a rebuild ~40 ms of it; Caltrain 307 ms (p95 363), a
+rebuild 60–150 ms and a first frame that waits for its Rust module, as an
+unbaked plan's resources without a compiled value must. The budget row is
+100 ms; the rest is the reload itself.
 
 ## 8. Rulings and open questions for Charlie
 
