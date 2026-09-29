@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from './agent.mjs';
-import { serveStatic } from '../host/web/serve.mjs';
+import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const ISSUER = 'http://127.0.0.1:4331';
@@ -103,7 +103,9 @@ export async function authPopupWeb({ webDist, check: record }) {
   const t0 = Date.now();
   const fixture = await fixtureServer();
   await fetch(`${ISSUER}/fixture/reset`);
-  const server = createServer((req, res) => serveStatic(webDist, req, res));
+  // A JS-target build (LLP 1071) is served as its tree, as serve.mjs serves it.
+  const js = jsTargetBuild(webDist);
+  const server = createServer((req, res) => js ? serveBuildTree(webDist, req, res) : serveStatic(webDist, req, res));
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-auth-popup-'));

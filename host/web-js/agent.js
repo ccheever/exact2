@@ -66,8 +66,12 @@ export function install(exact) {
   };
   const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); };
   exact.After.push(seek);
+  // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
+  const holds = () => exact.auth?.holds() ?? [];
   exact.agentSettled = async (req) => {
     seek();
+    // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
+    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` };
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
@@ -103,17 +107,20 @@ export function install(exact) {
           // layout now (collection-glue.js `settle`, as glue.js's clock does).
           const end = performance.now() + 20000;
           for (let round = 0; round < 16; round++) {
-            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n && performance.now() < end);
+            // A held request is in flight until the agent answers it: never waited on.
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end);
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
             if (exact.lists) exact.lists.settle();
-            if (exact.inflight.n) continue;
+            if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there.
             const to = anim.settle();
             if (!(to > exact.clock.now)) break;
             exact.advance(to); seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
+          const waiting = holds();
+          if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         exact.advance(req.to); seek();
@@ -123,7 +130,9 @@ export function install(exact) {
       case 'tags': return tags();
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
-        return { slots, derives, resources, ...tags() };
+        // What is in flight: the network's by resource, then held device requests.
+        const pending = [...exact.resources.filter(r => r.ticket).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        return { slots, derives, resources, pending, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }

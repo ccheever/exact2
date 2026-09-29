@@ -104,7 +104,7 @@ function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n)
 // For loaded pieces (list.js): scopes, untracked reads, writes, the owner in
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
-export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket;
+export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
 
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
@@ -389,7 +389,7 @@ export function mut(name, slot, refreshes, type) {
   Object.assign(m, {
     forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
     send(source, args, undo) {
-      const a = ask(source, args);
+      const a = ask(source, args, name);
       if (a && "v" in a) {
         if (type && !conforms(a.v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
         landWrite(a.v, undo);

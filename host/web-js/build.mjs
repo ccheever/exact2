@@ -93,7 +93,14 @@ for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js'
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
-if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')));
+// A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
+const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
+const auth = /^\s*auth\.session\s/m.test(grants);
+if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts'))
+  .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
+  .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
+for (const f of ['auth-glue.js', 'storage-environment.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
@@ -152,6 +159,16 @@ if (gpuFrom && existsSync(resolve(gpuFrom, 'gpu.js'))) {
   for (const f of ['gpu.js', 'gpu_bg.wasm']) cpSync(resolve(gpuFrom, f), resolve(out, f));
   for (const f of ['gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
   if (existsSync(resolve(gpuFrom, 'shaders'))) cpSync(resolve(gpuFrom, 'shaders'), resolve(out, 'shaders'), { recursive: true });
+}
+// The web's auth callback page (host/web/build.mjs does the same for the wasm target).
+if (auth) {
+  mkdirSync(resolve(out, '.exact/auth'), { recursive: true });
+  cpSync(resolve(root, 'host/web/auth-callback.html'), resolve(out, '.exact/auth/callback'));
+  cpSync(resolve(root, 'host/web/auth-callback.js'), resolve(out, '.exact/auth/callback.js'));
+  const { authClientMetadata } = await import('../../scripts/app.mjs');
+  const callbacks = grants.split('\n').map(l => l.trim()).filter(l => l.startsWith('auth.callback ')).map(l => l.slice(14).trim());
+  const docs = authClientMetadata({ origin: manifest.app?.origin ?? null, displayName: manifest.app?.name ?? manifest.name, manifest }, callbacks);
+  for (const [name, doc] of Object.entries(docs)) writeFileSync(resolve(out, `.exact/auth/${name}.json`), JSON.stringify(doc, null, 2) + '\n');
 }
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });

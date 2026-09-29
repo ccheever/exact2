@@ -580,7 +580,8 @@ export function jsTargetBuild(dist) {
 export function buildTreeFile(dist, pathname) {
   let path;
   try { path = decodeURIComponent(pathname); } catch { return null; }
-  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.split('/').some((part) => part.startsWith('.'))) return null;
+  // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`).
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.'))) return null;
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
   for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
