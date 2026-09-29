@@ -188,12 +188,15 @@ extension NodeView {
 
     var canRasterText: Bool {
         if textRasterFailed, textRasterKey != nil { return false }
-        guard readerParagraph == nil, kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, window != nil,
-              bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
-              number("line_clamp") == 0, canvasAbove == nil, !paragraphSpec().ellipsis, let presenter else { return false }
-        if presenter.session?.regions.owns(self) == true { return false }
+        // Cheapest first: this is asked of every visible paragraph on every
+        // text refresh, and the ancestor walk and the paragraph's spec are
+        // the costly questions.
+        guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing,
+              bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
+              number("line_clamp") == 0, window != nil, readerParagraph == nil, let presenter else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
-        return !textIsSmall
+        if presenter.session?.regions.owns(self) == true { return false }
+        return canvasAbove == nil && !paragraphSpec().ellipsis
     }
 
     /// Too few pixels to repay a surface. Such text draws whole rather than in
