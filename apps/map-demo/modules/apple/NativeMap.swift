@@ -42,7 +42,9 @@ private final class Pin: MKPointAnnotation {
 /// MapKit's delegate is an NSObject; the instance is not.
 private final class MapDelegate: NSObject, MKMapViewDelegate {
     var selected: ((MKAnnotation) -> Void)?
+    var rendered: (() -> Void)?
     func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) { if let a = view.annotation { selected?(a) } }
+    func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) { rendered?() }
 }
 
 final class NativeMap: ExactNativeInstance {
@@ -52,10 +54,13 @@ final class NativeMap: ExactNativeInstance {
     private var applying = false
     /// Reset for reuse: the next props are a first mount (LLP 1068 §4.8).
     private var fresh = false
+    /// Reused and set to its new region: `load` waits for the first draw of it.
+    private var awaiting = 0
 
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
         delegate.selected = { [weak self] annotation in self?.didSelect(annotation) }
+        delegate.rendered = { [weak self] in self?.renderedAfterReuse() }
         map.delegate = delegate
         #if os(macOS)
         map.showsZoomControls = true
@@ -73,6 +78,20 @@ final class NativeMap: ExactNativeInstance {
         guard fresh else { return apply(props, first: false) }
         fresh = false
         apply(props, first: true)
+        // The host keeps a reused view transparent until `load`, so the last
+        // row's tiles never show; `load` comes with the new region's first
+        // draw, or after half a second if MapKit reports none.
+        awaiting += 1
+        let token = awaiting
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.awaiting == token else { return }
+            self.renderedAfterReuse()
+        }
+    }
+
+    private func renderedAfterReuse() {
+        guard awaiting != 0 else { return }
+        awaiting = 0
         events.load()
     }
 
@@ -95,14 +114,6 @@ final class NativeMap: ExactNativeInstance {
         map.isUserInteractionEnabled = true
         map.accessibilityLabel = "Map of stores"
         #endif
-        // The last row's tiles: MapKit's drawable stays in its Metal layer
-        // until it draws again, so the layer is emptied, and the map shows
-        // its own blank ground, as a new map does, until the new region draws.
-        func empty(_ layer: CALayer) {
-            if layer is CAMetalLayer { layer.contents = nil }
-            layer.sublayers?.forEach(empty)
-        }
-        (map.layer as CALayer?).map(empty)
         let camera = map.camera.copy() as! MKMapCamera
         camera.heading = 0; camera.pitch = 0
         map.setCamera(camera, animated: false)
