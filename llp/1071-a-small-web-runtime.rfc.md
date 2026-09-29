@@ -308,12 +308,49 @@ first press or edit. On every policy a press before activation starts the
 import and replays once. The runtime runs the route's components against the
 checkpoint, claiming existing nodes by `data-s` instead of creating them. A
 mismatch renders fresh once, as today. The difference is ~20 KB to fetch
-instead of ~330. On the RealWorld bench (mobile profile, median of 5,
-same-session controls): runtime up with no input at 656 ms against React
-SSR's 960; a page-2 press at load answered 404 ms after it against React
-SSR's 420 (it was 732 under `interaction`); FCP 368 against 388; 28.3 KB of
-code before interactive (realworld-bench `bench/results/eager.md`;
-exact3-web-spike `010eb365`).
+instead of ~330.
+
+**Early flush.** The render server sends a page's head as a browser's
+navigation (`Sec-Fetch-Dest: document`) arrives, before any data is asked:
+doctype, charset, the capture script, the entry's `modulepreload`s and the
+stylesheet, after a 103 Early Hints naming the same preloads. The title,
+metas, document and checkpoint follow when the render settles, as one
+chunked, brotli-flushed response (`host/render/src/stream.rs`). The status
+goes with the head, so a flushed page is a `200`, `private, no-cache`, with
+no ETag. A render that then turns 404, 410 or 503 sends that document; one
+that fails sends the 500's text after the head; only a flushed 200 is kept
+at the origin. Crawlers, `curl`, CDNs, conditional requests and `HEAD` send
+no `Sec-Fetch-Dest`, so they still wait and get the real status and
+validators. A flushed page needs `lang`/`dir` that the plan alone decides. The
+JS render path (`render.mjs --serve`) streams the same way. Chrome acts on a
+103 only over HTTP/2, so on the bench's HTTP/1.1 loopback the 103 changes
+nothing; it is there for a CDN in front.
+
+**A smaller page.** The checkpoint's answers are JSON text (lossless:
+records `{"r":[…]}`, `some` `{"s":…}`, `none` `{}`; `-0` and non-finite
+numbers kept), not base64 value bytes, so brotli matches them against the
+document's own strings. The Rust document over the JS shell carries the
+stylesheet's class where an inline style equals one, and drops the wasm
+runtime's view ids (a link keeps an empty `data-view`, as the runtime's
+links have). RealWorld `/`: 9,652 → 6,388 B brotli as sent, pixel-identical
+with and without JavaScript. Adoption is unchanged: RealWorld 21/21 served
+(`--urls`) and client-rendered, Weatherlight 12/12, the synthetic plans
+green.
+
+**On the RealWorld bench** (mobile profile, 25 runs interleaved, medians
+with p25/p75, same-session React and Octane SSR controls;
+realworld-bench `bench/results/flush20.md`, `flush170.md`; exact3-web-spike
+`1877567a`, `59099fbf`), rendering every request as the SSR servers do:
+
+| API per answer | FCP (JS / React SSR / Octane SSR) | runtime up, no input | page-2 press → answered | code KB before interactive |
+|---|---|---|---|---|
+| 20 ms | 388 (316–396) / 344 (312–392) / 372 (328–404) | 659 / 950 / 1,091 | 453 / 407 / 390 | 26.1 / 81.0 / 103.8 |
+| 170 ms | 372 (328–404) / 360 (312–384) / 372 (308–400) | 645 / 948 / 1,038 | 307 / 324 / 283 | 26.1 / 81.0 / 103.8 |
+
+FCP stays within noise for all three at both API speeds. The emulated 150 ms
+RTT and 1.6 Mbps link set it, and the flush keeps a 170 ms backend out of it.
+The runtime is up about 300 ms before React SSR hydrates, on a third of
+React's code. The page-2 press is within noise.
 
 **Every served page becomes a conformance fixture.** Adoption succeeds only if
 the JavaScript runner's canonical document equals the Rust renderer's.
