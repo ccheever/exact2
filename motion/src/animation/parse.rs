@@ -151,6 +151,12 @@ impl Animations {
 
     /// The shorthand, every longhand spelled out, as CSS reads it.
     pub fn css(&self) -> String {
+        self.css_named(&|a| std::borrow::Cow::Borrowed(&a.name))
+    }
+
+    /// [`Animations::css`], each entry naming the rule `name` gives it (a
+    /// host's variant of a rule, say).
+    pub fn css_named(&self, name: &dyn Fn(&Animation) -> std::borrow::Cow<'_, str>) -> String {
         if self.0.is_empty() {
             return "none".into();
         }
@@ -177,7 +183,7 @@ impl Animations {
                 a.direction.name(),
                 a.fill.name(),
                 if a.paused { "paused" } else { "running" },
-                css_ident(&a.name)
+                css_ident(&name(a))
             );
         }
         out

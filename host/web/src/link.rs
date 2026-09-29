@@ -68,8 +68,9 @@ pub struct Linked {
     /// `filter`'s and `clip-path`'s grammars (LLP 1055.000 D10, D14):
     /// linked at [`link`].
     pub effects: Option<fn()>,
-    /// CSS animations' grammars (LLP 1055 D5): linked at [`link`].
-    pub animations: Option<fn()>,
+    /// CSS animations (LLP 1055 D5): their grammars, linked at [`link`],
+    /// and the page's CSS for them.
+    pub animations: Option<AnimationsLink>,
     /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
@@ -80,6 +81,22 @@ pub struct Linked {
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
 /// style, and the line to log, once, for a name the table lacks.
 pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
+
+/// CSS animations on the page (LLP 1055 D5, D7), which only an artifact that
+/// animates carries: the grammars' link, a node's `animation` list as CSS
+/// and each entry's `@keyframes` rule, by name and body. `bool` is whether the
+/// node's press feedback composes through `--exact-scale` (LLP 1061).
+#[derive(Clone, Copy)]
+pub struct AnimationsLink {
+    /// Link the grammars.
+    pub grammars: fn(),
+    /// A node's `animation` (or `exit-animation`) list as CSS.
+    pub list: fn(&exact_motion::animation::Animations, bool) -> String,
+    /// The name of the rule an entry plays.
+    pub name: fn(&exact_motion::animation::Animation, bool) -> String,
+    /// That rule's body.
+    pub body: fn(&exact_motion::animation::Animation, bool) -> String,
+}
 
 /// A file input's `change` payload, read: [`exact_runner::Picked::payload`].
 pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
@@ -195,8 +212,8 @@ pub fn link(linked: Linked) {
     if let Some(link) = linked.effects {
         link();
     }
-    if let Some(link) = linked.animations {
-        link();
+    if let Some(a) = linked.animations {
+        (a.grammars)();
     }
     if let Some(link) = linked.gradients {
         link();

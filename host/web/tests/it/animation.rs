@@ -49,7 +49,7 @@ fn each_rule_reaches_the_page_once_before_the_declaration_naming_it() {
     assert_eq!((breathe.as_str(), appear.as_str()), ("breathe", "appear"));
     assert_eq!(
         breathe_rule,
-        "0%{opacity:0.4;scale:0.9;--exact-scale:0.9;}50%{opacity:1;}100%{opacity:0.4;}"
+        "0%{opacity:0.4;scale:0.9;}50%{opacity:1;}100%{opacity:0.4;}"
     );
     assert_eq!(
         appear_rule,

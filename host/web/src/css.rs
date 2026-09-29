@@ -36,7 +36,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
     // @ref LLP 1061's ruling: the row and host feedback are independent
     // CSS numbers, multiplied through `scale` without writing `transform`.
-    let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
+    let press = press_composes(style);
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
@@ -86,8 +86,8 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // @ref LLP 1055 D5/D7 — the browser runs it; the rule it names
             // is in the page's stylesheet (`Batch::keyframes`).
             (StyleId::Animation, RowValue::Animations(a)) => {
-                if !a.0.is_empty() {
-                    push_text!(&mut out, "animation:{};", a.css());
+                if let Some(link) = crate::link::linked().animations.filter(|_| !a.0.is_empty()) {
+                    push_text!(&mut out, "animation:{};", (link.list)(a, press));
                 }
             }
             // @ref LLP 1063 — not CSS properties: custom properties the page's
@@ -98,8 +98,12 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // so the module is fetched before the first exit needs it. The
             // rules it names are in the page's stylesheet, as `animation`'s.
             (StyleId::ExitAnimation, RowValue::Animations(a)) => {
-                if !a.0.is_empty() {
-                    push_text!(&mut out, "--exact-exit-animation:{};", a.css());
+                if let Some(link) = crate::link::linked().animations.filter(|_| !a.0.is_empty()) {
+                    push_text!(
+                        &mut out,
+                        "--exact-exit-animation:{};",
+                        (link.list)(a, press)
+                    );
                 }
             }
             // @ref LLP 1057.003 D2 — a drag timeline is no timeline the
@@ -256,11 +260,43 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     (out, skipped)
 }
 
-/// A scale keyframe also supplies the row number used by pressable nodes.
-/// Their important `scale` composition wins over the animation's scale;
-/// ordinary nodes still animate CSS `scale` directly.
-pub(crate) fn keyframes_css(frames: &exact_motion::animation::Keyframes) -> String {
-    let text = frames.css();
+/// Whether a node's press feedback composes through `--exact-scale`
+/// (LLP 1061): its `scale` is the important product of the row's number and
+/// the feedback's factor, so an animation of `scale` reaches it only through
+/// `--exact-scale`.
+pub(crate) fn press_composes(style: &StyleProps) -> bool {
+    style.mask.has(StyleId::PressScale) && style.press_scale != 1.0
+}
+
+/// Whether `a` needs the pressable node's rule: its keyframes animate `scale`.
+fn press_rule(a: &exact_motion::animation::Animation, press: bool) -> bool {
+    press
+        && a.keyframes
+            .0
+            .iter()
+            .any(|f| f.values.iter().any(|(p, _)| *p == Property::Scale))
+}
+
+/// The `@keyframes` rule's name an animation plays on a node: its own, or, on
+/// a pressable node whose keyframes animate `scale`, the rule that also
+/// animates `--exact-scale`. An animated custom property keeps Chrome from
+/// compositing the whole animation, so only the nodes that read one get it.
+pub fn keyframes_name(a: &exact_motion::animation::Animation, press: bool) -> String {
+    let mut name = a.name.clone();
+    if press_rule(a, press) {
+        name.push_str("-exact-press");
+    }
+    name
+}
+
+/// The body of the rule [`keyframes_name`] names. The pressable node's copies
+/// each `scale` keyframe into `--exact-scale`: its important `scale`
+/// composition wins over the animation's own.
+pub fn keyframes_css(a: &exact_motion::animation::Animation, press: bool) -> String {
+    let text = a.keyframes.css();
+    if !press_rule(a, press) {
+        return text;
+    }
     let mut out = String::new();
     let mut rest = text.as_str();
     while let Some(at) = rest.find("scale:") {
@@ -272,6 +308,31 @@ pub(crate) fn keyframes_css(frames: &exact_motion::animation::Keyframes) -> Stri
     }
     out.push_str(rest);
     out
+}
+
+/// Send each `@keyframes` rule `style`'s animations name, and its exit's,
+/// that the page lacks (`sent`), once, by name (LLP 1055 D7).
+pub(crate) fn send_keyframes(
+    sent: &mut exact_kernel::SortedSet<String>,
+    style: &StyleProps,
+    batch: &mut crate::batch::Batch,
+) {
+    let Some(link) = crate::link::linked().animations else {
+        return;
+    };
+    let press = press_composes(style);
+    for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+        let name = (link.name)(a, press);
+        if !sent.contains(&name) {
+            batch.keyframes(&name, &(link.body)(a, press));
+            sent.insert(name);
+        }
+    }
+}
+
+/// An `animation` list as CSS, naming [`keyframes_name`]'s rules.
+pub fn animations_css(a: &exact_motion::animation::Animations, press: bool) -> String {
+    a.css_named(&|a| std::borrow::Cow::Owned(keyframes_name(a, press)))
 }
 
 fn is_generic_family(value: &str) -> bool {
@@ -995,6 +1056,34 @@ mod declaration_tests {
                 &[]
             ),
             "transition:opacity 1s ease 0s;"
+        );
+    }
+    /// Only a pressable node's scale animation also animates
+    /// `--exact-scale`, under a rule of its own: an animated custom property
+    /// keeps Chrome from compositing the animation (a pan/zoom re-rastered
+    /// its picture every frame).
+    #[test]
+    fn only_a_pressable_node_animates_the_scale_custom_property() {
+        use exact_motion::animation::{Animations, Keyframes};
+        let mut list = Animations::parse("grow 1s linear infinite, fade 2s").unwrap();
+        list.0[0].keyframes =
+            Keyframes::parse("from{scale:1;translate:0px 0px}to{scale:1.6}").unwrap();
+        list.0[1].keyframes = Keyframes::parse("to{opacity:0}").unwrap();
+        let (grow, fade) = (&list.0[0], &list.0[1]);
+        assert_eq!(keyframes_name(grow, false), "grow");
+        assert!(
+            !keyframes_css(grow, false).contains("--exact"),
+            "{}",
+            keyframes_css(grow, false)
+        );
+        assert_eq!(keyframes_name(grow, true), "grow-exact-press");
+        assert!(keyframes_css(grow, true).contains("scale:1.6;--exact-scale:1.6;"));
+        // A pressable node's animation that leaves `scale` alone keeps its rule.
+        assert_eq!(keyframes_name(fade, true), "fade");
+        assert_eq!(animations_css(&list, false), list.css());
+        assert_eq!(
+            animations_css(&list, true),
+            list.css().replace(" grow,", " grow-exact-press,")
         );
     }
 }

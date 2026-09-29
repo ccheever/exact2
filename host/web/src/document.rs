@@ -192,20 +192,20 @@ impl<D: DataSource> Walk<'_, D> {
         let (text, _) = css::css_text(&super::css_style(kernel, &node), &self.fonts);
         // The rules its animations name, for the head: a reader without
         // JavaScript sees them play (LLP 1055 D7).
-        for a in node
-            .style
-            .animation
-            .0
-            .iter()
-            .chain(&node.style.exit_animation.0)
-        {
-            if self.keyframes.get(&a.name).is_none() {
-                let rule = format!(
-                    "@keyframes {}{{{}}}",
-                    a.name,
-                    crate::css::keyframes_css(&a.keyframes)
-                );
-                self.keyframes.insert(a.name.clone(), rule);
+        if let Some(link) = crate::link::linked().animations {
+            let press = css::press_composes(&node.style);
+            for a in node
+                .style
+                .animation
+                .0
+                .iter()
+                .chain(&node.style.exit_animation.0)
+            {
+                let name = (link.name)(a, press);
+                if self.keyframes.get(&name).is_none() {
+                    let rule = format!("@keyframes {}{{{}}}", name, (link.body)(a, press));
+                    self.keyframes.insert(name, rule);
+                }
             }
         }
         let mut style = host_css(&node, text, tag);

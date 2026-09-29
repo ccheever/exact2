@@ -908,8 +908,14 @@ impl<D: DataSource> Host<D> {
             // Before the destroys that follow it (LLP 1063): the page reads
             // the leaving view's geometry before any op of the batch moves it.
             for exit in &r.exits {
-                if let Some(id) = self.keys.get(&exit.key) {
-                    batch.exit(*id, &exit.animations.css());
+                let link = crate::link::linked().animations;
+                if let (Some(id), Some(link)) = (self.keys.get(&exit.key), link) {
+                    let press = self
+                        .runner
+                        .kernel()
+                        .node(*id)
+                        .is_some_and(|n| crate::css::press_composes(&n.style));
+                    batch.exit(*id, &(link.list)(&exit.animations, press));
                 }
             }
             for key in &r.destroyed {
@@ -1333,17 +1339,7 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
-        for a in node
-            .style
-            .animation
-            .0
-            .iter()
-            .chain(&node.style.exit_animation.0)
-        {
-            if self.keyframes.insert(a.name.clone()) {
-                batch.keyframes(&a.name, &crate::css::keyframes_css(&a.keyframes));
-            }
-        }
+        crate::css::send_keyframes(&mut self.keyframes, &node.style, batch);
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
         let kept = match self.computed.last() {
@@ -1402,17 +1398,7 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
-        for a in node
-            .style
-            .animation
-            .0
-            .iter()
-            .chain(&node.style.exit_animation.0)
-        {
-            if self.keyframes.insert(a.name.clone()) {
-                batch.keyframes(&a.name, &crate::css::keyframes_css(&a.keyframes));
-            }
-        }
+        crate::css::send_keyframes(&mut self.keyframes, &node.style, batch);
         // @ref LLP 1053.000 D4 — a computed name the table lacks draws
         // ultra-thin, and says so once.
         let note = node

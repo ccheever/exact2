@@ -52,4 +52,4 @@ pub mod parity;
 mod textflow_tests;
 
 pub use host::{document, DragHooks, Host, HostError, HostLinks};
-pub use link::{link, Linked};
+pub use link::{link, AnimationsLink, Linked};
