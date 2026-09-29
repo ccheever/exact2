@@ -63,6 +63,8 @@ final class Presenter {
     lazy var navigation = NavigationHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
+    /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
+    let boxFilters = BoxFilters()
     let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
@@ -783,6 +785,7 @@ final class Presenter {
                 geometry?()
                 for (id, f) in q where textHost(id) != nil { f() }
                 batchApplied()
+                if !boxFilters.isEmpty { boxFilters.render() }
             }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }

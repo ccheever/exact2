@@ -53,6 +53,8 @@ final class Presenter {
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
+    /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
+    let boxFilters = BoxFilters()
     let canvas2d = Canvas2DHost()
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
@@ -617,6 +619,7 @@ final class Presenter {
             if outermost {
                 applying = false
                 paintPresentedText()
+                if !boxFilters.isEmpty { boxFilters.render() }
                 videoVisibility?.changed()
                 let q = waiting
                 waiting = []

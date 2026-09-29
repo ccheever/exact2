@@ -30,6 +30,7 @@ type Circle = (f32, f32, f32);
 
 mod clip;
 mod filter;
+pub use filter::box_filter;
 mod hit;
 mod island;
 mod marker;

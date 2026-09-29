@@ -996,6 +996,35 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         setNeedsDisplay()
     }
 
+    /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
+    /// picture (`BoxFilter`), drawn again after each batch.
+    private var boxFilter: BoxFilter?
+    func applyFilter() {
+        let f = boxFilter ?? BoxFilter()
+        if f.set(style["filter"]) {
+            boxFilter = f
+            layer.mask = f.hide
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
+            renderFilter()
+        } else if let f = boxFilter {
+            f.remove()
+            boxFilter = nil
+            presenter?.boxFilters.remove(self)
+            layer.mask = ClipPath.mask(clipPath, clipRule)
+        }
+    }
+
+    func renderFilter() {
+        guard let f = boxFilter else { return }
+        guard superview != nil else { f.remove(); return }
+        f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.screen.scale ?? traitCollection.displayScale)
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+    }
+
     func updateKeyboardDismissal() {
         switch props["keyboardDismissMode"] {
         case "interactive": scroll?.keyboardDismissMode = .interactive
@@ -1010,6 +1039,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         updateSymbol()
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         layer.mask = ClipPath.mask(clipPath, clipRule)
+        applyFilter()
         updateMaterial()
         syncScroll()
         styleTextArea()

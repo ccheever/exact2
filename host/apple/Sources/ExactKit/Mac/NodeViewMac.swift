@@ -984,6 +984,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
         layer?.mask = ClipPath.mask(clipPath, clipRule)
+        applyFilter()
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
@@ -1073,11 +1074,40 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
+    /// picture (`BoxFilter`), drawn again after each batch.
+    private var boxFilter: BoxFilter?
+    func applyFilter() {
+        let f = boxFilter ?? BoxFilter()
+        if f.set(style["filter"]) {
+            boxFilter = f
+            layer?.mask = f.hide
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
+            renderFilter()
+        } else if let f = boxFilter {
+            f.remove()
+            boxFilter = nil
+            presenter?.boxFilters.remove(self)
+            layer?.mask = ClipPath.mask(clipPath, clipRule)
+        }
+    }
+
+    func renderFilter() {
+        guard let f = boxFilter, let layer else { return }
+        guard superview != nil else { f.remove(); return }
+        f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.backingScaleFactor ?? 2)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+    }
+
     func prepareToMount() {
         guard kind == "text" else { return }
         wantsLayer = true
         applyShadow()
-        layer?.mask = ClipPath.mask(clipPath, clipRule)
+        layer?.mask = boxFilter?.hide ?? ClipPath.mask(clipPath, clipRule)
         layer?.zPosition = number("z_index")
         applyTransform()
     }

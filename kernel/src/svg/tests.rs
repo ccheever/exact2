@@ -323,3 +323,25 @@ fn a_filter_chain_reaches_as_far_as_its_primitives_read() {
     );
     assert_eq!(chain(vec![Op::Tile]).reach(), None);
 }
+
+#[test]
+fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
+    use crate::svg::filter::{FilterList, Op};
+    let black = crate::style::Color::rgba(0, 0, 0, 255);
+    let blur =
+        crate::svg::scene::box_filter(&FilterList::parse("blur(2px)").unwrap(), black).unwrap();
+    assert_eq!(
+        blur.region,
+        (-6.0, -6.0, 12.0, 12.0),
+        "how far past the box it reaches"
+    );
+    assert!(matches!(blur.primitives[0].op, Op::Blur(s, t) if s == 2.0 && t == 2.0));
+    let chain = crate::svg::scene::box_filter(
+        &FilterList::parse("drop-shadow(0 10px 12px) saturate(1.8)").unwrap(),
+        black,
+    )
+    .unwrap();
+    assert_eq!(chain.primitives.len(), 2);
+    assert!(crate::svg::scene::box_filter(&FilterList::parse("url(#f)").unwrap(), black).is_none());
+    assert!(crate::svg::scene::box_filter(&FilterList::parse("none").unwrap(), black).is_none());
+}

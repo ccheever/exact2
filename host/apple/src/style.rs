@@ -216,8 +216,34 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             | RowValue::Transform(_)
             | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
-            | RowValue::Filter(_)
             | RowValue::Animations(_) => false,
+            // @ref LLP 1055.000 D14 — CSS `filter` on a box: its chain over a
+            // box of no size (the region is how far past the box it reaches)
+            // and how far it reads; the presenter adds the box's size.
+            RowValue::Filter(list) => {
+                match exact_kernel::svg::scene::box_filter(list, style.text_color.resolve(false)) {
+                    Some(f) => {
+                        out.push_str("{\"p\":[");
+                        for (i, v) in f.encode().iter().enumerate() {
+                            if i > 0 {
+                                out.push(',');
+                            }
+                            push_num(&mut out, *v);
+                        }
+                        out.push(']');
+                        if let Some((units, pixels)) = f.reach() {
+                            out.push_str(",\"rc\":[");
+                            push_num(&mut out, units);
+                            out.push(',');
+                            push_num(&mut out, pixels);
+                            out.push(']');
+                        }
+                        out.push('}');
+                        true
+                    }
+                    None => false,
+                }
+            }
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,

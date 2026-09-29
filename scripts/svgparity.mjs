@@ -18,7 +18,8 @@ const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 3;
 const TEXT = /^fx-(axis|baselines|runs|boxcolor)$/;
 // A fixture a host declares unsupported is not compared there: iOS has no
 // public blend on a layer (LLP 1055.000 §8 ruling 6).
-const UNSUPPORTED = { ios: /^fx-mix$/ };
+// Linux draws a box's CSS `filter` unfiltered for now (QUEUE).
+const UNSUPPORTED = { ios: /^fx-mix$/, linux: /^fx-box-filter$/ };
 // Core Animation blends in the display's colour space, CSS in sRGB (LLP
 // 1055.000 §0, stage 10): macOS's blend fixture is held to a looser share.
 const limits = (host, id) => (host === 'linux' && TEXT.test(id) ? { mean: 14, off: 0.16 } : host === 'macos' && id === 'fx-mix' ? { mean: MEAN, off: 0.16 } : { mean: MEAN, off: OFF });

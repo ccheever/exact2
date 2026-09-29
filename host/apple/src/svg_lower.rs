@@ -322,6 +322,7 @@ pub(crate) fn eligibility(
             .any(|p| matches!(p, Property::Cx | Property::Cy));
         let sampled = if paired
             || engine.timeline_bound(*node)
+            || under_box_filter(kernel, &n)
             || (boxed && svg && !svg_turns(kernel, &n, &props))
             || (moves && !circle_moves(kernel, &n, &props))
         {
@@ -407,6 +408,25 @@ fn circle_moves(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>, props: &[Propert
         && s.filter.is_none()
         && !served(&s.fill)
         && !served(&s.stroke)
+}
+
+/// Whether a node is drawn into a filtered box's picture (CSS `filter` on
+/// a box, `BoxFilter` on Apple): it or a box above it has a filter, so its
+/// animations are sampled and each frame redraws the picture.
+fn under_box_filter(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    let filtered =
+        |a: &exact_kernel::NodeRef<'_>| !a.node_type.is_svg_element() && !a.style.filter.is_none();
+    if filtered(n) {
+        return true;
+    }
+    let mut up = n.parent;
+    while let Some(a) = up.and_then(|id| kernel.node(id)) {
+        if filtered(&a) {
+            return true;
+        }
+        up = a.parent;
+    }
+    false
 }
 
 /// Whether an element is drawn only into pixels, where a layer's own

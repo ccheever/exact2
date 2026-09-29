@@ -529,6 +529,13 @@ component StageNine
       rect x=44 y=8 width=32 height=64 fill="#16a34a" filter="url(#screen)"
       rect x=82 y=8 width=32 height=64 fill="#2563eb" filter="url(#mix)"
     // CSS filter functions on SVG elements, and a list mixing both.
+    // CSS `filter` on boxes (Filter Effects 1 §12): each box and what it
+    // holds drawn, the chain over that picture.
+    row testId="fx-box-filter" class=Tile gap=10 padding-left=8 padding-right=8 align-items="center"
+      box width=26 height=26 border-radius=6 background-color="#ef4444" filter="grayscale(1) brightness(1.2)"
+      box width=26 height=26 border-radius=13 background-color="#0ea5e9" border-width=3 border-style="solid" border-color="#0f172a" filter="blur(2px)"
+      box width=26 height=26 background-color="#22c55e" filter="drop-shadow(3px 4px 2px #0f172a) hue-rotate(90deg) saturate(1.5)"
+        box width=12 height=12 margin-left=7 margin-top=7 background-color="#fde047"
     svg testId="fx-css" class=Tile viewBox="0 0 120 80"
       defs
         filter id="tint" color-interpolation-filters="sRGB"

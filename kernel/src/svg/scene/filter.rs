@@ -141,6 +141,165 @@ impl Chain {
     }
 }
 
+/// One CSS filter function (Filter Effects 1 §12) appended to `chain`, its
+/// `SourceGraphic` the chain so far, growing the region from `visual` (the
+/// box it filters, with any stroke) by what it spreads.
+fn function(
+    chain: &mut Chain,
+    f: &FilterFn,
+    visual: Option<Rect>,
+    text_color: crate::style::Color,
+) {
+    let src = chain.source();
+    let grow = |chain: &mut Chain, by: Rect| {
+        if let Some(v) = visual {
+            let r = (v.0 + by.0, v.1 + by.1, v.2 + by.2, v.3 + by.3);
+            chain.region = Some(chain.region.map_or(r, |c| union(c, r)));
+        }
+    };
+    let all = (-1.0e6, -1.0e6, 2.0e6, 2.0e6);
+    let transfer = |chain: &mut Chain, f: [Transfer; 4]| {
+        chain.push(Op::ComponentTransfer(Box::new(f)), [src, Input::None], all);
+    };
+    match f {
+        FilterFn::Url(_) => {}
+        FilterFn::Blur(s) => {
+            chain.push(Op::Blur(*s, *s), [src, Input::None], all);
+            let g = 3.0 * s;
+            grow(&mut *chain, (-g, -g, 2.0 * g, 2.0 * g));
+        }
+        FilterFn::DropShadow(dx, dy, blur, color) => {
+            let color = color.unwrap_or(text_color);
+            let s = blur / 2.0;
+            chain.push(
+                Op::DropShadow(s, s, *dx, *dy, rgba(color, 1.0)),
+                [src, Input::None],
+                all,
+            );
+            let g = 3.0 * s;
+            grow(
+                &mut *chain,
+                (
+                    dx.min(0.0) - g,
+                    dy.min(0.0) - g,
+                    dx.abs() + 2.0 * g,
+                    dy.abs() + 2.0 * g,
+                ),
+            );
+        }
+        FilterFn::Brightness(a) => {
+            let l = Transfer::Linear(*a, 0.0);
+            transfer(&mut *chain, [l.clone(), l.clone(), l, Transfer::Identity]);
+        }
+        FilterFn::Contrast(a) => {
+            let l = Transfer::Linear(*a, 0.5 - 0.5 * a);
+            transfer(&mut *chain, [l.clone(), l.clone(), l, Transfer::Identity]);
+        }
+        FilterFn::Invert(a) => {
+            let t = Transfer::Table(vec![*a, 1.0 - a]);
+            transfer(&mut *chain, [t.clone(), t.clone(), t, Transfer::Identity]);
+        }
+        FilterFn::Opacity(a) => transfer(
+            &mut *chain,
+            [
+                Transfer::Identity,
+                Transfer::Identity,
+                Transfer::Identity,
+                Transfer::Table(vec![0.0, *a]),
+            ],
+        ),
+        FilterFn::Saturate(a) => {
+            chain.push(Op::ColorMatrix(saturate(*a)), [src, Input::None], all);
+        }
+        FilterFn::HueRotate(a) => {
+            chain.push(Op::ColorMatrix(hue_rotate(*a)), [src, Input::None], all);
+        }
+        FilterFn::Grayscale(a) => {
+            let s = 1.0 - a;
+            let m = [
+                0.2126 + 0.7874 * s,
+                0.7152 - 0.7152 * s,
+                0.0722 - 0.0722 * s,
+                0.0,
+                0.0,
+                0.2126 - 0.2126 * s,
+                0.7152 + 0.2848 * s,
+                0.0722 - 0.0722 * s,
+                0.0,
+                0.0,
+                0.2126 - 0.2126 * s,
+                0.7152 - 0.7152 * s,
+                0.0722 + 0.9278 * s,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ];
+            chain.push(Op::ColorMatrix(m), [src, Input::None], all);
+        }
+        FilterFn::Sepia(a) => {
+            let s = 1.0 - a;
+            let m = [
+                0.393 + 0.607 * s,
+                0.769 - 0.769 * s,
+                0.189 - 0.189 * s,
+                0.0,
+                0.0,
+                0.349 - 0.349 * s,
+                0.686 + 0.314 * s,
+                0.168 - 0.168 * s,
+                0.0,
+                0.0,
+                0.272 - 0.272 * s,
+                0.534 - 0.534 * s,
+                0.131 + 0.869 * s,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ];
+            chain.push(Op::ColorMatrix(m), [src, Input::None], all);
+        }
+    }
+    if !matches!(
+        f,
+        FilterFn::Url(_) | FilterFn::Blur(_) | FilterFn::DropShadow(..)
+    ) {
+        grow(&mut *chain, (0.0, 0.0, 0.0, 0.0));
+    }
+}
+
+/// CSS `filter` on an HTML box (Filter Effects 1 §12): the functions' chain
+/// over a box of no size, so its region is how far past the box the
+/// result reaches (a host adds the box's size); its subregions are the
+/// whole region. `None` for `none`, or a list naming a `filter` element,
+/// which a box does not take.
+pub fn box_filter(
+    list: &crate::svg::filter::FilterList,
+    text_color: crate::style::Color,
+) -> Option<Filter> {
+    if list.0.is_empty() || list.0.iter().any(|f| matches!(f, FilterFn::Url(_))) {
+        return None;
+    }
+    let mut chain = Chain {
+        primitives: Vec::new(),
+        region: None,
+    };
+    for f in &list.0 {
+        function(&mut chain, f, Some((0.0, 0.0, 0.0, 0.0)), text_color);
+    }
+    Some(Filter {
+        region: chain.region.unwrap_or((0.0, 0.0, 0.0, 0.0)),
+        primitives: chain.primitives,
+    })
+}
+
 impl Resolver<'_, '_> {
     /// The filter `node`'s `filter` row makes, for an element whose object
     /// bounding box is `bbox`; `None` for `none`.
@@ -173,141 +332,21 @@ impl Resolver<'_, '_> {
             region: None,
         };
         for f in &list.0 {
-            let src = chain.source();
-            let grow = |chain: &mut Chain, by: Rect| {
-                if let Some(v) = visual {
-                    let r = (v.0 + by.0, v.1 + by.1, v.2 + by.2, v.3 + by.3);
-                    chain.region = Some(chain.region.map_or(r, |c| union(c, r)));
-                }
-            };
-            let all = (-1.0e6, -1.0e6, 2.0e6, 2.0e6);
-            let transfer = |chain: &mut Chain, f: [Transfer; 4]| {
-                chain.push(Op::ComponentTransfer(Box::new(f)), [src, Input::None], all);
-            };
-            match f {
-                FilterFn::Url(id) => {
-                    let Some(target) = self
-                        .kernel
-                        .resolve_id(node.id, id)
-                        .and_then(|t| self.kernel.node(t))
-                        .filter(|t| t.node_type == NodeType::SvgFilter)
-                    else {
-                        return Some(nothing);
-                    };
-                    let Some(region) = self.filter_element(&target, bbox, vp, &mut chain) else {
-                        return Some(nothing);
-                    };
-                    chain.region = Some(chain.region.map_or(region, |c| union(c, region)));
-                }
-                FilterFn::Blur(s) => {
-                    chain.push(Op::Blur(*s, *s), [src, Input::None], all);
-                    let g = 3.0 * s;
-                    grow(&mut chain, (-g, -g, 2.0 * g, 2.0 * g));
-                }
-                FilterFn::DropShadow(dx, dy, blur, color) => {
-                    let color = color.unwrap_or(node.style.text_color.resolve(false));
-                    let s = blur / 2.0;
-                    chain.push(
-                        Op::DropShadow(s, s, *dx, *dy, rgba(color, 1.0)),
-                        [src, Input::None],
-                        all,
-                    );
-                    let g = 3.0 * s;
-                    grow(
-                        &mut chain,
-                        (
-                            dx.min(0.0) - g,
-                            dy.min(0.0) - g,
-                            dx.abs() + 2.0 * g,
-                            dy.abs() + 2.0 * g,
-                        ),
-                    );
-                }
-                FilterFn::Brightness(a) => {
-                    let l = Transfer::Linear(*a, 0.0);
-                    transfer(&mut chain, [l.clone(), l.clone(), l, Transfer::Identity]);
-                }
-                FilterFn::Contrast(a) => {
-                    let l = Transfer::Linear(*a, 0.5 - 0.5 * a);
-                    transfer(&mut chain, [l.clone(), l.clone(), l, Transfer::Identity]);
-                }
-                FilterFn::Invert(a) => {
-                    let t = Transfer::Table(vec![*a, 1.0 - a]);
-                    transfer(&mut chain, [t.clone(), t.clone(), t, Transfer::Identity]);
-                }
-                FilterFn::Opacity(a) => transfer(
-                    &mut chain,
-                    [
-                        Transfer::Identity,
-                        Transfer::Identity,
-                        Transfer::Identity,
-                        Transfer::Table(vec![0.0, *a]),
-                    ],
-                ),
-                FilterFn::Saturate(a) => {
-                    chain.push(Op::ColorMatrix(saturate(*a)), [src, Input::None], all);
-                }
-                FilterFn::HueRotate(a) => {
-                    chain.push(Op::ColorMatrix(hue_rotate(*a)), [src, Input::None], all);
-                }
-                FilterFn::Grayscale(a) => {
-                    let s = 1.0 - a;
-                    let m = [
-                        0.2126 + 0.7874 * s,
-                        0.7152 - 0.7152 * s,
-                        0.0722 - 0.0722 * s,
-                        0.0,
-                        0.0,
-                        0.2126 - 0.2126 * s,
-                        0.7152 + 0.2848 * s,
-                        0.0722 - 0.0722 * s,
-                        0.0,
-                        0.0,
-                        0.2126 - 0.2126 * s,
-                        0.7152 - 0.7152 * s,
-                        0.0722 + 0.9278 * s,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        0.0,
-                    ];
-                    chain.push(Op::ColorMatrix(m), [src, Input::None], all);
-                }
-                FilterFn::Sepia(a) => {
-                    let s = 1.0 - a;
-                    let m = [
-                        0.393 + 0.607 * s,
-                        0.769 - 0.769 * s,
-                        0.189 - 0.189 * s,
-                        0.0,
-                        0.0,
-                        0.349 - 0.349 * s,
-                        0.686 + 0.314 * s,
-                        0.168 - 0.168 * s,
-                        0.0,
-                        0.0,
-                        0.272 - 0.272 * s,
-                        0.534 - 0.534 * s,
-                        0.131 + 0.869 * s,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        0.0,
-                    ];
-                    chain.push(Op::ColorMatrix(m), [src, Input::None], all);
-                }
-            }
-            if !matches!(
-                f,
-                FilterFn::Url(_) | FilterFn::Blur(_) | FilterFn::DropShadow(..)
-            ) {
-                grow(&mut chain, (0.0, 0.0, 0.0, 0.0));
+            if let FilterFn::Url(id) = f {
+                let Some(target) = self
+                    .kernel
+                    .resolve_id(node.id, id)
+                    .and_then(|t| self.kernel.node(t))
+                    .filter(|t| t.node_type == NodeType::SvgFilter)
+                else {
+                    return Some(nothing);
+                };
+                let Some(region) = self.filter_element(&target, bbox, vp, &mut chain) else {
+                    return Some(nothing);
+                };
+                chain.region = Some(chain.region.map_or(region, |c| union(c, region)));
+            } else {
+                function(&mut chain, f, visual, node.style.text_color.resolve(false));
             }
         }
         let region = chain.region.unwrap_or((0.0, 0.0, 0.0, 0.0));
