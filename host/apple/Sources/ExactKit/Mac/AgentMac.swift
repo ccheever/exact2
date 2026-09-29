@@ -601,6 +601,7 @@ extension Agent {
             else { return ["error": "no key event"] }
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
+            presenter.flushKeyViewLoop()
             if presenter.shortcuts.perform(down) {
                 return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
             }

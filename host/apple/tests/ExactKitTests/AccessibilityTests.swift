@@ -157,6 +157,22 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(text.canBecomeKeyView, "a key handler makes text focusable, as tabindex=0 does")
         XCTAssertTrue(first.nextKeyView === text)
     }
+    /// A batch marks the loop stale; the next key event rebuilds it before
+    /// AppKit reads `nextKeyView`, so scrolling a list walks no nodes for it.
+    func testTheKeyViewLoopIsRebuiltWhenAKeyNeedsIt() {
+        let (p, w, first, other) = fixture()
+        first.nextKeyView = nil; other.nextKeyView = nil
+        p.keyViewLoopStale = true
+        p.flushKeyViewLoop()
+        XCTAssertFalse(p.keyViewLoopStale)
+        XCTAssertTrue(first.nextKeyView === other)
+        XCTAssertTrue(w.makeFirstResponder(first))
+        w.selectNextKeyView(nil)
+        XCTAssertTrue(w.firstResponder === other)
+        first.nextKeyView = nil
+        p.flushKeyViewLoop()
+        XCTAssertNil(first.nextKeyView, "a fresh loop is not rebuilt")
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"

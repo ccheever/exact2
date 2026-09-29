@@ -945,8 +945,11 @@ final class Presenter {
         toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
+        // The key-view loop is read only by a key event (Tab): it is marked
+        // stale here and rebuilt when one arrives (`flushKeyViewLoop`), not
+        // walked over every mounted node on every batch of a scroll.
         if structureChanged || batch.ops.contains(where: { $0.op == .props }) {
-            syncKeyViewLoop()
+            keyViewLoopStale = true
         }
         refreshVisibleText()
         // The nodes this batch touched and the views above them, as iOS
@@ -1000,6 +1003,18 @@ final class Presenter {
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
     /// at launch (LLP 1014); Tab from the viewport still reaches the first
     /// tabbable. Hidden popover rows stay out (their container is hidden).
+    /// Whether a batch changed what the key-view loop is built from.
+    var keyViewLoopStale = false
+
+    /// Rebuild the key-view loop if a batch left it stale: called for each
+    /// key event before AppKit reads `nextKeyView` (the view's monitor, and
+    /// the agent's `type`, which sends to the window directly).
+    func flushKeyViewLoop() {
+        guard keyViewLoopStale else { return }
+        keyViewLoopStale = false
+        syncKeyViewLoop()
+    }
+
     func syncKeyViewLoop() {
         var listed: [NodeView] = []
         // A paragraph selected by a click is where Tab starts from, as on the

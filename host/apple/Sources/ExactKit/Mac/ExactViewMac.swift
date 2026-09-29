@@ -119,7 +119,9 @@ public final class ExactView: NSView {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-                guard let self, event.window === self.window, self.ownsShortcutFocus() else { return event }
+                guard let self, event.window === self.window else { return event }
+                if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
+                guard self.ownsShortcutFocus() else { return event }
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
                 if event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}
