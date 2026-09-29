@@ -361,8 +361,14 @@ final class CollectionHost {
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
         // One slice in flight at a time, and none before the last one's
-        // retirement: this one stays owed (LLP 1072 §3.1, §5).
-        if filling?() == true || !retireOwed.isEmpty { return 0 }
+        // retirement: this one stays owed (LLP 1071 §3.1, §5).
+        if filling?() == true { return 0 }
+        if !retireOwed.isEmpty {
+            budget.nextTurn()
+            dirty.formUnion(retireOwed.keys)
+            flush()
+            return 0
+        }
         fillPending.remove(view)
         guard let entry = entries[view], batchDepth == 0 else { return 0 }
         let before = Set(entry.snapshot.rows.map(\.view))
@@ -384,10 +390,10 @@ final class CollectionHost {
         if let sent = fillSent.removeValue(forKey: view) { fillLatency[view] = now - sent }
         guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
         retireOwed[view] = limit
-        dirty.insert(view)
-        // The next main-queue turn: the slice's apply and its retirement
-        // are two turns' work, not one (LLP 1072 §5).
-        schedule()
+        // The pump's next frame: the slice's apply and its retirement are
+        // two frames' work, not one (LLP 1071 §5).
+        fillPending.insert(view)
+        requestFill?()
     }
     /// The agent's `clock settle`: every list reports until none is owed a
     /// report, so rows a reply mounted are measured before the agent reads
