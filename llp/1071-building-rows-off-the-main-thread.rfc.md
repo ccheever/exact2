@@ -1,7 +1,7 @@
 # LLP 1071: Building list rows off the main thread
 
 **Type:** RFC
-**Status:** Draft r3. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
+**Status:** Draft r5 (r4: stages 1+2 as built; r5: the revert and the text split, §0.4). Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
 **Systems:**
 - Apple host: `Bridge.swift`'s `Runtime`, `Session.swift` (`wire`, `apply`, `Frames`, boot, pressure), `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/CollectionIOS.swift`, `Mac/PresenterMac.swift`, `Mac/RegionReaderMac.swift`, `Agent.swift`, `Text.swift`, `NodeText.swift`, `Canvas2D*.swift`, `NativeModule.swift`.
 - Apple Rust library: `abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `abi_collections.rs`, `app_module.rs`, `markup.rs`, `textflow.rs`.
@@ -249,6 +249,69 @@ Inside the apply, per node:
 | node-pool take and retire | 20 |
 
 That is stage 4's target. The Rust half of a mount is off main.
+
+## 0.4 The revert and the text split (r5, 2026-09-29)
+
+**What happened.** Stages 1 and 2 landed (496ab5c35) and were reverted
+(951c0677f) the same morning. exact2 crashed on any scroll, on the iPad and
+the iPhone: five crash reports in twelve minutes
+(`~/bench/xheavy/results/main-19-ipad-496-hang/`).
+
+**The cause** was one `TextEngine` shared by two threads. Its residency,
+fonts and break cache have no lock:
+- the owner measured (`measureText` → `paragraph` → `TextResidency.retireWidths`);
+- main painted the same text at the same time (`refreshVisibleText` →
+  `paragraphLayout` → `paragraph` → `trim`, `evict`, `charge`).
+
+T8 (§8.1) had been deferred to "stage 2's concern" and then not built with
+stage 2.
+
+**Why nothing caught it.**
+- The agent, the smokes and every XCTest ran slices synchronously, so the
+  two threads never ran at once there.
+- The iPhone runs that built the lane did not crash. The race was rare
+  enough there and common enough on the iPad.
+
+**The fix is T8 as written.** A session's text is two engines of one kind
+that share nothing:
+- **The painter** paints on main.
+- **The measurer** is touched only by the owner. The kernel's measure hook,
+  font hook and Canvas 2D text hook all get it.
+- **Separate state:** each has its own fonts, shaped text, residency and
+  caches.
+- **What crosses** from a measurement to painting is immutable
+  `LineGeometry` (the nested-list lane's type, `perf/clamp-raster`) in a
+  locked `BreakBoard`. It is keyed by the paragraph's metric content and
+  width, and a font install empties it.
+- **Fonts.** The font hook installs the catalog in the measurer on the
+  owner, and in the painter on main while the owner waits.
+- **Owner-side work.** Checkpoints, font commits and cache trims reach the
+  measurer on the owner.
+- **The macOS reader.** Its held views are readable off main under a lock.
+- **The font registry** is locked.
+
+**The other shared state the owner touches, audited:**
+- **The batch style cache:** already locked.
+- **Markup handles:** per call.
+- **The text-flow table:** process-wide under a lock since stage 1.
+- **Raster core:** a global mutex.
+- **Canvas 2D fonts:** now the measurer's own.
+- **Pools, the SVG host and flat leaves:** main only.
+- **`Runtime.destroyed`:** set on main before the owner's queued work reads
+  it.
+
+**What now catches it:**
+- **A stress test** (`OwnerTextIOSTests`, macOS and the iOS simulator)
+  measures on the owner while main paints the same paragraphs. Under the
+  Thread Sanitizer it reports 16 races when one engine does both (the
+  crash's shape) and none with the pair. The two lay out the same lines.
+- **A scrolling test** (`OwnerScrollMacTests`) turns asynchronous slices on
+  and scrolls a real list. It is clean under the Thread Sanitizer, as is
+  the whole macOS suite (478 tests) and the stress test on the iOS
+  simulator. It did not reproduce the old race by
+  itself, so the stress test is the guard.
+- **The device gate:** three rounds of the 19-kind fling and ladder and the
+  live fling on the iPhone, with no crash report.
 
 ## 0.1 Rulings on r1's questions (Charlie, 2026-09-28, through the coordinator)
 
