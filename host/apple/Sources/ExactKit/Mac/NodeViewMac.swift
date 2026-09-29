@@ -555,8 +555,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             for child in children where child.superview !== container { container.addSubview(child) }
             old?.removeFromSuperview()
         }
+        applyMaterialRadius()
+    }
+
+    /// The material's corners: the box's radius as CSS reduces it to fit the
+    /// border box (a 100 pt radius on a 28 pt pill is 14), at the current size.
+    func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = max(0, number("border_radius", number("border_radius_top_left")))
+        let radius = cornerRadii(in: bounds).max() ?? 0
         if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
             glass.cornerRadius = radius
         } else {
@@ -1033,11 +1039,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
         let clipped = (clips || clamped) && clipBox == nil
         if clipsToBounds != clipped { clipsToBounds = clipped }
-        if let l = clipBox?.layer ?? layer {
-            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { CGFloat(number("border_radius_" + $0, number("border_radius"))) }
-            let radius = clips && radii.allSatisfy({ $0 == radii[0] }) ? radii[0] : 0
-            if l.cornerRadius != radius { l.cornerRadius = radius }
-        }
+        clipsCorners = clips
+        applyClipRadius()
         applyShadow()
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
@@ -1103,6 +1106,28 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
     }
 
+    /// `overflow: hidden` clips to the rounded corners: one radius rides the
+    /// clipping layer, reduced as CSS reduces it to fit the box (Core
+    /// Animation draws nothing for a radius past half the shorter side);
+    /// differing radii clip to the bounds, as UIKit's layer path does.
+    private var clipsCorners = false
+    func applyClipRadius() {
+        guard let l = clipBox?.layer ?? layer else { return }
+        let radii = cornerRadii(in: bounds)
+        let radius = clipsCorners && radii.allSatisfy({ abs($0 - radii[0]) < 0.01 }) ? radii[0] : 0
+        if l.cornerRadius != radius { l.cornerRadius = radius }
+    }
+
+    /// The reduction depends on the size, which the kernel's layout sets
+    /// after the style.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        guard changed else { return }
+        applyClipRadius()
+        applyMaterialRadius()
+    }
+
     func prepareToMount() {
         guard kind == "text" else { return }
         wantsLayer = true
@@ -1142,17 +1167,23 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layoutSymbol()
     }
 
+    /// CSS reduces overlapping corner radii by one common factor: top left,
+    /// top right, bottom right, bottom left.
+    func cornerRadii(in rect: NSRect, inset: CGFloat = 0) -> [CGFloat] {
+        let r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { max(0, number("border_radius_" + $0, number("border_radius")) - inset) }
+        let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
+        let edges = [rect.width, rect.width, rect.height, rect.height]
+        var factor: CGFloat = 1
+        for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
+        return r.map { max(0, $0 * factor) }
+    }
+
     /// Each corner's own radius, all reduced by one factor where two would
     /// overlap an edge (CSS), as iOS and Linux draw them; `inset` is a
     /// centered stroke's. Tangent arcs keep the corners where the flipped
     /// view puts them.
     func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
-        var r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { max(0, number("border_radius_" + $0) - inset) }
-        let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
-        let edges = [rect.width, rect.width, rect.height, rect.height]
-        var factor: CGFloat = 1
-        for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
-        r = r.map { max(0, $0 * factor) }
+        let r = cornerRadii(in: rect, inset: inset)
         let p = CGMutablePath()
         p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
         p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r[1])

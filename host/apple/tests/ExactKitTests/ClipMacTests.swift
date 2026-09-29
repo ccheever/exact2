@@ -35,6 +35,29 @@ final class ClipMacTests: XCTestCase {
         XCTAssertEqual(n.layer?.cornerRadius, 0)
     }
 
+    /// CSS reduces a radius larger than the box (`border-radius: 100px` on a
+    /// 56 × 28 pill is 14); Core Animation given the authored 100 draws
+    /// nothing at all (the xheavy glass row's rating capsule vanished,
+    /// text and material included).
+    func testAClipRadiusPastTheBoxIsReducedAsCSSReducesIt() {
+        let radii: NodeStyle = ["border_radius_top_left": 100, "border_radius_top_right": 100,
+                                "border_radius_bottom_right": 100, "border_radius_bottom_left": 100]
+        var style = radii; style["overflow_x"] = "hidden"; style["overflow_y"] = "hidden"
+        let n = node("view", style)
+        XCTAssertEqual(n.layer?.cornerRadius ?? 0, 24, accuracy: 0.001, "48 × 48: half the side")
+        n.frame = NSRect(x: 0, y: 0, width: 56, height: 28)
+        XCTAssertEqual(n.layer?.cornerRadius ?? 0, 14, accuracy: 0.001, "the kernel's new size reduces it again")
+    }
+
+    func testAMaterialsRadiusIsReducedToo() {
+        let n = node("view", ["border_radius_top_left": 100, "border_radius_top_right": 100,
+                              "border_radius_bottom_right": 100, "border_radius_bottom_left": 100])
+        n.frame = NSRect(x: 0, y: 0, width: 56, height: 28)
+        n.props["backgroundMaterial"] = "ultra-thin"
+        n.updateMaterial()
+        XCTAssertEqual(n.materialView?.layer?.cornerRadius ?? 0, 14, accuracy: 0.001)
+    }
+
     func testAClampedParagraphClipsItsDrawing() {
         XCTAssertTrue(node("text", ["line_clamp": 2]).clipsToBounds)
         XCTAssertFalse(node("text", [:]).clipsToBounds)
