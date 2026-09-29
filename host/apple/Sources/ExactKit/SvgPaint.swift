@@ -44,8 +44,22 @@ enum SvgPaint {
                 if let g = spec as? [String: Any] {
                     if let layer = g["pt"] != nil ? SvgIsland.pattern(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, fonts: fonts)
                         : gradient(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
-                        layer.mask = mask(path, of: layer, fill: true, like: shape)
-                        shape.addSublayer(layer)
+                        var box = CGRect.null
+                        if path.isRect(&box) {
+                            // A rectangle clips its paint by bounds, not by a
+                            // mask: Core Animation masks through an offscreen
+                            // the size of the layer (F1's vignette, 23 MB).
+                            let clip = quiet(CALayer())
+                            clip.anchorPoint = .zero
+                            clip.bounds = box
+                            clip.position = box.origin
+                            clip.masksToBounds = true // bounds origin = position: the shape's space
+                            clip.addSublayer(layer)
+                            shape.addSublayer(clip)
+                        } else {
+                            layer.mask = mask(path, of: layer, fill: true, like: shape)
+                            shape.addSublayer(layer)
+                        }
                     }
                 } else {
                     let fill = quiet(CAShapeLayer())

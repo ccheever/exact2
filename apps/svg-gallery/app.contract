@@ -486,6 +486,15 @@ component StageNine
           feDropShadow dx=2 dy=3 stdDeviation=2 flood-color="#7c3aed" flood-opacity=0.6
       rect x=10 y=14 width=44 height=44 rx=8 fill="#fbbf24" filter="url(#lift)"
       circle cx=88 cy=36 r=20 fill="#34d399" filter="url(#drop)"
+    // A lone drop shadow under a scaled view box (3×) and a rotation: the
+    // shadow's σ and offset are in the element's user space.
+    svg testId="fx-shadow-scaled" class=Tile viewBox="0 0 40 26.667"
+      defs
+        filter id="lone" x="-40%" y="-40%" width="180%" height="180%"
+          feDropShadow dx=1 dy=1.5 stdDeviation=1 flood-color="#1e3a8a" flood-opacity=0.7
+      circle cx=11 cy=13 r=6 fill="#f59e0b" filter="url(#lone)"
+      g transform="rotate(30 29 13)"
+        rect x=24 y=8 width=10 height=10 rx=2 fill="#10b981" filter="drop-shadow(1px 1px 0.8px #111827)"
     // A filter region and a mask region far larger than the svg (tens of
     // millions of pixels at device scale): drawn, never dropped.
     svg testId="fx-huge-region" class=Tile viewBox="0 0 120 80"

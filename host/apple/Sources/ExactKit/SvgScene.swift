@@ -226,6 +226,45 @@ final class SvgScene {
         #endif
     }
 
+    /// Lone drop shadows by element: the region's clip and the layer
+    /// casting the shadow, which holds the element.
+    private var shadows: [Int: (clip: CALayer, cast: CALayer)] = [:]
+
+    /// A filter that is one `feDropShadow` (or CSS `drop-shadow()`) of the
+    /// element, as Core Animation's shadow says it: `shadowRadius` is the
+    /// Gaussian's σ, in the element's user space as the offset is. Its
+    /// colour space (`color-interpolation-filters`) changes only how the
+    /// element's antialiased edge blends over its own shadow.
+    static func dropShadow(_ fl: [String: Any]) -> (region: CGRect, sigma: CGFloat, offset: CGSize, color: CGColor, opacity: Float)? {
+        let p = nums(fl["p"])
+        // region (4), count, then code, in, in2, subregion (4), linear, σx, σy, dx, dy, rgba.
+        guard p.count == 5 + 8 + 8, p[4] == 1, p[5] == 6, p[6] == -1, p[13] == p[14], p[13] >= 0,
+              p[15].isFinite, p[16].isFinite else { return nil }
+        let region = CGRect(x: p[0], y: p[1], width: p[2], height: p[3])
+        let sub = CGRect(x: p[8], y: p[9], width: p[10], height: p[11])
+        guard region.width > 0, region.height > 0, sub.contains(region) || sub == region else { return nil }
+        return (region, CGFloat(p[13]), CGSize(width: p[15], height: p[16]),
+                CGColor(srgbRed: p[17], green: p[18], blue: p[19], alpha: 1), Float(min(max(p[20], 0), 1)))
+    }
+
+    /// Each shape's last drawn spec, hashed (with the appearance and the
+    /// scale its parts are drawn at): a scene applied again redraws only the
+    /// shapes that changed. A live filter picture's sub-scene is applied on
+    /// every frame of the animation inside it, and redrawing its unchanged
+    /// gradient card was most of that (467 ms/s on the M1 iPad Pro).
+    private var drawn: [Int: Int] = [:]
+
+    /// Whether shape `id` must be drawn from `e`: it changed, or is new.
+    private func drew(_ id: Int, _ e: [String: Any], dark: Bool) -> Bool {
+        var h = Hasher()
+        for k in e.keys.sorted() where k != "a" { h.combine(k); CssAnimations.digest(e[k], into: &h) }
+        h.combine(dark); h.combine(scale)
+        let d = h.finalize()
+        if drawn[id] == d { return false }
+        drawn[id] = d
+        return true
+    }
+
     /// What of an island's user space can show: the clipping content box
     /// through the inverse of the island's `m` (user space to that box).
     private func seen(_ spec: [String: Any]) -> CGRect? {
@@ -248,7 +287,8 @@ final class SvgScene {
         attach(scene["els"] as? [Any] ?? [], to: root, dark: dark, clock: clock, alive: &alive)
         for (id, layer) in layers where !alive.contains(id) {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
-            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id); forget(id)
+            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id); forget(id); drawn.removeValue(forKey: id)
+            if let pair = shadows.removeValue(forKey: id) { pair.clip.removeFromSuperlayer() }
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
             wrapSpecs.removeValue(forKey: id); wrapInstalled.removeValue(forKey: id)
             node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
@@ -324,7 +364,7 @@ final class SvgScene {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
-        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]
+        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]; drawn = [:]; shadows = [:]
         #if os(iOS)
         live = [:]
         #endif
@@ -374,6 +414,7 @@ final class SvgScene {
                 layers[id]?.removeFromSuperlayer()
                 layer = group ? still(CALayer()) : still(CAShapeLayer())
                 layers[id] = layer
+                drawn.removeValue(forKey: id)
             }
             layer.opacity = Float(num(e["o"]))
             if let text {
@@ -393,7 +434,23 @@ final class SvgScene {
                 }
                 attach(e["c"] as? [Any] ?? [], to: layer, dark: dark, clock: clock, alive: &alive, owner: id)
                 // @ref LLP 1055.000 D14 — a filtered element's picture is an island.
-                if let fl = e["fl"] as? [String: Any] {
+                if let fl = e["fl"] as? [String: Any], let drop = SvgScene.dropShadow(fl) {
+                    // A lone drop shadow is Core Animation's own shadow on
+                    // the element, clipped to the filter region: no pixels
+                    // of ours (F1's 300 shadowed POIs held a 21 MB island
+                    // and 150 MB of Core Image intermediates at launch).
+                    if let old = pictures.removeValue(forKey: id) { old.layer.removeFromSuperlayer(); forget(id) }
+                    let pair = shadows[id] ?? { let p = (clip: still(CALayer()), cast: still(CALayer())); p.clip.addSublayer(p.cast); p.clip.anchorPoint = .zero; p.clip.masksToBounds = true; shadows[id] = p; return p }()
+                    pair.clip.bounds = drop.region
+                    pair.clip.position = drop.region.origin
+                    pair.cast.shadowColor = drop.color
+                    pair.cast.shadowOpacity = drop.opacity
+                    pair.cast.shadowRadius = drop.sigma
+                    pair.cast.shadowOffset = drop.offset
+                    attach(fl["c"] as? [Any] ?? [], to: pair.cast, dark: dark, clock: clock, alive: &alive, owner: id)
+                    if pair.clip.superlayer !== layer { layer.addSublayer(pair.clip) }
+                } else if let fl = e["fl"] as? [String: Any] {
+                    if let pair = shadows.removeValue(forKey: id) { pair.clip.removeFromSuperlayer() }
                     var h = Hasher()
                     CssAnimations.digest(fl, into: &h)
                     h.combine(scale); h.combine(dark)
@@ -405,11 +462,11 @@ final class SvgScene {
                     if pictures[id]?.layer !== picture { pictures[id]?.layer.removeFromSuperlayer() }
                     pictures[id] = (key, picture)
                     if picture.superlayer !== layer { layer.addSublayer(picture) }
-                } else if let old = pictures.removeValue(forKey: id) {
-                    old.layer.removeFromSuperlayer()
-                    forget(id)
+                } else {
+                    if let old = pictures.removeValue(forKey: id) { old.layer.removeFromSuperlayer(); forget(id) }
+                    if let pair = shadows.removeValue(forKey: id) { pair.clip.removeFromSuperlayer() }
                 }
-            } else if let shape = layer as? CAShapeLayer {
+            } else if let shape = layer as? CAShapeLayer, drew(id, e, dark: dark) {
                 shape.path = path(e["p"])
                 let pos = nums(e["pos"])
                 shape.position = pos.count == 2 ? CGPoint(x: pos[0], y: pos[1]) : .zero
