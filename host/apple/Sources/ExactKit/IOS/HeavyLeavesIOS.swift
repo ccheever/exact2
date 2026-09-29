@@ -76,8 +76,9 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
 
     /// A batch applied: rows are placed now, so leaves near the viewport
     /// are made, in the same frame as their rows.
-    func batchApplied() {
-        hideFar()
+    func batchApplied(moved: Bool) {
+        // An animation frame's batch moves no row: nothing comes near or goes far.
+        if moved { hideFar() }
         guard !pending.isEmpty else { return }
         releaseNear(limit: .max)
         if !pending.isEmpty { start() }

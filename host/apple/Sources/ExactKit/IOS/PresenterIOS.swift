@@ -613,6 +613,7 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
+        var moved = false // frame or content ops: rows may have moved (`HeavyLeaves.batchApplied`)
         defer {
             collections.endBatch()
             pool.end()
@@ -625,7 +626,7 @@ final class Presenter {
                 waiting = []
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
-                leaves.batchApplied()
+                leaves.batchApplied(moved: moved)
                 flushPendingFocus()
             }
         }
@@ -637,6 +638,7 @@ final class Presenter {
             case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
             default: break
             }
+            if kind == .frame || kind == .content { moved = true }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
                 // Mount the native owner under the root's available box before
