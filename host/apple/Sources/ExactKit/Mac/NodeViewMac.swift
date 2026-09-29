@@ -1120,6 +1120,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func renderFilter() {
         guard let f = boxFilter, let layer else { return }
         guard superview != nil else { f.remove(); return }
+        // The picture renders the layer as it stands: a box that is layer
+        // properties (`BoxLayerMac.swift`) gets them now, not at the next
+        // display, so a new filtered box is not pictured empty.
+        if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
         f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.backingScaleFactor ?? 2)
     }
 
