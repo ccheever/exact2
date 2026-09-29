@@ -442,7 +442,7 @@ function applyProps(el, set, clear) {
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
-      writeValue(el, value); if (valuedControl(el)) el.exactValue = value;
+      writeValue(el, value); el.exactValue = value; // the app's value as last committed: what an input event settles back to
     } else if (name === "checked") {
       el.exactChecked = value === "true"; el.checked = el.exactChecked;
     } else if (name === "inert") {
@@ -574,6 +574,7 @@ function attach(el, id, handlers) {
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
         const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
+        if (el.exactValue !== undefined && !el.exactMarkup && views.get(id) === el && el.value !== el.exactValue) writeValue(el, el.exactValue); // a row the action left unchanged carries no write, and the field would keep the typed text: the row is the app's, shown after every input event (a controlled input); the write keeps the caret and is held during a composition
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.

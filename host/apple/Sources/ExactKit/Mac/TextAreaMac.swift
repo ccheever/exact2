@@ -189,6 +189,9 @@ extension NodeView {
         f.needsDisplay = true
         if !disabled { presenter?.typed(id, f.string, input: handlers.contains("input")) }
         if !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
+        // The app's `value` after the input event: an unchanged row is still
+        // the app's, so the editor shows it (`reassertValue` on the field).
+        if handlers.contains("input"), let v = props["value"] { writeValue(v, into: f) }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()

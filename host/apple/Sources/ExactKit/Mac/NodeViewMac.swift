@@ -1349,6 +1349,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if !disabled { presenter?.typed(id, field?.stringValue ?? "", input: handlers.contains("input")) }
+        reassertValue()
+    }
+    /// After an `input` event the field shows the app's `value`: a row the
+    /// action left unchanged carries no write, so a field holding the typed
+    /// text would keep it while the app holds the old value. The row is the
+    /// app's (a controlled input, as on the web); the write keeps the caret
+    /// and is held during a composition.
+    func reassertValue() {
+        guard handlers.contains("input"), let f = field, let v = props["value"], f.stringValue != v else { return }
+        if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else { f.stringValue = v }
     }
 }
 #endif
