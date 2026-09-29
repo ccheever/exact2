@@ -521,13 +521,18 @@ export async function builtAppMatches(dist, app) {
     const markerPath = resolve(root, '.exact-build.json');
     if (realpathSync(markerPath) !== markerPath || !statSync(markerPath).isFile()) return false;
     const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
-    const files = await publicFileCards(root);
+    const js = marker.target === 'js';
+    const files = js ? buildFileCards(root) : await publicFileCards(root);
     const names = new Set(files.map((file) => file.name));
-    if (REQUIRED_BUILD_FILES.some((name) => !names.has(name))) return false;
+    if ((js ? JS_BUILD_FILES : REQUIRED_BUILD_FILES).some((name) => !names.has(name))) return false;
     if (!Array.isArray(marker.files) || marker.files.length !== files.length
       || files.some((file, i) => marker.files[i]?.name !== file.name
         || marker.files[i]?.sha256 !== file.sha256 || marker.files[i]?.bytes !== file.bytes
         || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
+    const identity = marker.exactBuild === 1 && marker.app?.id === app.id
+      && marker.app.name === app.displayName && marker.manifestSha256 === appManifestDigest(app);
+    // A JS-target build (LLP 1071) has no envelope; its plan names the app.
+    if (js) return identity && planAppId(readFileSync(resolve(root, 'app.plan'))) === app.id;
     const found = await readStaticFileAsync(dist, '/exact.json');
     const plan = await readStaticFileAsync(dist, '/app.plan');
     if (!found || !plan) return false;
@@ -537,10 +542,57 @@ export async function builtAppMatches(dist, app) {
       && envelope.app.name === app.displayName && planAppId(plan.body) === app.id
       && envelope.plan?.url === './app.plan'
       && envelope.plan.sha256 === digest && envelope.plan.bytes === plan.body.length
-      && marker.exactBuild === 1 && marker.app?.id === app.id
-      && marker.app.name === app.displayName
-      && marker.manifestSha256 === appManifestDigest(app);
+      && identity;
   } catch { return false; }
+}
+
+// A JS-target build (LLP 1071, `host/web-js/build.mjs`) is whatever its
+// bundler wrote — the entry, content-named chunks, pages at their locations —
+// so the local tools list and serve it as a tree: every regular file whose
+// path has no dot component, never through a symlink. Its completion marker
+// (`host/web/build.mjs`) says `target: 'js'`.
+const JS_BUILD_FILES = ['app.js', 'app.plan', 'index.html'];
+export function listBuildFiles(dist) {
+  const root = realpathSync(dist), out = [];
+  const walk = (sub) => {
+    for (const entry of readdirSync(resolve(root, sub), { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const name = sub ? `${sub}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(name);
+      else if (entry.isFile()) out.push(name);
+    }
+  };
+  walk('');
+  return out.sort();
+}
+export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
+  const bytes = readFileSync(resolve(dist, name));
+  return { name, sha256: sha256(bytes), bytes: bytes.length };
+});
+/** Whether the build at `dist` is the JS target's. */
+export function jsTargetBuild(dist) {
+  try { return JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).target === 'js'; }
+  catch { return false; }
+}
+/** A file of a JS-target build for a request path: the file, a directory's
+ * index.html (a page rendered at build), else the shell for an app
+ * location. The previous build answers during a rebuild's rename. */
+export function buildTreeFile(dist, pathname) {
+  let path;
+  try { path = decodeURIComponent(pathname); } catch { return null; }
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.split('/').some((part) => part.startsWith('.'))) return null;
+  let root;
+  try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
+  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
+    const file = resolve(root, '.' + route);
+    try { if (file.startsWith(root + '/') && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+  }
+  return null;
+}
+export function serveBuildTree(dist, req, res) {
+  const found = buildTreeFile(dist, new URL(req.url, 'http://exact.invalid').pathname);
+  if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+  sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
 /** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
@@ -752,7 +804,9 @@ async function main() {
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
-  if (!await readStaticFileAsync(dist, '/app.wasm')) {
+  // A JS-target build (LLP 1071) is served as its tree, uncompressed.
+  const js = jsTargetBuild(dist);
+  if (!js && !await readStaticFileAsync(dist, '/app.wasm')) {
     // A build that is there but unreadable says why: the reader is a Cargo-built
     // helper, and "build first" misled when cargo was not on PATH (LLP 1054 O5).
     let why = null;
@@ -766,8 +820,8 @@ async function main() {
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
-  const warming = warmCompression(dist, compression);
-  createServer((req, res) => serveStatic(dist, req, res, {host,port}, compression)).listen(port, host, () => {
+  const warming = js ? Promise.resolve(0) : warmCompression(dist, compression);
+  createServer((req, res) => js ? serveBuildTree(dist, req, res) : serveStatic(dist, req, res, {host,port}, compression)).listen(port, host, () => {
     const urls = [`http://127.0.0.1:${port}/`];
     if (!loopback) {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
@@ -775,7 +829,7 @@ async function main() {
     }
     // Name the app, so a directory another build replaced is seen at once (LLP 1054 O5).
     let served = '';
-    try { const { app } = JSON.parse(readFileSync(resolve(dist, 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})`; } catch { /* an older build has no envelope */ }
+    try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
   });

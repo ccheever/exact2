@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 // The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan]
+// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan] [--wasm]
+// An app the JS target takes (LLP 1071) runs on it instead, rebuilt and
+// reloaded per edit (host/web-js/dev.mjs); --wasm keeps it on this loop.
 //
 // Binds 127.0.0.1. --lan binds every interface, so a phone on the network can
 // boot the plan from a printed LAN URL — and so can any peer read the plan,
@@ -54,6 +56,13 @@ const gate = developmentGate(origins, port);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
+// The JS target (LLP 1071) when it takes the app: the runtime the app ships,
+// rebuilt and reloaded on an edit (host/web-js/dev.mjs). `--wasm`, or a
+// refusal, runs the resident wasm loop below.
+if (!argv.includes('--wasm')) {
+  const refused = await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
+  console.error(`${refused}\n${app.name}: the JS target refused it; the wasm dev loop`);
+}
 let typescript = existsSync(resolve(app.dir, 'app.ts'));
 let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
 let rebuildOn = rebuildPolicy(app.manifest);

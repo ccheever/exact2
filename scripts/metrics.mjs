@@ -34,7 +34,7 @@ import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { closeFilesystemReader } from './filesystem.mjs';
-import { publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
+import { buildFileCards, buildTreeFile, jsTargetBuild, publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
@@ -314,12 +314,22 @@ await step('native', () => {
   Object.assign(out, JSON.parse(r.stdout.trim().split('\n').pop()));
 });
 
-// 2. The wasm, raw and gzipped — always rebuilt (a warm build is ~1.5 s),
-// so every number below is for the code as it is now.
+// 2. The web build as it ships — the JS target when it takes the app (LLP
+// 1071), else the wasm — raw and gzipped, always rebuilt (a warm build is
+// ~1.5 s), so every number below is for the code as it is now.
 await step('wasm', async () => {
   const dist = resolve(ROOT, 'host/web/dist');
-  const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+  const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
+  out.web_target = jsTargetBuild(dist) ? 'js' : 'wasm';
+  if (out.web_target === 'js') {
+    out.web_artifacts = buildFileCards(dist);
+    out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
+    const js = readFileSync(resolve(dist, 'app.js'));
+    out.js_bytes = js.length;
+    out.js_gzip_bytes = gzipSync(js, { level: 9 }).length;
+    return;
+  }
   out.web_artifacts = await publicFileCards(dist).finally(closeFilesystemReader);
   out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
   const wasm = readFileSync(resolve(dist, 'app.wasm'));
@@ -350,8 +360,10 @@ await step('boot', () => {
   const t = Date.now();
   const dist = resolve(ROOT, 'host/web/dist');
   const served = new Map();
+  const tree = jsTargetBuild(dist);
   const server = createServer((req, res) => {
-    const found = readStaticFile(dist, req.url.split('?')[0]);
+    const file = tree && buildTreeFile(dist, req.url.split('?')[0]);
+    const found = tree ? file && { route: file.route, body: readFileSync(file.path) } : readStaticFile(dist, req.url.split('?')[0]);
     if (!found) { res.writeHead(404); res.end(); return; }
     const body = found.body;
     served.set(found.route, { path: found.route, bytes: body.length, sha256: sha256(body) });
@@ -370,7 +382,7 @@ await step('boot', () => {
     const cdp = new Cdp(child.stdio[3], child.stdio[4]);
     child.on('exit', () => cdp.fail('metrics Chrome exited'));
     const { targetInfos } = await cdp.send('Target.getTargets');
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find((x) => x.type === 'page').targetId, flatten: true });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find((x) => x.type === 'page')?.targetId ?? (await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId, flatten: true });
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -415,8 +427,8 @@ await step('boot', () => {
       }; check();
     })`);
     const startup = await evaluate(`({ ...__exactMetrics,
-      script_to_dom_ms: Number(exact.root.dataset.bootMs),
-      script_to_raf_ms: Number(exact.root.dataset.frameCallbackMs),
+      script_to_dom_ms: Number(document.getElementById('exact-root').dataset.bootMs),
+      script_to_raf_ms: Number(document.getElementById('exact-root').dataset.frameCallbackMs),
       paints: performance.getEntriesByType('paint').map(e => ({ name: e.name, start_ms: e.startTime })),
       resources: performance.getEntriesByType('resource').map(e => ({ path: new URL(e.name).pathname,
         start_ms: e.startTime, duration_ms: e.duration, bytes: e.decodedBodySize, initiator: e.initiatorType })) })`);
@@ -429,7 +441,7 @@ await step('boot', () => {
     startup.initial_js_and_wasm_bytes = startup.resources
       .filter(r => r.start_ms <= startup.dom_navigation_ms && /\.(?:js|wasm)$/.test(r.path))
       .reduce((bytes, r) => bytes + r.bytes, 0);
-    startup.data_executor = 'this web build has no TypeScript executor; Rust data is linked in app.wasm';
+    startup.data_executor = tree ? 'the JS target: a TypeScript source is bundled with app.js; Rust data is a module loaded after first pixel' : 'this web build has no TypeScript executor; Rust data is linked in app.wasm';
     out.browser_startup = startup;
     out.browser_dom_ms = startup.script_to_dom_ms;
     out.browser_paint_ms = startup.paints.find((p) => p.name === 'first-paint')?.start_ms ?? NaN;
@@ -449,7 +461,7 @@ await step('boot', () => {
           __exactMetrics.interaction.input_ms = performance.now();
           const observer = new MutationObserver(() => {
             __exactMetrics.interaction.changed_dom_ms = performance.now(); observer.disconnect();
-          }); observer.observe(exact.root, { subtree: true, childList: true, attributes: true, characterData: true });
+          }); observer.observe(document.getElementById('exact-root'), { subtree: true, childList: true, attributes: true, characterData: true });
         }, { capture: true, once: true });
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
       })()`);
@@ -515,7 +527,7 @@ await step('boot', () => {
       const cdp = new Cdp(page.stdio[3], page.stdio[4]);
       page.on('exit', () => cdp.fail('dev metrics Chrome exited'));
       const { targetInfos } = await cdp.send('Target.getTargets');
-      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find(x => x.type === 'page').targetId, flatten: true });
+      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find(x => x.type === 'page')?.targetId ?? (await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId, flatten: true });
       const call = (method, params) => cdp.send(method, params, sessionId);
       const evaluate = async expression => {
         const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -526,28 +538,31 @@ await step('boot', () => {
       await call('Page.enable');
       await call('Page.navigate', { url: `http://127.0.0.1:${port}/` });
       if (!await connected) throw new Error('the page did not subscribe to the dev stream');
+      // The JS target's loop (LLP 1071) rebuilds and reloads the page per edit.
+      const js = lines.some(l => /^JS target: /.test(l));
       await evaluate(`new Promise((resolve, reject) => {
         const start = performance.now();
         const check = () => {
-          if (globalThis.exact?.generation > 0) return resolve(true);
+          if (${js ? "document.getElementById('exact-root')?.dataset.bootMs != null" : 'globalThis.exact?.generation > 0'}) return resolve(true);
           if (performance.now() - start > 20000) return reject(new Error('the page did not finish its initial boot'));
           setTimeout(check, 10);
         }; check();
       })`);
-      const visible = await evaluate('exact.root.innerText');
+      const visible = await evaluate("document.getElementById('exact-root').innerText");
       const literals = [...original.matchAll(/\btext ("(?:[^"\\]|\\.)*")/g)];
       // Edit a literal that occurs once, so the occurrence edited is the one on
       // screen (Caltrain's first "Web deck" is on a screen that is not shown).
       const match = literals.find(m => { try { const value = JSON.parse(m[1]); return value.trim() && visible.includes(value) && literals.filter(o => o[1] === m[1]).length === 1; } catch { return false; } });
       if (!match) throw new Error('no visible literal text in app.contract to edit; no edit timing claimed');
       const samples = [];
-      for (let index = 0; index < 20; index++) {
+      const edits = js ? 5 : 20;
+      for (let index = 0; index < edits; index++) {
         const marker = `exact-metrics-${Date.now()}-${index}`;
         const replacement = match[0].replace(match[1], JSON.stringify(`${JSON.parse(match[1])} ${marker}`));
         const edited = original.slice(0, match.index) + replacement + original.slice(match.index + match[0].length);
         // Observe before saving; the timestamp includes filesystem notification,
         // producer work, publication and the browser's actual changed content.
-        await evaluate(`globalThis.__exactReloadMetric = new Promise((resolve, reject) => {
+        if (!js) await evaluate(`globalThis.__exactReloadMetric = new Promise((resolve, reject) => {
           const observer = new MutationObserver(() => {
             if (!exact.root.innerText.includes(${JSON.stringify(marker)})) return;
             const dom = Date.now(); observer.disconnect();
@@ -559,7 +574,15 @@ await step('boot', () => {
         const planReady = until(/^(?:(?:edit → plan ready|module generation ready in) (\d+) ms|Rust generation \w+ ready)/, 10000);
         const saved = Date.now();
         writeFileSync(source, edited);
-        const result = await evaluate('__exactReloadMetric');
+        let result = null;
+        if (js) {
+          // Across the reload: the new page's root holds the edited text.
+          const until = Date.now() + 30000;
+          let dom = 0;
+          while (!dom && Date.now() < until) dom = await evaluate(`document.getElementById('exact-root')?.innerText.includes(${JSON.stringify(marker)}) ? Date.now() : 0`).catch(() => 0) || (await sleep(5), 0);
+          if (!dom) throw new Error('edited text did not arrive');
+          result = { dom, frame: await evaluate('new Promise(r => requestAnimationFrame(() => r(Date.now())))') };
+        } else result = await evaluate('__exactReloadMetric');
         const ready = await planReady;
         samples.push({ dom_ms: result.dom - saved, frame_opportunity_ms: result.frame - saved,
           producer_and_publish_ms: ready?.[1] ? Number(ready[1]) : null });
@@ -577,7 +600,8 @@ await step('boot', () => {
       out.reload_frame_opportunity_ms = percentile('frame_opportunity_ms', .5);
       out.reload_plan_ms = percentile('producer_and_publish_ms', .5);
       out.reload_verified = true;
-      out.reload_note = '20 distinct Contract edits; save-to-visible-DOM p50/p95, next frame opportunity reported separately; includes module producer for TypeScript apps';
+      out.reload_note = js ? `${edits} distinct Contract edits on the JS target: a rebuild and a page reload each; save-to-visible-DOM p50/p95`
+        : '20 distinct Contract edits; save-to-visible-DOM p50/p95, next frame opportunity reported separately; includes module producer for TypeScript apps';
     } else {
       out.reload_ms = NaN;
       out.reload_note = ready ? 'no Chrome at $CHROME' : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
@@ -595,14 +619,14 @@ await step('boot', () => {
   out._reload_s = (Date.now() - t) / 1000;
 }
 
-// 6. Optional: the dev loop without the resident driver — touch app.contract, rebuild the wasm.
+// 6. Optional: the dev loop without the resident driver — touch app.contract, rebuild the web build.
 if (rebuild) {
   await step('rebuild', () => {
     const source = resolve(app.dir, 'app.contract');
     const now = new Date();
     utimesSync(source, now, now);
     const t = Date.now();
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'ignore' });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'ignore' });
     out.rebuild_ms = r.status === 0 ? Date.now() - t : NaN;
   });
 }
@@ -844,6 +868,7 @@ if (long) {
       for (const names of [false, true]) {
         const dist = resolve(ROOT, 'target/metrics-bytes', `${name}${names ? '-names' : ''}`);
         const env = { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist, EXACT_WEB_NAMES: names ? '1' : '0', ...(names ? { CARGO_TARGET_DIR: resolve(ROOT, 'target/metrics-names') } : {}) };
+        // The wasm's code by capability (LLP 1047 D9): the wasm target's own measure.
         const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web'), '--wasm'], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
         if (b.status !== 0) { measured.failed = failure(b); break; }
         const wasm = readFileSync(resolve(dist, 'app.wasm'));
@@ -892,14 +917,15 @@ const rows = [
   ['tick: advance 1 s', ms(out.tick_ms), ''],
   ['web host first batch', ms(out.web_boot_ms), `${kib(out.web_first_batch_bytes)} JSON`],
   ['web host update batch', ms(out.web_update_ms), `${kib(out.web_update_batch_bytes)} JSON`],
-  ['wasm (web profile + wasm-opt)', kib(out.wasm_bytes), `${kib(out.wasm_gzip_bytes)} gzip; glue ${kib(out.glue_bytes)}`],
+  out.web_target === 'js' ? ['JS target (app.js: runtime and app)', kib(out.js_bytes), `${kib(out.js_gzip_bytes)} gzip`]
+    : ['wasm (web profile + wasm-opt)', kib(out.wasm_bytes), `${kib(out.wasm_gzip_bytes)} gzip; glue ${kib(out.glue_bytes)}`],
   ['GPU module (web, on demand)', Number.isFinite(out.gpu_wasm_bytes) ? kib(out.gpu_wasm_bytes) : 'n/a', Number.isFinite(out.gpu_wasm_bytes) ? `${kib(out.gpu_wasm_gzip_bytes)} gzip; glue ${kib(out.gpu_glue_bytes)}; observed load order in JSON` : ''],
   ['browser: script → DOM', ms(out.browser_dom_ms), `budget ${budget('Cold start')}`],
   ['browser: navigation → first paint', ms(out.browser_paint_ms), 'Paint Timing, single instrumented sample'],
   ['browser: → contentful paint', ms(out.browser_contentful_paint_ms), 'browser content, not application readiness'],
   ['browser: click → changed DOM', ms(out.browser_first_interaction?.changed_dom_ms - out.browser_first_interaction?.input_ms), out.browser_first_interaction?.target ?? out.browser_interaction_note ?? out.browser_note ?? 'unmeasured'],
   ['boot modules before first pixel', `${out.boot_modules}`, `${out.boot.javascript_bytes} B source JS; ${out.boot_ok ? 'allowed paths' : 'VIOLATION'}; not a content/work proof`],
-  ['edit → DOM (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `p50; p95 ${ms(out.reload_p95_ms)}; next frame ${ms(out.reload_frame_opportunity_ms)}; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
+  [out.web_target === 'js' ? 'edit → DOM (JS target: rebuild, reload)' : 'edit → DOM (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `p50; p95 ${ms(out.reload_p95_ms)}; next frame ${ms(out.reload_frame_opportunity_ms)}; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
   ['macOS: exec → first paint (raw)', ms(out.macos_total_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; empty AppKit main → draw ${ms(out.floor_draw_ms)}; a development build (apple-dev, no LTO: ~5% slower than release)` : out.macos_note ?? ''],
 ];
 if (Number.isFinite(out.macos_paint_ms)) rows.push(
@@ -914,7 +940,7 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
   ['  GPU module (dlopen + device)', ms(out.macos_gpu_ms), 'after first paint, first canvas'],
   ['  web arm (dlopen)', out.macos_web_loaded ? 'loaded' : 'not loaded', out.macos_web_loaded ? 'VIOLATION: first screen has no iframe' : 'first iframe commit only'],
 );
-if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), out.rebuild_note ?? 'the cold path: cargo build of the app crate']);
+if (rebuild) rows.push([`edit → ${out.web_target === 'js' ? 'JS target' : 'wasm'} rebuilt (no driver)`, ms(out.rebuild_ms), out.rebuild_note ?? 'the cold path: cargo build of the app crate']);
 if (long) {
   const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
   rows.push(['blocking gate (the five checks, warm)', s(out.gate_s), `${out.gate_failed?.length ? `failing: ${out.gate_failed.join(', ')}; ` : ''}first pass ${s(out.gate_first_s)}; budget ${budget('Blocking gate')}`]);

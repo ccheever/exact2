@@ -55,8 +55,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - The web build, `bun host/web/build.mjs <app>`, makes the JS target (LLP 1071: the
   plan compiled to one ES module over a ~20 KB runtime, `host/web-js`) when the app
   qualifies, else the wasm target, printing what the JS target refused; `--js` or
-  `--wasm` forces one. The dev loop, the agent's web host, delivery and metrics build
-  `--wasm` until LLP 1071 §7's gaps close.
+  `--wasm` forces one. The dev loop, the agent's web host, the smoke's app drive and
+  metrics run what the build makes: on the JS target an edit rebuilds and reloads the
+  page (~2 s, no state carried); `dev.mjs --wasm` is the resident loop, and the one a
+  native client opening the dev URL needs. Delivery, the bare-plan fixtures, the parity
+  smokes and conformance's oracle stay `--wasm` (LLP 1071 §7, "The tools").
 - The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
   and the page reloads. `bun scripts/metrics.mjs` prints every number

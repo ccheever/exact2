@@ -32,7 +32,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
-import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
+import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -68,7 +68,7 @@ export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: [
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
   const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')} --wasm`);
+  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
 async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
@@ -82,9 +82,13 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? defaultWebDist());
   if (!pageURL) await assertWebDistApp(dist, selected);
+  // A JS-target build (LLP 1071) is served as its tree; a `--plan` swap needs the wasm target's runner.
+  const js = !pageURL && jsTargetBuild(dist);
+  if (js && plan) throw new Error(`--plan swaps the plan a runner interprets; ${dist} is a JS-target build (compiled ahead of time): build it with --wasm`);
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+    if (js) return serveBuildTree(dist, req, res);
     serveStatic(dist, req, res);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));

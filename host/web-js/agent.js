@@ -37,13 +37,14 @@ export function install(exact) {
     seek();
     switch (req.op) {
       case 'tree': {
-        let nodes = all();
+        let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
         if (req.target != null) {
           const hit = nodes.find(n => n.id === req.target || n.props.testId === req.target);
           if (!hit) return { error: `no view matches ${req.target}` };
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
+          roots = [hit.id];
         }
-        return { nodes, ...tags() };
+        return { nodes, roots, ...tags() };
       }
       case 'layout': {
         const nodes = all().map(n => { const b = views.get(n.id).getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height }; }).filter(n => n.w || n.h);

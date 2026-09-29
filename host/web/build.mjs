@@ -8,8 +8,9 @@
 // glue.js + app.wasm.
 // Usage: bun host/web/build.mjs [crate=caltrain-web] [--js | --wasm]
 // `--js` fails rather than fall back; `--wasm` builds the wasm target
-// outright — the dev loop, the agent's web host, delivery and the metrics
-// read its artifacts (the JS target's gaps, LLP 1071 §7).
+// outright — delivery and the parity smokes read its artifacts (the JS
+// target's gaps, LLP 1071 §7). A JS build's completion marker says
+// `target: 'js'`, so the dev loop, the agent and the smoke know which they got.
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
 // the dev loop does (LLP 1047 D7).
@@ -28,7 +29,7 @@ import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust
 import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
-import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm');
@@ -38,7 +39,11 @@ if (target !== '--wasm') {
   const js = inRepo
     ? spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist()], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' })
     : { status: 1, stderr: `${app.name}: an app outside apps/ is not in the JS target\n` };
-  if (js.status === 0) process.exit(0);
+  if (js.status === 0) {
+    writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
+      manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
+    process.exit(0);
+  }
   const reason = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('\n');
   if (target === '--js') { console.error(`${reason}\nthe JS target refused ${app.name} (--js)`); process.exit(1); }
   console.error(`${reason}\n${app.name}: the JS target refused it; building the wasm target`);

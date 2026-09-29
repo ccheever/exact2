@@ -36,7 +36,7 @@ import { resolveApp } from './app.mjs';
 import { createApp } from '../game/new.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
-import { builtAppMatches } from '../host/web/serve.mjs';
+import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -95,6 +95,7 @@ async function devPlan(app) {
   const plan = resolve(dist, 'app.plan');
   if (!existsSync(plan)) return { path: null, why: `no dev server has built into ${dist.replace(ROOT + '/', '')}` };
   if (!await builtAppMatches(dist, app).finally(closeFilesystemReader)) return { path: null, why: `${dist.replace(ROOT + '/', '')} holds another app's build` };
+  if (jsTargetBuild(dist)) return { path: null, why: `the dev server runs ${app.name} on the JS target; a native window live-reloads from the wasm loop (bun host/web/dev.mjs --app ${app.name} --wasm)` };
   return { path: plan, why: null };
 }
 

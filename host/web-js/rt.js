@@ -654,6 +654,7 @@ export function mount(f) {
   }
   if (!built) throw new Error("boot refused: " + journal.at(-1));
   if (adopted) say("adopted the document");
+  say(`boot: ${root.getElementsByTagName("*").length} nodes`); // the runner's journal line (LLP 1012 logs)
   root.dataset.bootMs = String(Math.round(performance.now()));
   // What the reader did before the runtime ran (the capture script),
   // replayed once, in order, on the same elements (LLP 1048.001 D5).

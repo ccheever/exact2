@@ -33,6 +33,7 @@ const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
 const maxSteps = Number(opt('--steps', 10));
 const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
+mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };

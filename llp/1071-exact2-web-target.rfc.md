@@ -5,7 +5,7 @@
 **Systems:**
 - Contract: a second backend, from the validated plan to JavaScript (`host/web-js`, crate `exact-web-js`).
 - Web host: a JavaScript runtime beside `exact-web` (`host/web-js/rt.js`); the glue, capture and adoption.
-- Build: `host/web/build.mjs` builds the JS target by default and falls back to wasm with the refusal named (`--js`/`--wasm` force one); a build-time stylesheet from `css.rs`.
+- Build: `host/web/build.mjs` builds the JS target by default and falls back to wasm with the refusal named (`--js`/`--wasm` force one); a build-time stylesheet from `css.rs`. The dev loop, the agent's web host, the smoke and metrics run what it makes (§7, "The tools").
 - Render server (LLP 1048): unchanged as the producer of documents; the checkpoint gains instance state for D6.
 - Agent (LLP 1012): the nine operations over the JavaScript runtime, in a development module.
 - Native hosts: none.
@@ -712,8 +712,55 @@ from (a) today.
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
 | Springs, presence, layout transitions (`motion-glue.js`) | ~1 week | loaded, 11 KB |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| Dev reload and state carry, delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent | 1–2 weeks | agent-only / <1 KB |
+| State carried across a dev reload (the loop rebuilds and reloads), delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
+
+### The tools (2026-09-29)
+
+The tools that drive a web app run what `host/web/build.mjs` makes, so an
+app the JS target takes is developed, driven and measured on the runtime it
+ships. A JS build's completion marker (`.exact-build.json`) says
+`target: 'js'` and lists its files; the local servers serve it as a tree
+(`serve.mjs` `buildTreeFile`: no dot path, no symlink), since its chunks are
+content-named.
+
+| Tool | Target | How |
+|---|---|---|
+| Dev loop (`host/web/dev.mjs`) | JS when it takes the app | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`build.mjs --js` into a stage renamed over dist) and every page reloads; a failed build's errors show in the page, which keeps the last good build. ~2.2 s edit → first frame (video player; the compiler, the plan, the Rust data module and the bundles each a process), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Agent, web host (`scripts/agent.mjs web`) | what dist holds | a JS dist is served as a tree; the tree reply carries `roots`, the journal a `boot:` line |
+| Smoke (`smoke.mjs web`), the app drive and its tests | the default build | the staged-core check is the wasm's only |
+| Metrics: bytes, browser startup, dev loop, `--rebuild` | the default build | a JS build reports `app.js` bytes; the dev row times five edits across the reload |
+| `serve.mjs` | what dist holds | a JS dist as a tree |
+
+What stays on the wasm target, and why:
+
+- **Delivery** (`deploy.mjs`): its bake is the signed bundle every platform's
+  update stream publishes — `exact.json`, the baked plan, the production-trust
+  bake receipt — and the web release it publishes is a program the update
+  client (`exactDelivery`, `deliveryActivate`) activates. The JS build makes
+  none of these (the delivery row above).
+- **Native clients on the dev URL** (`build.mjs --url`, `/__dev/open`,
+  `exact run`'s live plan): they read the wasm loop's envelope and dev
+  generations (LLP 1023), which the JS loop does not serve; it answers them
+  with a 404 naming `--wasm`.
+- **The smoke's bare-plan fixtures and router sweep**: they swap arbitrary
+  plans into a running page (`--plan`, `exact.reload`); the JS target
+  compiles one plan ahead of time. `agent.mjs --plan` refuses a JS dist by
+  name.
+- **The parity smokes**: `motionparity` takes Chrome as the reference for
+  animated images on the agent's clock (`image-glue.js`, a gap above);
+  `canvasparity`'s apps draw Canvas 2D surfaces, which the JS target refuses.
+- **Conformance** (`conform.mjs`): the wasm run is the oracle it compares against.
+- **Metrics `--long`'s web bytes**: the wasm's code by capability (LLP 1047 D9).
+
+Found on the way: `auth-fixture` builds on the JS target, but the agent's
+`state` throws on its `busy` derive (`pending(prepared) or pending(signed)`:
+"a derive's value does not conform to its type"), so its web smoke fails
+there; not yet diagnosed. And conformance (2026-09-29, 9 targets, the async
+lane's set): every step equal but RealWorld's `tap submit` on the register
+page, where the JS runner answers as the sign-in form did ("credentials
+invalid", one stamp) and the wasm with the register form's three blank-field
+errors: the `when signup … else` button's press looks bound to the other branch.
 
 ## 8. Rulings and open questions for Charlie
 

@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
-import { readStaticFile, serveStatic } from '../host/web/serve.mjs';
+import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
@@ -469,16 +469,16 @@ if (host === 'host' || host === 'host-ios') {
   process.exit(0);
 }
 
-// Materialize the selected app once into this smoke's private dist before its
-// many sessions. Another build cannot swap a different app under the run;
-// agent.open also proves the envelope identity on every local launch.
+// Materialize the selected app once, as it ships (the JS target when it takes it, LLP 1071;
+// it stages nothing), into this smoke's private dist before its many sessions. Another
+// build cannot swap a different app under the run; agent.open proves its identity.
 if (host === 'web') {
   const webBuild = mkdtempSync(resolve(tmpdir(), 'exact-smoke-web-'));
   selectedWebDist = resolve(webBuild, 'dist');
   process.on('exit', () => rmSync(webBuild, { recursive: true, force: true }));
-  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
   if (built.status !== 0) process.exit(built.status ?? 1);
-  if (!argv.includes('--app-only')) {
+  if (!argv.includes('--app-only')) { // the bare-plan fixtures swap plans into a page: the wasm runner
     fixtureWebDist = resolve(webBuild, 'fixtures');
     const fixtures = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: fixtureWebDist, EXACT_WEB_LINK: 'all' } });
     if (fixtures.status !== 0) process.exit(fixtures.status ?? 1);
@@ -488,7 +488,7 @@ if (host === 'web') {
 const s = await open({ host });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
-const stages = async () => host === 'web' ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
+const stages = async () => host === 'web' && !jsTargetBuild(selectedWebDist) ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
 const staged = await stages();
 check(Object.values(staged).every((state) => state === 'staged'), `the page booted with a stage already loaded: ${JSON.stringify(staged)}`);
 let caltrainFixture = false;
@@ -1490,7 +1490,7 @@ if (streamFixture) {
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.
 if (host === 'web' && !argv.includes('--app-only')) {
   const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'it', 'navigation::', '--', '--ignored', '--nocapture'], {
-    cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ROUTER_DIST: selectedWebDist },
+    cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ROUTER_DIST: fixtureWebDist }, // its own plan, on the wasm runner
   });
   check(sweep.status === 0, 'router browser sweep failed');
 }
