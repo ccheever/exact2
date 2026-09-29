@@ -654,7 +654,10 @@ function main(args) {
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
-      for (const file of [webLoadName, videoLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      // The GPU was signed before baking its digest. Re-signing its renamed
+      // copy changes the identifier and invalidates that digest at dlopen.
+      // @ref LLP 1036.000 §2 — preserve the captured artifact through packaging.
+      for (const file of [webLoadName, videoLoadName]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);

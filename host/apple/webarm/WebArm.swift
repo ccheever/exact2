@@ -66,7 +66,14 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var suppressLoad = false
     var recovering = false
     var invalidated = false
-    var wrapperURL: URL { URL(string: "https://exact.invalid/frame/\(id)/index.html")! }
+    // WebKit blocks an http frame under an https page as mixed content —
+    // loopback included — so a hosted http guest (a local dev server) gets an
+    // http wrapper, as an http app page frames it on the web arm. Every other
+    // source keeps the https wrapper. @ref LLP 1020 D2
+    var wrapperURL: URL {
+        let scheme = src.flatMap(remoteSource).flatMap { URL(string: $0)?.scheme?.lowercased() } == "http" ? "http" : "https"
+        return URL(string: "\(scheme)://exact.invalid/frame/\(id)/index.html")!
+    }
 
     init(id: UInt32, context: UnsafeMutableRawPointer?, event: @escaping EventFn, reply: @escaping ReplyFn) {
         self.id = id

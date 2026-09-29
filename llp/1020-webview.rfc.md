@@ -192,6 +192,13 @@ and it carries a declared limit: a multi-file local bundle's subresources
 do not resolve; multi-file local decks wait for scheme-handler serving
 (the shipped Castle mechanism, §8 Q1).
 
+The wrapper's scheme follows a hosted guest's (as built, 2026-09-23, found
+playing a Weird Castle web Git deck from `http://127.0.0.1`): WebKit blocks an
+`http:` frame under the `https://exact.invalid` wrapper as mixed content,
+loopback included, leaving the inner frame at `about:blank`. An `http:` `src`
+is therefore served under `http://exact.invalid`, which is what an `http:` app
+page does on the web arm. Every other source keeps the `https:` wrapper.
+
 Guest→app: the guest calls `window.parent.postMessage(data, …)` exactly
 as it would on castle.xyz; the wrapper (native) or the host page (web)
 delivers it as the `message` event. **The payload domain is a string** —
