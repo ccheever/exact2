@@ -361,7 +361,7 @@ final class CollectionHost {
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
         // One slice in flight at a time, and none before the last one's
-        // retirement: this one stays owed (LLP 1071 §3.1, §5).
+        // retirement: this one stays owed (LLP 1072 §3.1, §5).
         if filling?() == true { return 0 }
         if !retireOwed.isEmpty {
             budget.nextTurn()
@@ -391,7 +391,7 @@ final class CollectionHost {
         guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
         retireOwed[view] = limit
         // The pump's next frame: the slice's apply and its retirement are
-        // two frames' work, not one (LLP 1071 §5).
+        // two frames' work, not one (LLP 1072 §5).
         fillPending.insert(view)
         requestFill?()
     }

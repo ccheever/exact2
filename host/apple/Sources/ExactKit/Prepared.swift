@@ -1,5 +1,5 @@
 // What a batch's ops need that is a plain value, built on the owner thread
-// as the batch is decoded (LLP 1071 stage 4): the SVG scene's paths and its
+// as the batch is decoded (LLP 1072 stage 4): the SVG scene's paths and its
 // animations' signatures and keyframe values, and a flat leaf's paint. Main
 // applies them to layers; it no longer parses them from the batch's numbers.
 import CoreGraphics

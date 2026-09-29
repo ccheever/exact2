@@ -28,7 +28,7 @@ final class FlatLeaf {
     let id: UInt32
     let layer = CALayer()
     var style: NodeStyle
-    /// Its paint, read from `style` on the owner thread (LLP 1071 stage 4).
+    /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
     var frame = CGRect.zero
     var opacity: Float = 1
