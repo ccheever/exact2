@@ -482,8 +482,7 @@ final class TextEngine {
     /// the candidate; checkpoints retain and restore their original namespace.
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
         #if os(macOS)
-        // Reader paragraphs hold layers: released on main (LLP 1071 §8.1).
-        if !readerParagraphs.isEmpty { Owner.shared.callMain { readerParagraphs.removeAll() } }
+        readerParagraphs.removeAll()
         #endif
         fonts.removeAll(keepingCapacity: true)
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
@@ -611,10 +610,7 @@ final class TextEngine {
             #if canImport(UIKit)
             if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
             #else
-            // AppKit's font manager is main's (LLP 1071 §8.1): a variant first
-            // met while the owner thread measures is resolved there, once.
-            let upright = f
-            f = Owner.shared.callMain { NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) }
+            f = NSFontManager.shared.convert(f, toHaveTrait: .italicFontMask)
             #endif
         }
         f = TextEngine.cssWeight(f, weight: weight, size: size)
@@ -1082,7 +1078,7 @@ final class TextEngine {
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
         #if os(macOS)
-        if let pending = readerMeasureOnUI(request) { return pending }
+        if let pending = readerMeasure(request) { return pending }
         #endif
         let lookupStarted = CACurrentMediaTime()
         let knownIdentity = residency.borrowedIdentity(request)

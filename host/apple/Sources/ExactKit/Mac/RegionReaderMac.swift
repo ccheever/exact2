@@ -423,21 +423,6 @@ final class RegionReaderParagraph {
 }
 
 extension TextEngine {
-    /// The reader is UI-owned (LLP 1071 §8.1): its paragraphs hold layers and
-    /// its timing measures main's frames. The kernel measures on the owner
-    /// thread, so a request the reader may answer, or one naming a paragraph
-    /// it holds, goes through the owner's one door to main; every other
-    /// request is answered without the hop.
-    func readerMeasureOnUI(_ request: ExactMeasureRequest) -> ExactMetrics? {
-        if Thread.isMainThread { return readerMeasure(request) }
-        let held = readerParagraphs[request.view] != nil
-        if !held {
-            guard request.view != 0, request.width >= 0, request.exclusion_count == 0, request.line_clamp == 0 else { return nil }
-            let bytes = UnsafeBufferPointer(start: request.runs, count: request.count).reduce(0) { $0 + $1.len }
-            guard bytes >= 64 * 1024 || (bytes >= 16 * 1024 && request.count >= 256) else { return nil }
-        }
-        return Owner.shared.callMain { readerMeasure(request) }
-    }
     /// Size and run count bound the ordinary synchronous unit. Known revisions
     /// use only the request header; no source decode/hash on intermediate widths.
     func readerMeasure(_ request: ExactMeasureRequest) -> ExactMetrics? {

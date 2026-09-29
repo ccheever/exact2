@@ -140,9 +140,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
-            // A slice built off main lands a measured latency later: lead by it.
-            let latency = p.collections.fillLatency[id] ?? 0
-            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * (refreshInterval * 2 + latency)))
+            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
             if spent && p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2)) == 0 {
                 fillDeferred = true; continue
             }
@@ -219,7 +217,6 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
-        presenter?.collections.drain?()
         for _ in 0..<8 {
             presenter?.collections.settle()
             guard let collections = presenter?.collections, !collections.fillPending.isEmpty else { break }
