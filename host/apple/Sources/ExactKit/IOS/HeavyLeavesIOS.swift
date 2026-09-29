@@ -77,12 +77,24 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     /// A batch applied: rows are placed now, so leaves near the viewport
     /// are made, in the same frame as their rows.
     func batchApplied() {
+        hideFar()
         guard !pending.isEmpty else { return }
         releaseNear(limit: .max)
         if !pending.isEmpty { start() }
     }
-    /// The list moved: a held leaf may have come near.
-    func scrolled() { if !pending.isEmpty { start() } }
+    /// The list moved: a held leaf may have come near, a made one gone far.
+    func scrolled() {
+        hideFar()
+        if !pending.isEmpty { start() }
+    }
+    /// A made module view in a collection's row hides beyond the margin a
+    /// leaf is made within, and shows inside it (`NativeViews.hideFar`).
+    private func hideFar() {
+        presenter.session?.natives.hideFar { [self] node in
+            guard list(holding: node) != nil else { return nil }
+            return !near(node).near
+        }
+    }
     private func make(_ node: NodeView) {
         guard node.kind == "video" || node.kind == "iframe" else { node.embedPlatformView(presenter); return }
         let started = CACurrentMediaTime()

@@ -264,7 +264,7 @@ final class NativeViews {
     private var nextToken: UInt32 = 1
     /// Since launch (`state.pool.native`): instances created, taken from the
     /// pool, parked, and parked ones destroyed.
-    private(set) var made = 0, reused = 0, parks = 0, dropped = 0
+    private(set) var made = 0, reused = 0, parks = 0, dropped = 0, hidden = 0
     #if os(iOS)
     /// Parked instances by tag, oldest first.
     fileprivate var parked: [String: [NativeEntry]] = [:]
@@ -703,6 +703,18 @@ extension NativeViews {
     /// a fifth as many.
     static let reuseCap = 2, reuseLimit = 4
 
+    /// Far module views are hidden, as UIKit's collection view hides the
+    /// cells it keeps off screen (the SwiftUI baseline's map rows): a made
+    /// view whose node `far` says is away from what shows is hidden, and
+    /// shown again when it comes near. Its instance, props and state stay;
+    /// hidden, a map stops drawing and lets its tiles go.
+    func hideFar(_ far: (NodeView) -> Bool?) {
+        for entry in entries.values {
+            guard let view = entry.view, let owner = entry.owner, let away = far(owner) else { continue }
+            if view.isHidden != away { view.isHidden = away; hidden += away ? 1 : 0 }
+        }
+    }
+
     /// Whether a parked instance of `name` waits: taking one costs about a
     /// tenth of a creation, so it is never held mid-fling (LLP 1068 §5.1).
     func canReuse(_ name: String) -> Bool { !(parked[name]?.isEmpty ?? true) }
@@ -722,6 +734,7 @@ extension NativeViews {
         var list = parked[entry.name] ?? []
         if list.count >= Self.reuseCap { discard(list.removeFirst()) }
         view.alpha = 1
+        view.isHidden = false
         view.removeFromSuperview()
         entry.nonce = 0; entry.revealing = false; entry.sizing = false; entry.owner = nil
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -798,7 +811,7 @@ extension NativeViews {
     }
     /// `state.pool.native`.
     var observation: [String: Any] {
-        ["made": made, "reused": reused, "parks": parks, "dropped": dropped,
+        ["made": made, "reused": reused, "parks": parks, "dropped": dropped, "hidden": hidden,
          "parked": parked.mapValues(\.count), "cap": Self.reuseCap, "limit": Self.reuseLimit]
     }
 }
