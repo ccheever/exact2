@@ -472,7 +472,7 @@ impl<D: DataSource> Presenter<D> {
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
                 // substitute answers (D9).
                 "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
-                    Some(id) => self.show_picker(&id.to_string()),
+                    Some(id) => self.show_picker(id),
                     _ => eprintln!("exact: showPicker requires an element id"),
                 },
                 // @ref LLP 1069.010 D3 — no save panel here: refused with

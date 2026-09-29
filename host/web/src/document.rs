@@ -193,7 +193,7 @@ impl<D: DataSource> Walk<'_, D> {
         // The rules its animations name, for the head: a reader without
         // JavaScript sees them play (LLP 1055 D7).
         if let Some(link) = crate::link::linked().animations {
-            let press = css::press_composes(&node.style);
+            let press = css::press_composes(node.style);
             for a in node
                 .style
                 .animation
