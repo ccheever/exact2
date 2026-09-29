@@ -9,7 +9,7 @@ use exact_motion::{Property, Value};
 static mut STATE: Option<Motion> = None;
 static mut IO: Vec<u8> = Vec::new();
 static mut OPS: Vec<f64> = Vec::new();
-static mut SCRATCH: [f64; 2] = [0.0; 2];
+static mut SCRATCH: [f64; 4] = [0.0; 4];
 
 fn state() -> &'static mut Motion {
     unsafe { STATE.get_or_insert_with(Motion::new) }
@@ -38,10 +38,10 @@ pub extern "C" fn m_out() -> *const f64 {
     unsafe { OPS.as_ptr() }
 }
 
-/// The two numbers the last call left (a hold's value, a velocity).
+/// The numbers the last call left (a hold's value, a velocity, a pair).
 #[no_mangle]
 pub extern "C" fn m_scratch(i: u32) -> f64 {
-    unsafe { SCRATCH[(i & 1) as usize] }
+    unsafe { SCRATCH[(i & 3) as usize] }
 }
 
 /// A node's `transition` row, the input's `len` bytes of CSS text.
@@ -67,6 +67,18 @@ pub extern "C" fn m_observe(
         .is_ok() as u32
 }
 
+/// The height owner's numeric height at `now`.
+#[no_mangle]
+pub extern "C" fn m_height(node: f64, height: f64, now: f64) -> u32 {
+    state().height(node as u64, height, now).is_ok() as u32
+}
+
+/// The node owns height no more: 1 when it had height motion.
+#[no_mangle]
+pub extern "C" fn m_unheight(node: f64) -> u32 {
+    state().retire_height(node as u64) as u32
+}
+
 /// A node left the tree.
 #[no_mangle]
 pub extern "C" fn m_remove(node: f64) {
@@ -79,11 +91,33 @@ pub extern "C" fn m_begin(node: f64, p: u32, x: f64, y: f64, now: f64) -> f64 {
     let Some(p) = property(p) else { return 0.0 };
     match state().begin(node as u64, p, Value::new(x, y), now) {
         Ok(Some((serial, value))) => {
-            unsafe { SCRATCH = [value.x, value.y] };
+            unsafe { SCRATCH[..2].copy_from_slice(&[value.x, value.y]) };
             serial as f64
         }
         _ => 0.0,
     }
+}
+
+/// Begin a transform pair on `node`: its translate serial (0 for none);
+/// the scale serial and the values taken (x, y, scale) in the scratch.
+#[no_mangle]
+pub extern "C" fn m_pair_begin(node: f64, x: f64, y: f64, scale: f64, now: f64) -> f64 {
+    match state().begin_pair(node as u64, [x, y, scale], now) {
+        Ok(Some((t, s, v))) => {
+            unsafe { SCRATCH = [v[0], v[1], v[2], s as f64] };
+            t as f64
+        }
+        _ => 0.0,
+    }
+}
+
+/// Move a pair by its translate serial: 1 when accepted.
+#[no_mangle]
+pub extern "C" fn m_pair_update(serial: f64, x: f64, y: f64, scale: f64, now: f64) -> u32 {
+    matches!(
+        state().update_pair(serial as u64, [x, y, scale], now),
+        Ok(true)
+    ) as u32
 }
 
 /// Move a hold: 1 when accepted.
@@ -110,6 +144,14 @@ pub extern "C" fn m_end(serial: f64, vx: f64, vy: f64, mode: u32, now: f64) -> u
         Ok(false) => 0,
         Err(_) => 2,
     }
+}
+
+/// The engine's velocity over a live hold's values at `now` (x in the
+/// scratch, then y), where the platform measures none.
+#[no_mangle]
+pub extern "C" fn m_measured(serial: f64, now: f64) {
+    let v = state().measured(serial as u64, now);
+    unsafe { SCRATCH[..2].copy_from_slice(&[v.x, v.y]) };
 }
 
 /// Record a constrained display's value for a hold.
@@ -168,5 +210,5 @@ pub extern "C" fn m_pan_sample(view: u32, first: u32, x: f64, y: f64, ms: f64) {
 #[no_mangle]
 pub extern "C" fn m_pan_release(view: u32, ms: f64) {
     let v = state().pan_release(view, ms);
-    unsafe { SCRATCH = [v.x, v.y] };
+    unsafe { SCRATCH[..2].copy_from_slice(&[v.x, v.y]) };
 }

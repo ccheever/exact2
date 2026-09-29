@@ -7,6 +7,7 @@
 // (each registered node's targets and `transition` at every commit, rt.js
 // `mo`), the holds `motion-glue.js` asks for, and the actions they end in.
 import { motionController } from './motion-glue.js';
+import { transformDrags } from './transform.js';
 
 export async function engine({ clock, wall, views, viewId, hooks, say }) {
   const bytes = globalThis.__files ? globalThis.__files('motion.wasm') : await fetch(new URL('motion.wasm', document.baseURI)).then(r => r.arrayBuffer());
@@ -57,7 +58,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say }) {
   const replyEnd = (facts, mode) => {
     const r = w.m_end(serial(facts.token), facts.x ?? 0, facts.y ?? 0, mode, facts.now / 1000);
     if (r === 2) return { error: 'invalid release' };
-    if (r !== 2) ended(serial(facts.token));
+    if (r !== 2) { ended(serial(facts.token)); T.ended(serial(facts.token)); }
     return { accepted: r === 1, batch: ops(lower()) };
   };
   // What `motion-glue.js` asks (`host/web/src/abi.rs` `motion`, answered here).
@@ -89,12 +90,63 @@ export async function engine({ clock, wall, views, viewId, hooks, say }) {
         el.$swipe();
         return { accepted: true, committed: true, batch: ops(lower()) };
       }
+      // A height drag (host/web/src/height_drag.rs): the handle's binding
+      // names the owner it holds; its action runs at the height shown and
+      // the engine's velocity over the heights shown (LLP 1057.001 §3).
+      case 'height-begin': {
+        const b = handles.get(facts.view);
+        if (!b || b.target == null || b.target !== owner) return { accepted: false };
+        const el = views.get(b.target);
+        if (el && !authored.has(b.target)) authored.set(b.target, el.style.cssText);
+        const s = w.m_begin(b.target, 4, facts.x, 0, facts.now / 1000);
+        if (!s) { if (!held(b.target)) authored.delete(b.target); return { accepted: false }; }
+        holds.set(s, b.target);
+        return { token: String(s), target: b.target, value: [w.m_scratch(0), w.m_scratch(1)], batch: ops([...lower(), { op: 'animate', id: b.target, property: 'height', delay: 0, duration: 0, values: [] }]) };
+      }
+      case 'height-action': {
+        const b = handles.get(facts.view), s = serial(facts.token);
+        if (!b || w.m_held(s) !== b.target || w.m_scratch(0) !== 4 || !b.el.$heightrelease) return { accepted: false };
+        if (!w.m_update(s, facts.x, 0, facts.now / 1000)) return { accepted: false };
+        w.m_measured(s, facts.now / 1000);
+        b.el.$heightrelease(facts.x, w.m_scratch(0));
+        return { accepted: true, batch: ops(lower()) };
+      }
+      case 'height-owner': case 'clear-height-owner': return { accepted: false };
+      case 'transform-geometry': case 'transform-invalidate': case 'transform-begin': case 'transform-move': case 'transform-action': return T.request(facts);
       case 'pan-sample': w.m_pan_sample(facts.view, facts.token ? 1 : 0, facts.x, facts.y, facts.now); return { accepted: true };
       case 'pan-velocity': w.m_pan_release(facts.view, facts.now); return { vx: w.m_scratch(0), vy: w.m_scratch(1) };
       default: return { error: `${facts.op} is not in the JS target's motion` };
     }
   };
+  // Height drags: each handle and the owner its `heightDragFor` names, and
+  // the one owner the engine follows (Host::reconcile_height_drags: the
+  // first valid target, never stolen by a second).
+  const handles = new Map(), heights = new Map();
+  let owner = null;
+  const eligible = el => el?.isConnected && !el.closest('[inert],[disabled]') && el.getClientRects().length > 0;
+  function reconcileHeights() {
+    const valid = t => heights.has(t) && typeof heights.get(t)[0] === 'number' && eligible(views.get(t)) && getComputedStyle(views.get(t)).boxSizing === 'border-box';
+    const targets = [...handles.values()].map(b => b.target).filter(t => t != null && valid(t));
+    const next = owner != null && targets.includes(owner) ? owner : targets[0] ?? null;
+    if (next !== owner) {
+      if (owner != null && w.m_unheight(owner)) api.retire(owner, 'height');
+      owner = next;
+      if (owner != null) observeHeight(owner, heights.get(owner));
+    }
+    for (const [id, b] of handles) {
+      const target = b.target != null && b.target === owner && eligible(b.el) ? b.target : null;
+      if (b.published !== target) { b.published = target; api.heightBinding({ id, target, handleKey: id, targetKey: target }); }
+    }
+  }
+  function observeHeight(id, [h, transition] = []) {
+    if (id !== owner || typeof h !== 'number') return;
+    let n = nodes.get(id);
+    if (!n) nodes.set(id, n = {});
+    if (n.transition !== transition) { n.transition = transition; w.m_transitions(id, put(transition ?? '')); }
+    w.m_height(id, h, now() / 1000);
+  }
   const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
+  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible });
   // A dynamic style row on a held node goes to the authored text the hold
   // restores, as the wasm host's `style` op does (motion-glue `style`).
   hooks.style = (e, prop, v) => {
@@ -114,8 +166,16 @@ export async function engine({ clock, wall, views, viewId, hooks, say }) {
     observe,
     // After each commit's tree: lower what it changed, then retire what no
     // longer qualifies (glue.js `applyBatch`'s tail).
-    flush() { applyBatch(ops(lower())); api.commit(); },
-    gone(id) { nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
+    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); },
+    transformDrag(el, target, clip) { T.attach(el, target, clip); T.reconcile(); },
+    height(id, v) { heights.set(id, v); observeHeight(id, v); },
+    heightDrag(el, target) {
+      const id = viewId(el);
+      handles.set(id, { el, target: target ? viewId(target) : null, published: undefined });
+      api.attachHeightDrag(el, id, (t, g) => el.addEventListener(t, g));
+      reconcileHeights();
+    },
+    gone(id) { T.gone(id); if (handles.delete(id) | heights.delete(id)) reconcileHeights(); nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
     swipe(el) { const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); },
     pan: { sample: (id, x, y, t, first) => w.m_pan_sample(id, first ? 1 : 0, x, y, t), velocity: (id, t) => (w.m_pan_release(id, t), [w.m_scratch(0), w.m_scratch(1)]) },
   };

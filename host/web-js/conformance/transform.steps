@@ -1,0 +1,5 @@
+# A pan that springs home (unzoomed), a pinch that zooms and stays, a pan
+# of the zoomed photo that stays where it is let go.
+drag handle 60 30 300
+pinch handle 2
+drag handle 40 -20 300

@@ -11,8 +11,8 @@
 //! Nodes are the runtime's view ids. Time is seconds on the page's clock.
 
 use exact_motion::{
-    Change, Engine, EngineError, HoldEnd, HoldToken, Property, SpringDescriptor, Transitions,
-    Value, VelocityTracker,
+    Change, Engine, EngineError, HoldEnd, HoldToken, Property, SpringDescriptor, TransformHold,
+    Transitions, Value, VelocityTracker,
 };
 use std::collections::BTreeMap;
 
@@ -31,6 +31,8 @@ pub struct Motion {
     holds: BTreeMap<u64, HoldToken>,
     playing: BTreeMap<(u64, Property), SpringDescriptor>,
     pan: Option<(u32, VelocityTracker)>,
+    /// Transform pairs by their translate serial.
+    pairs: BTreeMap<u64, TransformHold>,
 }
 
 impl Default for Motion {
@@ -50,6 +52,7 @@ impl Motion {
             holds: BTreeMap::new(),
             playing: BTreeMap::new(),
             pan: None,
+            pairs: BTreeMap::new(),
         }
     }
 
@@ -91,6 +94,25 @@ impl Motion {
         Ok(())
     }
 
+    /// The height owner's numeric border-box height at `now` (the kernel's
+    /// `height_motion_sync`): a height drag holds it and releases it by the
+    /// node's `transition`.
+    pub fn height(&mut self, node: u64, height: f64, now: f64) -> Result<(), EngineError> {
+        self.seek(now)?;
+        self.engine.observe(Change {
+            node,
+            property: Property::Height,
+            value: Value::scalar(height),
+            velocity: None,
+        })
+    }
+
+    /// The node owns height no more: its height motion retires.
+    pub fn retire_height(&mut self, node: u64) -> bool {
+        self.playing.remove(&(node, Property::Height));
+        self.engine.remove_property(node, Property::Height)
+    }
+
     /// A node left the tree: forgotten, with its springs.
     pub fn remove(&mut self, node: u64) {
         self.engine.remove(node);
@@ -128,6 +150,52 @@ impl Motion {
         // A curve crossing its target is cancelled on takeover too.
         self.playing.remove(&(node, property));
         Ok(Some((start.token.serial(), start.value)))
+    }
+
+    /// Capture a node's translate and scale as one pair (the photo pair,
+    /// LLP 1057.001 §4): the two serials and the values taken.
+    pub fn begin_pair(
+        &mut self,
+        node: u64,
+        values: [f64; 3],
+        now: f64,
+    ) -> Result<Option<(u64, u64, [f64; 3])>, EngineError> {
+        let presented = [Value::new(values[0], values[1]), Value::scalar(values[2])];
+        let Some(pair) = self
+            .engine
+            .begin_transform_hold(node, now, Some(presented))?
+        else {
+            return Ok(None);
+        };
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        self.pairs.retain(|_, p| {
+            self.engine.has_hold(p.translate().token) || self.engine.has_hold(p.scale().token)
+        });
+        let (t, s) = (pair.translate(), pair.scale());
+        for start in [t, s] {
+            self.holds.insert(start.token.serial(), start.token);
+            self.playing.remove(&(node, start.token.property()));
+        }
+        self.pairs.insert(t.token.serial(), pair);
+        Ok(Some((
+            t.token.serial(),
+            s.token.serial(),
+            [t.value.x, t.value.y, s.value.x],
+        )))
+    }
+
+    /// Move a pair, by its translate serial; `false` when either is stale.
+    pub fn update_pair(
+        &mut self,
+        serial: u64,
+        values: [f64; 3],
+        now: f64,
+    ) -> Result<bool, EngineError> {
+        let Some(pair) = self.pairs.get(&serial).copied() else {
+            return Ok(false);
+        };
+        let values = [Value::new(values[0], values[1]), Value::scalar(values[2])];
+        self.engine.update_transform_hold(pair, now, values)
     }
 
     /// Move a hold; `false` for a stale one.

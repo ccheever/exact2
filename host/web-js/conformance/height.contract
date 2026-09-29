@@ -1,0 +1,16 @@
+// data: interaction-gallery
+// Synthetic conformance plan: a height drag (LLP 1041 §8.5's sheet): the
+// handle's heightDragFor names the sheet, a drag holds its height, the
+// release runs heightrelease at the height shown and the engine's
+// velocity, and the sheet springs to where the action snaps it.
+component App
+  state px = 400
+  state snaps = 0
+  action snap(height: number, velocity: number) writes px, snaps
+    px = height > 300 ? 640 : 200
+    snaps = snaps + 1
+  view
+    column testId="page" height=900 position="relative" background-color="#ffffff"
+      text `${snaps} ${px}` testId="count"
+      column id="sheet" testId="sheet" position="absolute" bottom=0 left=0 right=0 height=px box-sizing="border-box" transition="height spring(300, 30, 1)" background-color="#dde"
+        column heightDragFor="sheet" heightrelease=snap testId="handle" height=40 touch-action="none" background-color="#99a"

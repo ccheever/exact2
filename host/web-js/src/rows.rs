@@ -120,22 +120,29 @@ impl Em<'_> {
             if NodeType::from_wire(row.node_type) == Some(NodeType::SvgSymbol) {
                 return true;
             }
-            at = match (row.parent, row.arm) {
-                (Some(p), _) => Some(p.0),
-                (None, Some(a)) => {
-                    let mut region = plan.arms[a.0 as usize].region;
-                    loop {
-                        let r = &plan.regions[region.0 as usize];
-                        match (r.parent, r.arm) {
-                            (Some(p), _) => break Some(p.0),
-                            (None, Some(a)) => region = plan.arms[a.0 as usize].region,
-                            (None, None) => break None,
-                        }
-                    }
-                }
-                (None, None) => None,
-            };
+            at = self.parent_of(n);
         }
         false
+    }
+
+    /// Node `i`'s parent node, through regions' arms.
+    pub(super) fn parent_of(&self, i: u32) -> Option<u32> {
+        let plan = self.plan;
+        let row = &plan.nodes[i as usize];
+        match (row.parent, row.arm) {
+            (Some(p), _) => Some(p.0),
+            (None, Some(a)) => {
+                let mut region = plan.arms[a.0 as usize].region;
+                loop {
+                    let r = &plan.regions[region.0 as usize];
+                    match (r.parent, r.arm) {
+                        (Some(p), _) => break Some(p.0),
+                        (None, Some(a)) => region = plan.arms[a.0 as usize].region,
+                        (None, None) => break None,
+                    }
+                }
+            }
+            (None, None) => None,
+        }
     }
 }

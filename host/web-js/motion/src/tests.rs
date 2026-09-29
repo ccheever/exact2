@@ -103,3 +103,40 @@ fn a_pan_releases_at_its_speed_once() {
     assert!((v.x - 1250.0).abs() < 1.0, "{v:?}");
     assert_eq!(m.pan_release(7, 1080.0), Value::ZERO);
 }
+
+#[test]
+fn a_held_height_springs_to_its_new_target() {
+    let mut m = Motion::new();
+    assert!(m.transitions(4, "height spring(300, 30, 1)"));
+    m.height(4, 400.0, 0.0).unwrap();
+    let (serial, value) = m
+        .begin(4, Property::Height, Value::scalar(400.0), 0.1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(value, Value::scalar(400.0));
+    assert!(m.update(serial, Value::scalar(300.0), 0.2).unwrap());
+    m.height(4, 640.0, 0.2).unwrap();
+    assert!(m.end(serial, Some(Value::ZERO), 0.2).unwrap());
+    let ops = lowered(&mut m, 0.2);
+    assert_eq!(ops[..3], [1.0, 4.0, 4.0], "a height spring on 4");
+    assert_eq!(ops[ops.len() - 2], 640.0, "to the new target");
+    assert!(m.retire_height(4));
+}
+
+#[test]
+fn a_transform_pair_moves_together_and_ends_apart() {
+    let mut m = Motion::new();
+    assert!(m.transitions(9, "translate spring(200, 20, 1), scale spring(200, 20, 1)"));
+    m.observe(9, [0.0, 0.0, 1.0, 0.0, 1.0], 0.0).unwrap();
+    let (t, s, v) = m.begin_pair(9, [0.0, 0.0, 1.0], 0.1).unwrap().unwrap();
+    assert_eq!(v, [0.0, 0.0, 1.0]);
+    assert!(m.update_pair(t, [30.0, 10.0, 2.0], 0.2).unwrap());
+    assert_eq!(m.held(t), Some((9, Property::Translate)));
+    assert_eq!(m.held(s), Some((9, Property::Scale)));
+    assert!(m.end(t, Some(Value::ZERO), 0.2).unwrap());
+    assert!(
+        !m.update_pair(t, [0.0, 0.0, 1.0], 0.3).unwrap(),
+        "half a pair is no pair"
+    );
+    assert!(m.end(s, None, 0.3).unwrap());
+}

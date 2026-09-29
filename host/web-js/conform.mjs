@@ -139,14 +139,15 @@ async function drive(t, report, fail, dir, ws, js) {
     // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
-    // up; a pan or a swipe) — each compared after both settle.
+    // up; a pan or a swipe), `pinch <target> <scale>` (two fingers) — each
+    // compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
     await settle();
     let tree = await compare('boot');
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; }
       try { await run(J); } catch (e) { fail(line, `js: ${e.message.split('\n')[0]}`); continue; }
       await settle();

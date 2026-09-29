@@ -205,6 +205,11 @@ struct Em<'a> {
     /// Whether an image draws a symbol (`symbols.js`), and whether a
     /// binding names one (its roles are then the plan's strings).
     symbols: (bool, bool),
+    /// Each height drag handle's owner (`heightDragFor`, resolved as the
+    /// kernel resolves it), by node.
+    heights: std::collections::BTreeMap<u32, u32>,
+    /// Each transform drag handle's target and clip, by node.
+    transforms: std::collections::BTreeMap<u32, (u32, u32)>,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -238,7 +243,11 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         flow: false,
         list: false,
         symbols: (false, false),
+        heights: Default::default(),
+        transforms: Default::default(),
     };
+    em.heights = em.height_targets();
+    em.transforms = em.transform_targets();
     let top = Scope::default();
     let action = Scope {
         action: true,
@@ -1168,6 +1177,7 @@ impl Em<'_> {
             }
         }
         self.motion_node(i, &e, scope)?;
+        self.height_owner(i, &e, scope)?;
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
@@ -1211,7 +1221,11 @@ impl Em<'_> {
                 | EventKind::Cancel
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
-                EventKind::Swiperight | EventKind::Panrelease => self.motion = true,
+                EventKind::Swiperight
+                | EventKind::Panrelease
+                | EventKind::Heightrelease
+                | EventKind::Transformgeometry
+                | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
                 k => {
                     return Err(format!(
@@ -1236,11 +1250,19 @@ impl Em<'_> {
                 EventKind::Pan => Some("onPan"),
                 EventKind::Panrelease => Some("onPanRelease"),
                 EventKind::Select => Some("onSelect"),
+                EventKind::Heightrelease => Some("onHeight"),
+                EventKind::Transformgeometry => Some("onTGeom"),
+                EventKind::Transformrelease => Some("onTRelease"),
                 _ => None,
             };
             if let Some(piece) = piece {
                 let f = self.uses.rt(piece);
-                let _ = write!(self.out, "{f}({e},{handler});");
+                let owner = match (h.event, self.heights.get(&i), self.transforms.get(&i)) {
+                    (EventKind::Heightrelease, Some(t), _) => format!(",e{t}"),
+                    (EventKind::Transformrelease, _, Some((t, c))) => format!(",e{t},e{c}"),
+                    _ => String::new(),
+                };
+                let _ = write!(self.out, "{f}({e},{handler}{owner});");
                 continue;
             }
             if h.event == EventKind::Navigate {

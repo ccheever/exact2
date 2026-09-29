@@ -1,0 +1,25 @@
+// data: interaction-gallery
+// Synthetic conformance plan: the photo pair's transform drag (LLP 1041
+// §8.5, LLP 1057.001 §4): the handle's transformDragFor names the photo; the
+// page reports its geometry (transformgeometry); a finger pans it and two
+// pinch it, one pair of holds; the release runs transformrelease with the
+// engine's velocities, and the photo springs to what the action decides.
+component App
+  state geometry = ""
+  state x = 0
+  state y = 0
+  state s = 1
+  state releases = 0
+  action measured(w: number, h: number, pw: number, ph: number) writes geometry
+    geometry = `${w}x${h} in ${pw}x${ph}`
+  action released(nx: number, ny: number, ns: number, vx: number, vy: number, vs: number) writes x, y, s, releases
+    s = ns < 1 ? 1 : (ns > 3 ? 3 : ns)
+    x = s == 1 ? 0 : nx
+    y = s == 1 ? 0 : ny
+    releases = releases + 1
+  view
+    column testId="page" padding=20 gap=10 background-color="#ffffff" height=900 box-sizing="border-box"
+      text `${geometry} · ${releases} · ${s}` testId="facts"
+      column testId="clip" width=320 height=200 overflow="hidden" border-width=0 padding=0 background-color="#eeeeee"
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" border-width=0 padding=0 translate=`${x}px ${y}px` scale=s transition="translate spring(260, 26, 1), scale spring(260, 26, 1)" background-color="#88aacc"
+          column testId="handle" transformDragFor="photo" transformgeometry=measured transformrelease=released touch-action="none" width="100%" height="100%"

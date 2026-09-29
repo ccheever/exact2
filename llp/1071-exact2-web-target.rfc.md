@@ -698,7 +698,7 @@ from (a) today.
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
 | runs, differs | Update Lab (a TypeScript and a Rust source in one app) |
-| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), a file input (fieldnotes), the event `transformgeometry` (exact-live, interaction-gallery) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo, recorder), a file input (fieldnotes), the event `reorderdrop` (exact-live, interaction-gallery) |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -710,7 +710,7 @@ from (a) today.
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
-| Events: ~~pan, panrelease, swiperight, select, cancel~~ (landed 2026-09-29, below); transformgeometry, the height, transform and reorder drags; a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | ~1 week | loaded (`motion-glue.js`, `picker-glue.js`) |
+| Events: ~~pan, panrelease, swiperight, select, cancel, the height and transform drags~~ (landed 2026-09-29, below); the reorder drag (`reorderdrop`: `reorder_drag.rs` and motion-glue's `arrangeController`, with reorder on a virtualized list); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 3–5 days | loaded (`motion-glue.js`, `picker-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
 | ~~Springs~~ (landed 2026-09-29, below), presence, layout transitions (`motion-glue.js`, on the motion piece) | ~1 week | loaded |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
@@ -1044,6 +1044,38 @@ brotli):
   3e-5 px in its slot: which frames a real-time finger's deltas fall in is
   the frame clock's, and `moveOrb` scales and clamps each delta, so the sum
   depends on the partition, on either target.
+
+**The height and transform drags** (landed 2026-09-29, measured; brotli):
+- **What.** Both are motion-glue's (`attachHeightDrag`,
+  `attachTransformDrag`, unchanged) over the motion piece, whose runner's
+  half gains `host/web/src/height_drag.rs`'s and `transform_drag.rs`'s
+  logic (`motion.js`, `transform.js`). The compiler resolves a handle's
+  `heightDragFor` or `transformDragFor` as the kernel does, to the unique
+  strict ancestor with that `id` (and, for a transform, its parent as the
+  clip), and emits the handle bound to them (`onHeight`, `onTGeom`,
+  `onTRelease`); a height owner tells the engine its numeric height and
+  `transition` (`mh`), a transform target registers as a motion node. At
+  each commit the one owner is chosen as the wasm host chooses it (the
+  first valid, never stolen) and each handle's binding is published to
+  motion-glue when it changes. A height drag holds the owner's height and
+  runs `heightrelease` at the height shown and the engine's velocity over
+  the heights shown; a transform drag holds the target's translate and
+  scale as one pair (`motion.wasm` gains the pair holds), orders the
+  page's geometry reports by sequence, runs `transformgeometry` when they
+  change and `transformrelease` with the engine's three velocities, and
+  refuses stale identities, sequences and tokens before any value, as the
+  wasm host does. The kernel's structural checks of a transform target
+  (a 100% border-box View in an `overflow: hidden` parent, no insets,
+  centred origin) are the page's snapshot's in motion-glue, which refuses
+  the same geometry.
+- **Cost.** In `app.js`, the bindings over the motion registration: 73 B.
+  Loaded: the motion chunk 13,159 → 15,018 B, `motion.wasm` 38,878 →
+  42,256 B (the pair holds and height).
+- **Conformance.** Synthetic `height.contract` 5/5 (up past the snap, down
+  under it, a small hold) and `transform.contract` 5/5 (a pan that springs
+  home, a pinch that zooms and stays, a pan of the zoomed photo), over
+  Interaction Gallery's dist, which links the drags. Interaction Gallery
+  and Exact Live still wait on the reorder drag.
 
 ## 8. Rulings and open questions for Charlie
 

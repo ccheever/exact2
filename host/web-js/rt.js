@@ -630,6 +630,20 @@ export function mo(e, f) {
 /** `swiperight`: the motion piece's (motion-glue.js `attachSwipe`); the
  * action runs when the hold passes the knee (motion.js `action`). */
 export function onSwipe(e, f) { e.$swipe = f; motion(m => m.swipe(e)); }
+/** A height drag's owner (the node a handle's `heightDragFor` names): its
+ * numeric height and `transition`, told the motion engine as they change. */
+export function mh(e, f) {
+  const id = viewId(e);
+  onEnd(() => motion(m => m.gone(id)));
+  effect(() => { const v = f(); motion(m => m.height(id, v)); });
+}
+/** `heightrelease`: motion-glue's height drag on the handle, holding `t`. */
+export function onHeight(e, f, t) { e.$heightrelease = f; motion(m => m.heightDrag(e, t)); }
+/** `transformgeometry`: the pair's geometry, the page's observation. */
+export function onTGeom(e, f) { e.$tgeom = f; }
+/** `transformrelease`: motion-glue's transform drag on the handle, holding
+ * target `t`'s translate and scale inside its clip `c` (LLP 1057.001 §4). */
+export function onTRelease(e, f, t, c) { e.$trelease = f; motion(m => m.transformDrag(e, t, c)); }
 /** `pan`: the web host's input piece's (input-glue.js), after first paint. */
 export function onPan(e, f) {
   e.$pan = f; e.exactHandlers ??= e.dataset.exactOn.split(" ");
