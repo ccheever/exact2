@@ -949,8 +949,27 @@ final class Presenter {
             syncKeyViewLoop()
         }
         refreshVisibleText()
-        syncAccessibility()
+        // The nodes this batch touched and the views above them, as iOS
+        // passes them: a full pass sorted every view in the session on
+        // every batch, a list's scroll included.
+        syncAccessibility(changed: touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)))
         _ = chrome.takeChangedNames()
+    }
+
+    private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame]
+
+    /// The views a batch touched and every view above them, as the batch
+    /// left the hierarchy: what a pass reading a subtree must revisit.
+    private func touchedAndAbove<S: Sequence>(_ ids: S) -> Set<UInt32> where S.Element == UInt32 {
+        var seen = Set<UInt32>()
+        for id in ids {
+            var view: NSView? = views[id]
+            while let current = view {
+                if let node = current as? NodeView, !seen.insert(node.id).inserted { break }
+                view = current.superview
+            }
+        }
+        return seen
     }
 
     /// Align an enclosing context panel's preview with its source, while
