@@ -396,6 +396,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_display(scale, memory), |n| n)
         }
 
+        /// A 2D canvas's replay is behind (`held` 1) or caught up (0): a
+        /// frame request for it waits while held (LLP 1056 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_held(rt: u32, view: u32, held: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_held(view, held != 0), |_| ())
+        }
+
         /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {

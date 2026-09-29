@@ -1,7 +1,7 @@
 //! Canvas 2D on Apple, the Rust half (LLP 1056 D4, D7): after each turn's
 //! layout, every 2D canvas's geometry from the kernel, its due draws, and
 //! their stamped lists onto the batch as `canvas2d` ops, which the Swift
-//! presenter replays into Core Graphics on the main thread.
+//! presenter replays into Core Graphics off the main thread (§8.3).
 
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -44,7 +44,8 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        self.runner.draw_canvases(&|_| true);
+        let held = &self.canvas_held;
+        self.runner.draw_canvases(&|v| !held.contains(&v));
         for c in self.runner.take_canvas_lists() {
             let (content, radii) =
                 self.runner
@@ -69,6 +70,18 @@ impl<D: DataSource> Host<D> {
             batch.canvas2d(&c, content, radii);
         }
         batch.canvas_images(self.runner.take_canvas_image_requests());
+    }
+
+    /// The presenter's replay of `view` is (`held`) or is no longer behind
+    /// (LLP 1056 D5, §8.3): while it is, the canvas's frame request waits,
+    /// as a browser's animation frame waits for the last one to present, so
+    /// frames drop rather than queue. Every other cause still draws.
+    pub fn canvas_held(&mut self, view: ViewId, held: bool) {
+        if held {
+            self.canvas_held.insert(view);
+        } else {
+            self.canvas_held.remove(&view);
+        }
     }
 
     /// The app's Core Text measurer for Canvas 2D (LLP 1056 D8).

@@ -115,6 +115,9 @@ pub struct Host<D: DataSource> {
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
+    /// 2D canvases whose replays the presenter has not caught up with: a
+    /// frame request waits for them (`exact_canvas_held`, LLP 1056 D5).
+    canvas_held: IdSet<ViewId>,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
@@ -376,6 +379,7 @@ impl<D: DataSource> Host<D> {
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             svg: svg::SvgState::new(cfg!(target_os = "ios")),
+            canvas_held: IdSet::default(),
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),

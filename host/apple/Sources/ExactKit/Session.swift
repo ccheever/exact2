@@ -453,6 +453,10 @@ public final class ExactSession {
             guard let self, self.state != .destroyed else { return }
             self.apply(self.runtime.canvasImage(src, width: image?.width ?? 0, height: image?.height ?? 0, ok: image != nil))
         }
+        presenter.canvas2d.onHeld = { [weak self] view, held in
+            guard let self, self.state != .destroyed else { return }
+            self.runtime.canvasHeld(view, held)
+        }
         // LLP 1056 D4: Canvas 2D backs its bitmaps at the display's scale.
         #if canImport(UIKit)
         let scale = UIScreen.main.scale

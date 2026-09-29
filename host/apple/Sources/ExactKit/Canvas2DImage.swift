@@ -76,12 +76,28 @@ final class Canvas2DHost: Canvas2DEnv {
     /// in a fling. The row's box, mask and scale apply with its batch; its
     /// pixels land when the replay ends, a frame later at most, and the
     /// agent's settle waits for them (`loadingCount`).
+    ///
+    /// A canvas has at most one replay waiting behind the one running. Lists
+    /// that arrive while one waits join it (one replay, one image), and a
+    /// fresh bitmap's lists replace it, since a new bitmap discards what was
+    /// drawn before. While one waits the runner holds the canvas's frame
+    /// request (`onHeld`), as a browser's animation frame waits for the last
+    /// one to present: an animation drops frames instead of queueing them,
+    /// and the newest replay done always shows.
     private let replay = DispatchQueue(label: "exact.canvas2d.replay", qos: .userInitiated)
     /// Replays dispatched and not yet shown.
     private var pending = 0
-    /// Each canvas's latest dispatched replay: an older one's pixels are
-    /// never shown over a newer one's.
+    /// Each canvas's latest arrival, and the newest one shown: an older
+    /// replay's pixels are never shown over a newer one's.
     private var sequence: [UInt32: Int] = [:]
+    private var shown: [UInt32: Int] = [:]
+    /// Each canvas's replay not yet started, under `lock` (the replay queue
+    /// takes it).
+    private var waiting: [UInt32: Canvas2DJob] = [:]
+    private let lock = NSLock()
+    /// A canvas's replay is waiting (true) or has started (false): the
+    /// runner holds its frame request meanwhile (`exact_canvas_held`).
+    var onHeld: ((UInt32, Bool) -> Void)?
     /// Lists that could not be read, for `logs`.
     var errors: [String] = []
     /// The views' real scale differs from what the canvases were drawn at.
@@ -94,6 +110,8 @@ final class Canvas2DHost: Canvas2DEnv {
     /// A handle decoded (its image) or not (nil): the session tells the runtime.
     var onImage: ((String, CGImage?) -> Void)?
     private var images: [String: CGImage] = [:]
+    /// Every font a list has set, as last resolved.
+    private var resolved: [Canvas2DFont: CTFont] = [:]
     private var loading: Set<String> = []
 
     func canvasFont(_ f: Canvas2DFont) -> CTFont? { textEngine?()?.canvasText.font(f) }
@@ -164,36 +182,65 @@ final class Canvas2DHost: Canvas2DEnv {
         }
         // What the replay reads, resolved here: the decoded images, and the
         // fonts its text sets (the text engine is the main thread's).
-        var fonts: [Canvas2DFont: CTFont] = [:]
+        // A list sets a font only when it changes, and the replayer keeps it
+        // from list to list: every font resolved before rides along, and the
+        // ones these lists set are resolved again.
+        var again: Set<Canvas2DFont> = []
         for case let data? in lists {
-            for f in Canvas2DReplayer.fonts(in: data) where fonts[f] == nil { fonts[f] = canvasFont(f) }
+            for f in Canvas2DReplayer.fonts(in: data) where again.insert(f).inserted { resolved[f] = canvasFont(f) }
         }
-        let env = Canvas2DSnapshot(images: images, fonts: fonts)
+        let fonts = resolved
         let seq = (sequence[id] ?? 0) + 1
         sequence[id] = seq
+        let job = Canvas2DJob(fresh: fresh, w: w, h: h, scale: scale, lifetime: lifetime, generation: generation,
+                              lists: lists, images: images, fonts: fonts, seq: seq)
+        lock.lock()
+        let joined = waiting[id]?.absorb(job) ?? false
+        if !joined { waiting[id] = job }
+        lock.unlock()
+        if joined { return }
         pending += 1
-        replay.async { [weak self] in
+        onHeld?(id, true)
+        replay.async { [weak self] in self?.run(id) }
+    }
+
+    /// The replay queue: take `id`'s waiting replay and run it.
+    private func run(_ id: UInt32) {
+        lock.lock()
+        let taken = waiting.removeValue(forKey: id)
+        lock.unlock()
+        DispatchQueue.main.async { [weak self] in
+            // Released unless another replay has come to wait since.
             guard let self else { return }
-            if fresh {
-                self.replayers[id] = Canvas2DReplayer(width: w, height: h, scale: scale, lifetime: lifetime, generation: generation)
+            self.lock.lock(); let still = self.waiting[id] != nil; self.lock.unlock()
+            if !still { self.onHeld?(id, false) }
+        }
+        guard let job = taken else {
+            DispatchQueue.main.async { [weak self] in self?.pending -= 1 }
+            return
+        }
+        if job.fresh {
+            replayers[id] = Canvas2DReplayer(width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation)
+        }
+        var image: CGImage?, unreadable = 0
+        if let r = replayers[id], r.lifetime == job.lifetime, r.generation == job.generation {
+            let env = Canvas2DSnapshot(images: job.images, fonts: job.fonts)  // `env` is weak
+            r.env = env
+            defer { withExtendedLifetime(env) {} }
+            for data in job.lists {
+                guard let data, r.apply(data) else { unreadable += 1; continue }
             }
-            var image: CGImage?, unreadable = 0
-            if let r = self.replayers[id], r.lifetime == lifetime, r.generation == generation {
-                r.env = env
-                for data in lists {
-                    guard let data, r.apply(data) else { unreadable += 1; continue }
-                }
-                r.env = nil
-                image = r.image()
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.pending -= 1
-                for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
-                // The newest replay of a canvas still mounted shows.
-                guard let image, self.sequence[id] == seq, let layer = self.layers[id] else { return }
-                layer.contents = image
-            }
+            r.env = nil
+            image = r.image()
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pending -= 1
+            for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
+            // The newest replay done of a canvas still mounted shows.
+            guard let image, self.sequence[id] != nil, job.seq > self.shown[id] ?? 0, let layer = self.layers[id] else { return }
+            self.shown[id] = job.seq
+            layer.contents = image
         }
     }
 
@@ -225,8 +272,41 @@ final class Canvas2DHost: Canvas2DEnv {
     func forget(_ id: UInt32) {
         // Every retired view is forgotten here; only a canvas has a replayer.
         guard sequence.removeValue(forKey: id) != nil else { return }
+        shown.removeValue(forKey: id)
+        lock.lock(); waiting.removeValue(forKey: id); lock.unlock()
         replay.async { [weak self] in self?.replayers.removeValue(forKey: id) }
         layers.removeValue(forKey: id)?.removeFromSuperlayer()
+    }
+}
+
+/// One canvas's replay not yet started: its lists in order, with what they
+/// read.
+private final class Canvas2DJob {
+    var fresh: Bool
+    var w: Int, h: Int, scale: Double, lifetime: UInt64, generation: UInt32
+    var lists: [Data?]
+    var images: [String: CGImage]
+    var fonts: [Canvas2DFont: CTFont]
+    var seq: Int
+    init(fresh: Bool, w: Int, h: Int, scale: Double, lifetime: UInt64, generation: UInt32, lists: [Data?],
+         images: [String: CGImage], fonts: [Canvas2DFont: CTFont], seq: Int) {
+        self.fresh = fresh; self.w = w; self.h = h; self.scale = scale; self.lifetime = lifetime
+        self.generation = generation; self.lists = lists; self.images = images; self.fonts = fonts; self.seq = seq
+    }
+
+    /// Take a later arrival into this replay; always true. A fresh bitmap's
+    /// lists supersede everything before them.
+    func absorb(_ later: Canvas2DJob) -> Bool {
+        if later.fresh {
+            fresh = true; w = later.w; h = later.h; scale = later.scale
+            lifetime = later.lifetime; generation = later.generation; lists = later.lists
+        } else {
+            lists += later.lists
+        }
+        images = later.images
+        fonts.merge(later.fonts) { _, new in new }
+        seq = later.seq
+        return true
     }
 }
 

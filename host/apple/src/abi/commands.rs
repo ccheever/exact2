@@ -8,6 +8,13 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// `exact_canvas_held`: a 2D canvas's replay is behind, or caught up.
+    pub fn canvas_held(&mut self, view: u32, held: bool) {
+        if let Some(h) = self.host.as_mut() {
+            h.canvas_held(view, held);
+        }
+    }
+
     /// A command the session is about to run (`exact_command`).
     pub fn command(&mut self, len: usize) -> u32 {
         let request = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
