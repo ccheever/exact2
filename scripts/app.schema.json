@@ -216,6 +216,13 @@
             "minimumOS": {
               "type": "string"
             },
+        "link": {
+          "type": "array",
+          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+          "items": {
+            "type": "string"
+          }
+        },
             "deviceFamily": {
               "type": "array",
               "items": {
@@ -262,6 +269,13 @@
             "minimumOS": {
               "type": "string"
             },
+        "link": {
+          "type": "array",
+          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+          "items": {
+            "type": "string"
+          }
+        },
             "team": {
               "type": "string"
             },
