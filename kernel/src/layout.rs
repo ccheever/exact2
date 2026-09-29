@@ -182,6 +182,9 @@ impl Default for LayoutTree {
 pub trait LayoutMirror {
     /// A leaf for `slot` from its current style; `None` without an engine.
     fn new_leaf(&mut self, arena: &NodeArena, slot: u32, measured: bool) -> Option<NodeId>;
+    /// A leaf with the engine's default style, for a node whose style the
+    /// same batch re-derives (`restyle`) before any layout.
+    fn new_leaf_unstyled(&mut self, slot: u32, measured: bool) -> Option<NodeId>;
     /// Re-derive `node`'s engine style from `slot`'s current style.
     fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId);
     /// Give `node`, `parent`'s engine node, the engine nodes of `parent`'s
@@ -206,6 +209,15 @@ impl LayoutMirror for LayoutTree {
         Some(LayoutTree::new_leaf(
             self,
             taffy_style(arena, slot),
+            slot,
+            measured,
+        ))
+    }
+
+    fn new_leaf_unstyled(&mut self, slot: u32, measured: bool) -> Option<NodeId> {
+        Some(LayoutTree::new_leaf(
+            self,
+            taffy::Style::default(),
             slot,
             measured,
         ))
@@ -257,6 +269,10 @@ pub struct Unmirrored;
 
 impl LayoutMirror for Unmirrored {
     fn new_leaf(&mut self, _: &NodeArena, _: u32, _: bool) -> Option<NodeId> {
+        None
+    }
+
+    fn new_leaf_unstyled(&mut self, _: u32, _: bool) -> Option<NodeId> {
         None
     }
 

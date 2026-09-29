@@ -513,6 +513,20 @@ pub(crate) fn apply_document(
     let mut detach = Detach::default();
     // Children detached by this batch that declare an exit: the parent each left.
     let mut left: IdMap<u32, u32> = IdMap::default();
+    // A node this batch creates and then styles: its first engine style
+    // would be derived twice, at the create (from the default style) and at
+    // the style. It is created with the engine's default instead and derived
+    // once: at its style when that changes a layout row, else at the end of
+    // the batch (`unstyled`). A list row's mount is a create and a style per
+    // node.
+    let styled: IdSet<u32> = ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetStyle { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let mut unstyled: IdSet<u32> = IdSet::default();
 
     let applied = (|| -> Result<(), ApplyError> {
         for (op_index, op) in ops.iter().enumerate() {
@@ -530,7 +544,13 @@ pub(crate) fn apply_document(
                             op_index,
                             what: "validated batch exhausted slot space",
                         })?;
-                    if let Some(node) = layout.new_leaf(arena, slot, node_type.is_measured_leaf()) {
+                    let leaf = if styled.contains(id) {
+                        unstyled.insert(slot);
+                        layout.new_leaf_unstyled(slot, node_type.is_measured_leaf())
+                    } else {
+                        layout.new_leaf(arena, slot, node_type.is_measured_leaf())
+                    };
+                    if let Some(node) = leaf {
                         arena.set_taffy(slot, Some(node));
                     }
                     created.insert(slot);
@@ -638,6 +658,9 @@ pub(crate) fn apply_document(
                         receipt.display_changed.push(arena.key(slot));
                     }
                     style_changed(arena, layout, slot, changed, &mut receipt);
+                    if changed.intersects(StyleMask::LAYOUT) {
+                        unstyled.remove(&slot);
+                    }
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
                 }
@@ -768,6 +791,11 @@ pub(crate) fn apply_document(
     })();
     detach.flush(arena, layout, selectors);
     applied?;
+    for slot in unstyled {
+        if let Some(node) = arena.is_live(slot).then(|| arena.taffy(slot)).flatten() {
+            layout.restyle(arena, slot, node);
+        }
+    }
 
     if let Some((lang, direction)) = language {
         let changed = arena.document_language != lang;
