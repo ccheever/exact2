@@ -303,8 +303,8 @@ impl Batch {
         let mut s = String::new();
         let _ = write!(
             s,
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{}],\"lists\":[",
-            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch,
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{}],\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating,
             content.0, content.1, content.2, content.3, radii[0], radii[1], radii[2], radii[3]
         );
         for (i, l) in c.lists.iter().enumerate() {

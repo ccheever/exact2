@@ -276,6 +276,9 @@ pub struct CanvasList {
     pub stretch: bool,
     /// The lists.
     pub lists: Vec<Vec<u8>>,
+    /// The draw asked for the next frame: the canvas animates (a host may
+    /// present it differently, LLP 1056 §8.4).
+    pub animating: bool,
 }
 
 static LIFETIMES: AtomicU64 = AtomicU64::new(1);
@@ -620,6 +623,7 @@ impl CanvasEngine for Canvases {
                     scale: b.scale,
                     stretch: b.stretch,
                     lists: Vec::new(),
+                    animating: false,
                 });
             }
             let Some(b) = r.backing else { continue };
@@ -769,6 +773,7 @@ impl CanvasEngine for Canvases {
             scale: b.scale,
             stretch: b.stretch,
             lists: reply.lists,
+            animating: r.wants_frame,
         };
         let surface = r.surface.clone();
         if !out.lists.is_empty() {

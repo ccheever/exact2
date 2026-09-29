@@ -237,8 +237,23 @@ fn a_later_reply_applies_only_with_live_stamps() {
     assert!(r.canvas_reply(c2, g2, s2, reply.clone()).is_ok());
     let lists = r.take_canvas_lists();
     assert!(lists[0].fresh && !lists[1].fresh);
+    // A draw that asked for no frame does not animate (LLP 1056 §8.4).
+    assert!(!lists[0].animating && !lists[1].animating);
     // The same stamps twice: the second is stale.
-    assert!(r.canvas_reply(c2, g2, s2, reply).is_err());
+    assert!(r.canvas_reply(c2, g2, s2, reply.clone()).is_err());
+    // One that asks for the next frame does, on the list it returns.
+    r.set_canvas_geometry(view, geometry(40.0, 20.0, 2.0));
+    r.draw_canvases(&|_| true);
+    let (c3, g3, s3) = *log.borrow().parked.last().unwrap();
+    let asks = DrawReply {
+        wants_frame: true,
+        ..reply
+    };
+    assert!(r.canvas_reply(c3, g3, s3, asks).is_ok());
+    assert!(r
+        .take_canvas_lists()
+        .iter()
+        .any(|l| !l.fresh && l.animating));
 }
 
 #[test]
