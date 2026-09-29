@@ -199,13 +199,27 @@ func agentReady() {
 }
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
         if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
         sessions = [("a", a), ("b", b)]
-        let w = UIWindow(frame: UIScreen.main.bounds)
+        return true
+    }
+    // A scene, not an app-wide window: an app that adopts no scene
+    // lifecycle traps at launch on iOS 27.
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let c = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        c.delegateClass = SceneDelegate.self
+        return c
+    }
+}
+
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        guard let ws = scene as? UIWindowScene else { return }
+        let w = UIWindow(windowScene: ws)
         let rootController = RootController()
         root = rootController
         w.rootViewController = rootController
@@ -221,7 +235,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
         watchControl()
-        return true
     }
 }
 
