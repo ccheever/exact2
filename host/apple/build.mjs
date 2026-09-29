@@ -1036,13 +1036,16 @@ function main(args) {
   // slice gives `-I` its headers, `-L` it and `-l` each archive in it; a
   // framework's slice gives `-F` it and `-framework` its name.
   const frameworkSlice = (fw, forIos, simulator, arch) => {
-    const plist = JSON.parse(spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' }).stdout || '{}');
+    const read = spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' });
+    if (read.status !== 0) throw new Error(`host/apple: ${basename(fw)} has no readable Info.plist: ${(read.stderr || '').trim()}`);
+    const plist = JSON.parse(read.stdout || '{}');
     const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? 'simulator' : undefined;
     const lib = (plist.AvailableLibraries ?? []).find(l => l.SupportedPlatform === platform && (l.SupportedPlatformVariant || undefined) === variant && (l.SupportedArchitectures ?? []).includes(arch));
     if (!lib) throw new Error(`host/apple: ${basename(fw)} has no ${platform}${variant ? ' ' + variant : ''} ${arch} slice in its Info.plist`);
     const dir = resolve(fw, lib.LibraryIdentifier), framework = lib.LibraryPath.endsWith('.framework');
     // The plist names one library; a slice composed by hand may hold more archives beside it.
     const files = framework ? [resolve(dir, lib.LibraryPath, basename(lib.LibraryPath, '.framework'))] : readdirSync(dir).filter(f => /^lib.*\.a$/.test(f)).map(f => resolve(dir, f));
+    if (!files.length) throw new Error(`host/apple: ${basename(fw)}'s ${lib.LibraryIdentifier} slice holds no static library (lib*.a) or framework; a dynamic library is not linked into the module`);
     const args = framework ? ['-F', dir, '-framework', basename(lib.LibraryPath, '.framework')] : ['-I', resolve(dir, lib.HeadersPath ?? 'Headers'), '-L', dir, ...files.map(f => `-l${basename(f).slice(3, -2)}`)];
     return { files, args };
   };
@@ -1052,7 +1055,7 @@ function main(args) {
   // archive needs but cannot say: `-lc++` for a static library with C++ inside.
   const linkArgs = (forIos) => app.manifest.host?.[forIos ? 'ios' : 'macos']?.link ?? [];
   // What the arm cache must see change: the flags, and each library's bytes.
-  const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(app.modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).files).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
+  const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(app.modules.frameworks ?? []).flatMap(fw => { const { files, args } = frameworkSlice(fw, forIos, simulator, arch); const headers = args[0] === '-I' ? [args[1]] : []; return [...files, ...headers]; }).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
