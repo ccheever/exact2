@@ -5,7 +5,7 @@
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
+**Revised:** 2026-09-29 (D7 recorded, held — one submit per tick was built and measured; the trait is unchanged. §3 has the trace and macOS's off-main acquisition.) 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
 **Related:** `rules/DEFERRED.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
 
 ## Summary
@@ -164,6 +164,22 @@ loading it with the first world canvas. It is not smaller — every host
 needs the same per-artifact loading, routing and recovery — and it would
 teach the core what a world is, which `game/` keeps out of it.
 
+**D7 — One submit per tick: built and measured, held** (2026-09-29,
+Charlie). On Metal each canvas's frame commits three command buffers —
+wgpu's pending writes (`write_buffer`), the render, and wgpu's present —
+so one submit per tick was built on `perf/gpu-submit` (kept, unmerged):
+`Surface::render` took the module's `CommandEncoder` and never submitted,
+a new `gpu_flush` submitted once per module per tick and then presented
+each canvas, and any other call about a canvas already in the open frame
+flushed first. Every surface was migrated (Weird Castle's by a patch kept
+with the branch) and GPU readbacks stayed byte-identical. It saves about
+36 ms/s of process CPU on the M1 iPad Pro shader-only feed (620 → 584,
+median of three) and is within noise on the iPhone 13 Pro Max's mixed
+feed. Held: at that size it is not worth changing the trait, breaking
+out-of-repo surfaces until migrated, and turning one canvas's validation
+error into a whole frame's. The gap's remainder is wgpu's encoding, its
+`write_buffer` staging and a present command buffer per canvas (§3).
+
 **The extension point for animatable properties** (the DEFERRED clause
 "animatable properties are extensible"): committed state is not
 presentation state (LLP 1002), so "a property is more state" would not
@@ -223,6 +239,20 @@ The spec (1009.000) transcribes the landing.
 - **A dependency:** wgpu (v30, ~100 crates), pinned; the wasm-bindgen CLI
   in the web module's build. Reached through one module, so replacing
   either is one crate's change.
+
+- **D7, traced 2026-09-28** (M1 iPad Pro, the Extra Heavy shader-only
+  feed, `fling 0`, Time Profiler over the same 28 s window, 2–3 shader rows
+  on screen at 120 Hz; `~/bench/xheavy/gpusubmit`). A submit per canvas:
+  the canvases cost the main thread 95 ms/s (wgpu's `Queue::submit` 25,
+  its encoding 26, `write_buffer` 22, the present 8, Metal's commits 9),
+  and Metal's submission and completion threads 70 and 17 ms/s; the
+  acquiring threads 51 ms/s in `nextDrawable`. One submit per tick (D7,
+  held): 75 ms/s on the main thread (encoding 22, submit 16, `write_buffer`
+  16, present 8) and 57 and 13 on Metal's threads — 120 fps both.
+- **macOS, sampled 2026-09-28** (the same feed at rest, `sample` over
+  10 s): with the drawable acquired on the main thread, 54% of the main
+  thread's samples were in `-[CAMetalLayer nextDrawable]`; acquired off it
+  (`gpu/src/acquire.rs`, on macOS since 2026-09-29, as on iOS), none.
 
 ## 4. Open questions
 
