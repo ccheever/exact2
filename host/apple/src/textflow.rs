@@ -6,7 +6,6 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 use exact_textflow::{FlowOptions, FlowShape, Fragment, Options, OverflowWrap, Prepared};
 use std::{
-    cell::RefCell,
     collections::HashMap,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -104,7 +103,15 @@ struct Source {
     fragments: Vec<Fragment>,
     intervals: Vec<(f32, f32)>,
 }
-thread_local! { static SOURCES: RefCell<HashMap<u64, Source>> = RefCell::new(HashMap::new()); }
+// Process-wide, not per thread (LLP 1071 §2.3): a source prepared while the
+// owner thread measures is flowed and freed by whichever thread paints it.
+static SOURCES: std::sync::Mutex<Option<HashMap<u64, Source>>> = std::sync::Mutex::new(None);
+fn with_sources<R>(f: impl FnOnce(&mut HashMap<u64, Source>) -> R) -> R {
+    let mut guard = SOURCES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(guard.get_or_insert_with(HashMap::new))
+}
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn slice<'a, T>(p: *const T, n: usize) -> Option<&'a [T]> {
     if n == 0 {
@@ -183,7 +190,7 @@ pub fn prepare(
     else {
         return 0;
     };
-    SOURCES.with_borrow_mut(|sources| {
+    with_sources(|sources| {
         sources.insert(
             id,
             Source {
@@ -354,7 +361,7 @@ pub fn flow(
     else {
         return Result::default();
     };
-    SOURCES.with_borrow_mut(|sources| {
+    with_sources(|sources| {
         let Some(source) = sources.get_mut(&handle) else {
             return Result::default();
         };
@@ -430,7 +437,7 @@ pub fn flow(
 }
 /// Release a prepared source. Zero, stale, and repeated frees are no-ops.
 pub fn free(handle: u64) {
-    SOURCES.with_borrow_mut(|sources| sources.remove(&handle));
+    with_sources(|sources| sources.remove(&handle));
 }
 
 /// Export the text-shape-owned walker seam from the application's static archive.

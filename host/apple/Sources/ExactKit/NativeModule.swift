@@ -226,10 +226,10 @@ private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
     }
 }
 
-// A `native.call` arrives on the source's thread: inline when that is the
-// main thread (main placement), else a synchronous hop to it (worker
-// placement). The main thread never waits on a source's owner thread, so the
-// hop cannot deadlock; it costs the call a main-thread turn in its budget.
+// A `native.call` arrives on the source's thread: the owner's for main
+// placement, a worker's for worker placement. From the owner it goes through
+// the one door to main (LLP 1071 T5), served while main waits on the owner;
+// from a worker, a synchronous hop, since main never waits on a worker.
 private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
     let rt = ExactRuntime(UInt(bitPattern: ctx))
     let data = body.map { Data(bytes: $0, count: length) } ?? Data()
@@ -240,7 +240,7 @@ private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
         }
         natives.call(data, slot: slot)
     }
-    if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
+    Owner.shared.callMain(work)
 }
 
 private let nativeChangedCallback: NativeTable.ChangedFn = { host, topic, length in
@@ -248,7 +248,7 @@ private let nativeChangedCallback: NativeTable.ChangedFn = { host, topic, length
     let text = topic.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     DispatchQueue.main.async {
         guard let session = ExactSession.session(for: rt) else { return }
-        text.withUnsafeBytes { exact_app_changed(session.runtime.rt, $0.bindMemory(to: UInt8.self).baseAddress, text.count) }
+        session.runtime.appChanged(text)
     }
 }
 
@@ -380,7 +380,8 @@ final class NativeViews {
         let path = NativeViews.modulePath(session: session)
         guard FileManager.default.fileExists(atPath: path) else { return }
         hasAppModule = true
-        exact_set_app_module(session.runtime.rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt)))
+        let rt = session.runtime.rt
+        session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
     }
 
     private var hasAppModule = false

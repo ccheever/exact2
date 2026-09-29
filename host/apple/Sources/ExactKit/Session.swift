@@ -57,10 +57,7 @@ public enum ExactEnv {
     /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`:
     /// its own `compat.json`'s `inputs.trust`.
     static var productionBake: Bool {
-        let runtime = Runtime()
-        defer { runtime.destroy() }
-        let length = exact_baked_compat(runtime.rt)
-        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        let bytes = Runtime.bakedCompat()
         let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
         return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
     }
@@ -191,10 +188,7 @@ public final class ExactApp {
 
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
-        let runtime = Runtime()
-        defer { runtime.destroy() }
-        let length = exact_baked_compat(runtime.rt)
-        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        let bytes = Runtime.bakedCompat()
         let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
         let inputs = json["inputs"] as? [String: Any] ?? [:]
         return (inputs["rustMode"] as? String ?? "off", json["target"] as? String ?? "")

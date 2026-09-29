@@ -42,10 +42,7 @@ final class GpuModule {
     }
 
     static var bakedCompatibility: [String: Any] {
-        let runtime = Runtime()
-        defer { runtime.destroy() }
-        let length = exact_baked_compat(runtime.rt)
-        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        let bytes = Runtime.bakedCompat()
         return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
     static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {
