@@ -333,11 +333,25 @@ impl Engine {
         self.animating.remove(&node);
         self.forced.remove(&node);
         self.forget_timelines(node);
-        // Removing a list must not scan every other node once per row.
-        for property in Property::ALL {
-            self.remove_property(node, property);
+        // Removing a list must not scan every other node once per row, nor
+        // probe every table once per property: a list row's retirement
+        // removes a node per box. Its running curves are one range of the
+        // ordered index; its pending frame entries (`dirty`) present nothing
+        // once its slots and animations are gone (`frame` finds neither), so
+        // the next frame's drain takes them.
+        let running: Vec<(u64, Property)> = self
+            .running
+            .range((node, Property::Translate)..)
+            .take_while(|key| key.0 == node)
+            .copied()
+            .collect();
+        for key in running {
+            self.running.remove(&key);
         }
-        self.remove_property(node, Property::Layout);
+        for property in Property::ALL {
+            self.slots.remove(&(node, property));
+        }
+        self.slots.remove(&(node, Property::Layout));
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
