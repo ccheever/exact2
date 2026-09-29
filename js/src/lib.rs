@@ -166,7 +166,7 @@ pub struct Module {
     bytecode: Vec<u8>,
     app_id: String,
     grants: String,
-    revision: String,
+    revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
     engine: Option<Watched>,
     /// What an interrupt from another thread reaches; a built worker
     /// instance shares its template's.
@@ -508,7 +508,7 @@ impl Module {
         let grants = grants.into();
         let auth_callback = exact_runner::auth::carrier_callback(&grants, None);
         let module = Module {
-            revision: format!("{:x}", Sha256::digest(&bytecode)),
+            revision: std::sync::OnceLock::new(),
             bytecode,
             app_id: app_id.into(),
             grants,
@@ -1334,7 +1334,8 @@ impl DataSource for Module {
     }
 
     fn revision(&self) -> Option<&str> {
-        Some(&self.revision)
+        let hash = || format!("{:x}", Sha256::digest(&self.bytecode));
+        Some(self.revision.get_or_init(hash))
     }
 
     /// Calls whose requests the runner let go are dropped, here and in the

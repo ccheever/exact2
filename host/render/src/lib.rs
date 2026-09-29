@@ -34,6 +34,8 @@ pub use pages::pages;
 pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;
 
+// The render never lays out (the projection is style rows, not boxes): its
+// kernels keep no layout engine tree unless something asks for a layout.
 use exact_kernel::Kernel;
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::{
@@ -149,7 +151,7 @@ pub fn render<D: DataSource + 'static>(
     let mut runner = Runner::boot_with_delivery(
         plan.clone(),
         settling,
-        Kernel::with_monospace(),
+        Kernel::with_monospace_on_demand(),
         None,
         Vec::new(),
         Default::default(),
@@ -192,7 +194,7 @@ pub fn render<D: DataSource + 'static>(
     let booted = Runner::boot_checkpoint(
         plan.clone(),
         Anonymous::new(data()),
-        Kernel::with_monospace(),
+        Kernel::with_monospace_on_demand(),
         &state,
         Vec::new(),
         Default::default(),

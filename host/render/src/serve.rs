@@ -1177,12 +1177,21 @@ fn document<D: DataSource + 'static>(
     if let Some(robots) = &rendered.document.head.robots {
         response.headers.push(("X-Robots-Tag", robots.clone()));
     }
+    response.streamed = streamed;
+    // A flushed page's head went out before the render: its headers are
+    // sent, so what follows reaches only the origin's cache, which keeps a
+    // flushed 200 of a cached route. A page nothing keeps skips it (the
+    // page's SHA-256 was ~3% of RealWorld's CPU per page).
+    let kept =
+        policy == Some(RenderPolicy::Cached) && !serve.lifetime.is_zero() && !request.no_store;
+    if streamed && !kept {
+        return response;
+    }
     let keys = keys(&rendered);
     if !keys.is_empty() {
         response.headers.push(("Surrogate-Key", keys.join(" ")));
         response.headers.push(("Cache-Tag", keys.join(",")));
     }
-    response.streamed = streamed;
     if status != 503 {
         let tag = format!("\"{}\"", &hex(&response.body)[..32]);
         if request.if_none_match.as_deref() == Some(tag.as_str()) {
