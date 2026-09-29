@@ -599,8 +599,17 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     let e = contract::compile("fn nothing(): number = []\ncomponent A\n  view\n    text \"a\"\n")
         .unwrap_err();
     assert_eq!(e.id, "type-fn-return", "{e}");
-    // A source's argument names its type on its own: `[]` (and `none`) there
-    // is refused at the argument, not left for lowering to find at 0:0.
+    // A state a later action writes is a typed source argument, whatever
+    // the declaration order (the second review's two Contracts).
+    for src in [
+        "shape Coin\n  id: string\ncomponent A\n  state q = none\n  action set(s: string) writes q\n    q = some(s)\n  resource xs = src(q) as shape list<Coin>\n  view\n    text `${length(xs)}`\n",
+        "shape Coin\n  id: string\ncomponent A\n  mutation changed as shape list<Coin>\n  state q = none\n  action tick writes changed\n    send changed = tick(q)\n  action set(s: string) writes q\n    q = some(s)\n  view\n    text \"a\"\n",
+        "shape Coin\n  id: string\ncomponent A\n  mutation changed as shape list<Coin>\n  state ids = []\n  resource coins = coins() as shape list<Coin>\n  action tick writes changed\n    send changed = tick(ids)\n  action pick writes ids\n    ids = map(coins, c => c.id)\n  view\n    text \"a\"\n",
+    ] {
+        contract::compile(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    }
+    // A literal `[]` (or `none`) passed to a source has nothing to type it:
+    // refused at the argument, not left for lowering to find at 0:0.
     for (src, line, col) in [
         (
             "shape C\n  id: string\ncomponent A\n  mutation changed as shape list<C>\n  action tick writes changed\n    send changed = tick([])\n  view\n    text \"a\"\n",

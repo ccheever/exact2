@@ -205,24 +205,32 @@ pub(crate) fn check_component(
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
     sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
-    // Action bodies: writes refine slots; assignments must unify.
-    for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types.component_scope(c, &ct);
-        scope.push(
-            a.params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    (
-                        p.name.clone(),
-                        Ref::Param(i as u32),
-                        ct.actions[ai][i].clone(),
-                    )
-                })
-                .collect(),
-        );
-        scope.enter_action();
-        check_stmts(&a.body, &scope, c, &mut ct, shapes, sink);
+    // Action bodies: writes refine slots; assignments must unify. Two
+    // rounds, so a `send` whose argument is a state a later action writes
+    // (`state q = none`, typed by `q = some(s)`) records the written type
+    // whatever the declaration order: the first round refines the slots and
+    // its findings are dropped, the second reports.
+    for round in 0..2 {
+        let mut scratch = Sink::default();
+        let report = if round == 0 { &mut scratch } else { &mut *sink };
+        for (ai, a) in c.actions.iter().enumerate() {
+            let mut scope = types.component_scope(c, &ct);
+            scope.push(
+                a.params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        (
+                            p.name.clone(),
+                            Ref::Param(i as u32),
+                            ct.actions[ai][i].clone(),
+                        )
+                    })
+                    .collect(),
+            );
+            scope.enter_action();
+            check_stmts(&a.body, &scope, c, &mut ct, shapes, report);
+        }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
     // the final scope, unified with the sends' (recorded as their bodies were
@@ -237,7 +245,23 @@ pub(crate) fn check_component(
                 .zip(&resource_args[i])
                 .map(|(arg, before)| match before {
                     Ty::Unknown => Ty::Unknown,
-                    _ => infer(arg, &scope, shapes).unwrap_or(Ty::Unknown),
+                    _ => {
+                        let t = infer(arg, &scope, shapes).unwrap_or(Ty::Unknown);
+                        // Every write has now typed the slots; what is still
+                        // `?` here has no plan type (a source's parameter
+                        // is not filled in by another site).
+                        if t != Ty::Unknown && !t.is_complete() {
+                            sink.push(TypeError {
+                                id: "type-cannot-infer",
+                                message: format!(
+                                    "cannot infer the type of this argument to `{}`: it is `{t}` after every write",
+                                    r.source
+                                ),
+                                span: arg.span(),
+                            });
+                        }
+                        t
+                    }
                 })
                 .collect();
             let result = ct.resources[i].clone();

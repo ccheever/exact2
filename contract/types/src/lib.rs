@@ -600,24 +600,33 @@ impl Types {
     }
 }
 
-/// A source's argument, which names its type on its own: the seam's
-/// signature (LLP 1027 D2) is built from the call sites, so an argument the
-/// site leaves `?` (`[]`, `none`) has nothing to complete it and would reach
-/// lowering with no plan type.
+/// A source's argument. The seam's signature (LLP 1027 D2) is built from
+/// the call sites, so a literal `[]` or `none` (or `some(…)` of one) passed
+/// to a source has nothing to complete its `?` and is refused here, at the
+/// argument. Any other argument is inferred as it stands: a state a later
+/// action writes is `?` now and complete once every body has been checked,
+/// which the seam's final pass confirms.
 pub(crate) fn source_argument(
     arg: &Expr,
     source: &str,
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<Ty, TypeError> {
+    fn untyped_literal(e: &Expr) -> bool {
+        match e {
+            Expr::EmptyList(_) | Expr::None(_) => true,
+            Expr::Some(inner, _) => untyped_literal(inner),
+            _ => false,
+        }
+    }
     let t = infer(arg, scope, shapes)?;
-    if t.is_complete() {
+    if t.is_complete() || !untyped_literal(arg) {
         return Ok(t);
     }
     err(
         "type-cannot-infer",
         format!(
-            "cannot infer the type of this argument to `{source}`: a source's argument names its type on its own, and `{t}` does not; pass a typed value (a state, `some(x)`, a list from a source or `map`/`filter`)"
+            "cannot infer what `{t}` passes to `{source}`: nothing here says its type; pass a typed value (a state, `some(x)`, a list from a source or `map`/`filter`)"
         ),
         arg.span(),
     )
