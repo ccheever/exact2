@@ -107,6 +107,8 @@ pub(crate) struct Collection {
     parent: Option<ViewId>,
     /// Whether this list's rows can hold virtualized lists.
     nested: bool,
+    /// Where in a row they can be (`nested` lists only).
+    inner: Option<Rc<traversal::InnerSites>>,
     /// The pins inside its rows, as of a [`nest::PinEpoch`] count.
     inner_pins: std::cell::Cell<Option<(u64, [Option<ViewId>; 2])>>,
     /// Where its inner lists were when their rows left (Q1 as ruled).
@@ -266,7 +268,8 @@ impl Collection {
         ) {
             return Err(invalid("collection row needs one flow root"));
         }
-        let nested = traversal::validate_nesting(plan, u.sites, region)?;
+        let inner = traversal::validate_nesting(plan, u.sites, region)?;
+        let nested = inner.is_some();
         let manual = descriptor
             .bindings
             .iter()
@@ -315,6 +318,7 @@ impl Collection {
             pending: false,
             parent: None,
             nested,
+            inner,
             inner_pins: Default::default(),
             kept: Default::default(),
             manual,

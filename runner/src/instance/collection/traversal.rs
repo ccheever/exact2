@@ -2,8 +2,11 @@
 use super::*;
 impl Collection {
     pub(in crate::instance) fn add_children<'a>(&'a self, stack: &mut Vec<&'a Child>) {
+        // Only rows whose plan can hold an inner list: nothing else in a row
+        // is a collection (LLP 1070 N6, one level down).
+        let Some(inner) = &self.inner else { return };
         for row in &self.mounted {
-            stack.extend(row.row.roots.iter());
+            stack.extend(row.row.roots.iter().filter(|c| inner.may_hold(c)));
         }
     }
     /// How many rows the list has, mounted or not.
@@ -310,13 +313,24 @@ fn feedback_walk(
                             .feedback(u, frames, feedback.clone(), by_view, fill)
                             .map(Some);
                     }
-                    for row in &mut collection.mounted {
-                        let mut inner = frames.to_vec();
-                        inner.push(row.row.frame.clone());
-                        if let Some(result) =
-                            feedback_walk(&mut row.row.roots, u, &inner, feedback, by_view, fill)?
-                        {
-                            return Ok(Some(result));
+                    // An inner list is only where the plan can put one.
+                    if let Some(sites) = collection.inner.clone() {
+                        for row in &mut collection.mounted {
+                            if !row.row.roots.iter().any(|c| sites.may_hold(c)) {
+                                continue;
+                            }
+                            let mut inner = frames.to_vec();
+                            inner.push(row.row.frame.clone());
+                            if let Some(result) = feedback_walk(
+                                &mut row.row.roots,
+                                u,
+                                &inner,
+                                feedback,
+                                by_view,
+                                fill,
+                            )? {
+                                return Ok(Some(result));
+                            }
                         }
                     }
                 }
@@ -460,7 +474,7 @@ pub(super) fn validate_nesting(
     plan: &Plan,
     sites: &SiteIndex,
     region: RegionsId,
-) -> Result<bool, InstanceError> {
+) -> Result<Option<Rc<InnerSites>>, InstanceError> {
     let constant = |value: u8| {
         [
             exact_plan::Opcode::Bool as u8,
@@ -469,12 +483,18 @@ pub(super) fn validate_nesting(
         ]
     };
     let mut nested = false;
+    // Every site visited, with the one above it, so an inner list's path up
+    // to the row's root can be marked (`InnerSites`).
+    let mut visited: Vec<(Site, Option<usize>)> = Vec::new();
+    let mut lists: Vec<usize> = Vec::new();
     let mut stack: Vec<_> = sites
         .children(None, plan.region(region).arms.iter().next())
         .iter()
-        .map(|site| (*site, 0))
+        .map(|site| (*site, 0, None))
         .collect();
-    while let Some(((_, site), depth)) = stack.pop() {
+    while let Some(((_, site), depth, above)) = stack.pop() {
+        let at = visited.len();
+        visited.push((site, above));
         match site {
             Site::Node(node) => {
                 let row = plan.node(node);
@@ -498,22 +518,65 @@ pub(super) fn validate_nesting(
                     }
                     nested = true;
                     inner = 1;
+                    lists.push(at);
                 }
                 stack.extend(
                     sites
                         .children(Some(node), row.arm)
                         .iter()
-                        .map(|s| (*s, inner)),
+                        .map(|s| (*s, inner, Some(at))),
                 );
             }
             Site::Region(region) => {
                 for arm in plan.region(region).arms.iter() {
-                    stack.extend(sites.children(None, Some(arm)).iter().map(|s| (*s, depth)));
+                    stack.extend(
+                        sites
+                            .children(None, Some(arm))
+                            .iter()
+                            .map(|s| (*s, depth, Some(at))),
+                    );
                 }
             }
         }
     }
-    Ok(nested)
+    if !nested {
+        return Ok(None);
+    }
+    let mut paths = InnerSites::default();
+    for list in lists {
+        let mut at = Some(list);
+        while let Some(i) = at {
+            let (site, above) = visited[i];
+            let fresh = match site {
+                Site::Node(node) => paths.nodes.insert(node),
+                Site::Region(region) => paths.regions.insert(region),
+            };
+            if !fresh {
+                break;
+            }
+            at = above;
+        }
+    }
+    Ok(Some(Rc::new(paths)))
+}
+
+/// The plan sites on a path from a row's root down to an inner virtualized
+/// list, that list's own included: a walk looking for inner lists (their
+/// pins, positions, snapshots) enters nothing else.
+#[derive(Debug, Default)]
+pub(in crate::instance) struct InnerSites {
+    nodes: std::collections::HashSet<NodesId>,
+    regions: std::collections::HashSet<RegionsId>,
+}
+
+impl InnerSites {
+    /// Whether an inner list can be at or under `child`.
+    pub(in crate::instance) fn may_hold(&self, child: &Child) -> bool {
+        match child {
+            Child::Node(node) => self.nodes.contains(&node.node),
+            Child::Region(region) => self.regions.contains(&region.region),
+        }
+    }
 }
 
 /// Inherited typography may change without changing a row-body expression.

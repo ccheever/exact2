@@ -4,6 +4,7 @@
 //! as ruled, §4.2); a pin inside it pins the outer row too (N5).
 use super::*;
 use std::collections::HashMap;
+use traversal::InnerSites;
 
 /// At most this many kept positions per outer list, least recently kept
 /// evicted first (~48 bytes an entry beside keys the index shares).
@@ -98,29 +99,33 @@ fn inner_lists<'a>(
     children: &'a mut [Child],
     frames: &[Frame],
     site: &str,
+    sites: &InnerSites,
     out: &mut Vec<(&'a mut Collection, String, Vec<Frame>)>,
 ) {
     for child in children {
+        if !sites.may_hold(child) {
+            continue;
+        }
         match child {
             Child::Node(node) => {
                 let here = format!("{site}{}", node.node.0);
                 match &mut node.collection {
                     Some(c) => out.push((c, here, frames.to_vec())),
-                    None => inner_lists(&mut node.children, frames, site, out),
+                    None => inner_lists(&mut node.children, frames, site, sites, out),
                 }
             }
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
                     inner.push(frame.clone());
-                    inner_lists(roots, &inner, site, out);
+                    inner_lists(roots, &inner, site, sites, out);
                 }
                 Active::Rows { rows } => {
                     for row in rows {
                         let mut inner = frames.to_vec();
                         inner.push(row.frame.clone());
                         let key = super::super::ident(&row.key, row.dup).unwrap_or_default();
-                        inner_lists(&mut row.roots, &inner, &format!("{site}{key}/"), out);
+                        inner_lists(&mut row.roots, &inner, &format!("{site}{key}/"), sites, out);
                     }
                 }
             },
@@ -129,8 +134,11 @@ fn inner_lists<'a>(
 }
 
 /// The pins inside `children`'s collections, focus then interaction.
-fn inner_pins(children: &[Child], out: &mut [Option<ViewId>; 2]) {
+fn inner_pins(children: &[Child], sites: &InnerSites, out: &mut [Option<ViewId>; 2]) {
     for child in children {
+        if !sites.may_hold(child) {
+            continue;
+        }
         match child {
             Child::Node(node) => match &node.collection {
                 Some(c) => {
@@ -139,13 +147,13 @@ fn inner_pins(children: &[Child], out: &mut [Option<ViewId>; 2]) {
                         out[1] = out[1].or(g.interaction_view);
                     }
                 }
-                None => inner_pins(&node.children, out),
+                None => inner_pins(&node.children, sites, out),
             },
             Child::Region(region) => match &region.active {
-                Active::Arm { roots, .. } => inner_pins(roots, out),
+                Active::Arm { roots, .. } => inner_pins(roots, sites, out),
                 Active::Rows { rows } => {
                     for row in rows {
-                        inner_pins(&row.roots, out);
+                        inner_pins(&row.roots, sites, out);
                     }
                 }
             },
@@ -162,7 +170,7 @@ impl Collection {
             .geometry
             .as_ref()
             .map_or([None, None], |g| [g.focus_view, g.interaction_view]);
-        if (out[0].is_none() || out[1].is_none()) && self.nested {
+        if let (true, Some(sites)) = (out[0].is_none() || out[1].is_none(), &self.inner) {
             // Walking every mounted row's subtree for an inner list's pin
             // was a fifth of a scrolling list's report; the answer changes
             // only when some list's pins do (`PinEpoch`).
@@ -172,7 +180,7 @@ impl Collection {
                 _ => {
                     let mut inner = [None, None];
                     for row in &self.mounted {
-                        inner_pins(&row.row.roots, &mut inner);
+                        inner_pins(&row.row.roots, sites, &mut inner);
                     }
                     self.inner_pins.set(Some((epoch, inner)));
                     inner
@@ -201,12 +209,12 @@ impl Collection {
     /// under its key, unless a list opted out (`scroll-restoration:
     /// manual`) or the row's item left the data.
     pub(super) fn keep_positions(&mut self, mounted: &mut Mounted, key: &str) {
-        if !self.nested {
+        let Some(sites) = self.inner.clone() else {
             return;
-        }
+        };
         let key: Rc<str> = Rc::from(key);
         let mut lists = Vec::new();
-        inner_lists(&mut mounted.row.roots, &[], "", &mut lists);
+        inner_lists(&mut mounted.row.roots, &[], "", &sites, &mut lists);
         for (inner, site, _) in lists {
             if inner.manual {
                 continue;
@@ -223,13 +231,13 @@ impl Collection {
         key: &str,
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
-        if !self.nested {
+        let Some(sites) = self.inner.clone() else {
             return Ok(());
-        }
+        };
         let mut outer = frames.to_vec();
         outer.push(row.frame.clone());
         let mut lists = Vec::new();
-        inner_lists(&mut row.roots, &outer, "", &mut lists);
+        inner_lists(&mut row.roots, &outer, "", &sites, &mut lists);
         // An inner port is at most the outer port along the same axis, or
         // the outer rows' cross size across it (F2's bootstrap): build that
         // much before any host has laid the inner list out, so the frame
