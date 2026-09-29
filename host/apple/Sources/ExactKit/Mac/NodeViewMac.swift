@@ -66,7 +66,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = [] { didSet { video?.update() } } // the media events the player reports
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
-    var surface: SurfaceLayer? // its surface at a layout transition's size (`Surface.swift`)
+    var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -83,6 +83,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
     var boxFill: CALayer?
+    /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
+    /// builds the layer tree each display cycle, and the decision reads
+    /// colours and radii. Cleared by whatever it reads (style, size, clip,
+    /// raster, symbol, surface).
+    var layerPaintCache: Bool?
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
     var materialView: NSView?
@@ -122,12 +127,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
-    var symbolView: NSImageView?
+    var symbolView: NSImageView? { didSet { layerPaintCache = nil } }
     var symbolKey: String?
     var symbolRefusal: String?
     var symbolClip: NSView?
     var image: NSImage?
-    var raster: NativeRasterLease?
+    var raster: NativeRasterLease? { didSet { layerPaintCache = nil } }
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
@@ -980,6 +985,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        layerPaintCache = nil
         let origin = style["transform_origin"]
         style = s
         if s["transform_origin"] != origin { applyTransform() }
@@ -1124,6 +1130,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
+        layerPaintCache = nil
         applyClipRadius()
         applyMaterialRadius()
         // Border, gradient and image sublayers follow the new size.

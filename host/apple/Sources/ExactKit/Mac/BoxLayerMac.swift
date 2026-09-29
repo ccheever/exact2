@@ -26,7 +26,10 @@ extension NodeView {
 
     /// Paint only `draw(_:)` makes (outside a capture).
     var drawsPaint: Bool {
-        boxNeedsDraw || (kind == "image" && symbolView == nil && raster != nil && imagePlan == nil)
+        if let cached = layerPaintCache { return cached }
+        let paints = boxNeedsDraw || (kind == "image" && symbolView == nil && raster != nil && imagePlan == nil)
+        layerPaintCache = paints
+        return paints
     }
 
     private struct BoxPlan {
@@ -98,8 +101,13 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children
     /// only where the overflow clips.
     func applyBoxLayer() {
-        guard let layer, layerBoxEligible else { applyClipOnly(); return }
-        let p = boxPlan
+        guard layerBoxEligible else { applyClipOnly(); return }
+        applyBoxLayer(boxPlan)
+    }
+
+    private func applyBoxLayer(_ p: BoxPlan) {
+        guard let layer else { return }
+        layerPaintCache = nil
         let onLayer = !p.drawn
         let away = surface != nil
         let border = !onLayer || away ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
@@ -174,8 +182,8 @@ extension NodeView {
     /// A `background-image` gradient as a sublayer under everything else the
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
-    func applyGradientLayer() {
-        guard let layer, layerBoxEligible, !boxNeedsDraw, surface == nil, let gradient = Gradient(style["background_image"]) else {
+    private func applyGradientLayer(_ p: BoxPlan) {
+        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, let gradient = Gradient(style["background_image"]) else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -184,11 +192,10 @@ extension NodeView {
         boxGradient = g
         if g.superlayer !== layer { insertBoxSublayer(g) }
         if g.frame != layer.bounds { g.frame = layer.bounds }
-        let radius = cornerRadii(in: bounds).max() ?? 0
-        let round = radius > 0 && boxPlan.oneRadius
+        let radius = p.radius
+        let round = radius > 0 && p.oneRadius
         if g.cornerRadius != (round ? radius : 0) { g.cornerRadius = round ? radius : 0 }
-        let corners = cornerMask(cornerRadii(in: bounds))
-        if round, g.maskedCorners != corners { g.maskedCorners = corners }
+        if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
         if g.masksToBounds != round { g.masksToBounds = round }
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
     }
@@ -275,8 +282,10 @@ extension NodeView {
 
     /// Everything the layer can say, before `draw(_:)` or instead of it.
     func applyLayerPaint() {
-        applyBoxLayer()
-        applyGradientLayer()
+        guard layerBoxEligible else { applyClipOnly(); return }
+        let p = boxPlan
+        applyBoxLayer(p)
+        applyGradientLayer(p)
         applyImageLayer()
     }
 }
