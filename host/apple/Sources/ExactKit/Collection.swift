@@ -24,7 +24,7 @@ struct CollectionFacts: Equatable {
     /// `limit`, the rows past what it owes this report may build (nil: any),
     /// and whether an enclosing list is moving (LLP 1070 F2).
     /// `createOnly` and `noBuild` split a moving list's report around the
-    /// owner thread (LLP 1071 §5): build only, off main; then retire only.
+    /// owner thread (LLP 1072 §5): build only, off main; then retire only.
     func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
@@ -195,7 +195,7 @@ final class CollectionHost {
     var rescued: (() -> Void)?
     private(set) var fillPending = Set<UInt32>()
     private var sliceLimits: [UInt32: UInt32] = [:]
-    /// @ref LLP 1071 §3, §5 — a moving list's slice is built off main. The
+    /// @ref LLP 1072 §3, §5 — a moving list's slice is built off main. The
     /// session sends it (`onFill`), says whether one is in flight (`filling`,
     /// when every report waits), and lands it (`drain`: wait and apply).
     var onFill: ((UInt32, Data) -> Void)?
@@ -335,7 +335,7 @@ final class CollectionHost {
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
         // One slice in flight at a time, and none before the last one's
-        // retirement: this one stays owed (LLP 1071 §3.1, §5).
+        // retirement: this one stays owed (LLP 1072 §3.1, §5).
         if filling?() == true || !retireOwed.isEmpty { return 0 }
         fillPending.remove(view)
         guard let entry = entries[view], batchDepth == 0 else { return 0 }
@@ -351,7 +351,7 @@ final class CollectionHost {
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
     }
-    /// A slice built off main has been applied (LLP 1071 §5): what it left
+    /// A slice built off main has been applied (LLP 1072 §5): what it left
     /// owed (rows past the window, an edge) is settled now, on main, by a
     /// retire-only report from fresh facts and the pins that hold now.
     func landed(_ view: UInt32, at now: Double) {
@@ -360,7 +360,7 @@ final class CollectionHost {
         retireOwed[view] = limit
         dirty.insert(view)
         // The next main-queue turn: the slice's apply and its retirement
-        // are two turns' work, not one (LLP 1071 §5).
+        // are two turns' work, not one (LLP 1072 §5).
         schedule()
     }
     /// The agent's `clock settle`: every list reports until none is owed a

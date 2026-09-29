@@ -1,5 +1,5 @@
 // The one thread that owns every Rust runtime in the process.
-// @ref LLP 1071 T1/T2/T5 — the registry, runners, kernels and data sources
+// @ref LLP 1072 T1/T2/T5 — the registry, runners, kernels and data sources
 // live here from `exact_create` to `exact_destroy`; main submits each call as
 // one job and waits for it. The owner reaches main only through `callMain`,
 // which main serves from its wait loop, so neither ever waits on the other
@@ -86,7 +86,7 @@ final class Owner: @unchecked Sendable {
         if isOwner { return body() }
         let main = Thread.isMainThread
         if main && serving > 0 {
-            NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused (LLP 1071 T5)")
+            NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused (LLP 1072 T5)")
             return busy()
         }
         return withoutActuallyEscaping(body) { body in
@@ -119,11 +119,11 @@ final class Owner: @unchecked Sendable {
     }
 
     private static func unserved<T>() -> T {
-        preconditionFailure("exact: a runtime call from inside a callback the owner is waiting on (LLP 1071 T5)")
+        preconditionFailure("exact: a runtime call from inside a callback the owner is waiting on (LLP 1072 T5)")
     }
 
     /// Run `body` on the owner after the jobs before it, without waiting
-    /// (LLP 1071 T3: the collection fill). What it produces goes back to
+    /// (LLP 1072 T3: the collection fill). What it produces goes back to
     /// main by its own publication.
     func post(_ body: @escaping () -> Void) {
         lock.lock()

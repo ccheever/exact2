@@ -228,7 +228,7 @@ private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
 
 // A `native.call` arrives on the source's thread: the owner's for main
 // placement, a worker's for worker placement. From the owner it goes through
-// the one door to main (LLP 1071 T5), served while main waits on the owner;
+// the one door to main (LLP 1072 T5), served while main waits on the owner;
 // from a worker, a synchronous hop, since main never waits on a worker.
 private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
     let rt = ExactRuntime(UInt(bitPattern: ctx))

@@ -98,7 +98,7 @@ final class TextPaintTests: XCTestCase {
     }
 
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
-    /// 1071 §8.1): a worker shapes the lines, the last one again from the
+    /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.
     func testAClampedParagraphRastersFromItsGeometryAsLayoutPaintsIt() throws {
         let text = "Maybe family sounds draft later scroll deadline picnic thanks soon a meeting at the station"

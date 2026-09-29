@@ -53,13 +53,13 @@ pub struct CollectionFill {
     /// An ancestor list is being dragged, flung or wheeled (LLP 1070 F2).
     /// Carried on the wire from version 3; nesting reads it.
     pub ancestor_moving: bool,
-    /// Build only (LLP 1071 §5): a report the host commits off its main
+    /// Build only (LLP 1072 §5): a report the host commits off its main
     /// thread creates rows and destroys none. Rows the window no longer
     /// wants stay mounted and no edge action runs; the report is `pending`,
     /// and the host's next report, made where it applies, settles both.
     /// Refused with a new port, width or pin: those reports are immediate.
     pub create_only: bool,
-    /// Retire only (LLP 1071 §5): the report builds what it owes and no
+    /// Retire only (LLP 1072 §5): the report builds what it owes and no
     /// optional row, retires within `limit` as a slice does, and runs edge
     /// actions. The immediate report after a build-only one.
     pub no_build: bool,

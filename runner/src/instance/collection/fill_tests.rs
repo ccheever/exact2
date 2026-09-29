@@ -195,7 +195,7 @@ fn rows_kept_past_the_window_never_outnumber_the_window() {
     assert_eq!(h.snapshot().rows.len(), settled);
 }
 
-/// @ref LLP 1071 §5 — a build-only report then a retire-only one leave the
+/// @ref LLP 1072 §5 — a build-only report then a retire-only one leave the
 /// rows one immediate report leaves, and the build-only one destroys none.
 #[test]
 fn a_build_only_report_then_a_retire_only_one_equal_one_immediate_report() {

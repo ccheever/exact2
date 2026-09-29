@@ -1,4 +1,4 @@
-# LLP 1071: Building list rows off the main thread
+# LLP 1072: Building list rows off the main thread
 
 **Type:** RFC
 **Status:** Draft r5 (r4: stages 1+2 as built; r5: the revert and the text split, §0.4). Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
@@ -14,7 +14,7 @@
 **Date:** 2026-09-28 (r1 and r2)
 **Related:**
 - Charlie's ruling, 2026-09-28: "move the mount off the main thread … leaving only the UIKit/CA apply on main. Resumable rows are not chosen."
-- The reviews: `llp/reviews/1071-building-rows-off-the-main-thread.astra.md` (r1) and `…astra-r2.md` (r2's retirement handshake).
+- The reviews: `llp/reviews/1072-building-rows-off-the-main-thread.astra.md` (r1) and `…astra-r2.md` (r2's retirement handshake).
 - `QUEUE.md` "A heavy list row still mounts as one lump" and its diagnosis (commit `ee0f8b70`): the evidence in §1.
 - LLP 1022, the serial runtime owner, parked 2026-08-30. This RFC revives it in narrower form. Its findings are acceptance tests here (§10, §11).
 - LLP 1044: F4, F5 and §3 put all list work on main, synchronously.
@@ -98,7 +98,7 @@ reviewed on its own and replaced in r3 (§0.2).
 ## 0.2 What r3 changed (the second review)
 
 The focused review of r2's retirement handshake
-(`llp/reviews/1071-building-rows-off-the-main-thread.astra-r2.md`) said "go
+(`llp/reviews/1072-building-rows-off-the-main-thread.astra-r2.md`) said "go
 with named changes" but "not complete enough for stage 2". Its P1s were:
 
 1. An acknowledged row could be destroyed while a touch still targets it.
@@ -843,8 +843,8 @@ D3 today: "a row may take longer than a frame, but never mid-fling." Amended:
 > During user motion a row may be built when the main-thread work it
 > leaves fits the remaining frame budget: its apply, its CA commit share and
 > any callbacks it makes. Where the build runs off the main thread
-> (LLP 1071), the build's own time does not count against the frame; owner
-> occupancy is admission's concern (1071 §3.4), not D3's. A row whose
+> (LLP 1072), the build's own time does not count against the frame; owner
+> occupancy is admission's concern (1072 §3.4), not D3's. A row whose
 > main-thread work does not fit is pending until motion slows, as before.
 
 **Scope, before stage 3 builds anything.**

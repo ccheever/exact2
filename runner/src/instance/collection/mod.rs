@@ -756,7 +756,7 @@ impl Collection {
             };
             self.settle_mounted(u, mounted, &text)?;
         }
-        // A build-only report retires nothing (LLP 1071 §5): rows past the
+        // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
             let mut kept = false;
@@ -1003,7 +1003,7 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
-        // @ref LLP 1071 §5 — a build-only report keeps the port, width and
+        // @ref LLP 1072 §5 — a build-only report keeps the port, width and
         // pins: a report that changes them may retire, so it is immediate.
         if fill.create_only
             && self.geometry.as_ref().is_none_or(|g| {
@@ -1153,7 +1153,7 @@ impl Collection {
         let reached = self.geometric_edges()?;
         let ready = [0, 1].map(|i| reached[i] && self.edge_armed[i] && self.edge_handlers[i]);
         let edge = (0..2).find(|&i| ready[i]);
-        // A build-only report runs no action (LLP 1071 §5): the edge stays
+        // A build-only report runs no action (LLP 1072 §5): the edge stays
         // armed and the report is pending, so the next report runs it.
         if fill.create_only && edge.is_some() {
             self.pending = true;

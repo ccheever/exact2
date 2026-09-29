@@ -84,7 +84,7 @@ final class CollectionFillMacTests: XCTestCase {
         wire.subdata(in: 76..<80).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
     }
 
-    /// @ref LLP 1071 §3, §5 — a slice goes off main build-only; while it is in
+    /// @ref LLP 1072 §3, §5 — a slice goes off main build-only; while it is in
     /// flight every report waits and the next slice stays owed; landed, it
     /// owes one retire-only report from main, at the slice's limit.
     func testAnOffMainSliceBuildsOnlyAndLandsIntoARetireOnlyReport() throws {

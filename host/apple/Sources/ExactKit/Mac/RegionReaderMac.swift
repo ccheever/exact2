@@ -423,7 +423,7 @@ final class RegionReaderParagraph {
 }
 
 extension TextEngine {
-    /// The reader is UI-owned (LLP 1071 §8.1): its paragraphs hold layers and
+    /// The reader is UI-owned (LLP 1072 §8.1): its paragraphs hold layers and
     /// its timing measures main's frames. The kernel measures on the owner
     /// thread, so a request the reader may answer, or one naming a paragraph
     /// it holds, goes through the owner's one door to main; every other

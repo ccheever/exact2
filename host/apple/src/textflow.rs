@@ -103,7 +103,7 @@ struct Source {
     fragments: Vec<Fragment>,
     intervals: Vec<(f32, f32)>,
 }
-// Process-wide, not per thread (LLP 1071 §2.3): a source prepared while the
+// Process-wide, not per thread (LLP 1072 §2.3): a source prepared while the
 // owner thread measures is flowed and freed by whichever thread paints it.
 static SOURCES: std::sync::Mutex<Option<HashMap<u64, Source>>> = std::sync::Mutex::new(None);
 fn with_sources<R>(f: impl FnOnce(&mut HashMap<u64, Source>) -> R) -> R {

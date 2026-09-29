@@ -190,7 +190,7 @@ enum CSSLineBox {
 }
 
 /// Where a measured paragraph's lines break, as plain values: what
-/// measurement publishes and painting shapes its own lines from (LLP 1071
+/// measurement publishes and painting shapes its own lines from (LLP 1072
 /// §8.1). `clamped`: a `line-clamp`'s last line, made again ending in "…"
 /// (`TextEngine.clampedLine`).
 struct LineGeometry {
@@ -408,7 +408,7 @@ enum FontRegistry {
 
 /// Line breaks the kernel's measurements produced, published by the
 /// measuring engine on the owner thread for the painting engine on main
-/// (LLP 1071 §8.1): plain values under one lock, keyed by the paragraph's
+/// (LLP 1072 §8.1): plain values under one lock, keyed by the paragraph's
 /// content and width. A font install empties it.
 final class BreakBoard: @unchecked Sendable {
     private struct Key: Hashable { let spec: Spec; let width: CGFloat }
@@ -434,7 +434,7 @@ final class BreakBoard: @unchecked Sendable {
     }
 }
 
-/// A session's text: two engines of one kind, never shared (LLP 1071 §8.1).
+/// A session's text: two engines of one kind, never shared (LLP 1072 §8.1).
 /// This one paints, on main; its `measurer` answers the kernel's
 /// measurements on the owner thread. Each keeps its own fonts, shaped text
 /// and caches; what painting reuses from measuring crosses as plain line
@@ -545,7 +545,7 @@ final class TextEngine {
         private let measurer: Checkpoint?
 
         fileprivate init(_ engine: TextEngine) {
-            // The measurer's state is the owner's (LLP 1071 §8.1).
+            // The measurer's state is the owner's (LLP 1072 §8.1).
             measurer = engine.measurer.map { m in Owner.shared.sync { Checkpoint(m) } }
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
@@ -703,7 +703,7 @@ final class TextEngine {
             #if canImport(UIKit)
             if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
             #else
-            // AppKit's font manager is main's (LLP 1071 §8.1): a variant first
+            // AppKit's font manager is main's (LLP 1072 §8.1): a variant first
             // met while the owner thread measures is resolved there, once.
             let upright = f
             f = Owner.shared.callMain { NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) }

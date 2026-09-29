@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// LLP 1071: a list scrolled with its slices built on the owner thread while
+/// LLP 1072: a list scrolled with its slices built on the owner thread while
 /// main paints what they mount. The macOS host keeps slices synchronous in
 /// the app; the test turns the asynchronous path on, so the Thread
 /// Sanitizer (`swift test --sanitize=thread`) sees owner-side measurement and

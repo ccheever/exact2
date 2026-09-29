@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExactKit
 
-/// LLP 1071 §8.1: the kernel measures on the owner thread while main paints
+/// LLP 1072 §8.1: the kernel measures on the owner thread while main paints
 /// the same paragraphs. The two engines of a session share nothing but the
 /// published breaks, so this runs under the Thread Sanitizer clean, and what
 /// each lays out agrees. Before the split, one engine's residency was shaped

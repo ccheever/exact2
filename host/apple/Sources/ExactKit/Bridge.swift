@@ -5,7 +5,7 @@
 // the library attributes to it, and nothing here is process-global but the
 // buffer discipline: the app never hands the library a pointer it did not
 // hand out.
-// Every runtime lives on the owner thread (`Owner.swift`, LLP 1071): each
+// Every runtime lives on the owner thread (`Owner.swift`, LLP 1072): each
 // call below runs there as one job while the caller waits.
 import CExact
 import Foundation
@@ -73,15 +73,15 @@ final class Runtime {
         on { exact_destroy(rt) }
     }
 
-    // @ref LLP 1071 T1/T2 — every runtime lives on the owner thread; each
+    // @ref LLP 1072 T1/T2 — every runtime lives on the owner thread; each
     // call below is one owner job (input, operation, output decode) that
     // main waits for. A call made while main runs a callback the owner is
     // waiting on cannot be served (T5): a batch is refused as `busy`, a
     // notification runs after the owner's current job, anything else
     // answers `busy`.
     static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
-        error: "busy: the owner is waiting on this callback (LLP 1071 T5)")
-    static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1071 T5)\"}"
+        error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
+    static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     func on(_ body: () -> Batch) -> Batch { Owner.shared.sync(body, busy: Runtime.busy) }
     func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
     func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
@@ -274,7 +274,7 @@ final class Runtime {
             return read(exact_into_view(rt, view, n))
         }
     }
-    /// A build-only report on the owner, not waited for (LLP 1071 §3):
+    /// A build-only report on the owner, not waited for (LLP 1072 §3):
     /// `done` runs on the owner with the decoded batch.
     func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
@@ -283,7 +283,7 @@ final class Runtime {
             done(read(exact_collection_feedback(rt, n, now)))
         }
     }
-    /// A frame's tick on the owner, not waited for (LLP 1071 §7.1).
+    /// A frame's tick on the owner, not waited for (LLP 1072 §7.1).
     func tickAsync(now: Double, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
@@ -492,7 +492,7 @@ final class Runtime {
             topic.withUnsafeBytes { exact_app_changed(rt, $0.bindMemory(to: UInt8.self).baseAddress, topic.count) }
         }
     }
-    /// A notification (LLP 1071 T5): when main is serving a callback the
+    /// A notification (LLP 1072 T5): when main is serving a callback the
     /// owner waits on, the line is journaled after the owner's current job.
     func log(_ line: String) {
         Owner.shared.syncOrLater { [self] in

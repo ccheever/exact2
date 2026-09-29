@@ -404,7 +404,7 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any], UInt32?)] = []
     private var applying = false
-    // @ref LLP 1071 §3 — a collection slice built on the owner thread. While
+    // @ref LLP 1072 §3 — a collection slice built on the owner thread. While
     // one is in flight, work that would wait behind it on the owner (a
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
@@ -414,11 +414,11 @@ public final class ExactSession {
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list) and a frame's tick's.
     private var publishedQueue: [(view: UInt32?, batch: Batch, generation: Int)] = []
-    /// A frame's tick is on the owner (LLP 1071 §7.1): the next one waits.
+    /// A frame's tick is on the owner (LLP 1072 §7.1): the next one waits.
     private(set) var tickInFlight = false
     private var landing = false
     /// Slices build off main on iOS unless the agent drives the app, or
-    /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1071 T12).
+    /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
     /// macOS follows once physical scrolling there is measured (stage 5).
     /// Read when a session wires itself; tests set it to drive the
     /// asynchronous path on macOS.
@@ -495,7 +495,7 @@ public final class ExactSession {
         pressure.setEventHandler { [weak self] in
             guard let self else { return }
             text.dropCold()
-            // The measurer's shaped text is the owner's to drop (LLP 1071 §8.4).
+            // The measurer's shaped text is the owner's to drop (LLP 1072 §8.4).
             if let m = text.measurer { Owner.shared.post { m.dropCold() } }
         }
         pressure.resume(); textPressure = pressure
@@ -538,7 +538,7 @@ public final class ExactSession {
     /// The app's clock: what events, timers, motion, and canvases see.
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
-    /// Run `work` now, or after the slice in flight lands (LLP 1071 §3).
+    /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
     func whenIdle(_ work: @escaping () -> Void) {
         if fillInFlight { afterFill.append(work) } else { work() }
     }
@@ -553,7 +553,7 @@ public final class ExactSession {
     }
 
     /// A frame's tick on the owner, not waited for: motion sampled at this
-    /// frame lands with the next main-queue turn (LLP 1071 §7.1).
+    /// frame lands with the next main-queue turn (LLP 1072 §7.1).
     func sendTick(now: Double) {
         tickInFlight = true
         let captured = generation
@@ -1271,7 +1271,7 @@ final class Frames: NSObject {
         // them. A frame before it would advance to no timer, and its commit
         // and presenter pass cost a list in motion a report a frame.
         // A slice building on the owner holds this frame's timers and tick:
-        // they run on the first frame after it lands (LLP 1071 §7.1).
+        // they run on the first frame after it lands (LLP 1072 §7.1).
         if !s.fillInFlight {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()

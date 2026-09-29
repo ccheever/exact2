@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExactKit
 
-// @ref LLP 1071 T1/T5 — the owner thread's contract.
+// @ref LLP 1072 T1/T5 — the owner thread's contract.
 final class OwnerTests: XCTestCase {
     func testSyncRunsOnTheOwnerInOrder() {
         var seen: [Int] = []
