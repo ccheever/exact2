@@ -5,74 +5,77 @@
 // which main serves from its wait loop, so neither ever waits on the other
 // while the other waits on it.
 import Foundation
-
 final class Owner: @unchecked Sendable {
     static let shared = Owner()
 
-    // A job's and a call's body is released before it is marked done: the
+    // A job's and a call's body is released before its waiter is woken: the
     // waiter's non-escaping closure must have no other owner when it returns.
     private final class Job {
         var body: (() -> Void)?
         var done = false
+        /// Signalled when the job is done, or when a call waits for main.
+        let wake = DispatchSemaphore(value: 0)
         init(_ body: @escaping () -> Void) { self.body = body }
     }
     private final class MainCall {
         var body: (() -> Void)?
         /// 0 posted, 1 claimed, 2 done: each call runs once.
         var state = 0
+        let done = DispatchSemaphore(value: 0)
         init(_ body: @escaping () -> Void) { self.body = body }
     }
 
-    private let condition = NSCondition()
+    // One lock guards the queues and states; semaphores carry the wakes, so
+    // each side wakes only the thread that waits: a round trip is two wakes.
+    private let lock = NSLock()
+    private let work = DispatchSemaphore(value: 0)
     private var jobs: [Job] = []
-    /// Notifications (T5): run after the job in progress, in order.
+    /// Notifications (T5): run after the job that posted them.
     private var later: [Job] = []
     private var mailbox: [MainCall] = []
-    private var started = false
+    /// The job main is waiting on: a call for main wakes it.
+    private var mainWaits: Job?
     private var thread: pthread_t?
     /// Main is running a call the owner waits on (T5): it cannot wait on
     /// the owner. Touched on main only.
     private var serving = 0
 
-    private init() {}
-
-    /// Whether the caller is the owner thread.
-    var isOwner: Bool {
-        guard let thread else { return false }
-        return pthread_equal(pthread_self(), thread) != 0
-    }
-
-    private func start() {
-        condition.lock()
-        defer { condition.unlock() }
-        guard !started else { return }
-        started = true
+    private init() {
+        let started = DispatchSemaphore(value: 0)
         let worker = Thread { [self] in
-            condition.lock()
+            lock.lock()
             thread = pthread_self()
-            condition.broadcast()
-            condition.unlock()
+            lock.unlock()
+            started.signal()
             run()
         }
         worker.name = "exact.owner"
         worker.qualityOfService = .userInteractive
         worker.stackSize = 8 << 20
         worker.start()
-        while thread == nil { condition.wait() }
+        started.wait()
+    }
+
+    /// Whether the caller is the owner thread.
+    var isOwner: Bool {
+        // Set before `init` returns, and never again.
+        guard let thread else { return false }
+        return pthread_equal(pthread_self(), thread) != 0
     }
 
     private func run() {
         while true {
-            condition.lock()
-            while jobs.isEmpty && later.isEmpty { condition.wait() }
-            let job = jobs.isEmpty ? later.removeFirst() : jobs.removeFirst()
-            condition.unlock()
+            work.wait()
+            lock.lock()
+            // A notification was posted during an earlier job: it goes first.
+            let job = later.isEmpty ? jobs.removeFirst() : later.removeFirst()
+            lock.unlock()
             autoreleasepool { job.body?() }
-            condition.lock()
+            lock.lock()
             job.body = nil
             job.done = true
-            condition.broadcast()
-            condition.unlock()
+            lock.unlock()
+            job.wake.signal()
         }
     }
 
@@ -81,26 +84,32 @@ final class Owner: @unchecked Sendable {
     /// call main serves for the owner, nothing can run: `busy` answers.
     func sync<T>(_ body: () -> T, busy: @autoclosure () -> T) -> T {
         if isOwner { return body() }
-        if Thread.isMainThread && serving > 0 {
+        let main = Thread.isMainThread
+        if main && serving > 0 {
             NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused (LLP 1071 T5)")
             return busy()
         }
-        start()
         return withoutActuallyEscaping(body) { body in
             var result: T?
             let job = Job { result = body() }
-            condition.lock()
+            lock.lock()
             jobs.append(job)
-            condition.broadcast()
-            let main = Thread.isMainThread
-            while !job.done {
-                if main, let call = mailbox.first(where: { $0.state == 0 }) {
-                    serve(call)
-                    continue
+            if main { mainWaits = job }
+            lock.unlock()
+            work.signal()
+            while true {
+                lock.lock()
+                if job.done {
+                    if main { mainWaits = nil }
+                    lock.unlock()
+                    break
                 }
-                condition.wait()
+                // A call posted before this job was registered is served too.
+                let call = main ? mailbox.first(where: { $0.state == 0 }) : nil
+                if let call { claim(call) }
+                lock.unlock()
+                if let call { serve(call) } else { job.wake.wait() }
             }
-            condition.unlock()
             return result!
         }
     }
@@ -113,15 +122,25 @@ final class Owner: @unchecked Sendable {
         preconditionFailure("exact: a runtime call from inside a callback the owner is waiting on (LLP 1071 T5)")
     }
 
+    /// Run `body` on the owner after the jobs before it, without waiting
+    /// (LLP 1071 T3: the collection fill). What it produces goes back to
+    /// main by its own publication.
+    func post(_ body: @escaping () -> Void) {
+        lock.lock()
+        jobs.append(Job(body))
+        lock.unlock()
+        work.signal()
+    }
+
     /// A notification (T5): synchronous, unless main is serving a callback
     /// the owner waits on; then it runs after the owner's current job.
     func syncOrLater(_ body: @escaping () -> Void) {
         if isOwner { body(); return }
         if Thread.isMainThread && serving > 0 {
-            condition.lock()
+            lock.lock()
             later.append(Job(body))
-            condition.broadcast()
-            condition.unlock()
+            lock.unlock()
+            work.signal()
             return
         }
         sync(body, busy: ())
@@ -137,34 +156,40 @@ final class Owner: @unchecked Sendable {
         return withoutActuallyEscaping(body) { body in
             var result: T?
             let call = MainCall { result = body() }
-            condition.lock()
+            lock.lock()
             mailbox.append(call)
-            condition.broadcast()
-            condition.unlock()
+            let waiting = mainWaits
+            lock.unlock()
+            waiting?.wake.signal()
+            // Main may be about to wait on a job; the wait loop checks the
+            // mailbox first, and this hop covers main not waiting at all.
             DispatchQueue.main.async { [self] in
-                condition.lock()
-                if call.state == 0 { serve(call) }
-                condition.unlock()
+                lock.lock()
+                let mine = call.state == 0
+                if mine { claim(call) }
+                lock.unlock()
+                if mine { serve(call) }
             }
-            condition.lock()
-            while call.state != 2 { condition.wait() }
-            condition.unlock()
+            call.done.wait()
             return result!
         }
     }
 
-    /// Serve one posted call on main; the lock is held on entry and exit
-    /// and released while the call runs.
-    private func serve(_ call: MainCall) {
+    /// Take a posted call for main; the lock is held.
+    private func claim(_ call: MainCall) {
         call.state = 1
         mailbox.removeAll { $0 === call }
-        condition.unlock()
+    }
+
+    /// Run a claimed call on main, then release its waiter.
+    private func serve(_ call: MainCall) {
         serving += 1
         call.body?()
         serving -= 1
-        condition.lock()
+        lock.lock()
         call.body = nil
         call.state = 2
-        condition.broadcast()
+        lock.unlock()
+        call.done.signal()
     }
 }
