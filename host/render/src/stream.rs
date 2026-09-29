@@ -114,6 +114,7 @@ impl<'a> Flush<'a> {
         accepts: Accepts,
         csp: &str,
         permissions: &str,
+        keep: bool,
     ) -> Flush<'a> {
         let encoding = accepts.pick();
         let mut headers = format!(
@@ -132,7 +133,12 @@ impl<'a> Flush<'a> {
             headers.push_str(permissions);
             headers.push_str("\r\n");
         }
-        headers.push_str("X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+        headers.push_str("X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nTransfer-Encoding: chunked\r\n");
+        headers.push_str(if keep {
+            "Connection: keep-alive\r\n\r\n"
+        } else {
+            "Connection: close\r\n\r\n"
+        });
         let failed = out.write_all(headers.as_bytes()).is_err();
         let chunked = Chunked(out);
         let encoder = match encoding {
@@ -178,4 +184,37 @@ impl<'a> Flush<'a> {
             let _ = out.flush();
         }
     }
+}
+
+/// How long a kept connection may wait for its next request.
+const IDLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Wait on a kept connection (HTTP/1.1 keep-alive) for the client's next
+/// request: true once its first byte is here; false when the client
+/// closes, [`IDLE`] passes, the server drains, or another connection waits
+/// for a worker (an idle connection never holds a worker a new one needs).
+pub(crate) fn idle(
+    stream: &TcpStream,
+    waiting: &std::sync::Mutex<(std::collections::VecDeque<TcpStream>, usize)>,
+    stop: &std::sync::atomic::AtomicBool,
+) -> bool {
+    use std::io::ErrorKind::{TimedOut, WouldBlock};
+    let until = std::time::Instant::now() + IDLE;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(10)));
+    let mut byte = [0u8];
+    while std::time::Instant::now() < until {
+        match stream.peek(&mut byte) {
+            Ok(0) => return false,
+            Ok(_) => return true,
+            Err(e) if matches!(e.kind(), WouldBlock | TimedOut) => {
+                if stop.load(std::sync::atomic::Ordering::SeqCst)
+                    || !waiting.lock().unwrap().0.is_empty()
+                {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+    false
 }

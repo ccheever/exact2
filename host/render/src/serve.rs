@@ -203,7 +203,7 @@ impl Server {
             Condvar::new(),
         ));
         for _ in 0..shared.serve.renders.max(1) {
-            let (shared, waiting) = (shared.clone(), waiting.clone());
+            let (shared, waiting, stop) = (shared.clone(), waiting.clone(), self.stop.clone());
             std::thread::spawn(move || {
                 let (state, ready) = &*waiting;
                 let mut answered = None;
@@ -223,7 +223,12 @@ impl Server {
                             state = ready.wait(state).unwrap();
                         }
                     };
-                    answered = Some(handle(stream, &shared, data));
+                    let (mut stream, mut keep) = handle(stream, &shared, data);
+                    // A kept connection's next request, on this worker.
+                    while keep && crate::stream::idle(&stream, state, &stop) {
+                        (stream, keep) = handle(stream, &shared, data);
+                    }
+                    answered = Some(stream);
                 }
             });
         }
@@ -257,7 +262,7 @@ impl Server {
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
                 let _ = read_request(&mut stream);
-                busy.write(&mut stream, false, &shared.csp, &shared.permissions);
+                busy.write(&mut stream, false, &shared.csp, &shared.permissions, false);
                 close(stream);
                 continue;
             }
@@ -300,6 +305,9 @@ struct Request {
     /// A browser's navigation (`Sec-Fetch-Dest: document`): a rendered page
     /// may go in two parts ([`crate::stream`]).
     navigate: bool,
+    /// The client keeps the connection for its next request (HTTP/1.1's
+    /// default, unless it said `Connection: close` or sent more than one).
+    keep: bool,
 }
 
 #[derive(Clone)]
@@ -329,14 +337,15 @@ impl Response {
         self
     }
 
-    fn write(&self, stream: &mut TcpStream, head: bool, csp: &str, permissions: &str) {
+    fn write(&self, stream: &mut TcpStream, head: bool, csp: &str, permissions: &str, keep: bool) {
+        let connection = if keep { "keep-alive" } else { "close" };
         // Header values can contain app data; refuse the entire response before
         // writing anything, including on the 304 path.
         if self.headers.iter().any(|(_, value)| invalid_header(value))
             || invalid_header(csp)
             || invalid_header(permissions)
         {
-            Response::text(500, "invalid response header\n").write(stream, head, "", "");
+            Response::text(500, "invalid response header\n").write(stream, head, "", "", keep);
             return;
         }
         let reason = match self.status {
@@ -361,7 +370,7 @@ impl Response {
                     let _ = write!(out, "{name}: {value}\r\n");
                 }
             }
-            out.push_str("Connection: close\r\n\r\n");
+            let _ = write!(out, "Connection: {connection}\r\n\r\n");
             let _ = stream.write_all(out.as_bytes());
             let _ = stream.flush();
             return;
@@ -386,7 +395,7 @@ impl Response {
         }
         let _ = write!(
             out,
-            "X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Length: {}\r\nConnection: {connection}\r\n\r\n",
             self.file.as_ref().map_or(self.body.len() as u64, |(_, size)| *size)
         );
         let _ = stream.write_all(out.as_bytes());
@@ -422,12 +431,13 @@ fn close(mut stream: TcpStream) {
     }
 }
 
-/// Answer one connection; the worker closes it.
+/// Answer one request on a connection: the stream, and whether it stays
+/// open for the client's next request ([`idle`]); the worker closes it.
 fn handle<D: DataSource + 'static>(
     mut stream: TcpStream,
     shared: &Shared,
     data: fn() -> D,
-) -> TcpStream {
+) -> (TcpStream, bool) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let Ok(request) = read_request(&mut stream) else {
@@ -436,8 +446,9 @@ fn handle<D: DataSource + 'static>(
             false,
             &shared.csp,
             &shared.permissions,
+            false,
         );
-        return stream;
+        return (stream, false);
     };
     let head = request.method == "HEAD";
     let response = if request.method != "GET" && !head {
@@ -446,9 +457,15 @@ fn handle<D: DataSource + 'static>(
         finish(respond(&request, shared, data, Some(&mut stream)), &request)
     };
     if !response.streamed {
-        response.write(&mut stream, head, &shared.csp, &shared.permissions);
+        response.write(
+            &mut stream,
+            head,
+            &shared.csp,
+            &shared.permissions,
+            request.keep,
+        );
     }
-    stream
+    (stream, request.keep)
 }
 
 /// A response as the client accepts it (D11): a page, the sitemap or any
@@ -523,6 +540,7 @@ fn indexed<D: DataSource + 'static>(
             cdn: false,
             dictionary: None,
             navigate: false,
+            keep: false,
         };
         let response = respond(&request, shared, data, None);
         let noindex = response.headers.iter().any(|(name, value)| {
@@ -563,6 +581,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         }
         bytes.extend_from_slice(&chunk[..n]);
     }
+    // Bytes past the head are a second request sent before this one's
+    // answer (pipelining): answered by closing, as before keep-alive.
+    let end = bytes.windows(4).position(|w| w == b"\r\n\r\n").ok_or(())? + 4;
+    let pipelined = bytes.len() > end;
     let text = String::from_utf8(bytes).map_err(|_| ())?;
     let mut lines = text.split("\r\n");
     let mut first = lines.next().ok_or(())?.split(' ');
@@ -617,7 +639,15 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         name.trim().eq_ignore_ascii_case("sec-fetch-dest")
             && value.trim().eq_ignore_ascii_case("document")
     });
+    let close = headers.iter().any(|(name, value)| {
+        name.trim().eq_ignore_ascii_case("connection")
+            && value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("close"))
+    });
+    let keep = version == "HTTP/1.1" && !close && !pipelined && matches!(method, "GET" | "HEAD");
     Ok(Request {
+        keep,
         method: method.to_string(),
         target: target.to_string(),
         if_none_match,
@@ -827,6 +857,7 @@ fn render_kept<D: DataSource + 'static>(
         cdn: request.cdn,
         dictionary: None,
         navigate: request.navigate,
+        keep: request.keep,
     };
     let mut response = document(&unconditional, policy, notfound, shared, data, early);
     if response.status != 200 || response.body.len() > MAX_CACHE_BYTES {
@@ -1080,6 +1111,7 @@ fn document<D: DataSource + 'static>(
             request.accepts,
             &shared.csp,
             &shared.permissions,
+            request.keep,
         );
         (flush, head)
     });
@@ -1404,7 +1436,7 @@ mod tests {
                 let (mut server, _) = listener.accept().unwrap();
                 Response::text(status, "original")
                     .header("X-Robots-Tag", value)
-                    .write(&mut server, false, "default-src 'self'", "");
+                    .write(&mut server, false, "default-src 'self'", "", false);
                 server.shutdown(std::net::Shutdown::Write).unwrap();
                 let mut received = String::new();
                 client.read_to_string(&mut received).unwrap();
@@ -1428,7 +1460,7 @@ mod tests {
             let (mut server, _) = listener.accept().unwrap();
             let mut page = Response::text(200, "<p>");
             page.headers[0].1 = content_type.into();
-            page.write(&mut server, false, "default-src 'self'", &policy);
+            page.write(&mut server, false, "default-src 'self'", &policy, false);
             server.shutdown(std::net::Shutdown::Write).unwrap();
             let mut received = String::new();
             client.read_to_string(&mut received).unwrap();

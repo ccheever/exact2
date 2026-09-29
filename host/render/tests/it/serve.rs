@@ -168,6 +168,12 @@ const BOUND: Duration = Duration::from_secs(60);
 /// The same, the body as bytes.
 fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
     let what = request.lines().next().unwrap_or("");
+    // One request a connection: it ends at the server's close (an HTTP/1.1
+    // connection is otherwise kept for the next request).
+    let request = &match request.to_ascii_lowercase().contains("\r\nconnection:") {
+        true => request.to_string(),
+        false => request.replacen("\r\n\r\n", "\r\nConnection: close\r\n\r\n", 1),
+    };
     let mut stream = TcpStream::connect_timeout(&addr, BOUND)
         .unwrap_or_else(|e| panic!("no connection for {what:?}: {e}"));
     stream.set_read_timeout(Some(BOUND)).unwrap();
@@ -1108,6 +1114,99 @@ fn large_static_files_stream_with_lengths_validators_and_head() {
 const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
 
 /// A chunked body, its chunks joined.
+#[test]
+fn a_connection_is_kept_for_the_next_request() {
+    // HTTP/1.1's default: a connection answers request after request, a
+    // flushed page's included (its chunked body ends it), until the client
+    // says `Connection: close`.
+    super::warm_transport();
+    let dir = dist("kept");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let addr = run(Serve {
+        dist: dir,
+        port: 0,
+        name: "Blog".into(),
+        origin: Some("https://blog.test".into()),
+        deadline: Duration::from_millis(2000),
+        renders: 2,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    });
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    let mut pending = Vec::new();
+    // One response off the stream, by its framing.
+    let mut next = |stream: &mut TcpStream| -> (String, Vec<u8>) {
+        let mut buf = [0u8; 8192];
+        loop {
+            // An informational response (a 103) goes before the answer.
+            while pending.starts_with(b"HTTP/1.1 1") {
+                match pending.windows(4).position(|w| w == b"\r\n\r\n") {
+                    Some(at) => drop(pending.drain(..at + 4)),
+                    None => break,
+                }
+            }
+            if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&pending[..at]).to_ascii_lowercase();
+                let body = &pending[at + 4..];
+                let length = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .map(|n| n.trim().parse::<usize>().unwrap());
+                let end = match length {
+                    Some(n) if body.len() >= n => Some(n),
+                    None if head.contains("transfer-encoding: chunked") => body
+                        .windows(5)
+                        .position(|w| w == b"0\r\n\r\n")
+                        .map(|p| p + 5),
+                    _ => None,
+                };
+                if let Some(end) = end {
+                    let body = body[..end].to_vec();
+                    pending.drain(..at + 4 + end);
+                    return (head, body);
+                }
+            }
+            let n = stream.read(&mut buf).unwrap();
+            assert!(n > 0, "the server closed a kept connection");
+            pending.extend_from_slice(&buf[..n]);
+        }
+    };
+    for target in ["/post/7", "/post/8"] {
+        write!(stream, "GET {target} HTTP/1.1\r\nHost: blog.test\r\n\r\n").unwrap();
+        let (head, body) = next(&mut stream);
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(head.contains("connection: keep-alive"), "{head}");
+        assert!(
+            String::from_utf8_lossy(&body).contains(">Post "),
+            "{target}"
+        );
+    }
+    // A navigation's flushed page, on the same connection.
+    write!(
+        stream,
+        "GET /live/9 HTTP/1.1\r\nSec-Fetch-Dest: document\r\n\r\n"
+    )
+    .unwrap();
+    let (head, body) = next(&mut stream);
+    assert!(
+        head.contains("transfer-encoding: chunked") && head.contains("connection: keep-alive"),
+        "{head}"
+    );
+    assert!(String::from_utf8(unchunk(&body))
+        .unwrap()
+        .ends_with("</script>\n"));
+    // Closed when the client asks.
+    write!(stream, "GET /post/7 HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap();
+    let (head, _) = next(&mut stream);
+    assert!(head.contains("connection: close"), "{head}");
+    let mut rest = Vec::new();
+    stream.read_to_end(&mut rest).unwrap();
+    assert!(rest.is_empty());
+}
+
 fn unchunk(mut body: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
