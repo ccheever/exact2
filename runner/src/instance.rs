@@ -448,6 +448,10 @@ pub struct SiteIndex {
     deps: Deps,
     /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
     keyframes: bridge::KeyframesTable,
+    /// A binding that reads nothing (a literal style row in a list row's
+    /// template) has one value for the plan's life: evaluated once, by
+    /// binding index, instead of once per instance.
+    constants: Vec<std::cell::OnceCell<Value>>,
 }
 
 impl SiteIndex {
@@ -487,6 +491,9 @@ impl SiteIndex {
             sites,
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
+            constants: (0..plan.bindings.len())
+                .map(|_| Default::default())
+                .collect(),
         };
         index.deps = Deps::new(plan, &index);
         index
@@ -736,8 +743,21 @@ impl NodeInst {
                 continue;
             }
             let binding = plan.binding(b);
-            u.work.bindings_evaluated += 1;
-            let value = u.eval(binding.expr, frames)?;
+            let reads = &deps.bindings[b.0 as usize];
+            let value = if reads.is_constant() {
+                match u.sites.constants[b.0 as usize].get() {
+                    Some(value) => value.clone(),
+                    None => {
+                        u.work.bindings_evaluated += 1;
+                        let value = u.eval(binding.expr, frames)?;
+                        u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
+                        value
+                    }
+                }
+            } else {
+                u.work.bindings_evaluated += 1;
+                u.eval(binding.expr, frames)?
+            };
             if self.last[i]
                 .as_ref()
                 .is_some_and(|last| crate::compare::equal(last, &value) == Some(true))

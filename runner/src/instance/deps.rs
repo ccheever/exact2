@@ -38,7 +38,6 @@ impl Bits {
     pub(crate) fn intersects(&self, other: &Bits) -> bool {
         self.0.iter().zip(other.0.iter()).any(|(a, b)| a & b != 0)
     }
-    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.0.iter().all(|w| *w == 0)
     }
@@ -95,6 +94,11 @@ pub struct Reads {
 }
 
 impl Reads {
+    /// Reads no input, frame, row slot or parameter: the same value always.
+    pub(crate) fn is_constant(&self) -> bool {
+        !self.opaque && !self.row_slots && self.frames == 0 && self.bits.is_empty()
+    }
+
     fn union(&mut self, other: &Reads, shift: u32) {
         self.bits.union(&other.bits);
         let frames = out_of(other.frames, shift);
