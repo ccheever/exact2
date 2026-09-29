@@ -1,7 +1,7 @@
 # LLP 1071: Building list rows off the main thread
 
 **Type:** RFC
-**Status:** Draft r3. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). Stage 1 is being built.
+**Status:** Draft r3. Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
 **Systems:**
 - Apple host: `Bridge.swift`'s `Runtime`, `Session.swift` (`wire`, `apply`, `Frames`, boot, pressure), `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/CollectionIOS.swift`, `Mac/PresenterMac.swift`, `Mac/RegionReaderMac.swift`, `Agent.swift`, `Text.swift`, `NodeText.swift`, `Canvas2D*.swift`, `NativeModule.swift`.
 - Apple Rust library: `abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `abi_collections.rs`, `app_module.rs`, `markup.rs`, `textflow.rs`.
@@ -148,6 +148,107 @@ so every P1 above either becomes moot or is answered:
 The residual cost is 0.6 ms per row of blocked main plus one hop. Stage 2
 measures it, and it is the first thing to revisit if the late-frame gate is
 missed.
+
+## 0.3 What r4 changed (as built, 2026-09-29)
+
+Charlie, 2026-09-29: "focus on optimizing and ideal end states rather than a
+smooth journey there." Stages 1 and 2 were built as one lane on
+`perf/owner-thread`, each commit verified (the five checks and every smoke on
+the M5 mini; the Apple XCTests and the macOS smokes locally; device runs on
+the iPhone 13 Pro Max). Where the build departs from r3:
+
+1. **The wire.** v3's flags word carries the two modes: bit 1 is build-only
+   and bit 2 is retire-only; setting both is refused. There is no `mode`
+   word and no ABI bump. An older runner refuses flags above 1 as malformed
+   feedback rather than misreading them. Web and Linux never set either bit.
+2. **While a slice is in flight, work waits on main, not on the owner.**
+   r2 and r3 had main block behind a fill, or post a coalesced frame job.
+   As built, every report, every timer, every data-source reply and every
+   intrinsic size is held on main while a slice builds, and runs in order
+   after it lands. Events and reads that return values still block, behind
+   at most one slice.
+3. **A frame's tick is always asynchronous under off-main slices.** It is
+   posted, not waited for, and its batch joins the slices' ordered
+   publication queue. That removes one round trip per frame. A frame's timer
+   advance stays synchronous (§5), and is skipped while a slice is in
+   flight.
+4. **A landed slice retires on the next main-queue turn.** Applying a slice
+   and running its retire-only report are two turns' work. The next slice
+   waits for the retirement.
+5. **Under the agent, and with `EXACT_FILL_SYNC=1`, slices are
+   synchronous.** The agent's operations therefore match the web and Linux
+   by construction; the carrier still drains any slice in flight before each
+   request. The build-only/retire-only split is proven equal to one
+   immediate report by the runner's test
+   (`a_build_only_report_then_a_retire_only_one_equal_one_immediate_report`).
+6. **macOS keeps synchronous slices** until physical scrolling there is
+   measured (stage 5). It runs on the owner thread like iOS.
+7. **The macOS reader** (`RegionReaderTiming`, T8): its paragraphs hold
+   layers, so they stay UI-owned. A measure request the reader may answer,
+   or one naming a paragraph it holds, goes through the owner's one door to
+   main. Every other measurement runs on the owner, and the timing
+   assertion stays true.
+8. **The round trip is a semaphore per waiter, not polling.** Polling (the
+   owner 100 µs, main 50 µs to 1 ms, with or without the lock) made a round
+   trip worse on the iPhone 13 Pro Max and the M1 iPad Pro: 6–15 ms/s of
+   main's blocked time on the live fling, against 2–5 ms/s for plain waits.
+   Both have two performance cores, and a spinning thread pushes the other
+   off one.
+
+**Measured on the iPhone 13 Pro Max** (medians of 3 rounds, rounds r10–r12,
+`~/bench/xheavy/results/node/iphone`). n7 is origin/main before the lane,
+n13 has off-main slices, n14 adds asynchronous ticks:
+
+| feed, scenario | n7 | n13 | n14 | SwiftUI |
+|---|---|---|---|---|
+| live fling: fps / late per s / main ms/s | 107.0 / 8.4 / 380 | 113.3 / 5.2 / 226 | 113.6 / 5.1 / 226 | 118.1 / 1.1 / 423 |
+| live ladder | 89.0 / 17.4 / 515 | 99.7 / 10.8 / 311 | 100.2 / 10.6 / 313 | 103.6 / 8.9 / 543 |
+| 19-kind fling | 108.7 / 6.5 / 356 | 114.2 / 3.5 / 246 | 113.2 / 4.2 / 305 | 102.2 / 10.2 / 363 |
+| 19-kind ladder | 81.5 / 13.5 / 494 | 112.8 / 4.5 / 281 | 102.2 / 6.7 / 323 | 79.4 / 15.3 / 505 |
+
+n15 (a landed slice's retirement on the next turn, rounds r13–r15) against
+n14 in the same batch: live fling 114.3 fps / 4.7 late per s against 114.2 /
+4.7; the 19-kind fling 113.8 / 3.4 against 114.9 / 2.9. No gain, and no
+loss.
+
+**On the M1 iPad Pro** (n15, fling, 3 rounds, r13–r15,
+`~/bench/xheavy/results/node`):
+
+| feed | n7 | n15 | SwiftUI |
+|---|---|---|---|
+| live: fps / late per s / main ms/s | 119.4 / 0.6 / 379 | 120.0 / 0.0 / 241 | 119.4 / 0.5 / 543 |
+| 19-kind | 112.5 / 4.1 / 392 | 115.8 / 2.2 / 352 | 106.2 / 8.4 / 423 |
+
+No run on either device showed a blank band. The iPhone's live fling
+(4.7 late per s against SwiftUI's 1.1) is the one gate not yet met.
+
+**The round trip itself** (a temporary per-call counter, not committed): on
+the live fling, 100–380 synchronous calls a second cost 2–5.5 ms/s of main's
+blocked time beyond the work, p50 10–35 µs and p99 50–200 µs. That is over
+the 3 ms/s budget in the slow segments. Asynchronous ticks remove the
+per-frame call; the rest is events, reports and replies.
+
+**What the late frames are now.** A System Trace of the n15 build
+(`~/bench/xheavy/results/late/iphone/n15`) shows almost no main-thread turn
+over 8.33 ms (0.2 a second). The late frames are frames whose several turns
+together exceed the frame. Main's work over a 6k pt/s fling (ms/s):
+
+| part | ms/s |
+|---|---|
+| presenter apply of landed slices | 96 |
+| CA commit | 68 |
+| reports on main, the retire-only report's destroy apply among them | 45 |
+| display link | 10 |
+
+Inside the apply, per node:
+
+| part | ms/s |
+|---|---|
+| SVG animations and scenes | 23 |
+| flat-leaf create, frame and flush | 42 |
+| node-pool take and retire | 20 |
+
+That is stage 4's target. The Rust half of a mount is off main.
 
 ## 0.1 Rulings on r1's questions (Charlie, 2026-09-28, through the coordinator)
 
