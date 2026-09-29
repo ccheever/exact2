@@ -73,6 +73,47 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertTrue(text.textRasterFrame.contains(p.textScrollportRect(text)), "the raster covers what shows")
     }
 
+    /// The rasterizer's own queue under churn: clamped rows whose text
+    /// changes every turn get worker jobs (`refreshVisibleText`) while main
+    /// lays them out, paints what shows (`paintVisibleText`) and publishes
+    /// what finished. Every row that shows ends with pixels for its text.
+    func testClampedRowsRasterOnWorkersWhileMainRelaysThem() throws {
+        let session = ExactApp.shared.makeSession(label: "clamp-race")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let words = ["family", "draft", "deadline", "picnic", "station", "meeting", "later", "thanks", "日本語", "שלום"]
+        func text(_ row: Int, _ turn: Int) -> String {
+            (0..<18).map { words[(row * 3 + turn + $0 * 7) % words.count] }.joined(separator: " ")
+        }
+        let rows = Array(0..<30).map { 100 + $0 * 2 }
+        var ops: [[String: Any]] = [collections(rows), ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+        for (i, base) in rows.enumerated() { ops += rowOps(base, y: Double(i) * 60, text: text(i, 0)) }
+        ops += [["op": "children", "id": 1, "ids": rows], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 800.0],
+                ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]
+        p.apply(wireBatch(ops))
+        for turn in 1...24 {
+            let changed = rows.enumerated().filter { ($0.offset + turn) % 3 == 0 }
+            p.apply(wireBatch(changed.map { ["op": "props", "id": $0.element + 1, "set": ["text": text($0.offset, turn)]] }))
+            _ = p.refreshVisibleText(velocity: 2000)
+            for base in rows { _ = p.views[UInt32(base + 1)]?.paragraphLayout() }
+            p.paintVisibleText()
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001))
+        }
+        let shown = rows.compactMap { p.views[UInt32($0 + 1)] }.filter { p.textIsVisible($0) }
+        XCTAssertGreaterThan(shown.count, 10)
+        p.textRasters.settleVisible(shown)
+        for node in shown {
+            XCTAssertTrue(node.canRasterText)
+            XCTAssertTrue(node.textRasterReady, "#\(node.id) has pixels for its current text")
+            XCTAssertTrue(node.textRasterKey?.spec == node.paragraphSpec(), "keyed by its current text")
+        }
+    }
+
     /// A one-line label stretched across a row: `text-overflow: ellipsis`
     /// rasters (truncated in the job, as `draw(_:)` truncates), and the
     /// raster is its ink, not the box. No backing store of the row's width.
