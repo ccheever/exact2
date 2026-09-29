@@ -331,7 +331,7 @@ Context attributes are fixed: `alpha: true`, `colorSpace: "srgb"`, `willReadFreq
 | | Web | Apple (iOS, macOS) | Linux |
 |---|---|---|---|
 | Executor of `draw` | the page's module realm, or its Worker | Hermes or the Rust data crate on the runner's thread, or the module worker | the same |
-| Replayer | `canvas2d-glue.js` into the element's `CanvasRenderingContext2D` | `Canvas2D.swift` into a `CGContext` bitmap, then the view layer's `contents` | Rust into a tiny-skia `Pixmap` |
+| Replayer | `canvas2d-glue.js` into the element's `CanvasRenderingContext2D` | `Canvas2D.swift` into a `CGContext` bitmap, then the view layer's `contents`; while it animates, into a layer Core Animation records and rasterises (§8.4) | Rust into a tiny-skia `Pixmap` |
 | Text | the browser | Core Text `CTLineDraw` (colour glyphs included), fonts by LLP 1019 | the host's paragraph painter into the pixmap |
 | Oracle | Chrome, directly and through the list (§4) | Chrome, within §4's bands | Chrome, within §4's bands |
 
@@ -695,6 +695,40 @@ The fixture §8 asks for is the Extra Heavy feed's canvas rows (`~/bench/xheavy`
 - **A canvas drawn every frame drops frames, not pixels (2026-09-28, `fix/feature-bench`).** As first built, a canvas whose replay was slower than the display (3,000 arcs a frame, `~/bench/features` F2) queued one replay per frame without bound and never showed one, since each finished replay had been superseded: a white screen, and 245 → 744 MB on an iPad. Now a canvas has at most one replay waiting behind the one running; lists that arrive meanwhile join it (a fresh bitmap's replace it), the newest replay done always shows, and the runner holds the canvas's frame request while one waits (`exact_canvas_held`, D5's "on screen" judgement), as a browser's animation frame waits for the last to present. Lists set a font only when it changes, so a replay's snapshot carries every font resolved before, not only the ones its own lists set.
 - The same change stops a bitmap being cleared while it is still blank (a fresh bitmap is zeroed; `reset` on one clears nothing).
 
+## 8.4 A canvas that animates is recorded, as built (2026-09-29, `feat/canvas-record`)
+
+**Charlie (2026-09-29): "you can use GPU instead core graphics if it is the correct choice."** The evidence says Core Graphics (§10.2 stands), presented two ways. Measured on an iPhone 13 Pro Max (3×, 120 Hz) against the SwiftUI equivalents of `~/bench/features` F2 (a full-screen canvas redrawn every frame: 3,000 arcs, a polyline and text) and the Extra Heavy feed's canvas rows (`~/bench/xheavy`, `BENCH_KINDS=canvas`).
+
+**Where F2's time went.** The bitmap (§8.3) spent 57 ms of Core Graphics a frame on the replay queue, so the canvas redrew 17 times a second; the main thread's share was 32 ms/s. Rasterisation was the whole cost. SwiftUI's `Canvas` under `TimelineView(.animation)` redraws 60 times a second (counted in an instrumented copy of the benchmark app), rasterised by Core Animation.
+
+**Three ways were built and measured** (branch `proto/canvas-gpu`, not landed):
+
+| iPhone, F2 | redraws/s | CPU ms/s | main ms/s | footprint MB |
+|---|---|---|---|---|
+| CG bitmap (§8.3) | 17 | 1,035 | 32 | 38–46 (peak 52) |
+| vello on the GPU (a loaded `libexact_canvas_vello.dylib`) | 60 | 419 | 192 | 292 |
+| CG recorded by Core Animation (`drawsAsynchronously`) | 60 | 654–673 | 393–396 | 77–79 (peak 106) |
+| SwiftUI `Canvas` | 60 | 416 | 295 | 60 |
+
+vello was dropped. It ran out of memory in a list (2.2 GB: a surface and two textures a row; its bump buffers are ~350 MB whatever the scene), took 5× SwiftUI's memory full screen, compiled its WGSL shaders at first use (1.2 s on the iPhone; `rules/DEFERRED.md`'s GPU entry refuses runtime shader compilation), cost 4.1 MB stripped a module, and matched Chrome on 79 of the smoke's 94 crops (no shadows, images, patterns or `putImageData`).
+
+**As built: a canvas whose draw asks for the next frame is recorded.** The runner marks a canvas's list `animating` when its draw returned `true` (`CanvasList::animating`, the op's `animating`). Such a canvas draws into a layer that `drawsAsynchronously` over its box (`Canvas2DRecord.swift`), so Core Graphics' calls are recorded and Core Animation rasterises the recording; it keeps no bitmap. What it has drawn is the lists since it was last covered whole (an opaque source-over `fillRect` over every pixel under an axis-aligned matrix and no clip, a `clearRect` over every pixel, a `reset`, or a fresh bitmap), replayed each time from the state they started in (`Canvas2DReplayState`: the style state, the saved levels, gradients, patterns, image handles and the current path), so each redraw records only what can still show and a gradient made before the cover still paints after it. A tracker (a replayer that paints nothing) follows every list on the replay queue for the covers and the state.
+
+- **The policy.** Recorded while its draws ask for frames, from a cover, when nothing since draws differently recorded than into a bitmap (a shadow, a conic gradient, the five operators that reach outside the shape) and the canvas is not an explicit bitmap stretched to its box, within the bound. Otherwise the bitmap, rebuilt from the kept lists when a recorded canvas stops qualifying. A canvas that does not animate keeps nothing (its next cover starts the kept lists again).
+- **The bound.** 4 MB or 64 lists since the last cover: a canvas that never covers itself would otherwise record everything it ever drew, every frame. Past it the canvas goes back to its bitmap.
+- **Recording stays on the main thread**, when Core Animation displays the layer. Two ways off it were built and refused: a layer out of the tree, recorded on the replay queue, rasterises as it records on the CPU (18 redraws a second on the iPhone, 1,092 ms/s, where the layer in the tree is rasterised at 60); a layer in the tree recorded on the replay queue raced Core Animation's own drawing queue (a crash under a layer snapshot, `CA::CG::Queue`). A pair of layers in the tree, each recorded while hidden and shown a frame later so the commit need not wait for its rasterisation, measured worse (109 fps, 190–200 MB).
+- **Colour fills skip the saved state** (`fillPath`): five Core Graphics calls where `render` made thirteen, since every paint sets the alpha, operator and colour it uses. It helps the bitmap and the recording alike.
+- **Test hook.** `EXACT_CANVAS_RECORD=always` records every canvas the policy allows, animating or not, so the parity smoke can hold recorded canvases to Chrome.
+
+| iPhone 13 Pro Max | F2 redraws/s | F2 fps | F2 CPU ms/s | F2 main ms/s | F2 peak / end MB | rows fling fps (t / b) | rows main ms/s | rows peak MB |
+|---|---|---|---|---|---|---|---|---|
+| exact2, as built | 60 | 117.5–118.1 | 758–795 | 385–397 | 155 / 90–95 | 119.5 / 119.3 | 198 / 310 | 76 / 95 |
+| SwiftUI | 60 | 120 | 415 | 314 | 61 / 61 | 115.2 / 116.9 | 297 / 366 | 166 / 162 |
+
+The canvas rows do not animate, so they keep the bitmap and still beat SwiftUI in the feed. Full screen, the recorded canvas redraws as often as SwiftUI's at 1.25× its main thread, 1.9× its CPU and 1.5–2.5× its memory; the bitmap it replaces redrew at 17.
+
+**Parity** (`smoke.mjs canvas`, macOS, 94 crops at 1× and 2× and Caltrain's map): all pass with the policy as built, and all pass with `EXACT_CANVAS_RECORD=always` (every canvas the policy allows recorded).
+
 ## 9. `rules/DEFERRED.md`: the admission
 
 Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:
@@ -708,7 +742,7 @@ Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, af
 ## 10. Questions for Charlie, as ruled (r3)
 
 1. **Admit Canvas 2D with the Caltrain map as the take?** Ruled yes: "seems reasonable". §9's text is in `rules/DEFERRED.md`.
-2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
+2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. Reopened by Charlie on 2026-09-29 ("you can use GPU instead core graphics if it is the correct choice") and confirmed by measurement: GPU replay (vello) lost on memory, shader compilation and parity, and a canvas that animates is Core Graphics recorded by Core Animation instead (§8.4). The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
 3. **Approve the fixture apparatus** (`apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator)? Ruled yes. It adds no blocking check, and it generalises rather than copies.
 4. **Accept the declared deviations?** Ruled "ok" to these revisions:
    - CSS-pixel coordinates over a device backing store stay the default, and an explicit bitmap size is the web's canvas exactly (D6);
