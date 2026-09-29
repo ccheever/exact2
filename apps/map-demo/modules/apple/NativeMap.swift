@@ -56,6 +56,9 @@ final class NativeMap: ExactNativeInstance {
     private var fresh = false
     /// Reused and set to its new region: `load` waits for the first draw of it.
     private var awaiting = 0
+    /// The last row's region, kept through a reset: a reuse for the same place
+    /// shows what the map already drew (MapKit draws nothing new for it).
+    private var last: (String?, String?, String?)?
 
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
@@ -77,7 +80,10 @@ final class NativeMap: ExactNativeInstance {
     override func setProps(_ props: [String: String]) throws {
         guard fresh else { return apply(props, first: false) }
         fresh = false
+        let same = last.map { $0 == (props["latitude"], props["longitude"], props["span"]) } ?? false
+        last = nil
         apply(props, first: true)
+        if same { events.load(); return }
         // The host keeps a reused view transparent until `load`, so the last
         // row's tiles never show; `load` comes with the new region's first
         // draw, or after half a second if MapKit reports none.
@@ -117,6 +123,7 @@ final class NativeMap: ExactNativeInstance {
         let camera = map.camera.copy() as! MKMapCamera
         camera.heading = 0; camera.pitch = 0
         map.setCamera(camera, animated: false)
+        last = (props["latitude"], props["longitude"], props["span"])
         props = [:]
         fresh = true
     }
