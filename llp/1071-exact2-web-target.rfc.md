@@ -712,7 +712,7 @@ from (a) today.
 | Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height and transform drags~~ (landed 2026-09-29, below); the reorder drag (`reorderdrop`: `reorder_drag.rs` and motion-glue's `arrangeController`, with reorder on a virtualized list); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 3–5 days | loaded (`motion-glue.js`, `picker-glue.js`) |
 | TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
-| ~~Springs~~ (landed 2026-09-29, below), presence, layout transitions (`motion-glue.js`, on the motion piece) | ~1 week | loaded |
+| ~~Springs, presence, layout transitions~~ (landed 2026-09-29, below); left: an exit animation on a virtualized list's row (the wrapper leaves as its row) | 1 day | none |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), delivery (`deliveryCheck`, `deliveryActivate`; `exactDelivery` answers what the build baked), the rest of the agent (`stages`, plan swap) | 1–2 weeks | agent-only / <1 KB |
 | The GPU module built by the JS target's own build (today it is taken from a wasm build) | 1 day | none |
@@ -948,9 +948,7 @@ bytes against a plan without the feature):
   lagging `en-US` table, an rtl table, an escape, the three facts, an
   unpublished surface), intoview 10/10; the auth fixture is its smoke,
   since it needs its local authorization server.
-- **Still open here:** presence and layout transitions, which build on
-  the motion capability below (it carries springs, and `clock settle`
-  across them). `exactTime`'s
+- **Still open here:** `exactTime`'s
   offset re-answered after an agent's clock move across a DST change (the
   wasm host's `exact_set_time` after `clock`) is not carried.
 
@@ -1076,6 +1074,33 @@ brotli):
   home, a pinch that zooms and stays, a pan of the zoomed photo), over
   Interaction Gallery's dist, which links the drags. Interaction Gallery
   and Exact Live still wait on the reorder drag.
+
+**Presence: exit animations and layout transitions** (landed 2026-09-29,
+measured; brotli):
+- **What.** LLP 1063 on the web host's own `presence-glue.js`, unchanged,
+  fetched two frames after first paint by a plan with either row (rt.js
+  `pr`). The rows are the inline custom properties the glue reads from the
+  element's own declaration, as the live host writes them (a class's
+  custom property would be inherited). Each commit the glue measures the
+  views that declare a layout transition before the tree changes and plays
+  back each that moved (eased, or a spring it lowers itself); a region's
+  removed root that declares an exit, the kernel's `exit`, stays where it
+  was, out of flow at its last box, until its keyframes end: `clear` passes
+  over it, since moving it would cancel its CSS animation. Under the agent
+  both follow the driver's clock, `clock settle` runs to where the last one
+  ends, the tree leaves the ghost out and `state` carries `presence`.
+- **Cost.** A plan without either row: 20 B (the hooks). With them: +364 B
+  `app.js` for the synthetic plan, `presence-glue.js` 3,366 B loaded.
+- **Conformance.** Synthetic `presence.contract` (over SVG Gallery's dist,
+  which links the animation grammars: an eased row leaving, a spring one,
+  one coming back); driven mid-flight on both targets, every box, opacity
+  and screenshot equal at +100, +120 and +150 ms, as well as settled.
+- **Bluesky** (local, `EXACT_APP_DIR`, `conformance/bluesky-exact2.steps`):
+  builds on the JS target and conforms 8/8 with the same feed, the header
+  hiding and showing on its `translate` spring included — the two steps
+  that differed.
+- **Not carried:** an exit animation on a virtualized list's row (the
+  kernel's wrapper that leaves as its row): the list's rows leave at once.
 
 ## 8. Rulings and open questions for Charlie
 
