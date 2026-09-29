@@ -166,6 +166,18 @@ impl Harness {
     fn send(&mut self, feedback: CollectionFeedback) -> bool {
         self.send_filled(feedback, CollectionFill::default())
     }
+    fn try_send_filled(
+        &mut self,
+        feedback: CollectionFeedback,
+        fill: CollectionFill,
+    ) -> Result<bool, InstanceError> {
+        let sites = crate::instance::SiteIndex::new(&self.plan);
+        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
+        let changed = self.tree.update_collection(&mut u, feedback, fill)?.0;
+        self.batch += 1;
+        self.kernel.apply(0, self.batch, &u.ops).unwrap();
+        Ok(changed)
+    }
     fn send_filled(&mut self, feedback: CollectionFeedback, fill: CollectionFill) -> bool {
         let sites = crate::instance::SiteIndex::new(&self.plan);
         let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
@@ -491,6 +503,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         velocity: -1200.5,
         limit: Some(3),
         ancestor_moving: true,
+        ..Default::default()
     };
     let filled = f.encode_with(fill).unwrap();
     assert_eq!(

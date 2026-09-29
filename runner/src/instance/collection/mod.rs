@@ -704,7 +704,13 @@ impl Collection {
         let toward_start = fill.velocity < 0.0;
         let mut pending = false;
         let mut admitted = std::collections::BTreeSet::new();
-        if let Some((limit, (top, end))) = limited {
+        // A retire-only report builds what it owes and nothing optional.
+        let building = if fill.no_build {
+            port.map(|p| (0, p))
+        } else {
+            limited
+        };
+        if let Some((limit, (top, end))) = building {
             let mut optional = Vec::new();
             for p in ranges.iter().cloned().flatten() {
                 if !is_owed(p) && !old.contains_key(self.index.key(p).unwrap()) {
@@ -730,7 +736,7 @@ impl Collection {
                     mounted
                 }
                 None => {
-                    if limited.is_some() && !is_owed(position) && !admitted.contains(&position) {
+                    if building.is_some() && !is_owed(position) && !admitted.contains(&position) {
                         continue;
                     }
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
@@ -749,6 +755,34 @@ impl Collection {
                 }
             };
             self.settle_mounted(u, mounted, &text)?;
+        }
+        // A build-only report retires nothing (LLP 1071 §5): rows past the
+        // window stay, and the report is pending until an immediate one.
+        if fill.create_only && !update {
+            let mut kept = false;
+            for (text, mut mounted) in old {
+                match self.index.position(&text) {
+                    Some(position) => {
+                        kept = true;
+                        self.reposition(&mut mounted, position);
+                        self.settle_mounted(u, mounted, &text)?;
+                    }
+                    // An item that left the data went with the update that
+                    // removed it; a build-only report never sees one.
+                    None => {
+                        debug_assert!(false, "a build-only report met a row whose item left");
+                        views::item_left(u, mounted.wrapper);
+                        u.ops.push(Op::DestroyView {
+                            id: mounted.wrapper,
+                        });
+                    }
+                }
+            }
+            self.mounted.sort_by_key(|row| row.position);
+            self.pending = pending || kept;
+            self.emit_children(u)?;
+            self.emit_preview(u)?;
+            return Ok(());
         }
         // Rows past the window: all retire, unless a limited report bounds it.
         let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
@@ -969,6 +1003,27 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        // @ref LLP 1071 §5 — a build-only report keeps the port, width and
+        // pins: a report that changes them may retire, so it is immediate.
+        if fill.create_only
+            && self.geometry.as_ref().is_none_or(|g| {
+                (
+                    g.port_cross,
+                    g.port_main,
+                    g.cross,
+                    g.focus_view,
+                    g.interaction_view,
+                ) != (
+                    feedback.port_cross,
+                    feedback.port_main,
+                    feedback.cross,
+                    feedback.focus_view,
+                    feedback.interaction_view,
+                )
+            })
+        {
+            return Err(InstanceError::InvalidCollectionFeedback);
+        }
         if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
             return Ok((false, edge));
         }
@@ -1070,7 +1125,7 @@ impl Collection {
         if changed {
             advance(&mut self.revision)?;
         }
-        Ok((changed, self.edge_event()?))
+        Ok((changed, self.edge_event(fill)?))
     }
     /// One mounted row's measured size into the index.
     fn measure(
@@ -1091,10 +1146,19 @@ impl Collection {
         Ok(())
     }
     /// The edge a report's geometry reached, if armed and handled.
-    fn edge_event(&mut self) -> Result<Option<CollectionEdges>, InstanceError> {
+    fn edge_event(
+        &mut self,
+        fill: CollectionFill,
+    ) -> Result<Option<CollectionEdges>, InstanceError> {
         let reached = self.geometric_edges()?;
         let ready = [0, 1].map(|i| reached[i] && self.edge_armed[i] && self.edge_handlers[i]);
         let edge = (0..2).find(|&i| ready[i]);
+        // A build-only report runs no action (LLP 1071 §5): the edge stays
+        // armed and the report is pending, so the next report runs it.
+        if fill.create_only && edge.is_some() {
+            self.pending = true;
+            return Ok(None);
+        }
         Ok(edge.map(|i| {
             self.edge_armed[i] = false;
             CollectionEdges {
@@ -1190,7 +1254,7 @@ impl Collection {
             measurements: Vec::new(),
             ..feedback.clone()
         });
-        Ok(Some(self.edge_event()?))
+        Ok(Some(self.edge_event(fill)?))
     }
     fn release_pins(
         &mut self,
