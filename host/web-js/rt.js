@@ -653,7 +653,7 @@ function motion(f) {
   if (!Motion) {
     inflight.n++;
     Motion = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./motion.js"))
-      .then(m => m.engine({ clock, wall: () => performance.now() - start, views: Views, viewId, hooks: Hooks, say }))
+      .then(m => m.engine({ clock, wall: () => performance.now() - start, views: Views, viewId, hooks: Hooks, say, inflight }))
       .then(m => { Mo = m; After.push(() => Mo.flush()); })
       .catch(err => say(`motion: ${err.message}`)).finally(() => inflight.n--);
   }

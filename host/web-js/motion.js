@@ -9,7 +9,7 @@
 import { motionController } from './motion-glue.js';
 import { transformDrags } from './transform.js';
 
-export async function engine({ clock, wall, views, viewId, hooks, say }) {
+export async function engine({ clock, wall, views, viewId, hooks, say, inflight }) {
   const bytes = globalThis.__files ? globalThis.__files('motion.wasm') : await fetch(new URL('motion.wasm', document.baseURI)).then(r => r.arrayBuffer());
   const made = await WebAssembly.instantiate(bytes, {}), w = (made.instance ?? made).exports;
   const enc = new TextEncoder();
@@ -146,7 +146,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say }) {
     w.m_height(id, h, now() / 1000);
   }
   const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
-  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible });
+  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight });
   // A dynamic style row on a held node goes to the authored text the hold
   // restores, as the wasm host's `style` op does (motion-glue `style`).
   hooks.style = (e, prop, v) => {

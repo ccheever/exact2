@@ -5,7 +5,7 @@
 // holds. Handles are bound to the one owner target (the first valid, never
 // stolen); a geometry sequence orders the page's observations; stale
 // identities, sequences and tokens are refused before any value is used.
-export function transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible }) {
+export function transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight }) {
   const RUNTIME = '1', handles = new Map(), pairs = new Map();
   let owner = null;
   const stale = () => ({ accepted: false });
@@ -42,6 +42,13 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
       const bound = binding(b) ? b.target : null;
       if (b.published === bound) continue;
       b.published = bound; b.geometry = { sequence: b.geometry.sequence, dims: null, ready: false };
+      // The page reports a new binding's geometry in a frame after it: in
+      // flight until it does (or three frames pass), so `clock settle` waits.
+      if (bound != null && !b.awaiting) {
+        b.awaiting = true; inflight.n++;
+        b.reported = () => { if (b.awaiting) { b.awaiting = false; inflight.n--; } };
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => b.reported())));
+      }
       api.transformBinding({ id, runtime: RUNTIME, handleKey: String(id), target: bound, targetKey: bound == null ? null : String(bound),
         clip: bound == null ? null : b.clip, clipKey: bound == null ? null : String(b.clip) });
     }
@@ -55,6 +62,7 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
     if (['transform-begin', 'transform-move', 'transform-action'].includes(f.op) && (sequence !== b.geometry.sequence || !b.geometry.ready)) return stale();
     if (!Array.isArray(v) || v.length !== 6 || !v.every(Number.isFinite) || !(f.now >= 0)) return { error: 'invalid transform values' };
     if (f.op === 'transform-geometry' || f.op === 'transform-invalidate') {
+      b.reported?.();
       const geometry = f.op === 'transform-geometry', dims = v.slice(0, 4), prev = b.geometry;
       if (sequence === prev.sequence) {
         if (geometry && prev.dims?.every((d, i) => d === dims[i]) && prev.ready === dims.every(d => d > 0) || !geometry && !prev.ready) return { accepted: true, batch: ops([]) };
