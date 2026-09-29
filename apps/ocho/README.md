@@ -31,7 +31,7 @@ it needs Zig 0.15.2 and the Xcode Metal toolchain (`xcodebuild
 here, with two workarounds for Xcode 26: an `xcrun` shim that points Zig at the
 macOS 15 SDK (Zig 0.15.2 cannot link the 26.x SDK's libSystem), and each
 archive repacked with Apple's `libtool` (Xcode 26's linker refuses Zig's
-archives, "member not 8-byte aligned"). `link.txt` adds `-lc++` for the C++
+archives, "member not 8-byte aligned"). `host.macos.link` in `app.json` adds `-lc++` for the C++
 inside libghostty.
 
 ```sh
