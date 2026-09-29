@@ -237,6 +237,7 @@ final class CollectionHost {
             let live = Set(snapshots.map(\.view))
             guard live.count == snapshots.count else { continue }
             entries = entries.filter { live.contains($0.key) }
+            retireOwed = retireOwed.filter { live.contains($0.key) }
             dirty.formIntersection(live)
             fillPending.formIntersection(live)
             for snapshot in snapshots {
@@ -333,8 +334,9 @@ final class CollectionHost {
     /// main-queue turn. Returns the rows it created.
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
-        // One slice in flight at a time; this one stays owed (LLP 1071 §3.1).
-        if filling?() == true { return 0 }
+        // One slice in flight at a time, and none before the last one's
+        // retirement: this one stays owed (LLP 1071 §3.1, §5).
+        if filling?() == true || !retireOwed.isEmpty { return 0 }
         fillPending.remove(view)
         guard let entry = entries[view], batchDepth == 0 else { return 0 }
         let before = Set(entry.snapshot.rows.map(\.view))
@@ -357,8 +359,9 @@ final class CollectionHost {
         guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
         retireOwed[view] = limit
         dirty.insert(view)
-        budget.nextTurn()
-        flush()
+        // The next main-queue turn: the slice's apply and its retirement
+        // are two turns' work, not one (LLP 1071 §5).
+        schedule()
     }
     /// The agent's `clock settle`: every list reports until none is owed a
     /// report, so rows a reply mounted are measured before the agent reads
@@ -445,6 +448,7 @@ final class CollectionHost {
             let id = candidates.filter { $0 > lastVisited }.min() ?? candidates.min()!
             lastVisited = id
             dirty.remove(id)
+            let retireLimit = retireOwed.removeValue(forKey: id)
             // Cached geometry permits a hidden previous owner to release its
             // pin. Measurements below still come only from visible live rows.
             var reported = false
@@ -469,7 +473,6 @@ final class CollectionHost {
                 // report while moving or owed a continuation only measure
                 // and rescue what shows. At rest a report is unlimited.
                 let velocity = motion?(id)
-                let retireLimit = retireOwed.removeValue(forKey: id)
                 let limit: UInt32? = retireLimit ?? sliceLimits.removeValue(forKey: id)
                     ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
                 let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? (entry.lastLimit != nil)
