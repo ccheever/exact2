@@ -58,7 +58,11 @@ final class BatchDecodeTests: XCTestCase {
             XCTAssertEqual(a.property, b.property, file: file, line: line)
             XCTAssertEqual([a.x, a.y, a.w, a.h].map(\.bitPattern), [b.x, b.y, b.w, b.h].map(\.bitPattern), file: file, line: line)
             XCTAssertEqual(a.style, b.style.mapValues(convert), file: file, line: line)
-            XCTAssertTrue(NSDictionary(dictionary: a.payload).isEqual(to: b.payload), file: file, line: line)
+            // A canvas's lists cross as `[address, length]` in the runtime's
+            // memory, which the reader copies out (still valid here).
+            var expected = b.payload
+            if a.op == .canvas2d { expected["lists"] = BatchReader.canvasLists(expected["lists"]) }
+            XCTAssertTrue(NSDictionary(dictionary: a.payload).isEqual(to: expected), file: file, line: line)
             XCTAssertEqual(a.runs.count, b.runs.count, file: file, line: line)
             for (x, y) in zip(a.runs, b.runs) {
                 XCTAssertEqual(x.id, y.id, file: file, line: line)
