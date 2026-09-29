@@ -118,6 +118,54 @@ pub fn render<D: DataSource + 'static>(
     site: &Site,
     deadline: Duration,
 ) -> Result<Rendered, String> {
+    render_as(plan, data, viewport, location, site, deadline, Ids::Runtime)
+}
+
+/// Whose view ids a document must carry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ids {
+    /// The runtime's own first tree's (the wasm runtime adopts a page whose
+    /// digest, ids included, is its own): the document is projected from a
+    /// runner booted from the checkpoint, as the runtime boots.
+    Runtime,
+    /// None the reader keeps (the JavaScript runtime adopts by tag and drops
+    /// them, `page::for_runtime`): the settled runner's tree is projected
+    /// when it is provably the checkpoint boot's ([`projects_as_booted`]),
+    /// saving the second tree (~1.4 ms of RealWorld's ~4.5 ms CPU a page).
+    Any,
+}
+
+/// Whether the tree a runner settles to projects as the tree one booted from
+/// its checkpoint builds, view ids apart. Regions, rows and bindings follow
+/// state; what could differ is only state fixed where a slot is first made:
+/// an initializer that read a resource (or a derive, or a pending or failed
+/// flag) would see the placeholder in the runner that settled and the answer
+/// in a boot from the checkpoint. The compiler lets an initializer read only
+/// earlier slots today; this holds the render to that if it ever changes.
+pub fn projects_as_booted(plan: &Plan) -> bool {
+    use exact_plan::Opcode::*;
+    plan.slots.iter().all(|slot| {
+        exact_runner::vm::instructions(plan.code(slot.init)).all(|i| {
+            i.is_ok_and(|i| {
+                !matches!(
+                    i.op,
+                    LoadResource | LoadDerive | PendingResource | FailedResource | PendingMutation
+                )
+            })
+        })
+    })
+}
+
+/// [`render`], with the view ids the document must carry.
+pub fn render_as<D: DataSource + 'static>(
+    plan: &Plan,
+    data: impl Fn() -> D,
+    viewport: exact_runner::Viewport,
+    location: &str,
+    site: &Site,
+    deadline: Duration,
+    ids: Ids,
+) -> Result<Rendered, String> {
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
@@ -179,6 +227,14 @@ pub fn render<D: DataSource + 'static>(
         EXECUTORS.with(|pool| pool.borrow_mut().push((grants, executor)));
     }
     let checkpoint = checkpoint(&runner, location);
+    let settled_tree = (ids == Ids::Any && projects_as_booted(plan))
+        .then(|| {
+            Ok::<_, String>((
+                project(&runner).map_err(|e| e.to_string())?,
+                runner.handlers(),
+            ))
+        })
+        .transpose()?;
     if warm && !matches!(settled, Settled::Deadline) {
         let used = std::mem::replace(runner.data(), Anonymous::new(data()));
         REALMS.with(|p| p.borrow_mut().push(Box::new(used)));
@@ -189,20 +245,29 @@ pub fn render<D: DataSource + 'static>(
     // as the runtime boots: its first tree is built in one pass, so its view
     // ids are the runtime's, a pending answer's placeholder included. The
     // runner that settled built its tree as answers arrived. What the boot
-    // asks is never run.
+    // asks is never run. A document whose ids nobody keeps is the settled
+    // tree's projection where that is the same ([`Ids::Any`]).
     let state = read_checkpoint(&checkpoint).map_err(|e| format!("the checkpoint: {e}"))?;
-    let booted = Runner::boot_checkpoint(
-        plan.clone(),
-        Anonymous::new(data()),
-        Kernel::with_monospace_on_demand(),
-        &state,
-        Vec::new(),
-        Default::default(),
-        viewport,
-        location,
-    )
-    .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
-    let document = project(&booted).map_err(|e| e.to_string())?;
+    let (document, handlers) = match settled_tree {
+        Some(settled) => settled,
+        None => {
+            let booted = Runner::boot_checkpoint(
+                plan.clone(),
+                Anonymous::new(data()),
+                Kernel::with_monospace_on_demand(),
+                &state,
+                Vec::new(),
+                Default::default(),
+                viewport,
+                location,
+            )
+            .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
+            (
+                project(&booted).map_err(|e| e.to_string())?,
+                booted.handlers(),
+            )
+        }
+    };
     let head = document
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
@@ -215,7 +280,7 @@ pub fn render<D: DataSource + 'static>(
     // interaction activation only replays discrete form and press semantics.
     if activation == exact_plan::ActivatePolicy::Interaction
         && (!state.pending.is_empty()
-            || booted.handlers().values().flatten().any(|kind| {
+            || handlers.values().flatten().any(|kind| {
                 !matches!(
                     kind,
                     exact_plan::EventKind::Press

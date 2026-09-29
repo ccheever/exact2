@@ -15,7 +15,7 @@
 
 use crate::encode::{self, Accepts, Variants};
 use crate::files::{asset_shaped, named_build, percent_decode, static_file, AUTH_CALLBACK};
-use crate::{page, render, Rendered};
+use crate::{page, render_as, Ids, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
 use exact_web::document::{canonical_location, route_at, Site};
@@ -1123,13 +1123,20 @@ fn document<D: DataSource + 'static>(
         (flush, head)
     });
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        render(
+        // A JavaScript page drops the document's view ids (page::for_runtime).
+        let ids = if crate::page::is_js(&shared.shell) {
+            Ids::Any
+        } else {
+            Ids::Runtime
+        };
+        render_as(
             &shared.plan,
             data,
             serve.viewport,
             location,
             &site,
             serve.deadline,
+            ids,
         )
         .and_then(|rendered| {
             let html = match &flush {

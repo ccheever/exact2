@@ -374,6 +374,47 @@ fn a_keep_alive_answer_ends_at_its_framing_not_at_the_close() {
 }
 
 #[test]
+fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
+    // `Ids::Any` (a JavaScript page) projects the tree the render settled
+    // to, not a second one booted from its checkpoint: the same document,
+    // view ids apart, answered or held at the deadline.
+    warm_transport();
+    let strip = |root: &str| {
+        let (mut out, mut rest) = (String::new(), root);
+        while let Some(at) = rest.find(" data-view=\"") {
+            out.push_str(&rest[..at]);
+            let end = rest[at + 12..].find('"').unwrap();
+            rest = &rest[at + 13 + end..];
+        }
+        out + rest
+    };
+    for (post, deadline) in [(Post::Soon, 5_000), (Post::Never, 100)] {
+        let [runtime, any] = [exact_render::Ids::Runtime, exact_render::Ids::Any].map(|ids| {
+            exact_render::render_as(
+                &plan(),
+                || Blog::new(post),
+                Default::default(),
+                "/post/7",
+                &SITE,
+                Duration::from_millis(deadline),
+                ids,
+            )
+            .unwrap()
+        });
+        assert_eq!(strip(&runtime.document.root), strip(&any.document.root));
+        assert_eq!(
+            (
+                runtime.settled,
+                runtime.checkpoint.clone(),
+                runtime.activate
+            ),
+            (any.settled, any.checkpoint.clone(), any.activate)
+        );
+    }
+    assert!(exact_render::projects_as_booted(&plan()));
+}
+
+#[test]
 fn a_page_is_the_shell_around_the_document() {
     let r = at(Post::Soon, Duration::from_secs(5));
     let shell =
