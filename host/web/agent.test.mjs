@@ -905,6 +905,7 @@ try { await assertWebDistApp(webDist(), resolveApp()); } catch (error) {
   view
     column testId="root"
       input value=typed input=typedChanged testId="code"
+      input type="number" value=typed input=typedChanged testId="count"
       text \`\${taken}\` testId="taken"
 `);
   const root = new URL('../../', import.meta.url).pathname;
@@ -922,5 +923,11 @@ try { await assertWebDistApp(webDist(), resolveApp()); } catch (error) {
     await s.type('code', '5'); // kept: the row changed, and the field shows it
     expect(await held()).toMatchObject({ typed: '5', taken: 1 });
     expect(await shown()).toBe('5');
+    // A type without a selection API (number, email) takes the whole value: setRangeText would throw there.
+    const count = (await s.find('count')).id, shownCount = () => s.carrier.evaluate(`exact.views.get(${count}).value`);
+    await s.type('count', '47'); // consumed again, from "5" to "47" to ""
+    expect(await held()).toMatchObject({ typed: '', taken: 2 });
+    expect(await shownCount()).toBe('');
+    expect(await shown()).toBe('');
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 120_000); // a plan compile and a Chrome launch: a hang bound, not a speed claim
