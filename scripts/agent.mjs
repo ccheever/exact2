@@ -159,6 +159,10 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
       addEventListener('click', event => {
         if (event.isTrusted) { performance.clearMarks('exact-agent-input'); performance.mark('exact-agent-input', {startTime: event.timeStamp}); }
       }, true);
+      // A wheel past the page's edge bounces (macOS elastic overscroll) on the
+      // compositor's own clock, not the drive's: a screenshot after it caught
+      // the page 1-10 px low in some runs. Off, on every target.
+      addEventListener('DOMContentLoaded', () => { document.documentElement.style.overscrollBehavior = 'none'; });
     ` });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
