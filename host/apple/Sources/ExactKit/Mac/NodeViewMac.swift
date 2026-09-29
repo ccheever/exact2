@@ -88,6 +88,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// colours and radii. Cleared by whatever it reads (style, size, clip,
     /// raster, symbol, surface).
     var layerPaintCache: Bool?
+    /// What `applyProps` last wrote to AppKit's accessibility (see there).
+    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String? }
+    var lastAccessibilityWrite = AccessibilityWrite()
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
     var materialView: NSView?
@@ -932,9 +935,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             (f.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
             (f.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         }
-        setAccessibilityEnabled(!disabled)
-        setAccessibilityIdentifier(props["testId"])
-        setAccessibilityLabel(props["accessibilityLabel"])
+        // Each AppKit accessibility write posts a notification, changed or
+        // not: write only what differs from the last write (a new view's
+        // is AppKit's own: enabled, no identifier, no label).
+        let ax = AccessibilityWrite(enabled: !disabled, identifier: props["testId"], label: props["accessibilityLabel"])
+        if ax != lastAccessibilityWrite {
+            let last = lastAccessibilityWrite
+            if ax.enabled != last.enabled { setAccessibilityEnabled(ax.enabled) }
+            if ax.identifier != last.identifier { setAccessibilityIdentifier(ax.identifier) }
+            if ax.label != last.label { setAccessibilityLabel(ax.label) }
+            lastAccessibilityWrite = ax
+        }
         updateTextAccessibility()
         updateRoleAccessibility()
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
