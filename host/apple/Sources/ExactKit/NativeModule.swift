@@ -699,9 +699,11 @@ extension NativeViews {
     /// is destroyed (LLP 1068 §6, measured on the iPad, §0.3): an instance
     /// keeps what it drew for every region it showed — a map served without
     /// a limit took the Extra Heavy fling's footprint from 257 MB to 502 —
-    /// and four reuses keep the end footprint at a fresh map's while making
-    /// a fifth as many.
-    static let reuseCap = 2, reuseLimit = 4
+    /// and four reuses kept the end footprint at a fresh map's while making
+    /// a fifth as many. With far instances released (§5.2.1) two reuses keep
+    /// the map feed's peak at the SwiftUI baseline's (889 against 886 MB on
+    /// the iPad; four, 917) at a sixth more maps made.
+    static let reuseCap = 2, reuseLimit = 2
 
     /// Far module views, as UIKit's collection view treats the cells it
     /// keeps and recycles (the SwiftUI baseline's map rows; LLP 1068 §5.2):

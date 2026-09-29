@@ -989,8 +989,15 @@ A reused map keeps what it drew for earlier rows (§0.3), and parking holds
 two of them: with a map reused at most twice the map feed peaks at 889 MB
 (CPU 2,833, 89.4 fps), and with no reuse at 667 (CPU 2,865, 73.5 fps; the
 19-kind feed 315 MB at 688 ms/s over one run). MapKit has no call that
-empties a parked map's caches, so a lower `reuseLimit` is the purge; which
-limit is ruled with the iPhone's numbers.
+empties a parked map's caches, so a lower `reuseLimit` is the purge.
+
+**Reuse limit: 2** (the coordinator's rule for Charlie, 2026-09-29: the
+variant that matches or beats SwiftUI's peak on both feeds without losing on
+fps or CPU on either device; failing that, two). On the iPad none met all
+three: no reuse lost CPU on the 19-kind feed (688 against 625 ms/s), and
+two and four reuses stayed over SwiftUI's peak (map feed 889 and 917 against
+886 MB; 19-kind 339 and 343 against 324). So two: a map serves at most three
+rows, then goes.
 
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
