@@ -247,7 +247,7 @@ function send(t, land) {
   });
 }
 function ask(source, args) {
-  const a = data.answer(source, args, Store);
+  const a = data.reserved?.[source] ? { v: data.reserved[source]() } : data.answer(source, args, Store);
   if (a && a.then) { const p = a; return { promise: p }; }
   return a;
 }

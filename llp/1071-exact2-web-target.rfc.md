@@ -754,14 +754,15 @@ What stays on the wasm target, and why:
 - **Conformance** (`conform.mjs`): the wasm run is the oracle it compares against.
 - **Metrics `--long`'s web bytes**: the wasm's code by capability (LLP 1047 D9).
 
-Found on the way: `auth-fixture` builds on the JS target, but the agent's
-`state` throws on its `busy` derive (`pending(prepared) or pending(signed)`:
-"a derive's value does not conform to its type"), so its web smoke fails
-there; not yet diagnosed. And conformance (2026-09-29, 9 targets, the async
-lane's set): every step equal but RealWorld's `tap submit` on the register
-page, where the JS runner answers as the sign-in form did ("credentials
-invalid", one stamp) and the wasm with the register form's three blank-field
-errors: the `when signup … else` button's press looks bound to the other branch.
+Found on the way (2026-09-29): the runtime now answers `exactTime`, the
+runner's reserved source, itself (`data.reserved`, from `navigation.js`'s
+reporters; `resolvedLocale` is `""`, the no-tables answer), which
+`auth-fixture`'s `time` resource needed. Its web smoke still stops at the
+auth session: the press's held device request (`openAuthSession`) is not in
+the JS runtime. A text reading `now()` is not re-rendered by a clock move on
+the JS target (the wasm's is). RealWorld's `tap submit` difference was the
+harness: its auto-taps compared before a press's fetch (the hosted API)
+landed; they now settle first, as scripted steps do.
 
 **Canvas 2D surfaces and declared fonts** (landed 2026-09-29, measured;
 brotli):

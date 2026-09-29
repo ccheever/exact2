@@ -57,9 +57,21 @@ const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
 if (canvas2d && !rust) { console.error(`${app}: a Canvas 2D surface drawn by a ${ts ? 'TypeScript' : 'missing'} source is not in the JS target`); process.exit(1); }
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
 cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.js'));
+// `exactTime`: the runner's reserved source (runner/src/time.rs), answered
+// before the app's, as the web host tells the wasm runner (navigation.js).
+const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=\{[^}]*\}/)?.[0] ?? '');
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   "import { data, journal, clock, advance, commit, inflight, Views, viewId } from './rt.js';",
+  ...(time ? [
+    "import { sourceTypes } from './names.js';",
+    "import { reportTime, reportPlace } from './navigation.js';",
+    "data.reserved = { exactTime: () => {",
+    "  const [epochAtZero, utcOffset] = reportTime(clock.now), [locale, timeZone, seed] = reportPlace().split('\\0');",
+    "  const f = { epochAtZero, utcOffset, locale, timeZone, seed: Number(seed), resolvedLocale: '' };",
+    "  return Object.keys(sourceTypes.exactTime[1]).map(k => f[k]);",
+    "} };",
+  ] : []),
   ...(ts ? ["import { install as ts } from './ts-data.js';", 'ts(data);'] : []),
   "const start = () => {",
   "  const state = app();",

@@ -155,6 +155,8 @@ async function drive(t, report, fail, dir, ws, js) {
       try { await W.tap(id); } catch (e) { ok = false; report.steps.push({ target: t.name, step: `tap ${id}`, skipped: `wasm: ${e.message.split('\n')[0]}` }); }
       if (!ok) continue;
       try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `js: ${e.message.split('\n')[0]}`); continue; }
+      // What the press sent lands on both first (a fetch races the compare otherwise).
+      await settle();
       tree = await compare(`tap ${id}`);
     }
     await Promise.all([W.clock('+60000'), J.clock('+60000')]);
