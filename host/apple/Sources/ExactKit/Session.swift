@@ -420,10 +420,12 @@ public final class ExactSession {
     /// Slices build off main on iOS unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1071 T12).
     /// macOS follows once physical scrolling there is measured (stage 5).
+    /// Read when a session wires itself; tests set it to drive the
+    /// asynchronous path on macOS.
     #if os(iOS)
-    static let asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
+    nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
     #else
-    static let asyncFills = false
+    nonisolated(unsafe) static var asyncFills = false
     #endif
     var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
