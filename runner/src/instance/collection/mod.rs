@@ -406,6 +406,7 @@ impl Collection {
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
         let mut in_place: Option<Vec<usize>> = None;
+        let last = self.last_key();
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
             let Value::List(items) = u.eval(descriptor.subject, frames)? else {
@@ -453,6 +454,18 @@ impl Collection {
             }
             if self.index.len() == 0 {
                 self.edge_armed = [true; 2];
+            }
+            // @ref LLP 1010 (2026-09-29 ruling, provisional) — rows appended
+            // past the end are a new end: the old last row is still here with
+            // rows after it, so the edge re-arms and a reader still there when
+            // a page lands is offered the next one. An empty page, a replaced
+            // last row or a window that slid past it re-arm nothing.
+            if last
+                .as_deref()
+                .and_then(|key| self.index.position(key))
+                .is_some_and(|p| p + 1 < self.index.len())
+            {
+                self.edge_armed[1] = true;
             }
             self.restore(anchor)?;
         }
@@ -616,6 +629,14 @@ impl Collection {
             .iter()
             .find(|row| row.wrapper == view || super::find::contains(&row.row.roots, view))
             .and_then(|row| super::ident(&row.row.key, row.row.dup))
+    }
+    /// The last supplied row's key, if any.
+    fn last_key(&self) -> Option<String> {
+        self.index
+            .len()
+            .checked_sub(1)
+            .and_then(|i| self.index.key(i))
+            .map(str::to_owned)
     }
     /// Pins never qualify an edge. Re-arm only after the geometric window is
     /// measured: replacement estimates cannot manufacture a temporary edge exit.

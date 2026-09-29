@@ -1110,6 +1110,16 @@ measured; brotli):
   row in view, one built below the port), and driven mid-flight: boxes,
   opacity and screenshots equal at +120 ms.
 
+**The end edge re-arms when rows are appended past it** (2026-09-29): the web
+framework bench's feed stalled when a reader jumping to the bottom every 150 ms
+reached the new end before a landed page's rows were measured. Both runners did
+it, as LLP 1010 said they should; Charlie ruled (provisional) that rows appended
+past the end re-arm `reachend` (the old last row kept, rows after it), and both
+runners now do (LLP 1010's 2026-09-29 paragraph). `paging.contract` pins it: five pages, each landing taking the reader
+to the new end. Found with it: in a long clock jump the JS target delivers list
+feedback between timers (a jump's `$jump` reports at once), the wasm target
+after them; the fixture's source is bounded, which hides it.
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**

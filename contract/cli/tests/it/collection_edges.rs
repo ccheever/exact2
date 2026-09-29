@@ -156,13 +156,21 @@ fn bootstrap_then_edges_rearm_only_after_leaving_the_geometric_window() {
     send(&mut r, 6112.);
     assert_eq!(
         hits(&r),
-        (2., 1.),
-        "a changed last key inside the window stays disarmed"
+        (2., 2.),
+        "a row appended past the end re-arms it (LLP 1010, 2026-09-29)"
+    );
+    r.act("change", vec![Value::Number(2.), Value::Number(200.)])
+        .unwrap();
+    send(&mut r, 6112.);
+    assert_eq!(
+        hits(&r),
+        (2., 2.),
+        "a window whose last row stays last stays disarmed"
     );
     send(&mut r, 1000.);
     measure(&mut r, 1000., 32.);
     send(&mut r, 6112.);
-    assert_eq!(hits(&r), (2., 2.));
+    assert_eq!(hits(&r), (2., 3.));
 }
 
 #[test]
@@ -644,9 +652,12 @@ fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
             );
         }
     }
+    // The end's shift back keeps the old last row and puts rows after it,
+    // which re-arms the end once (LLP 1010, 2026-09-29); its no-op then
+    // leaves both idle. Replacement heights still manufacture no exit.
     assert_eq!(
         hits(&r),
-        (1., 1.),
+        (1., 2.),
         "provisional replacement heights must not manufacture an edge exit"
     );
     assert_eq!(r.slot("start"), Some(&Value::Number(200.)));

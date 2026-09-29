@@ -778,7 +778,8 @@ successful dispatch, and re-arm when the current edge row is outside a nonempty
 geometric window whose entire overscan band has current measurements. The existing
 height index checks that band in O(log N), without measuring offscreen rows.
 Replacement estimates, width/content invalidation and a hidden scrollport cannot
-manufacture an exit. Changing endpoint keys does not re-arm them. An empty data
+manufacture an exit. Changing endpoint keys does not re-arm them, with one
+exception (below: rows appended past the end re-arm it). An empty data
 set resets arming for later nonempty data but dispatches no edge itself.
 Each edge fires at most once per feedback call. When both qualify, start precedes
 end; end runs in the same call only after a pure no-op start (no state change or
@@ -793,6 +794,18 @@ including pin releases. Hosts attach no edge listeners. Offset-only feedback
 without a qualifying handler performs no source query or key evaluation. Messages
 stress also exercises bounded 200-record answers; its scrollbar spans the resident
 window, not the complete history.
+
+**2026-09-29 (Charlie's ruling, provisional: "Ok let's go w it for now"):** rows
+appended past the end are a new end. When a data update keeps the last supplied
+row and puts rows after it, `reachend` re-arms, whatever the geometry; a reader
+still at the end when a page lands (a jump to the bottom before the new rows are
+measured) is offered the next page instead of the edge staying disarmed until the
+reader leaves it. An empty page leaves the last key, and the edge, as they were, so
+an exhausted source still goes idle; a replaced last row or a window that slid past
+it (the old last row gone) re-arms nothing, so a fitting sliding window stays
+idle. `reachstart` is unchanged. Both runners keep it
+(`runner/src/instance/collection/mod.rs` `update`, `host/web-js/list.js`
+`update`); the JS target's `paging.contract` pins it.
 
 ### 6.6 Paired runner evidence, 2026-09-16
 
