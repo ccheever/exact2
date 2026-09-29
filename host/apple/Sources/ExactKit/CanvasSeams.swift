@@ -640,7 +640,7 @@ private enum CanvasAudio {
     nonisolated(unsafe) static var resumeBlocked = false
     @discardableResult static func activate() -> Bool {
         // NotificationCenter delivers on the posting thread, not necessarily main.
-        if !Thread.isMainThread { return DispatchQueue.main.sync { activate() } }
+        if !Thread.isMainThread { return Owner.shared.callMain { activate() } }
         guard !ExactEnv.agentMode else { return false }
         wanted = true
         guard !active else { return true }
