@@ -38,6 +38,9 @@ pub fn refusal(name: &str) -> Option<String> {
         "min" | "max" => format!(
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),
+        // The roster's substring search under the web's name since
+        // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
+        "contains" => "write `includes(s, t)`: the roster's substring search wears the web's name, `String.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
         "toFixed" | "toPrecision" => format!(
             "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or, for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
         ),

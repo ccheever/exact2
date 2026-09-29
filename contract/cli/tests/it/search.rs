@@ -138,8 +138,18 @@ fn the_webs_method_spellings_name_the_function_form() {
         assert_eq!(e.id, "syntax-method-call", "{method}: {e}");
         assert!(e.message.contains(fix), "{method}: {e}");
     }
-    // The predecessor's name is gone: the words are the web's.
-    let e = contract::compile(&src.replace("includes(s.name, typed)", "contains(s.name, typed)"))
-        .unwrap_err();
-    assert_eq!(e.id, "type-unknown-function", "{e}");
+    // The predecessor's name is gone: the words are the web's. The refusal
+    // names the spelling that works, so an app outside this repo that still
+    // writes `contains` is told the fix, not sent to a `resource`.
+    for spelling in ["contains(s.name, typed)", "s.name.contains(typed)"] {
+        let e = contract::compile(&src.replace("includes(s.name, typed)", spelling)).unwrap_err();
+        assert!(
+            matches!(e.id.as_str(), "type-refused-idiom" | "syntax-method-call"),
+            "{spelling}: {e}"
+        );
+        assert!(
+            e.message.contains("write `includes(s, t)`"),
+            "{spelling}: {e}"
+        );
+    }
 }
