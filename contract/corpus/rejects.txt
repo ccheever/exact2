@@ -1075,3 +1075,13 @@ component A
   view
     button press=size
       text toString(h)
+---
+== syntax-expected-name
+# A parameter may be named `state`, but a statement line that starts with
+# `state` reads as the declaration it looks like; assign through another name.
+component A
+  state n = 0
+  action go(state: number) writes n
+    state = 1
+  view
+    text "a"

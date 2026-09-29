@@ -275,14 +275,14 @@ impl Parser {
         let mut params = Vec::new();
         if self.eat_punct("(") {
             while !self.at_punct(")") {
-                params.push(self.ident()?.0);
+                params.push(self.field_name()?.0);
                 if !self.eat_punct(",") {
                     break;
                 }
             }
             self.expect_punct(")")?;
         } else {
-            params.push(self.ident()?.0);
+            params.push(self.field_name()?.0);
         }
         self.expect_punct("=>")?;
         let body = self.expr()?;

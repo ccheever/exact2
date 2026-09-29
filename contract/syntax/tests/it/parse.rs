@@ -381,3 +381,46 @@ fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
     assert_eq!(a.states[0].name, "send");
     assert!(matches!(&a.actions[0].body[0], Stmt::Assign { target, .. } if target == "send"));
 }
+
+/// `state` and `key` name parameters, where no declaration can start; a line
+/// that starts with one is still the declaration or statement it looks like.
+#[test]
+fn state_and_key_name_parameters_but_not_a_statement() {
+    let src = "fn stateColor(state: string): string = state == \"on\" ? \"a\" : \"b\"\ncomponent A\n  resource xs = names() as shape list<string>\n  state last = \"\"\n  derive kept = filter(xs, key => key != \"\")\n  derive pairs = map(xs, (key, state) => `${key}${state}`)\n  action launcherKey(key: string) writes last\n    last = key\n  view\n    text stateColor(\"on\")\n";
+    let file = parse(src).unwrap();
+    assert_eq!(file.fns[0].params[0].name, "state");
+    let a = &file.components[0];
+    assert_eq!(a.actions[0].params[0].name, "key");
+    assert!(
+        matches!(&a.actions[0].body[0], Stmt::Assign { target, expr: Expr::Ident(n, _), .. }
+        if target == "last" && n == "key")
+    );
+    let arrows: Vec<Vec<String>> = a
+        .derives
+        .iter()
+        .map(|d| match &d.expr {
+            Expr::Call(_, args, _) => match &args[1] {
+                Expr::Arrow { params, .. } => params.clone(),
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        arrows,
+        [vec!["key".to_string()], vec!["key".into(), "state".into()]]
+    );
+
+    for (src, id) in [
+        // A statement line that starts with `state` reads as a declaration.
+        ("component A\n  state n = 0\n  action go(state: number) writes n\n    state = 1\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        // A keyword that shapes an expression never names a parameter.
+        ("fn f(when: string): string = when\ncomponent A\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        ("component A\n  resource xs = names() as shape list<string>\n  derive k = filter(xs, in => in != \"\")\n  view\n    text \"a\"\n", "syntax-expected-name"),
+        // A parameter named like a keyword is a value, never a call.
+        ("fn f(state: string): string = state(1)\ncomponent A\n  view\n    text \"a\"\n", "syntax-keyword-as-value"),
+    ] {
+        let e = parse(src).unwrap_err();
+        assert_eq!(e.id, id, "{src:?}: {e}");
+    }
+}

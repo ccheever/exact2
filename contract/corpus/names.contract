@@ -1,0 +1,23 @@
+// Accept fixture: a keyword that only structures a file (`state`, `key`) is a
+// name where no declaration or statement can start (LLP 1054 L2): a shape
+// field, a prop, a `fn` parameter, an `action` parameter, an arrow parameter.
+fn stateColor(state: string): string = state == "on" ? "#0a0" : "#a00"
+
+shape Launcher
+  key: string
+  state: string
+
+component Names
+  resource launchers = launchers() as shape list<Launcher>
+  state last = ""
+  derive keyed = filter(launchers, key => key.key != "")
+  derive labels = map(launchers, (launcher, state) => `${launcher.key}${state}`)
+  action launcherKey(key: string) writes last
+    last = key
+  view
+    column testId="root"
+      each launcher in keyed key=launcher.key
+        text launcher.key color=stateColor(launcher.state) testId=`launcher-${launcher.key}`
+      text `${length(labels)}` testId="labels"
+      button press=launcherKey("k") testId="press"
+        text last testId="last"

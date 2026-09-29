@@ -228,9 +228,12 @@ impl Parser {
     }
 
     /// A name in a place the grammar can't mistake for syntax: a shape field,
-    /// a prop, a member after `.`, a named argument. A keyword that only
-    /// structures a file (`state`, `key`, `view`, …) is a name here; one that
-    /// shapes an expression or a block (`when`, `if`, `match`, …) never is.
+    /// a prop, a member after `.`, a named argument, a parameter of a `fn`,
+    /// an `action` or an arrow. A keyword that only structures a file
+    /// (`state`, `key`, `view`, …) is a name here; one that shapes an
+    /// expression or a block (`when`, `if`, `match`, …) never is. Where a
+    /// declaration or statement starts (`state x = …`, a line in an action
+    /// body) a keyword stays a keyword: [`Self::ident`].
     fn field_name(&mut self) -> R<(String, Span)> {
         match self.peek_kind().clone() {
             TokenKind::Ident(w) if is_name_word(&w) => {
@@ -456,7 +459,7 @@ impl Parser {
         self.expect_punct("(")?;
         let mut params = Vec::new();
         while !self.at_punct(")") {
-            let (pname, pspan) = self.ident()?;
+            let (pname, pspan) = self.field_name()?;
             if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
                 return duplicate("function parameter", &pname, pspan, first.span);
             }
@@ -802,7 +805,7 @@ impl Parser {
         let mut params = Vec::new();
         if self.eat_punct("(") {
             while !self.at_punct(")") {
-                let (pname, pspan) = self.ident()?;
+                let (pname, pspan) = self.field_name()?;
                 if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
                     return duplicate("action parameter", &pname, pspan, first.span);
                 }
