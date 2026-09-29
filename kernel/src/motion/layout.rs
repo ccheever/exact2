@@ -70,6 +70,11 @@ impl LayoutMotion {
         }
         let mut retired = Vec::new();
         for key in keys {
+            // A box that never declared a layout transition has no layout
+            // target to move or retire: most of a list row's boxes.
+            if !self.tracked.contains(&key) && !declares(kernel, key) {
+                continue;
+            }
             let node = motion_node(key);
             let Some(value) = kernel.layout_box(key) else {
                 if !declares(kernel, key) {
