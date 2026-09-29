@@ -315,6 +315,65 @@ fn a_fetch_runs_through_the_native_executor() {
 }
 
 #[test]
+fn a_keep_alive_answer_ends_at_its_framing_not_at_the_close() {
+    // An API that keeps its connection open (HTTP/1.1's default): the
+    // answer ends where its Content-Length or its last chunk says, never
+    // at the server's close. The server holds the connection 30 s after its
+    // answer; a render that waited for the close would take that long.
+    let bound = Duration::from_secs(60);
+    warm_transport();
+    let body = "From a kept connection ".repeat(4096); // ~90 KB, several reads
+    for chunked in [false, true] {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (answered, when) = std::sync::mpsc::channel();
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        let text = body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(bound)).unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            if chunked {
+                write!(stream, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n").unwrap();
+                for part in text.as_bytes().chunks(16 * 1024) {
+                    write!(stream, "{:x}\r\n", part.len()).unwrap();
+                    stream.write_all(part).unwrap();
+                    stream.write_all(b"\r\n").unwrap();
+                }
+                stream.write_all(b"0\r\n\r\n").unwrap();
+            } else {
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\nKeep-Alive: timeout=30\r\n\r\n{text}", text.len()).unwrap();
+            }
+            stream.flush().unwrap();
+            answered.send(Instant::now()).unwrap();
+            let _ = hold.recv_timeout(Duration::from_secs(30));
+        });
+        let r = at(Post::Local(port), bound);
+        let done = Instant::now();
+        let sent = when.recv_timeout(bound).expect("the server never answered");
+        release.send(()).unwrap();
+        server.join().unwrap();
+        assert_eq!(r.settled, Settled::Complete, "chunked {chunked}");
+        assert!(
+            r.document
+                .root
+                .contains("From a kept connection From a kept"),
+            "chunked {chunked}"
+        );
+        assert!(
+            done.duration_since(sent) < Duration::from_secs(10),
+            "chunked {chunked}: the render ended {:?} after the answer",
+            done.duration_since(sent)
+        );
+    }
+}
+
+#[test]
 fn a_page_is_the_shell_around_the_document() {
     let r = at(Post::Soon, Duration::from_secs(5));
     let shell =
