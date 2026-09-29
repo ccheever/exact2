@@ -1029,35 +1029,52 @@ function main(args) {
   const modulesLoadName = 'libexact_modules.dylib';
   const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), ...app.modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
-  // The slice of each `modules/apple/*.xcframework` for this build, as
-  // linker input: `-I` its headers, `-L` it, `-l` each static library in it.
-  const frameworkArgs = (forIos, simulator) => (app.modules.frameworks ?? []).flatMap(fw => {
-    const slice = readdirSync(fw).filter(d => statSync(resolve(fw, d)).isDirectory()).find(d => forIos ? (d.startsWith('ios-') && d.endsWith('-simulator') === simulator) : d.startsWith('macos-'));
-    if (!slice) throw new Error(`host/apple: ${basename(fw)} has no ${forIos ? (simulator ? 'iOS simulator' : 'iOS') : 'macOS'} slice`);
-    const dir = resolve(fw, slice), libs = readdirSync(dir).filter(f => /^lib.*\.a$/.test(f));
-    return ['-I', resolve(dir, 'Headers'), '-L', dir, ...libs.map(f => `-l${f.slice(3, -2)}`)];
-  });
-  // `modules/apple/link.txt`, when present: extra linker flags for the module
-  // artifact (one per line, `#` comments), for what an archive needs but
-  // cannot declare — `-lc++` for a static library with C++ inside.
-  const linkFile = app.modules.apple.length ? resolve(dirname(app.modules.apple[0]), 'link.txt') : null;
-  const linkArgs = linkFile && existsSync(linkFile) ? readFileSync(linkFile, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')) : [];
-  const frameworkStamp = (forIos, simulator) => JSON.stringify([linkArgs, ...frameworkArgs(forIos, simulator).filter(a => a.startsWith('/')).map(a => { const st = statSync(a); return [a, st.size, st.mtimeMs]; })]);
-  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator), ...linkArgs, '-o', out, ...targetArgs];
+  // The slice of each `modules/apple/*.xcframework` for this build, read
+  // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
+  // variant, architectures), never guessed from a directory name; Mac
+  // Catalyst is a variant of its own and never matches. A static library's
+  // slice gives `-I` its headers, `-L` it and `-l` each archive in it; a
+  // framework's slice gives `-F` it and `-framework` its name.
+  const frameworkSlice = (fw, forIos, simulator, arch) => {
+    const plist = JSON.parse(spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' }).stdout || '{}');
+    const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? 'simulator' : undefined;
+    const lib = (plist.AvailableLibraries ?? []).find(l => l.SupportedPlatform === platform && (l.SupportedPlatformVariant || undefined) === variant && (l.SupportedArchitectures ?? []).includes(arch));
+    if (!lib) throw new Error(`host/apple: ${basename(fw)} has no ${platform}${variant ? ' ' + variant : ''} ${arch} slice in its Info.plist`);
+    const dir = resolve(fw, lib.LibraryIdentifier), framework = lib.LibraryPath.endsWith('.framework');
+    // The plist names one library; a slice composed by hand may hold more archives beside it.
+    const files = framework ? [resolve(dir, lib.LibraryPath, basename(lib.LibraryPath, '.framework'))] : readdirSync(dir).filter(f => /^lib.*\.a$/.test(f)).map(f => resolve(dir, f));
+    const args = framework ? ['-F', dir, '-framework', basename(lib.LibraryPath, '.framework')] : ['-I', resolve(dir, lib.HeadersPath ?? 'Headers'), '-L', dir, ...files.map(f => `-l${basename(f).slice(3, -2)}`)];
+    return { files, args };
+  };
+  const frameworkArgs = (forIos, simulator, arch) => (app.modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).args);
+  // Linker flags the manifest declares for the module artifact
+  // (`host.macos.link`, `host.ios.link`; one argument each), for what an
+  // archive needs but cannot say: `-lc++` for a static library with C++ inside.
+  const linkArgs = (forIos) => app.manifest.host?.[forIos ? 'ios' : 'macos']?.link ?? [];
+  // What the arm cache must see change: the flags, and each library's bytes.
+  const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(app.modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).files).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
+  const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
+  const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
+  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device));
+  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch));
   if (app.modules.tags.length) {
     // The roster the artifact serves, read from its table: a macOS slice (the
     // one this process can load) of the same sources for an iOS build.
     let provided = [];
-    if (modulesBuilt && typeof Bun !== 'undefined') {
+    // The probe is a macOS build of the same Swift, so an iOS build whose
+    // xcframework has no macOS slice cannot be probed: its roster is taken
+    // from the manifest, as it is without Bun.
+    const probeable = !ios || (app.modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
+    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
+    if (modulesBuilt && typeof Bun !== 'undefined' && probeable) {
       const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false));
+      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch));
       const { dlopen, read, CString } = import.meta.require('bun:ffi');
       const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
       provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
     } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
-    checkModuleRoster(app, modulesBuilt && typeof Bun === 'undefined' ? app.modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable) ? app.modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4): exact-svg-raster
   // as its own dylib, never linked into the presenter; SvgIsland.swift
