@@ -220,11 +220,6 @@ struct Em<'a> {
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
-    // A file input (LLP 1069.002: picker-glue.js) is not in this runtime;
-    // nor, with it, the `cancel` its dismissal sends (the DOM's is carried).
-    if exact_runner::uses::uses(plan).has(exact_runner::uses::Capability::Picker) {
-        return Err("a file input or `showPicker` (LLP 1069.002) is not in the JS target".into());
-    }
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();

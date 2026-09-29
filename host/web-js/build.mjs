@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh } from './module.mjs';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -79,8 +79,11 @@ cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.j
 // `exactTime`: the runner's reserved source (runner/src/time.rs), answered
 // before the app's, as the web host tells the wasm runner (navigation.js).
 const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=\{[^}]*\}/)?.[0] ?? '');
+// A file input, `saveFile` or `share` (files.js), registered before any press.
+const files = existsSync(resolve(gen, 'files.flag'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
+  ...(files ? ["import './files.js';"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, resolvedLocale, Resources } from './rt.js';",
   ...(time ? [
     "import { sourceTypes } from './names.js';",
@@ -113,6 +116,16 @@ for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflo
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
+// A TypeScript app whose web build script does more than bake it (Messages
+// compiles its schema and copies its device into files its TypeScript
+// imports, gitignored) has that script run first, as the wasm build does:
+// `cargo check` runs the build script, and Cargo reruns it only when its
+// inputs changed.
+const webScript = resolve(appDir, 'web/build.rs');
+if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(webScript, 'utf8'))) {
+  const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit' });
+  if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
+}
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
 const auth = /^\s*auth\.session\s/m.test(grants);
@@ -121,6 +134,7 @@ if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
 for (const f of ['auth-glue.js', 'storage-environment.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
+cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
@@ -236,13 +250,22 @@ if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), res
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.
 // `--data <dist>` names another wasm build's module (a synthetic plan over an app's sources).
+let moduleStorage = false;
 if (rust) {
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
   const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
+  moduleStorage = /^\s*(?:fs|sqlite)\./m.test(await moduleGrants(built));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+}
+// The web host's own picker and storage adapters beside the page, fetched on
+// first use (files.js; a source's `storage`, ts-data.js and rust-data.js): what host/web/build.mjs ships.
+if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
+  const { webHostFiles } = await import('../../scripts/app.mjs');
+  for (const [name, source] of Object.entries(webHostFiles('storage'))) cpSync(resolve(root, source), resolve(out, name));
+  for (const f of ['picker-glue.js', 'documents-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));

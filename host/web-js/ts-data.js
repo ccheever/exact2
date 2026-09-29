@@ -28,7 +28,34 @@ const native = Object.freeze({
   watch(topic) { if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
   later: request => pageModule().then(p => p.later(request)),
 });
+// App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
+// `sqlite` over the web host's own adapters (`storage-fs.js`,
+// `storage-sqlite.js`, beside the page and fetched on first use), under
+// the app's grants and its page's store key — none under the agent unless
+// the drive names a scratch store (`storageKey`). Only where the grants
+// name `fs.` or `sqlite.`.
+function storageOf(grants) {
+  if (!/^\s*(?:fs|sqlite)\./m.test(grants)) return undefined;
+  let fs, sqlite;
+  const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
+    const k = source.appId ? storageKey(source.appId, location.href) : null;
+    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable' });
+    return k;
+  });
+  const url = name => new URL(name, document.baseURI).href;
+  const files = () => fs ??= key().then(k => import(url('storage-fs.js')).then(m => m.createFileSystem(k, grants)));
+  const databases = () => sqlite ??= key().then(k => import(url('storage-sqlite.js')).then(m => m.createSqlite(k, grants)));
+  const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  return Object.freeze({
+    fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args)))])) }),
+    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)) }),
+    work: promise => Promise.resolve(promise),
+  });
+}
 export function install(data, mixed = false, modules = null) {
+  data.appId = source.appId; data.grants = String(source.grants ?? '');
+  const storage = storageOf(data.grants);
   // `modules` loads native.js (an app with a module artifact). Connected
   // after first paint, whether or not anything asks `later`.
   load = modules;
@@ -45,7 +72,7 @@ export function install(data, mixed = false, modules = null) {
       key: k => { const handle = store.get(k); return handle == null ? Promise.resolve(null) : kept().then(s => s.get(handle)); } };
     asking = target ?? name; watching = name;
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, undefined, modules ? native : null); } finally { asking = ''; watching = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }
     if (r && typeof r.then === 'function') return { promise: r.then(v => arrays(v, result)), store: seen.read };
     return { v: arrays(r, result), store: seen.read };
   };

@@ -305,8 +305,9 @@ and so does Bluesky, outside the repo
 gaps") so do Caltrain and Weatherlight (the build makes their GPU modules),
 Canvas Gallery (TypeScript draws), Update Lab (a TypeScript and a Rust
 source) and the native-module apps (native-fixture, photo-editor, map-demo,
-recorder). Three build wasm, for a runtime feature: exact-live and
-interaction-gallery (`reorderdrop`) and fieldnotes (a file input).
+recorder), and, with files and storage (§7, "Files and storage"),
+Fieldnotes and Markdown; with Arrange, exact-live and interaction-gallery
+("Arrange, the reorder drag"). Every app in `apps/` builds JS.
 
 ### D6 — Documents, activation and resumability
 
@@ -700,8 +701,8 @@ from (a) today.
 |---|---|
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
 | state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
-| every step equal, since the build gaps closed (2026-09-29, below) | Canvas Gallery 9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5, recorder 3/3 |
-| refused at build, by name | a file input (fieldnotes) |
+| every step equal, since the build gaps closed (2026-09-29, below) | Canvas Gallery 9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5, recorder 3/3, Fieldnotes 10/10, Markdown 5/5 |
+| refused at build, by name | none in `apps/` |
 
 **What is left, estimated** (*estimates*, runtime bytes brotli):
 
@@ -711,7 +712,7 @@ from (a) today.
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
 | ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
-| Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); a file input and `showPicker` (`picker-glue.js`), whose dismissal is the `cancel` that matters | 1–2 days | loaded (`picker-glue.js`) |
+| Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); ~~a file input and `showPicker`~~ (landed 2026-09-29, "Files and storage") | — | — |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
 | State carried across a dev reload (the loop rebuilds and reloads), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
@@ -1009,8 +1010,8 @@ brotli):
   its events), and its view id moves to the editor. `select` is the editor's
   facts at each selection change, the runner's `Event::Select` record; the
   `format` command runs the editor's. The DOM's `cancel` is carried as any
-  event; its producers, a file input's picker and `showPicker`, are refused
-  by name (fieldnotes).
+  event; its producers, a file input's picker and `showPicker`, landed
+  later ("Files and storage").
 - **Cost.** 486 B in `app.js` for a plan with an editor (`mde`,
   `onSelect`, nothing for any other); loaded at the first editor: the chunk
   5,309 B, `markup-editor.wasm` 40,233 B (the wasm host's own). For
@@ -1284,6 +1285,40 @@ and presence rows are), and a plan with press feedback fetches
 chunk 2,016 B, loaded). Synthetic `press.contract` 8/8: a held button shows
 its scale (conform.mjs gains `down` and `up`), one without press-scale
 shows none.
+
+### Files and storage (landed 2026-09-29, measured; brotli)
+
+- **What.** `host/web-js/files.js`, bundled only for a plan with a file
+  input, `saveFile`, a document picker or `share`: the runner's rulings
+  (`picker.rs`, `save_file.rs`, `file_pickers.rs`, `share.rs` — the
+  checks, the refusals into the journal, the agent's holds `pick`,
+  `export`, `open-file`, `open-directory`, `save-file` and `share`,
+  answered by `tap @t` / `type @t`) over the web host's own
+  `picker-glue.js` and `documents-glue.js`, unchanged, fetched on first
+  use. A file input's `change` delivers `Picked` records; `showPicker`
+  opens the element's own picker inside the press's activation (commands
+  run in the press's commit). A TypeScript source gets `storage` (`fs`,
+  `sqlite`) over the web host's adapters under its grants and page store
+  key; a Rust source's storage requests (ABI tag 5) run through the web
+  host's `storage-request.js`, which also reaches a chosen document
+  (`doc:/…`). The adapters ship beside the page only where the grants
+  name `fs.` or `sqlite.` (a Rust module's, read from the module at
+  build).
+- **Found on the way.** A file input is `Control` in the agent's tree, as the
+  runner's. A TypeScript app whose web build script does more than bake
+  it (Messages generates files its TypeScript imports) has the script run
+  first (`cargo check` on its web crate), so a clean checkout builds; and
+  the TS bake's `../data` watch named a missing directory for an app
+  without a data crate, which reran every such app's web build script on
+  every build (the wasm target's too).
+- **Not carried.** Fieldnotes' `backupNotes` is owned by Rust on the
+  wasm target (`RUST_SOURCES`); on the JS target the app has no Rust
+  module (`rust.module`), so its TypeScript implementation answers. A
+  TypeScript source's `storage.fs` on a `doc:/` path (no app does).
+- **Conformance.** Fieldnotes 10/10, Markdown 5/5. Driven with a scratch store (`--storage`): a note saved and
+  backed up through SQLite and the file store, the backup exported to the
+  driver's path, a file picked and read back; Markdown opens a chosen
+  document and shows it.
 
 ## 8. Rulings and open questions for Charlie
 

@@ -57,9 +57,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   qualifies, else the wasm target, printing what the JS target refused; `--js` or
   `--wasm` forces one. The dev loop, the agent's web host, the smoke's app drive and
   metrics run what the build makes: on the JS target an edit rebuilds and reloads the
-  page (~2 s, no state carried); `dev.mjs --wasm` is the resident loop, and the one a
-  native client opening the dev URL needs. Delivery, the bare-plan fixtures, the parity
-  smokes and conformance's oracle stay `--wasm` (LLP 1071 §7, "The tools").
+  page (~0.1 s, no state carried); `dev.mjs --wasm` is the resident loop, and the one a
+  native client opening the dev URL needs. Delivery bakes `--wasm` for the native
+  streams and publishes the JS build of that bake's plan as the web root; the bare-plan
+  fixtures, the parity smokes and conformance's oracle stay `--wasm` (LLP 1071 §7, "The tools").
 - The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
   and the page reloads. `bun scripts/metrics.mjs` prints every number
@@ -82,7 +83,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
-  classifier's table (a dry run); `--yes` publishes signed bundles per stream through
+  classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
   the repo). `bun scripts/smoke.mjs deploy` drives it; on a Mac it signs production
   macOS Rust modules, so set `EXACT_RUST_SIGN_IDENTITY` to an identity listed by

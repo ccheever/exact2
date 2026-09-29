@@ -59,6 +59,11 @@ fn names_wide_colors() -> bool {
         return false;
     };
     let data = std::path::Path::new(&dir).join("../data");
+    // A missing path would rerun the build script on every build (Cargo
+    // counts it as changed); an app without a data crate names none.
+    if !data.exists() {
+        return false;
+    }
     println!("cargo:rerun-if-changed={}", data.display());
     fn scan(dir: &std::path::Path) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else {

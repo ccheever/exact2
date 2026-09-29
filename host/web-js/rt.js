@@ -277,7 +277,7 @@ export const Store = {
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
 export const Resources = [];
 let Ticket = 0;
-const sameReq = (a, b) => a && b && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
+const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
 /** Run a request after the commit publishes; `land(outcome)` on reply. */
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
@@ -608,8 +608,11 @@ export function Sm(e, prop, unit, f) {
   effect(() => { const v = f(); if (!Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) css(e, prop, unit, v); });
 }
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
+/** A loaded piece's own handling of an event (files.js's file input): true when handled. */
+export const OnHooks = {};
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
+  if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.exactNative) return l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); });
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.

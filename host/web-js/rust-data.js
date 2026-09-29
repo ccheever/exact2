@@ -92,7 +92,10 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
       const n = r.u32(), body = r.bytes(n);
       return { req: { method, url, headers, body: text.decode(body), raw: body, http, stream: tag === 9 } };
     }
-    throw new Error(`a Rust answer of kind ${tag} (storage or surface work) is not carried by the JS target`);
+    // Storage work (LLP 1027.001 D2): a portable request the host runs
+    // through the web host's own `storage-request.js`, under its scope.
+    if (tag === 5) { const payload = r.bytes(r.u32()), scoped = r.u8() === 1, scope = r.str(); return { req: { storage: text.decode(payload), scope: scoped ? scope : null } }; }
+    throw new Error(`a Rust answer of kind ${tag} (surface work) is not carried by the JS target`);
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
   let r = op(0); r.u8(); const meta = [r.str(), r.str()];
@@ -107,7 +110,8 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
       const pairs = [...store.map].filter(([k]) => !k.startsWith('kept.'));
       w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
       if (outcome) {
-        if (outcome.failed) { w.u8(1); w.str(outcome.message); }
+        if (outcome.storage) { w.u8(5); w.bytes(outcome.storage); }
+        else if (outcome.failed) { w.u8(1); w.str(outcome.message); }
         else { w.u8(0); w.u16(outcome.status); w.u32(outcome.headers.length); for (const [k, v] of outcome.headers) { w.str(k); w.str(v); } w.bytes(outcome.body); }
       }
     });
@@ -122,12 +126,17 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
   // The host runs the request (`glue.js` `ask`): the browser's fetch.
+  let storage = null;
   data.fetch = async req => {
+    if (req.storage != null) {
+      storage ??= import(new URL('storage-request.js', document.baseURI).href).then(m => m.createStorageRequests(data.appId, data.grants));
+      return { storage: await (await storage).run(req.storage, req.scope ?? undefined) };
+    }
     const res = await fetch(req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
     return { status: res.status, headers: [...res.headers], body: new Uint8Array(await res.arrayBuffer()) };
   };
   // What a loaded capability needs of the module (canvas2d.js's draws).
   data.logic = { exports: e, session, writer, reader, encode, ABI };
-  data.grants = meta[1];
+  data.appId ??= meta[0]; data.grants = meta[1];
   for (const f of data.q.splice(0)) f();
 }

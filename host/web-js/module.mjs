@@ -113,6 +113,21 @@ function ownModule(app, out, dir) {
   return module(manifest, pkg.replaceAll('-', '_'), out, `${app}: ${pkg}`);
 }
 
+/** A logic module's grants (ABI 3's first call, `meta`): what its storage
+ * requests may name, which decides whether the page ships the storage
+ * adapters. */
+export async function moduleGrants(path) {
+  const { instance } = await WebAssembly.instantiate(readFileSync(path), {}), e = instance.exports;
+  const session = e.exact_logic_create(), request = new Uint8Array([3, 0, 0, 0, 0]), p = e.exact_logic_alloc(request.length);
+  new Uint8Array(e.memory.buffer, p, request.length).set(request);
+  if (e.exact_logic_call(session, p, request.length) !== 0) return '';
+  const out = new Uint8Array(e.memory.buffer, e.exact_logic_output(session), e.exact_logic_output_len(session)).slice(), d = new DataView(out.buffer);
+  let at = 5;
+  const str = () => { const n = d.getUint32(at, true), t = new TextDecoder().decode(out.subarray(at + 4, at + 4 + n)); at += 4 + n; return t; };
+  str();
+  return str();
+}
+
 /** Markdown pieces (LLP 1045 D3) as a loaded capability for the runtime:
  * the web host's own `exact_web_capabilities::markdown::pieces`, exported
  * alone from a wasm module the page fetches on its first Markdown node. */

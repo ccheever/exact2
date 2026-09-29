@@ -87,6 +87,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             }
+            // A file input, `saveFile` or `share` (files.js, LLP 1069.002,
+            // 1069.010 D3, 1069.003).
+            {
+                use exact_runner::uses::{uses, Capability};
+                let u = uses(&plan);
+                if [Capability::Picker, Capability::Documents, Capability::Share]
+                    .into_iter()
+                    .any(|c| u.has(c))
+                {
+                    let _ = std::fs::write(dir.join("files.flag"), "");
+                }
+            }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
             }

@@ -22,7 +22,7 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'input' && el.type === 'file' ? 'Control' : el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
@@ -78,7 +78,7 @@ export function install(exact) {
   const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); };
   exact.After.push(seek);
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
-  const holds = () => exact.auth?.holds() ?? [];
+  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
   // After a clock move, `exactTime` is answered again where its answer
   // changed: the offset at the new virtual instant, which a DST change
   // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
@@ -90,7 +90,7 @@ export function install(exact) {
   exact.agentSettled = async (req) => {
     seek();
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
-    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` };
+    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
