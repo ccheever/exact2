@@ -124,13 +124,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func requestFill() { scheduleAfterScroll(); start() }
     /// Build each owed collection's rows for this slice: as many as its
     /// measured per-row cost fits, at least one, and at least what the next
-    /// three frames of travel uncover — so the scroll callback that follows
-    /// finds its rows built instead of building them itself. The slice runs
-    /// after its frame's update, so its rows first show a frame later than
-    /// the travel it answers. A turn that has already spent half its frame
-    /// before the slice builds nothing while the next two frames' travel is
-    /// covered: its rows wait for the next slice rather than making this
-    /// frame late.
+    /// two frames of travel uncover — so the scroll callback that follows
+    /// finds its rows built instead of building them itself. What a slice
+    /// needs overrides its time budget, so a longer lead builds bursts that
+    /// make frames late (a fast inbox built ~20 messages in one slice). A
+    /// turn that has already spent half its frame before the slice builds
+    /// nothing while the next two frames' travel is covered: its rows wait
+    /// for the next slice rather than making this frame late.
     @discardableResult
     private func fillCollections(deadline: TimeInterval) -> Int {
         guard let p = presenter else { return 0 }
@@ -140,9 +140,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
-            // What this slice builds commits with the next frame, after
-            // that frame's offset: the frames it serves are the two after.
-            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 3))
+            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
             if spent && p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2)) == 0 {
                 fillDeferred = true; continue
             }
