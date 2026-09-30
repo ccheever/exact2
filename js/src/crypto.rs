@@ -56,7 +56,10 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
     use exact_data::crypto::{self as c, EcKey, EcKeyPair, Jwk};
     use exact_runner::{DataError, Store};
     let message = |e: DataError| match e {
-        DataError::BadArguments(m) | DataError::Unavailable(m) | DataError::UnknownSource(m) => m,
+        DataError::BadArguments(m)
+        | DataError::Unavailable(m)
+        | DataError::UnknownSource(m)
+        | DataError::Interface(m) => m,
     };
     let scratch = Store::new("", []);
     let store_ptr = state.store;

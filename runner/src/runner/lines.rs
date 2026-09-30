@@ -109,6 +109,10 @@ pub(super) fn ran(what: &mut String, action: &str) {
     exact_num::push_text!(what, " ({})", action);
 }
 
+pub(super) fn failed_now(name: &str, why: &str) -> String {
+    text!("resource {} failed: {}", name, why)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

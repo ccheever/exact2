@@ -173,11 +173,11 @@ impl<D: DataSource> Swappable<D> {
         outcome: Option<&Outcome>,
     ) -> Result<Answer, DataError> {
         let request =
-            abi::call_request(store, source, args, outcome).map_err(DataError::Unavailable)?;
+            abi::call_request(store, source, args, outcome).map_err(DataError::Interface)?;
         let engine = self.executor.as_mut().ok_or_else(|| {
             DataError::Unavailable("Rust module awaits post-pixel activation".into())
         })?;
-        let bytes = engine.call(&request).map_err(DataError::Unavailable)?;
+        let bytes = engine.call(&request).map_err(DataError::Interface)?;
         abi::call_reply(&bytes, store)
     }
     fn activate_module(&mut self) -> Result<(), String> {

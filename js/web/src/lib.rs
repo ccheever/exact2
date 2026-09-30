@@ -421,7 +421,8 @@ impl DataSource for Module {
             Err(
                 DataError::Unavailable(e)
                 | DataError::BadArguments(e)
-                | DataError::UnknownSource(e),
+                | DataError::UnknownSource(e)
+                | DataError::Interface(e),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()

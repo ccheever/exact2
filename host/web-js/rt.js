@@ -365,7 +365,11 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     }
     let ans;
     try { ans = ask(source, a, name); }
-    catch (e) { if (e instanceof Refusal) throw e; flag(fail, String(e.message)); say(`resource ${name}: ${e.message}`); return r.value; }
+    catch (e) {
+      if (e instanceof Refusal) throw e;
+      if (e.refuse) throw new Refusal(`resource ${name}: ${e.message}`);
+      flag(fail, String(e.message)); say(`resource ${name} failed: ${e.message}`); return r.value;
+    }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
       take(ans.v, a);

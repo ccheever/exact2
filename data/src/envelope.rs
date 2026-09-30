@@ -119,7 +119,7 @@ fn error_json(error: &DataError) -> Json {
     let (kind, message) = match error {
         DataError::UnknownSource(m) => ("UnknownSource", m),
         DataError::BadArguments(m) => ("BadArguments", m),
-        DataError::Unavailable(m) => ("Unavailable", m),
+        DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
     };
     json!({"kind": kind, "message": message})
 }

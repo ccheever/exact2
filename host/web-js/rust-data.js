@@ -82,8 +82,11 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   const result = r => {
     const tag = r.u8();
     if (tag === 0) return { v: r.value() };
+    // The source's own refusal refuses the commit, as the runner's does;
     // UnknownSource (2): a mixed app's TypeScript module may answer it.
-    if (tag >= 2 && tag <= 4) throw Object.assign(new Error(r.str()), { unknown: tag === 2 });
+    // A call the seam could not carry (`call` above) is the resource's
+    // failure instead (LLP 1071 §7).
+    if (tag >= 2 && tag <= 4) throw Object.assign(new Error(r.str()), { unknown: tag === 2, refuse: true });
     if (tag === 1 || tag === 6 || tag === 9) {
       const http = tag === 1 ? 'ordered' : `independent:${r.u32()}`;
       if (r.u8()) r.str(); else r.str();

@@ -533,7 +533,34 @@ impl<D: DataSource> Runner<D> {
                             }
                             pending_res[i] = self.pending_res[i];
                             self.store.take_topics();
-                            let answer = self.query(i, &args)?;
+                            let answer = match self.query(i, &args) {
+                                // A Rust module's seam that could not carry
+                                // the call (an answer over its bound, a trap)
+                                // fails the resource, as a failed reply does:
+                                // the value it had stands and `failed` says
+                                // so. A source's own refusal still refuses
+                                // the commit.
+                                Err(RunnerError::Data {
+                                    error: DataError::Interface(why),
+                                    ..
+                                }) if !exact_plan::runner_owned_source(
+                                    self.plan.str(row.source),
+                                ) && states[i].is_some() =>
+                                {
+                                    self.log(super::lines::failed_now(
+                                        self.plan.str(row.name),
+                                        &why,
+                                    ));
+                                    self.failed_args[i] = Some(args.clone());
+                                    force.retain(|forced| *forced != i);
+                                    let state = states[i].as_ref().expect("checked");
+                                    resources[i] = Some(state.value.clone());
+                                    settled_res[i] = true;
+                                    progress = true;
+                                    continue;
+                                }
+                                answer => answer?,
+                            };
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
                                 self.store_readers[i] = true;
@@ -802,6 +829,7 @@ mod tests {
         write_on_parse: bool,
         read_store: bool,
         fail_parse: bool,
+        refuse: Option<DataError>,
         adopted: Vec<(String, Vec<Value>, Value)>,
     }
 
@@ -816,6 +844,7 @@ mod tests {
                 write_on_parse: false,
                 read_store: false,
                 fail_parse: false,
+                refuse: None,
                 adopted: Vec::new(),
             }
         }
@@ -833,6 +862,9 @@ mod tests {
             _: &[Value],
         ) -> Result<Answer, DataError> {
             self.queries += 1;
+            if let (Some(e), "rows") = (&self.refuse, source) {
+                return Err(e.clone());
+            }
             if self.read_store && source == "rows" {
                 store.get("token");
             }
@@ -983,6 +1015,37 @@ mod tests {
         )
         .unwrap();
         assert!(!r.has_pending());
+    }
+
+    /// A Rust module's seam that cannot carry the call (an answer over its
+    /// bound) fails the resource: the commit stands, the value it had stays
+    /// and `failed` is set; new arguments ask again. A source's own refusal
+    /// still refuses the commit.
+    #[test]
+    fn a_source_that_cannot_answer_now_fails_the_resource() {
+        let mut r = boot(
+            plan(TypeKind::Number, None, false, false),
+            Data::new(records(2)),
+        );
+        let rows = |r: &Runner<Data>| r.resource("rows").cloned();
+        assert_eq!(rows(&r), Some(records(2)));
+        r.data().refuse = Some(DataError::Interface("logic ABI message too large".into()));
+        r.act("change", vec![Value::Number(1.)])
+            .expect("the commit stands");
+        assert_eq!(r.slot("revision"), Some(&Value::Number(1.)));
+        assert_eq!(rows(&r), Some(records(2)), "the value it had stays");
+        assert_eq!(r.failed_args[0], Some(vec![Value::Number(1.)]));
+        assert!(r
+            .journal()
+            .any(|l| l.contains("resource rows failed: logic ABI message too large")));
+        r.data().refuse = Some(DataError::BadArguments("no".into()));
+        assert!(r.act("change", vec![Value::Number(2.)]).is_err());
+        assert_eq!(r.slot("revision"), Some(&Value::Number(1.)));
+        r.data().refuse = None;
+        r.data().value = records(3);
+        r.act("change", vec![Value::Number(3.)]).unwrap();
+        assert_eq!(rows(&r), Some(records(3)));
+        assert_eq!(r.failed_args[0], None);
     }
 
     #[test]

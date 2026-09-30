@@ -190,7 +190,7 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
         candidate.activate().unwrap();
         assert!(matches!(
             candidate.query("x", &[]),
-            Err(DataError::Unavailable(_))
+            Err(DataError::Interface(_))
         ));
     }
     let imported =

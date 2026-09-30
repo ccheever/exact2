@@ -483,6 +483,11 @@ pub enum DataError {
     UnknownSource(String),
     BadArguments(String),
     Unavailable(String),
+    /// The seam to a loaded Rust module could not carry the call (an
+    /// answer over its bound, a trap): the source is there but cannot
+    /// answer now. A resource asked this fails; it does not refuse the
+    /// commit (LLP 1071 §7, Charlie's ruling of 2026-09-29).
+    Interface(String),
 }
 
 #[cfg(test)]
