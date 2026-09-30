@@ -364,7 +364,6 @@ final class CollectionHost {
         // retirement: this one stays owed (LLP 1072 §3.1, §5).
         if filling?() == true { return 0 }
         if !retireOwed.isEmpty {
-            budget.nextTurn()
             dirty.formUnion(retireOwed.keys)
             flush()
             return 0
