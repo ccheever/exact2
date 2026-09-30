@@ -157,10 +157,36 @@ fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let preload = activate_js(rendered.activate) != "interaction";
     let document = &rendered.document;
     let scroll = document.scroll_document;
+    let js = Js::of(shell)?;
     Ok(
-        head_js(shell, &document.lang, &document.dir, preload, scroll)?
-            + &body_js(shell, rendered, false, scroll)?,
+        head_js(shell, &js, &document.lang, &document.dir, preload, scroll)
+            + &body_js(shell, &js, rendered, false, scroll),
     )
+}
+
+/// What a JavaScript shell's pages are composed from, read once: a server
+/// keeps it for every page it sends ([`crate::Server`]).
+pub(crate) struct Js {
+    at: Places,
+    preloads: Vec<(usize, usize)>,
+    classes: std::collections::HashMap<String, String>,
+    fonts: bool,
+}
+
+impl Js {
+    /// `shell`'s places, or why it lacks them.
+    pub(crate) fn of(shell: &str) -> Result<Js, String> {
+        let at = places(shell)?;
+        Ok(Js {
+            preloads: preloads(shell, &at),
+            classes: classes(shell)
+                .into_iter()
+                .map(|(css, class)| (css.to_string(), class.to_string()))
+                .collect(),
+            fonts: shell.contains("as=\"font\""),
+            at,
+        })
+    }
 }
 
 /// Whether `shell` is the JavaScript runtime's, whose pages a server can
@@ -226,12 +252,13 @@ fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
 /// `<head>`.
 pub(crate) fn head_js(
     shell: &str,
+    js: &Js,
     lang: &str,
     dir: &str,
     preload: bool,
     scroll: bool,
-) -> Result<String, String> {
-    let at = places(shell)?;
+) -> String {
+    let at = &js.at;
     let lang = lang
         .replace('&', "&amp;")
         .replace('"', "&quot;")
@@ -250,7 +277,7 @@ pub(crate) fn head_js(
     out.push_str(capture_js());
     out.push_str("</script>\n");
     let mut from = at.title.1;
-    for (start, stop) in preloads(shell, &at) {
+    for &(start, stop) in &js.preloads {
         out.push_str(&shell[from..start]);
         if preload {
             out.push_str(&shell[start..stop]);
@@ -258,7 +285,7 @@ pub(crate) fn head_js(
         from = stop;
     }
     out.push_str(&shell[from..at.root]);
-    Ok(out)
+    out
 }
 
 /// The rest of a JavaScript page, once its render is done: the head's
@@ -269,14 +296,20 @@ pub(crate) fn head_js(
 /// ([`for_runtime`]).
 pub(crate) fn body_js(
     shell: &str,
+    js: &Js,
     rendered: &Rendered,
     late: bool,
     marked: bool,
-) -> Result<String, String> {
-    let at = places(shell)?;
-    let mut out =
-        String::with_capacity(rendered.document.root.len() + rendered.checkpoint.len() + 1024);
-    out.push_str(&without_fonts(shell, &rendered.head));
+) -> String {
+    let at = &js.at;
+    let mut out = String::with_capacity(
+        shell.len() - at.root + rendered.document.root.len() + rendered.checkpoint.len() + 1024,
+    );
+    if js.fonts {
+        out.push_str(&without_fonts(&rendered.head));
+    } else {
+        out.push_str(&rendered.head);
+    }
     out.push('\n');
     // A head sent before the render could not mark `<html>` (`scroll_attr`).
     if rendered.document.scroll_document && !marked {
@@ -285,12 +318,12 @@ pub(crate) fn body_js(
         out.push_str("</script>\n");
     }
     if late {
-        for (start, stop) in preloads(shell, &at) {
+        for &(start, stop) in &js.preloads {
             out.push_str(&shell[start..stop]);
         }
     }
     out.push_str("<div id=\"exact-root\">");
-    out.push_str(&for_runtime(&rendered.document.root, &classes(shell)));
+    for_runtime(&mut out, &rendered.document.root, &js.classes);
     out.push_str("</div>");
     out.push_str(&shell[at.root + ROOT.len()..at.entry]);
     let _ = std::fmt::Write::write_fmt(
@@ -303,18 +336,15 @@ pub(crate) fn body_js(
         ),
     );
     out.push_str(&shell[at.entry + JS_ENTRY.len()..]);
-    Ok(out)
+    out
 }
 
-/// The head's fields without the plan's fonts when the shell declares them
-/// (`host/web-js/build.mjs`: its stylesheet's faces, with their
+/// The head's fields without the plan's fonts, for a shell that declares
+/// them (`host/web-js/build.mjs`: its stylesheet's faces, with their
 /// `font-display`, and their preloads early in the head): a second rule for
 /// a face would replace the shell's.
-fn without_fonts(shell: &str, head: &str) -> String {
+fn without_fonts(head: &str) -> String {
     const PRELOAD: &str = "<link rel=\"preload\" href=\"";
-    if !shell.contains("as=\"font\"") {
-        return head.to_string();
-    }
     let mut out = head.to_string();
     if let Some(at) = out.find("<style>@font-face") {
         if let Some(end) = out[at..].find("</style>") {
@@ -374,9 +404,10 @@ fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
 /// but `!important` ones, as an inline style's is). On RealWorld's `/` the
 /// two took about 1.4 KB off the page (brotli, as sent); it paints
 /// pixel-for-pixel as before, with and without JavaScript.
-fn for_runtime(root: &str, classes: &std::collections::HashMap<&str, &str>) -> String {
-    let mut out = String::with_capacity(root.len());
+fn for_runtime(out: &mut String, root: &str, classes: &std::collections::HashMap<String, String>) {
+    out.reserve(root.len());
     let mut rest = root;
+    let mut attrs: Vec<(&str, Option<&str>)> = Vec::new();
     while let Some(lt) = rest.find('<') {
         out.push_str(&rest[..lt]);
         rest = &rest[lt..];
@@ -394,48 +425,55 @@ fn for_runtime(root: &str, classes: &std::collections::HashMap<&str, &str>) -> S
             out.push_str(tag);
             continue;
         }
-        out.push_str(&start_tag(tag, classes));
+        start_tag(out, tag, classes, &mut attrs);
     }
     out.push_str(rest);
-    out
 }
 
-/// One start tag, as [`for_runtime`] writes it.
-fn start_tag(tag: &str, classes: &std::collections::HashMap<&str, &str>) -> String {
+/// One start tag, as [`for_runtime`] writes it; `attrs` is scratch.
+fn start_tag<'t>(
+    out: &mut String,
+    tag: &'t str,
+    classes: &std::collections::HashMap<String, String>,
+    attrs: &mut Vec<(&'t str, Option<&'t str>)>,
+) {
+    let space = |b: u8| matches!(b, b' ' | b'\t' | b'\n');
     let body = tag.trim_start_matches('<').trim_end_matches('>');
     let (body, close) = match body.strip_suffix('/') {
         Some(body) => (body, "/"),
         None => (body, ""),
     };
-    let name_end = body.find([' ', '\t', '\n']).unwrap_or(body.len());
-    let mut attrs: Vec<(&str, Option<&str>)> = Vec::new();
+    let name_end = body.bytes().position(space).unwrap_or(body.len());
+    attrs.clear();
     let mut rest = &body[name_end..];
     loop {
         rest = rest.trim_start();
         if rest.is_empty() {
             break;
         }
-        let stop = rest.find(['=', ' ', '\t', '\n']).unwrap_or(rest.len());
+        let stop = rest
+            .bytes()
+            .position(|b| b == b'=' || space(b))
+            .unwrap_or(rest.len());
         let name = &rest[..stop];
         rest = &rest[stop..];
         if let Some(value) = rest.strip_prefix("=\"") {
             let Some(q) = value.find('"') else {
-                return tag.to_string();
+                return out.push_str(tag);
             };
             attrs.push((name, Some(&value[..q])));
             rest = &value[q + 1..];
         } else if rest.starts_with('=') {
             // An unquoted value: not what the document writes.
-            return tag.to_string();
+            return out.push_str(tag);
         } else {
             attrs.push((name, None));
         }
     }
     let has_class = attrs.iter().any(|(name, _)| *name == "class");
-    let mut out = String::with_capacity(tag.len());
     out.push('<');
     out.push_str(&body[..name_end]);
-    for (name, value) in attrs {
+    for &(name, value) in attrs.iter() {
         let class = match (name, value) {
             // The shell styles a link by `a[data-view]` (the runtime's
             // links carry an empty one); no other element needs its id.
@@ -444,7 +482,7 @@ fn start_tag(tag: &str, classes: &std::collections::HashMap<&str, &str>) -> Stri
                 continue;
             }
             ("data-view", _) => continue,
-            ("style", Some(css)) if !has_class => classes.get(unescape(css).as_ref()).copied(),
+            ("style", Some(css)) if !has_class => classes.get(unescape(css).as_ref()),
             _ => None,
         };
         out.push(' ');
@@ -465,7 +503,6 @@ fn start_tag(tag: &str, classes: &std::collections::HashMap<&str, &str>) -> Stri
     }
     out.push_str(close);
     out.push('>');
-    out
 }
 
 /// An attribute value's text: the references the document writes, read.
@@ -512,17 +549,14 @@ mod tests {
             settled: crate::Settled::Complete,
             activate: exact_plan::ActivatePolicy::Inferred,
         };
-        let head = head_js(shell, "en", "ltr", true, false).unwrap();
+        let js = Js::of(shell).unwrap();
+        let head = head_js(shell, &js, "en", "ltr", true, false);
         assert!(head.contains("<html lang=\"en\" dir=\"ltr\">"), "{head}");
         let mark = format!("<script>{}</script>", scroll_document_js());
-        let rest = body_js(shell, &rendered, false, false).unwrap();
+        let rest = body_js(shell, &js, &rendered, false, false);
         assert!(rest.find(&mark).unwrap() < rest.find("<div id=\"exact-root\">").unwrap());
-        assert!(!body_js(shell, &rendered, false, true)
-            .unwrap()
-            .contains(&mark));
+        assert!(!body_js(shell, &js, &rendered, false, true).contains(&mark));
         rendered.document.scroll_document = false;
-        assert!(!body_js(shell, &rendered, false, false)
-            .unwrap()
-            .contains(&mark));
+        assert!(!body_js(shell, &js, &rendered, false, false).contains(&mark));
     }
 }

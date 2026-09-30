@@ -91,11 +91,15 @@ struct Shared {
     pages: Mutex<VecDeque<CachedPage>>,
     variants: Variants,
     generations: Option<crate::generations::Generations>,
-    /// The pages' `lang` and `dir` when the plan alone decides them (no
-    /// locale slot, or one table at most): a page may then go in two parts.
-    lang: Option<(String, &'static str)>,
     /// The entry's `modulepreload`s, for a 103 ([`crate::stream::hint`]).
     hints: Vec<String>,
+    /// The shell is the JavaScript runtime's.
+    js: bool,
+    /// Its places, read once, and its early head ([`page::head_js`]) with the
+    /// entry's preloads and without, when the plan alone decides the pages'
+    /// `lang` and `dir` (no locale slot, or one table at most): a page may
+    /// then go in two parts.
+    early: Option<(page::Js, [String; 2])>,
 }
 
 struct CachedPage {
@@ -166,6 +170,13 @@ impl Server {
             })
         });
         let hints = crate::stream::preload_paths(&shell);
+        let js = page::is_js(&shell);
+        let early = lang.filter(|_| js).and_then(|(lang, dir)| {
+            let at = page::Js::of(&shell).ok()?;
+            let heads =
+                [true, false].map(|preload| page::head_js(&shell, &at, &lang, dir, preload, false));
+            Some((at, heads))
+        });
         Ok(Server {
             listener,
             stop: Arc::new(AtomicBool::new(false)),
@@ -178,8 +189,9 @@ impl Server {
                 pages: Mutex::new(VecDeque::new()),
                 variants,
                 generations,
-                lang,
                 hints,
+                js,
+                early,
             },
         })
     }
@@ -1085,24 +1097,20 @@ fn document<D: DataSource + 'static>(
     let location = request.target.as_str();
     // @ref LLP 1071 D6 — the early flush (crate::stream): a browser's
     // navigation gets the page's head now; its rest follows the render.
-    let js = crate::page::is_js(&shared.shell) && !notfound && request.method == "GET";
+    let js = shared.js && !notfound && request.method == "GET";
     let preload = route_at(&shared.plan, location)
         .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
     let mut early = early.filter(|_| js);
     if let Some(out) = early.as_deref_mut().filter(|_| request.cdn && preload) {
         crate::stream::hint(out, &shared.hints);
     }
-    let lang = shared
-        .lang
+    let head = shared
+        .early
         .as_ref()
-        .filter(|_| request.navigate && !request.cdn && request.if_none_match.is_none());
-    let head = lang.zip(early).and_then(|((lang, dir), out)| {
-        Some((
-            crate::page::head_js(&shared.shell, lang, dir, preload, false).ok()?,
-            out,
-        ))
-    });
-    let mut flush = head.map(|(head, out)| {
+        .filter(|_| request.navigate && !request.cdn && request.if_none_match.is_none())
+        .zip(early)
+        .map(|((at, heads), out)| (at, heads[usize::from(!preload)].clone(), out));
+    let mut flush = head.map(|(at, head, out)| {
         if preload {
             crate::stream::hint(out, &shared.hints);
         }
@@ -1120,15 +1128,11 @@ fn document<D: DataSource + 'static>(
             &shared.permissions,
             request.keep,
         );
-        (flush, head)
+        (flush, head, at)
     });
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A JavaScript page drops the document's view ids (page::for_runtime).
-        let ids = if crate::page::is_js(&shared.shell) {
-            Ids::Any
-        } else {
-            Ids::Runtime
-        };
+        let ids = if shared.js { Ids::Any } else { Ids::Runtime };
         render_as(
             &shared.plan,
             data,
@@ -1140,10 +1144,10 @@ fn document<D: DataSource + 'static>(
         )
         .and_then(|rendered| {
             let html = match &flush {
-                Some((_, head)) => {
+                Some((_, head, at)) => {
                     let late =
                         !preload && crate::page::activate_js(rendered.activate) != "interaction";
-                    head.clone() + &crate::page::body_js(&shared.shell, &rendered, late, false)?
+                    head.clone() + &crate::page::body_js(&shared.shell, at, &rendered, late, false)
                 }
                 None => page(&shared.shell, &rendered)?,
             };
@@ -1160,7 +1164,7 @@ fn document<D: DataSource + 'static>(
         Err(error) => {
             println!("render {location} 500 {ms:.1}ms error={error:?}");
             let _ = std::io::stdout().flush();
-            if let Some((mut flush, _)) = flush {
+            if let Some((mut flush, _, _)) = flush {
                 flush.send(UNAVAILABLE_AFTER_HEAD.as_bytes());
                 flush.end();
                 return Response {
@@ -1190,7 +1194,7 @@ fn document<D: DataSource + 'static>(
     );
     let _ = std::io::stdout().flush();
     let streamed = flush.is_some();
-    if let Some((mut flush, head)) = flush.take() {
+    if let Some((mut flush, head, _)) = flush.take() {
         flush.send(&html.as_bytes()[head.len()..]);
         flush.end();
     }
