@@ -55,3 +55,10 @@ the average and maximum character widths from each host's measurer
 addition to the measure callback in `exact.h` (an `EXACT_ABI_VERSION` bump).
 Stopped after three rounds (a formula from memory, the fonts' tables,
 Blink's source), per AGENTS.md.
+
+## Closure audit (2026-09-30)
+
+Retained open. The average/maximum-width mismatch and the recorded three-round
+stop still apply; no guessed formula or host ABI change was made during the
+ticket cleanup. This needs the resolved Chrome face/metrics experiment named
+above before an implementation can be justified.

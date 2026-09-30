@@ -1,6 +1,7 @@
 # The press composes through CSS `scale`, never `transform`, and is kept under reduced motion
 
-**Status:** Fixed: web composes authored scale and press feedback without touching transform; Apple and Linux keep feedback under reduced motion. Verified by browser regressions, gallery drive, 754 Rust host tests, 53 UIKit tests and six macOS press tests; full root gates and the macOS suite have unrelated failures listed below.
+**Status:** Closed
+**Resolution:** Fixed by the existing scale-composition path; macOS full Swift suite (507 tests, 0 failures, 1 skip) and UIKit suite (101 tests, 0 failures) include PressFeedback tests and passed in the 2026-09-30 audit.
 **Systems:** Web (`host/web/index.html`, `host/web/src/css.rs`, `host/web/input-glue.js`), Apple (`PressFeedback.swift`), Linux, kernel schema bit 147
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -14,6 +15,8 @@ The web shell's `[data-pressed] { transform: scale(var(--exact-press)); }` (`hos
 - Make the press hit box undo exactly that factor about `transform-origin` (`input-glue.js:65`, from the review's Grok #8).
 - Remove the reduced-motion drop on every host (LLP 1061 D5), and update the schema comment on bit 147 (it still says "about its centre").
 - Test: a pressable SVG element with an authored `transform`, and a box with a `scale` row, both keep their geometry while pressed. Test the press under `prefer prefers-reduced-motion reduce`.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: web composes authored scale and press feedback without touching transform; Apple and Linux keep feedback under reduced motion. Verified by browser regressions, gallery drive, 754 Rust host tests, 53 UIKit tests and six macOS press tests; full root gates and the macOS suite have unrelated failures listed below.
 
 From Charlie's rulings of 2026-09-27 on the review of Seth's PR #47.
 

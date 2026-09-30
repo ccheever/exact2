@@ -12,3 +12,13 @@ The Crew port (report of 2026-09-24, D10) drove a booted simulator that nobody c
 On this Mac, Xcode 27 ships no Simulator.app, so that falls back to Device Hub (`com.apple.dt.Devices`). Its "Devices" window comes up, but it has not been confirmed to show the simulator being driven. The same absence already broke something before this report: the iOS smoke logs `contact: unsupported — no Simulator window on screen`, so the simulator pointer backend (real contacts on the simulator, LLP 1035.003) finds no window and falls back.
 
 Done when, under Xcode 27, driving a simulator shows that simulator's screen to a person at the Mac, and the pointer backend finds its window again (or names why it cannot) in the iOS smoke.
+
+## Closure audit (2026-09-30)
+
+Retained open on this machine's selected `/Applications/Xcode.app`: its
+Applications directory contains DeviceHub.app and no Simulator.app. `simctl`
+sees booted iPhone 18 Pro (iOS 27.0) and iPhone Duo (27.1). The UIKit suite
+executes successfully headlessly (101 tests); that does not prove the desktop
+pointer can reach a device. Computer-use inventory confirms Device Hub runs,
+but two attempts to inspect its window timed out, so no window ownership or
+coordinate mapping was guessed. `pointer.swift` still names Simulator.

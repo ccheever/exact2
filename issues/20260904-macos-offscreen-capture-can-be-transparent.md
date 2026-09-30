@@ -41,3 +41,15 @@ recognition, automatic screen-permission fallback, or app rendering change.
 Done when default capture contains the visible fixture content and the
 Caltrain offscreen readback still passes. The application-boundary fix is
 independent and remains implemented.
+
+## Closure audit (2026-09-30)
+
+Retained open because the original external app cannot currently compile:
+Weird Castle's working tree fails with `type-cannot-infer` on
+`app.contract:76`, the unused `setPassword(value)` parameter. Its unrelated
+uncommitted edits were preserved. Fresh Caltrain on this lane does not
+reproduce: after opening station search, default capture is 840×1800 with
+all 1,512,000 pixels nontransparent. The full macOS smoke passes, including
+canvas readback (0.52% outside tolerance, mean error 0.50), four subtree
+captures, and the deck drive. This confirms the existing Caltrain path, not
+a repair of the original Weird Castle report.
