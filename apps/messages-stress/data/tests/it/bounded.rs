@@ -175,9 +175,18 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
                     "N={count}, earlier={earlier}, anchor={anchor}, offset={offset}, corrected={corrected}, row={row:?}");
                 max_mounted = max_mounted.max(c.rows.len());
                 // Accept the correction. A changed endpoint key cannot re-arm
-                // an edge that stayed inside the geometric window.
+                // an edge that stayed inside the geometric window, except the
+                // end edge once the window reaches the history's end: its old
+                // last row stays with rows after it (LLP 1010, the 2026-09-29
+                // ruling), so it fires if the reader is near the new end
+                // (the shorter last window at 1,000); reachLater then has
+                // nothing later to ask.
                 let queries = r.data_ref().queries;
-                assert_eq!(feed(&mut r, corrected).1, 0);
+                let fired = feed(&mut r, corrected).1;
+                assert!(
+                    fired == 0 || (!earlier && !has(&r, false) && fired == 1),
+                    "N={count}: {fired} events"
+                );
                 assert_eq!(r.data_ref().queries, queries);
                 assert_eq!(r.last_instance_work().rows_keyed, 0);
                 shifts[direction] += 1;

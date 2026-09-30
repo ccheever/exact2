@@ -1478,9 +1478,24 @@ JS page calls the Rust module over LLP 1029's seam, which refuses any message
 over `MAX_MESSAGE` (16 MiB, `MAX_HOST_WORK_BYTES`). `rust-data.js` then keeps
 the previous answer (the bounded window's 200 records, or the manual page's
 100) and journals "Rust module rejected the call". Native hosts that load a
-Rust module through the same seam get the same refusal. Open, needing a ruling:
-raise or split the seam's cap for answers, show the refusal as the resource's
-failure, or have the app window its data. The wasm page hanging on
+Rust module through the same seam get the same refusal. Charlie's ruling
+(2026-09-29, relayed): the refusal is the resource's failure on every host
+that loads Rust modules; the 16 MiB cap stays; the app windows its data.
+Landed: a call the seam cannot carry is `DataError::Interface` (logic/src/lib.rs,
+for the request, the executor and the reply), and settlement takes it as the
+resource's failure, as it takes a failed reply: the commit stands, the value it
+had stays, `failed(resource)` is true and the journal says `resource <name>
+failed: <why>` (runner/src/runner/settlement.rs; with nothing to keep it still
+refuses). A source's own refusal (unknown source, bad arguments, unavailable)
+still refuses the commit, on both runners: `rust-data.js` now throws those as a
+refusal, where the JS runtime used to take them as failures. Messages Stress asks
+for the whole history up to 10,000 records (about 2.3 MB of bodies) and, past
+that, its virtualized transcript asks overlapping 200-record windows, as the
+bounded mode does (`derive paged`), saying so in its mode line; a failed
+history shows `history-failed`. Finding: Contract cannot size an answer, so
+the app's threshold is a record count chosen from the bodies' size, not the
+seam's bound. The eager mode at 100,000 still asks for all of it and now
+fails visibly on the JS page. The wasm page hanging on
 `toggle-eager` at 100,000 is the eager mode doing what its label warns
 ("may block input"): it mounts every row. That is the wasm side and is not
 changed here.

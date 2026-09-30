@@ -32,7 +32,13 @@ component MessagesStress
   state draftTooLong = false
   state replying = ""
   derive offset = max(0, count - 100 - page * 100)
-  resource history = history(count, revision, batch, echo, offset, eager or windowed, bounded ? some(cursor) : none) as shape History
+  // One answer carries at most 16 MiB (a Rust module's seam, LLP 1029):
+  // the full history is asked up to 10,000 records (about 2.3 MB of bodies);
+  // past that the virtualized transcript asks overlapping 200-record
+  // windows, as the bounded mode does (LLP 1071 §7).
+  derive whole = count <= 10000
+  derive paged = bounded or (windowed and not whole)
+  resource history = history(count, revision, batch, echo, offset, eager or (windowed and whole), paged ? some(cursor) : none) as shape History
 
   action chooseCount(value: number) writes count, revision, running, page, cursor, tailRequest
     cursor = ""
@@ -73,10 +79,10 @@ component MessagesStress
     cursor = ""
     tailRequest = tailRequest + 1
   action reachEarlier writes cursor
-    if bounded and history.hasEarlier
+    if paged and history.hasEarlier
       cursor = history.earlier
   action reachLater writes cursor
-    if bounded and history.hasLater
+    if paged and history.hasLater
       cursor = history.later
   action earlier writes page
     page = min(count / 100 - 1, page + 1)
@@ -157,7 +163,7 @@ component MessagesStress
             text (windowed ? "Use bounded page" : "Virtualized transcript") font-size=12 font-weight=600 color=(windowed ? "#ffffff" : "#17283f")
           button press=toggleEager testId="toggle-eager" padding=7 border-radius=6 background-color="#e2eaff"
             text (eager ? "Use bounded page" : "Construct ALL rows (eager)") font-size=12 font-weight=600
-          text (bounded ? "BOUNDED VIRTUALIZED: up to 200 records + echo; scrollbar spans this window." : windowed ? "VIRTUALIZED: full records; only viewport rows stay mounted." : eager ? "EAGER: full selected history; may block input." : "BOUNDED: manual 100-row page, not virtualization.") testId="mode" font-size=12 color="#80521c"
+          text (bounded ? "BOUNDED VIRTUALIZED: up to 200 records + echo; scrollbar spans this window." : windowed ? (whole ? "VIRTUALIZED: full records; only viewport rows stay mounted." : "VIRTUALIZED: over 10,000 records, 200-record windows; one answer carries at most 16 MiB.") : eager ? "EAGER: full selected history; may block input." : "BOUNDED: manual 100-row page, not virtualization.") testId="mode" font-size=12 color="#80521c"
         row gap=6 align-items="center" flex-wrap="wrap"
           text "Tail rows revised / tick" font-size=12
           BatchButton(n=1, chosen=batch, choose=chooseBatch)
@@ -173,8 +179,10 @@ component MessagesStress
             text "Step" font-size=12
         text `${count} logical · ${history.materialized} supplied records · revision ${history.revision}/120 · ${history.changed} revised records in this slice` testId="stats" font-size=12
         text `${history.bodyBytes} UTF-8 body bytes (not memory) · requested 4 ticks/s · ${running ? "running" : "paused"}` testId="load-stats" font-size=12 color="#53637b"
+        when failed(history)
+          text "The last history request failed; this is the previous answer." testId="history-failed" font-size=12 color="#9c3d24"
         text "No FPS / latency measured here. Synchronous generation and eager mounting can block. Pause cannot interrupt in-flight work." font-size=11 color="#80521c"
-      when bounded
+      when paged
         row flex-shrink=0 padding=8 gap=8 align-items="center" background-color="#e8edf5"
           button press=latest testId="latest" padding=6
             text "Latest" font-size=12
@@ -189,7 +197,7 @@ component MessagesStress
             text "Latest page" font-size=12
           text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
       when windowed or bounded
-        list virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not bounded or cursor == "") scrollTop=(bounded ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+        list virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
           each m in history.rows key=m.id
             column padding-left=12 padding-right=12 padding-top=5 padding-bottom=5 width="100%" box-sizing="border-box"
               box testId=`reply-hit-${m.id}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"

@@ -147,3 +147,25 @@ fn transcript_follows_new_tail_only_when_reading_at_the_end() {
     assert!(snapshot.rows.iter().any(|row| row.root == first));
     assert!(snapshot.rows.last().unwrap().index < 100);
 }
+
+/// Past 10,000 records the virtualized transcript asks 200-record windows:
+/// the whole history (about 23 MB at 100,000) is more than one answer over a
+/// Rust module's seam carries (16 MiB, LLP 1071 §7).
+#[test]
+fn past_ten_thousand_the_virtualized_transcript_asks_windows() {
+    let mut runner = boot();
+    runner.act("toggleWindowed", vec![]).unwrap();
+    runner
+        .act("chooseCount", vec![Value::Number(100_000.0)])
+        .unwrap();
+    let snapshot = runner.collections().remove(0);
+    assert_eq!(snapshot.count, 200);
+    let Some(Value::Record(history)) = runner.resource("history") else {
+        panic!("history is a record");
+    };
+    assert_eq!(history[1], Value::Number(200.0), "materialized");
+    runner
+        .act("chooseCount", vec![Value::Number(10_000.0)])
+        .unwrap();
+    assert_eq!(runner.collections().remove(0).count, 10_000);
+}
