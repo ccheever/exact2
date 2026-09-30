@@ -47,8 +47,7 @@ use exact_web::document::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// A render's deadline unless the caller names one (LLP 1048.000 D9).
@@ -314,41 +313,22 @@ thread_local! {
 }
 
 /// The deadline, for a source call still running then (LLP 1048.000 D10):
-/// a thread that triggers the source's interrupt at `until`, unless the
-/// render finished first. A source without one runs its calls to the end.
+/// the source's interrupt triggers at `until`, unless the render finished
+/// first. A source without one runs its calls to the end. One thread keeps
+/// every render's deadline ([`Deadlines`]); a render arms and disarms an
+/// entry, never a thread of its own (a thread per render was ~3% of
+/// RealWorld's CPU a page, measured 2026-09-29).
 struct Watchdog {
-    cancel: Option<Sender<()>>,
+    armed: Option<u64>,
     fired: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Watchdog {
     fn arm(interrupt: Option<Interrupt>, until: Instant) -> Watchdog {
         let fired = Arc::new(AtomicBool::new(false));
-        let Some(interrupt) = interrupt else {
-            return Watchdog {
-                cancel: None,
-                fired,
-                thread: None,
-            };
-        };
-        let (cancel, cancelled) = channel::<()>();
-        let flag = fired.clone();
-        let thread = std::thread::Builder::new()
-            .name("exact-render-deadline".into())
-            .spawn(move || {
-                let wait = until.saturating_duration_since(Instant::now());
-                if cancelled.recv_timeout(wait) == Err(RecvTimeoutError::Timeout) {
-                    flag.store(true, Ordering::SeqCst);
-                    interrupt.trigger();
-                }
-            })
-            .ok();
-        Watchdog {
-            cancel: Some(cancel),
-            fired,
-            thread,
-        }
+        let armed =
+            interrupt.map(|interrupt| Deadlines::get().arm(until, interrupt, fired.clone()));
+        Watchdog { armed, fired }
     }
 
     fn fired(&self) -> bool {
@@ -357,10 +337,78 @@ impl Watchdog {
 }
 
 impl Drop for Watchdog {
+    /// Disarmed, its interrupt never triggers: an entry fires under the
+    /// same lock that removes it.
     fn drop(&mut self) {
-        drop(self.cancel.take());
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+        if let Some(id) = self.armed.take() {
+            Deadlines::get().disarm(id);
+        }
+    }
+}
+
+/// The renders' armed deadlines and the one thread that fires them.
+struct Deadlines {
+    armed: Mutex<(u64, Vec<Deadline>)>,
+    changed: Condvar,
+}
+
+struct Deadline {
+    id: u64,
+    until: Instant,
+    interrupt: Interrupt,
+    fired: Arc<AtomicBool>,
+}
+
+impl Deadlines {
+    fn get() -> &'static Deadlines {
+        static DEADLINES: OnceLock<&'static Deadlines> = OnceLock::new();
+        DEADLINES.get_or_init(|| {
+            let deadlines: &'static Deadlines = Box::leak(Box::new(Deadlines {
+                armed: Mutex::new((0, Vec::new())),
+                changed: Condvar::new(),
+            }));
+            std::thread::Builder::new()
+                .name("exact-render-deadline".into())
+                .spawn(move || deadlines.run())
+                .expect("the deadline thread starts");
+            deadlines
+        })
+    }
+
+    fn arm(&self, until: Instant, interrupt: Interrupt, fired: Arc<AtomicBool>) -> u64 {
+        let mut armed = self.armed.lock().unwrap();
+        armed.0 += 1;
+        let id = armed.0;
+        armed.1.push(Deadline {
+            id,
+            until,
+            interrupt,
+            fired,
+        });
+        self.changed.notify_one();
+        id
+    }
+
+    fn disarm(&self, id: u64) {
+        self.armed.lock().unwrap().1.retain(|d| d.id != id);
+    }
+
+    fn run(&self) {
+        let mut armed = self.armed.lock().unwrap();
+        loop {
+            let now = Instant::now();
+            armed.1.retain(|d| {
+                if d.until > now {
+                    return true;
+                }
+                d.fired.store(true, Ordering::SeqCst);
+                d.interrupt.trigger();
+                false
+            });
+            armed = match armed.1.iter().map(|d| d.until).min() {
+                Some(next) => self.changed.wait_timeout(armed, next - now).unwrap().0,
+                None => self.changed.wait(armed).unwrap(),
+            };
         }
     }
 }
