@@ -1049,6 +1049,19 @@ state" and SwiftUI parity, 2026-09-30): land it. A returning row taking its
 own parked map is what SwiftUI's cell identity does, so an identity return
 does not count toward the reuse limit (§5.2.1).
 
+**Landing soak** at `6daf6e98` (stamped build, fling, three alternating
+rounds against the SwiftUI baseline at LOCK_PRIO=0, no crash logs,
+2026-09-30):
+
+| | peak MB | CPU ms/s | fps |
+|---|---|---|---|
+| iPhone, map feed | 917 (SwiftUI 1,109) | 2,891 (3,246) | 88.8 (42.9) |
+| iPhone, 19-kind feed | 271 (246) | 616 (633) | 114.3 (100.1) |
+
+The 19-kind feed's CPU is now under SwiftUI's. Its peak swings by 50 MB a
+round on both sides (exact2 241–294, SwiftUI 245–299). The iPad was down for
+the soak (its launches hang); its rounds are owed.
+
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
 **Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about
