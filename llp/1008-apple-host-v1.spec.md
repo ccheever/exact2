@@ -661,8 +661,43 @@ The session account changes capacity without resetting interests or releasing
 live backing owners. Shrinking drops cold images and prevents further
 allocation while surviving charges exceed the new capacity; growth wakes
 queued decodes. AppKit follows its view's backing-properties callback through
-the same capacity seam. The iOS deployment floor remains 17; Xcode 27.1's SDK
-is needed to exercise Duo's full-screen layouts and reserved regions.
+the same capacity seam. The iOS deployment floor remains 17.
+
+*Exercised on the iPhone Duo simulator (Xcode 27.1 beta 27A9269, iOS 27.1
+24A94401, 2026-09-30)*, headlessly: the hinge through the vendor HID event
+Device Hub's slider sends, orientation and captures through `devicectl`, the
+apps through the agent socket. Closed, the cover panel is 466×678 pt; open
+(180°), book (130°) and half (90°) light the inner panel, 951×669 pt; this beta
+puts the status bar in an 84-pt strip on the right of both panels and the home
+indicator at the bottom, so the safe area is `right: 84, bottom: 34` on either,
+with a transient `top: 82` layout while the panels switch. Across every pose
+change, in both directions: a cover root fills the new panel and its content
+keeps out of the new insets, a non-cover viewport is the panel less the insets,
+the software keyboard rises and `resizes-content`'s bar rides it, a focused
+field keeps its text and focus, a pushed screen and a presented sheet survive,
+a scrolled list keeps its offset, and the two-session sample host's panes both
+follow (the `insets`, `keyboard-bar`, Caltrain, Messages, Fieldnotes and host
+sweeps). Not exercised: rotation and Split View, which this beta's simulator
+does not honour from CoreDevice (`devicectl device orientation set` is accepted
+and changes nothing; Device Hub's own rotate goes through an accessibility
+path) — rotation was exercised with the same bundles on the iOS 27.0 iPhone
+simulator instead — and a resizable app session, refused for the same reason.
+
+*Reserved regions, evaluated.* UIKit 27.1 adds `UIView.reservedRegions(kind:)`
+and `UIHingeInteraction`. On the inner panel the simulator reports two
+`occlusion` regions (the camera, 58×37 at (677, 21); the status strip, 84×120
+at the right edge) and one `division` region, the fold: a 40-pt band at
+x = 455.5 with 20-pt margins, active while the hinge is partially open and
+inactive when flat; the cover panel reports only occlusions. The occlusions are
+already the safe-area insets the kernel gets. The division and the hinge map
+onto the web's own vocabulary and nothing else: the `device-posture` media
+feature (`folded` while a division is active, `continuous` otherwise) and the
+viewport segments (`horizontal-viewport-segments: 2`,
+`env(viewport-segment-width 0 0)` and its siblings, the division being the gap
+between segments). When a consumer wants a layout that respects the fold, that
+is the surface: fed from the division region and `UIHingeInteraction` on
+Apple, from `navigator.devicePosture` and the viewport segments on the web.
+Nothing today needs it; no kernel row exists for it yet (QUEUE).
 
 **Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** The Rust host
 emits the coalesced `router{top,url,removed}` op at boot and beside commands
