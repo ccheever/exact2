@@ -1,8 +1,10 @@
 // Type Tour: a handful of phone-OS screens set entirely in two faces from
 // the Expose type program, to feel them in context on a real phone —
-// Exciting Lilt (the display face: one Bold, 17px and up) for the moments
-// the system speaks loudest, and Exposure Sans Original 03 (the text face:
-// four weights and an italic) for everything else. Nothing here is a real
+// Exciting Lilt (the display face: Semibold and Bold, 17px and up) for the
+// moments the system speaks loudest, and Exposure Sans Original 10 (the text
+// face: four weights and an italic) for everything else. Lilt's Bold carries
+// titles and actions from 17 to 36px, where it matches Sans Bold's colour; its
+// Semibold carries the large numerals, the clock and the 48px-and-up sizes. Nothing here is a real
 // app. The screens are authored, the taps move between them, and the
 // "data" is the words on the screen. A lock screen, a home screen, Settings
 // with a Display & Text Size page that scales the text, and Messages with
@@ -13,13 +15,14 @@
 // with an older Exposure Sans installed still renders this exact build.
 
 font "Exposure Sans"
-  400 = "assets/ExposureSansOriginal03-Regular.ttf"
-  400 italic = "assets/ExposureSansOriginal03-Italic.ttf"
-  500 = "assets/ExposureSansOriginal03-Medium.ttf"
-  600 = "assets/ExposureSansOriginal03-Semibold.ttf"
-  700 = "assets/ExposureSansOriginal03-Bold.ttf"
+  400 = "assets/ExposureSansOriginal10-Regular.ttf"
+  400 italic = "assets/ExposureSansOriginal10-Italic.ttf"
+  500 = "assets/ExposureSansOriginal10-Medium.ttf"
+  600 = "assets/ExposureSansOriginal10-Semibold.ttf"
+  700 = "assets/ExposureSansOriginal10-Bold.ttf"
 
 font "Exciting Lilt"
+  600 = "assets/ExcitingLilt-Semibold.ttf"
   700 = "assets/ExcitingLilt-Bold.ttf"
 
 component TypeTour
@@ -81,7 +84,7 @@ component TypeTour
         column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" background-color="#0c0c0e" color="#ffffff" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
           button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=28 padding-bottom=8
             text "Sunday, September 14" font-size=22 font-weight=500 color="#ffffffd9"
-            text "9:41" font-family="Exciting Lilt" font-weight=700 font-size=112 line-height="120px" letter-spacing=-3 color="#ffffff"
+            text "9:41" font-family="Exciting Lilt" font-weight=600 font-size=112 line-height="120px" letter-spacing=-3 color="#ffffff"
           column flex=1 min-height=0 padding-left=16 padding-right=16 padding-top=18 gap=10
             Notification(id="nico", glyph="M", title="Nico", body="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", time="now", press=openThread("nico"))
             Notification(id="crew", glyph="M", title="Type Crew", body="James: I still think the g needs a smaller ear", time="12m ago", press=openThread("crew"))
@@ -109,14 +112,14 @@ component TypeTour
                 column flex=1 height=158 border-radius=22 background-color="#ffffff" padding=16 box-sizing="border-box" justify-content="space-between" color="#0c0c0e"
                   column
                     text "SUNDAY" font-size=12 font-weight=600 letter-spacing=1 color="#6e6e73"
-                    text "14" font-family="Exciting Lilt" font-weight=700 font-size=52 line-height="54px"
+                    text "14" font-family="Exciting Lilt" font-weight=600 font-size=52 line-height="54px"
                   column gap=1
                     text "Type review" font-size=13 font-weight=600
                     text "2:00 – 3:00 PM · Studio" font-size=12 color="#6e6e73"
                 column flex=1 height=158 border-radius=22 background-color="#2c2c2e" padding=16 box-sizing="border-box" justify-content="space-between"
                   column
                     text "Palo Alto" font-size=15 font-weight=600
-                    text "68°" font-family="Exciting Lilt" font-weight=700 font-size=52 line-height="54px"
+                    text "68°" font-family="Exciting Lilt" font-weight=600 font-size=52 line-height="54px"
                   column gap=1
                     text "Partly cloudy" font-size=13 font-weight=500
                     text "H:74°  L:55°" font-size=12 color="#ffffff99"
@@ -203,7 +206,7 @@ component TypeTour
                 SettingsRow(id="app-lock", glyph="L", title="Lock Screen", value="", last=true, scale=scale, to="lock", press=go)
               column align-items="center" gap=4 margin-top=28
                 text "Expose 1.0 (26A1)" font-size=13 color="light-dark(#8e8e93, #98989d)"
-                text "Set in Exposure Sans Original 03 and Exciting Lilt v4" font-size=13 font-style="italic" color="light-dark(#8e8e93, #98989d)" text-align="center"
+                text "Set in Exposure Sans Original 10 and Exciting Lilt v10" font-size=13 font-style="italic" color="light-dark(#8e8e93, #98989d)" text-align="center"
           HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
 
       // ------------------------------------------------- display & text size
@@ -251,8 +254,8 @@ component TypeTour
                   text "Expose 20" font-family="Exciting Lilt" font-weight=700 font-size=20
                   text "Expose 24" font-family="Exciting Lilt" font-weight=700 font-size=24
                   text "Expose 34" font-family="Exciting Lilt" font-weight=700 font-size=34
-                  text "Expose 48" font-family="Exciting Lilt" font-weight=700 font-size=48 line-height="52px"
-                  text "Expose 72" font-family="Exciting Lilt" font-weight=700 font-size=72 line-height="76px"
+                  text "Expose 48" font-family="Exciting Lilt" font-weight=600 font-size=48 line-height="52px"
+                  text "Expose 72" font-family="Exciting Lilt" font-weight=600 font-size=72 line-height="76px"
               column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=10
                 text "TOGETHER" font-size=13 color="light-dark(#6e6e73, #98989d)"
                 text "Update ready" font-family="Exciting Lilt" font-weight=700 font-size=22 line-height="26px"

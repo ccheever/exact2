@@ -2,9 +2,12 @@
 
 A handful of phone-OS screens set entirely in two faces from the Expose type
 program, to feel them in context on a real phone: **Exciting Lilt** (the
-display face: one Bold, 17 px and up) for clocks, titles, marks, and the few
-alerts that deserve attention, and **Exposure Sans Original 03** (the text
-face: Regular, Medium, Semibold, Bold, and an Italic) for everything else.
+display face: Semibold and Bold, 17 px and up) for clocks, titles, marks, and
+the few alerts that deserve attention, and **Exposure Sans Original 10** (the
+text face: Regular, Medium, Semibold, Bold, and an Italic) for everything else.
+Lilt's Bold sets titles and actions from 17 to 36 px, where it matches Sans
+Bold's colour. Its Semibold sets the clock, the widgets' large numerals and the
+48 px-and-up sizes.
 
 Nothing here is a real app. The screens are authored in `app.contract`, the
 taps move between them, and the data is the words on the screen. There is no
@@ -23,8 +26,8 @@ data crate to speak of (`data/` answers nothing) and no JavaScript.
 
 The home indicator at the bottom of every screen goes home.
 
-The faces are copies of `fonts/exciting-lilt/ExcitingLilt-Bold.ttf` (v4,
-2026-09-14) and `fonts/exposure-sans/original-03/*.ttf` (0.003) from the
+The faces are copies of `fonts/exciting-lilt/ExcitingLilt-{Semibold,Bold}.ttf`
+(v10, 2026-09-29) and `fonts/exposure-sans/original-10/*.ttf` (0.010) from the
 Expose repository, MIT-licensed there; re-copy them into `assets/` when a new
 build lands. Both families are declared in the Contract and bound to these
 bytes (LLP 1019 D3), so an installed font of the same name is never consulted.
