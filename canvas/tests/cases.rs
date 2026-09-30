@@ -451,3 +451,46 @@ fn the_shared_cases_hold_for_the_rust_recorder() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A palette cycled through more colours than the recorder keeps parsed
+/// records each paint's colour as a fresh context would.
+#[test]
+fn a_cycled_palette_records_what_a_fresh_parse_records() {
+    use exact_canvas::list::{records, Op};
+    let palette = [
+        "#ef4444",
+        "rgb(1 2 3 / 50%)",
+        "red",
+        "hsl(120 50% 50%)",
+        "#10b98180",
+        "oklch(0.7 0.1 200 / 0.8)",
+        "transparent",
+        "#3b82f6",
+        "rebeccapurple",
+    ];
+    let colours = |ctx: &Context2d| -> Vec<Vec<f64>> {
+        let mut out = Vec::new();
+        for l in ctx.take_lists() {
+            for r in records(&l).unwrap() {
+                if r.op == Op::FillColor {
+                    out.push(r.operands().collect());
+                }
+            }
+        }
+        out
+    };
+    let cycled = Context2d::new();
+    for i in 0..40 {
+        cycled.set_fill_style_str(palette[(i * 7) % palette.len()]);
+        cycled.fill_rect(0.0, 0.0, 1.0, 1.0);
+    }
+    let got = colours(&cycled);
+    let mut want = Vec::new();
+    for i in 0..40 {
+        let fresh = Context2d::new();
+        fresh.set_fill_style_str(palette[(i * 7) % palette.len()]);
+        fresh.fill_rect(0.0, 0.0, 1.0, 1.0);
+        want.extend(colours(&fresh));
+    }
+    assert_eq!(got, want);
+}

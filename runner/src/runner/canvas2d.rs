@@ -739,12 +739,7 @@ impl CanvasEngine for Canvases {
             }
         }
         r.gradients = gradients;
-        r.text = reply.lists.iter().any(|l| {
-            list::records(l).is_ok_and(|recs| {
-                recs.iter()
-                    .any(|x| matches!(x.op, list::Op::FillText | list::Op::StrokeText))
-            })
-        });
+        r.text = reply.lists.iter().any(|l| list::draws_text(l));
         r.applied_seq = seq;
         r.draws += 1;
         r.last_draw = Some(now);

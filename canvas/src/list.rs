@@ -309,6 +309,25 @@ pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
     Ok(out)
 }
 
+/// Whether a list draws text (`FillText` or `StrokeText`), reading only the
+/// record headers: the runner asks of every list it accepts, and decoding
+/// every record for it was half of a full-screen canvas's reply.
+pub fn draws_text(bytes: &[u8]) -> bool {
+    let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    if bytes.len() < HEADER || word(0) != MAGIC {
+        return false;
+    }
+    let mut at = HEADER;
+    while at + 8 <= bytes.len() {
+        let (code, n) = (word(at), word(at + 4) as usize);
+        if code == Op::FillText as u32 || code == Op::StrokeText as u32 {
+            return true;
+        }
+        at = at.saturating_add(8).saturating_add(n.saturating_mul(8));
+    }
+    false
+}
+
 /// [`records`], one at a time to `f`, without collecting them; the count.
 fn each<'a>(
     bytes: &'a [u8],
@@ -502,6 +521,28 @@ mod tests {
         assert_eq!(recs.len(), 3);
         assert_eq!((recs[0].op, recs[0].at(1)), (Op::MoveTo, 2.0));
         assert_eq!(recs[1].len(), 6);
+    }
+
+    #[test]
+    fn the_text_scan_reads_headers_only() {
+        let mut w = Writer::new();
+        w.op(Op::MoveTo, &[1.0, 2.0]);
+        w.op(
+            Op::Font,
+            &[10.0, 400.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 115.0],
+        );
+        let plain = w.finish();
+        assert!(!draws_text(&plain));
+        let mut w = Writer::new();
+        w.op(Op::MoveTo, &[1.0, 2.0]);
+        w.op(Op::StrokeText, &[0.0, 10.0, 1.0, 0.0, 65.0]);
+        let text = w.finish();
+        assert!(draws_text(&text));
+        assert!(!draws_text(b"nope"));
+        assert!(
+            !draws_text(&text[..text.len() - 48]),
+            "a truncated list ends the scan"
+        );
     }
 
     #[test]

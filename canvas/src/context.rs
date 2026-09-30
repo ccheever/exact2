@@ -194,6 +194,9 @@ impl Default for State {
     }
 }
 
+/// How many parsed colour strings a context keeps.
+const COLOR_CACHE: usize = 8;
+
 #[derive(Default)]
 pub(crate) struct Inner {
     pub(crate) state: State,
@@ -208,6 +211,11 @@ pub(crate) struct Inner {
     pub(crate) image_ids: Vec<(String, u32)>,
     pub(crate) env: Env,
     notes: Vec<String>,
+    /// The last few colour strings a style was set to, parsed: a draw that
+    /// cycles through a palette parses each string once (F2 sets one of six
+    /// colours 3,000 times a frame). `currentColor` is not kept: it follows
+    /// the node.
+    colors: Vec<(Box<str>, Rgba, Option<Arc<str>>)>,
 }
 
 impl std::fmt::Debug for Inner {
@@ -311,12 +319,20 @@ impl Inner {
     }
 
     /// A colour assignment's value, with `currentColor` resolved.
-    pub(crate) fn color(&self, v: &str) -> Option<(Rgba, Option<Arc<str>>)> {
-        match color::parse(v)? {
-            Parsed::Color(c) => Some((c, None)),
-            Parsed::Wide(c, text) => Some((c, Some(text.into()))),
-            Parsed::Current => Some((self.env.current_color.unwrap_or(Rgba::BLACK), None)),
+    pub(crate) fn color(&mut self, v: &str) -> Option<(Rgba, Option<Arc<str>>)> {
+        if let Some((_, c, text)) = self.colors.iter().find(|(k, ..)| &**k == v) {
+            return Some((*c, text.clone()));
         }
+        let (c, text) = match color::parse(v)? {
+            Parsed::Color(c) => (c, None),
+            Parsed::Wide(c, text) => (c, Some(Arc::<str>::from(text))),
+            Parsed::Current => return Some((self.env.current_color.unwrap_or(Rgba::BLACK), None)),
+        };
+        if self.colors.len() == COLOR_CACHE {
+            self.colors.remove(0);
+        }
+        self.colors.push((v.into(), c, text.clone()));
+        Some((c, text))
     }
 
     pub(crate) fn note(&mut self, line: String) {
