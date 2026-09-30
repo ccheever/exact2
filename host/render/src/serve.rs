@@ -242,11 +242,26 @@ impl Server {
                         }
                     };
                     let (mut stream, mut keep) = handle(stream, &shared, data);
-                    // A kept connection's next request, on this worker.
-                    while keep && crate::stream::idle(&stream, state, &stop) {
-                        (stream, keep) = handle(stream, &shared, data);
-                    }
-                    answered = Some(stream);
+                    // A kept connection's next request: on this worker when
+                    // no other connection waits, else behind the ones that
+                    // do. Serving it at once let as many connections as
+                    // there are workers take every render while the rest
+                    // waited (RealWorld at concurrency 64, 12 renders: p95
+                    // 2-3x the median).
+                    answered = loop {
+                        if !keep || !crate::stream::idle(&stream, state, &stop) {
+                            break Some(stream);
+                        }
+                        let mut waiting = state.lock().unwrap();
+                        if waiting.0.is_empty() {
+                            drop(waiting);
+                            (stream, keep) = handle(stream, &shared, data);
+                            continue;
+                        }
+                        waiting.0.push_back(stream);
+                        ready.notify_one();
+                        break None;
+                    };
                 }
             });
         }
