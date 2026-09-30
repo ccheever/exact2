@@ -233,7 +233,10 @@ export async function canvasParity({ open, check, hosts, only }) {
       writeFileSync(resolve(pair, `ref-${key}-${id}.png`), encodePng(a));
     }
   };
-  const runs = hosts.flatMap((host) => (host === 'linux' ? [['linux', { EXACT_PAINTER: 'cpu' }], ['linux', { EXACT_PAINTER: 'gpu' }]] : [[host, undefined]]));
+  // The Apple hosts take this run's Canvas 2D switches (EXACT_CANVAS_GPU,
+  // EXACT_CANVAS_RECORD, EXACT_CANVAS_DUMP): a simulator sees only what is passed.
+  const apple = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('EXACT_CANVAS_')));
+  const runs = hosts.flatMap((host) => (host === 'linux' ? [['linux', { EXACT_PAINTER: 'cpu' }], ['linux', { EXACT_PAINTER: 'gpu' }]] : [[host, Object.keys(apple).length ? apple : undefined]]));
   if (only !== 'caltrain') await gallery({ open, check, dir, record, runs });
   // 3. Caltrain's line map against Chrome's.
   let chromeMap = null;

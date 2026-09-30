@@ -1093,6 +1093,21 @@ function main(args) {
   // scripts), even at `strip = "debuginfo"`.
   runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
   copyFileSync(resolve(svgTarget, target, 'release', 'libexact_svg_raster.dylib'), svgBuilt);
+  // The Canvas 2D GPU module (@ref LLP 1056 §8.5): exact-canvas-vello as its
+  // own dylib, never linked into the presenter; Canvas2DGpu.swift dlopens it
+  // the first time a canvas that animates draws. Its shaders are Metal
+  // libraries compiled at build time, which needs Xcode's Metal toolchain;
+  // without it the app is built without the module (canvases draw with Core
+  // Graphics), and this says how to install it.
+  const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
+  const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
+  const canvasGpuBuilt = metal ? resolve(webBuildDir, canvasGpuLoadName) : null;
+  if (metal) {
+    runApple('cargo', ['build', '--release', '-p', 'exact-canvas-vello', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
+    copyFileSync(resolve(svgTarget, target, 'release', 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
+  } else {
+    console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
+  }
   const t2 = Date.now();
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
@@ -1130,6 +1145,11 @@ function main(args) {
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
     rmSync(resolve(binDir, svgLoadName), { force: true });
     copyFileSync(svgBuilt, resolve(binDir, svgLoadName));
+    rmSync(resolve(binDir, canvasGpuLoadName), { force: true });
+    if (canvasGpuBuilt) {
+      copyFileSync(canvasGpuBuilt, resolve(binDir, canvasGpuLoadName));
+      run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, canvasGpuLoadName)], { stdio: 'ignore' });
+    }
     // The app's kept secrets live in the login keychain, whose ACL trusts the
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
@@ -1170,7 +1190,7 @@ function main(args) {
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
-      for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
@@ -1179,7 +1199,7 @@ function main(args) {
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
-      for (const file of [webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -1219,6 +1239,7 @@ function main(args) {
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
+  if (canvasGpuBuilt) copyFileSync(canvasGpuBuilt, resolve(bundle, 'Frameworks', canvasGpuLoadName));
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');

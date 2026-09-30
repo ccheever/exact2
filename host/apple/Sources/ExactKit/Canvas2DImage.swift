@@ -75,6 +75,11 @@ final class Canvas2DHost: Canvas2DEnv {
     private var kept: [UInt32: Canvas2DKept] = [:]
     /// Each recorded canvas's recording layer, over its bitmap.
     private var recorders: [UInt32: Canvas2DRecordLayer] = [:]
+    /// The canvases the GPU module draws (`Canvas2DGpu.swift`): touched only
+    /// on `replay`.
+    private var gpus: [UInt32: Canvas2DGpuCanvas] = [:]
+    /// Canvases whose fresh bitmap has had no lists yet (replay queue).
+    private var undrawn: Set<UInt32> = []
     /// Tests (and the parity smoke, EXACT_CANVAS_RECORD=always) record every
     /// canvas the policy allows, animating or not.
     static var recordAlways = ProcessInfo.processInfo.environment["EXACT_CANVAS_RECORD"] == "always"
@@ -99,6 +104,18 @@ final class Canvas2DHost: Canvas2DEnv {
     /// replay's pixels are never shown over a newer one's.
     private var sequence: [UInt32: Int] = [:]
     private var shown: [UInt32: Int] = [:]
+    /// Sequence numbers run across every canvas and never restart, and each
+    /// canvas remembers the first one of its present life: a replay still
+    /// running when its view was retired never shows on the view that
+    /// reuses its id (found by the GPU stress test, 2026-09-29).
+    private var nextSeq = 0
+    private var born: [UInt32: Int] = [:]
+    /// Each canvas's lifetime as the main thread last applied it: a
+    /// retirement removes only what that lifetime made on the replay queue,
+    /// since a replay already queued may have made the next lifetime's
+    /// canvas before the retirement's cleanup runs (found by the stress
+    /// test).
+    private var lifetimes: [UInt32: UInt64] = [:]
     /// Each canvas's replay not yet started, under `lock` (the replay queue
     /// takes it).
     private var waiting: [UInt32: Canvas2DJob] = [:]
@@ -161,6 +178,7 @@ final class Canvas2DHost: Canvas2DEnv {
         guard let parent else { return }
         let num = { (key: String) -> Double in (payload[key] as? NSNumber)?.doubleValue ?? 0 }
         let lifetime = UInt64(num("lifetime")), generation = UInt32(num("generation"))
+        lifetimes[id] = lifetime
         let fresh = (payload["fresh"] as? NSNumber)?.boolValue == true
         let (w, h, scale) = (Int(num("w")), Int(num("h")), num("scale"))
         let lists: [Data?] = payload["lists"] as? [Data] ?? []
@@ -207,7 +225,9 @@ final class Canvas2DHost: Canvas2DEnv {
             for f in Canvas2DReplayer.fonts(in: data) where again.insert(f).inserted { resolved[f] = canvasFont(f) }
         }
         let fonts = resolved
-        let seq = (sequence[id] ?? 0) + 1
+        nextSeq += 1
+        let seq = nextSeq
+        if sequence[id] == nil { born[id] = seq }
         sequence[id] = seq
         let job = Canvas2DJob(fresh: fresh, w: w, h: h, scale: scale, lifetime: lifetime, generation: generation,
                               lists: lists, images: images, fonts: fonts, seq: seq)
@@ -252,6 +272,40 @@ final class Canvas2DHost: Canvas2DEnv {
         var unreadable = 0
         let lists = job.lists.compactMap { $0 }
         unreadable += job.lists.count - lists.count
+        // The GPU (LLP 1056 §8.5): a canvas is given to the module when its
+        // bitmap is made, if it animates then (or always, for the parity
+        // smoke), and stays with it until its next fresh bitmap.
+        // Decided at the first lists a fresh bitmap gets (a fresh bitmap's
+        // first job often carries none: its draw has not run yet), when
+        // nothing drawn before has to be carried over.
+        if job.fresh { gpus[id] = nil; undrawn.insert(id) }
+        if undrawn.contains(id), !lists.isEmpty {
+            undrawn.remove(id)
+            if Canvas2DGpuModule.mode == .always || job.animating, let m = Canvas2DGpuModule.shared,
+               let g = Canvas2DGpuCanvas(module: m, width: job.w, height: job.h, scale: job.scale, lifetime: job.lifetime, generation: job.generation) {
+                gpus[id] = g
+                replayers[id] = nil
+            }
+        }
+        if let g = gpus[id], g.lifetime == job.lifetime, g.generation == job.generation {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let (surface, bad) = g.replay(lists, env: env)
+            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            if bad { unreadable += 1 }
+            if surface == nil { gpus[id] = nil; Canvas2DGpuModule.log("canvas gpu: canvas \(id) failed; Core Graphics draws its next bitmap") }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pending -= 1
+                for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
+                guard let surface, self.sequence[id] != nil, job.seq >= self.born[id] ?? .max, job.seq > self.shown[id] ?? 0,
+                      let layer = self.layers[id] else { return }
+                self.shown[id] = job.seq
+                layer.contents = surface
+                self.recorders[id]?.hide()
+                Canvas2DStats.shown(gpu: true, recorded: false, ms: ms)
+            }
+            return
+        }
         for data in lists { k.keep(data) }
         // The policy (LLP 1056 §8.4): recorded while it animates, from a
         // cover, drawing nothing a recording draws differently, within the
@@ -295,9 +349,11 @@ final class Canvas2DHost: Canvas2DEnv {
             for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
             // The newest replay done of a canvas still mounted shows: the
             // bitmap, or the recording.
-            guard self.sequence[id] != nil, job.seq > self.shown[id] ?? 0, let layer = self.layers[id] else { return }
+            guard self.sequence[id] != nil, job.seq >= self.born[id] ?? .max, job.seq > self.shown[id] ?? 0,
+                  let layer = self.layers[id] else { return }
             self.shown[id] = job.seq
             layer.contents = contents
+            Canvas2DStats.shown(gpu: false, recorded: recording != nil, ms: 0)
             if let recording {
                 let r = self.recorders[id] ?? { let r = Canvas2DRecordLayer(); layer.addSublayer(r); self.recorders[id] = r; return r }()
                 r.show(recording)
@@ -336,9 +392,17 @@ final class Canvas2DHost: Canvas2DEnv {
         // Every retired view is forgotten here; only a canvas has a replayer.
         guard sequence.removeValue(forKey: id) != nil else { return }
         shown.removeValue(forKey: id)
+        born.removeValue(forKey: id)
         lock.lock(); waiting.removeValue(forKey: id); lock.unlock()
         recorders.removeValue(forKey: id)
-        replay.async { [weak self] in self?.replayers.removeValue(forKey: id); self?.kept.removeValue(forKey: id) }
+        let retired = lifetimes.removeValue(forKey: id)
+        replay.async { [weak self] in
+            guard let self else { return }
+            if self.replayers[id]?.lifetime == retired { self.replayers.removeValue(forKey: id) }
+            if self.kept[id]?.tracker.lifetime == retired { self.kept.removeValue(forKey: id) }
+            if self.gpus[id]?.lifetime == retired { self.gpus.removeValue(forKey: id) }
+            if self.kept[id] == nil { self.undrawn.remove(id) }
+        }
         layers.removeValue(forKey: id)?.removeFromSuperlayer()
     }
 }
