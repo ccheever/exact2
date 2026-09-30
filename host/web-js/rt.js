@@ -169,6 +169,7 @@ export function commit(f, what = "commit") {
   }
   const [out, cmds, landed] = [Out, Commands, Landed];
   Writes = null;
+  unpark();
   for (const f of Before) f();
   // Presence measures what it tracks before the tree changes (LLP 1063).
   Pres?.before({ ops: [] }, Views);
@@ -286,11 +287,19 @@ function paint() {
     if (clock.agent || !clock.timers.some(t => t.frame)) return;
     painting = requestAnimationFrame(frame);
     advance(Math.max(clock.now, ts - start), true);
-    const at = clock.now;
+    const at = clock.now, rev = Rev, ticket = Ticket;
+    NowRead = false;
     for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t); }
+    // Frames whose tasks changed nothing and read no clock would change
+    // nothing again until state does: the loop parks until a commit writes
+    // (skipping a frame that would commit nothing is unobservable).
+    if (Rev === rev && Ticket === ticket && !NowRead) { cancelAnimationFrame(painting); painting = 0; Parked = Rev; }
     drive();
   });
 }
+let NowRead = false, Parked = -1;
+/** After a commit that wrote: a parked frame loop runs again. */
+function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); } }
 
 // ---------------------------------------------------------------- the data seam
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
@@ -650,6 +659,14 @@ export function nm(e) {
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
+const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
+/** `t` as the browser serializes it on `prop`, once per value. */
+function normal(prop, t) {
+  const k = prop + "\0" + t;
+  let v = Normal.get(k);
+  if (v === undefined) { (Scratch ??= document.createElement("i").style).setProperty(prop, t); Normal.set(k, v = same(Scratch.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
+  return v;
+}
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
@@ -661,8 +678,8 @@ function css(e, prop, unit, v, rendered) {
   // shows is not written again (a write restyles and repaints the node).
   // (`transparent` is the color the renderer writes as rgba(0, 0, 0, 0).)
   if (rendered) {
-    const now = e.style.getPropertyValue(prop), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
-    if (t == null ? !now : ((Scratch ??= document.createElement("i").style).setProperty(prop, t), same(now) === same(Scratch.getPropertyValue(prop)))) return;
+    const now = e.style.getPropertyValue(prop);
+    if (t == null ? !now : same(now) === normal(prop, t)) return;
   }
   if (t == null) return e.style.removeProperty(prop);
   // A value the row refuses is invalid at computed-value time: unset,
@@ -1236,7 +1253,7 @@ const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ?
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */
 export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
-export const x_now = () => read(Now);
+export const x_now = () => { NowRead = true; return read(Now); };
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor, x_max = Math.max, x_min = Math.min;
