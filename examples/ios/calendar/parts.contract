@@ -141,15 +141,17 @@ component ThemeChoice
   props
     value: number
     title: string
-    detail: string
     wallpaper: string
     selected: number
     pick: action
   view
-    button press=pick(value) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) width="100%" height=80 flex-shrink=0 box-sizing="border-box" padding-left=12 padding-right=16 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? "#d87f9a" : "#eeeeef") border-radius=16 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" gap=14
-      image wallpaper width=54 height=58 flex-shrink=0 object-fit="cover" border-radius=9 pointer-events="none"
-      column flex=1 min-width=0 gap=4 align-items="flex-start"
-        text title font-size=16 font-weight=600 color="#2a2a2d"
-        text detail font-size=12 color="#85858d"
+    button press=pick(value) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) position="relative" flex=1 min-width=0 height=148 box-sizing="border-box" padding=8 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? "#d87f9a" : "#eeeeef") border-radius=16 background-color="#ffffff" display="flex" flex-direction="column" align-items="center" gap=8
+      when value == 0
+        box width="100%" height=96 flex-shrink=0 border-radius=10 background-color="#f7f7f9" display="flex" align-items="center" justify-content="center"
+          image "symbol:calendar" font-size=30 tint-color="#FA7070"
+      else
+        image wallpaper width="100%" height=96 flex-shrink=0 object-fit="cover" border-radius=10 pointer-events="none"
+      text title font-size=13 font-weight=600 line-height="18px" color="#2a2a2d" max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
       when selected == value
-        text "✓" font-size=18 color="#d87f9a"
+        box position="absolute" top=14 right=14 width=22 height=22 border-radius=11 background-color="#ffffff" display="flex" align-items="center" justify-content="center"
+          text "✓" font-size=15 font-weight=600 color="#d87f9a"

@@ -1127,20 +1127,16 @@ component Calendar
             button press=closeThemes testId="close-themes" class=QuietButton background-color="#ffffff00" border-radius=0 width=36 height=36
               image "symbol:close" font-size=14 tint-color="#77777e"
           scroll testId="theme-list" flex=1 min-height=0 overflow-x="hidden"
-            column padding-left=16 padding-right=16 padding-bottom=20 gap=10
-              button press=chooseTheme(0) testId="theme-0" aria-label="Use Classic theme" aria-selected=(theme == 0) width="100%" height=80 flex-shrink=0 box-sizing="border-box" padding-left=12 padding-right=16 border-width=(theme == 0 ? 2 : 1) border-style="solid" border-color=(theme == 0 ? "#d87f9a" : "#eeeeef") border-radius=16 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" gap=14
-                box width=54 height=58 border-radius=9 border-width=1 border-style="solid" border-color="#eeeeef" background-color="#ffffff" display="flex" align-items="center" justify-content="center"
-                  image "symbol:calendar" font-size=24 tint-color="#FA7070"
-                column flex=1 min-width=0 gap=4 align-items="flex-start"
-                  text "Classic" font-size=16 font-weight=600 color="#2a2a2d"
-                  text "Clean white calendar" font-size=12 color="#85858d"
-                when theme == 0
-                  text "✓" font-size=18 color="#d87f9a"
-              ThemeChoice(value=1, title="Blush Notebook", detail="Playful pink stationery", wallpaper="assets/themes/blush.png", selected=theme, pick=chooseTheme)
-              ThemeChoice(value=2, title="Paris Haze", detail="Watercolor travel journal", wallpaper="assets/themes/paris.png", selected=theme, pick=chooseTheme)
-              ThemeChoice(value=3, title="Meadow Morning", detail="Soft cream and green", wallpaper="assets/themes/meadow.png", selected=theme, pick=chooseTheme)
-              ThemeChoice(value=4, title="Lavender Sky", detail="Gentle twilight colors", wallpaper="assets/themes/lavender.png", selected=theme, pick=chooseTheme)
-              ThemeChoice(value=5, title="Linen Journal", detail="Warm paper and ink", wallpaper="assets/themes/linen.png", selected=theme, pick=chooseTheme)
+            column padding-left=16 padding-right=16 padding-bottom=20 gap=12
+              row gap=12
+                ThemeChoice(value=0, title="Classic", wallpaper="", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=1, title="Blush Notebook", wallpaper="assets/themes/blush.png", selected=theme, pick=chooseTheme)
+              row gap=12
+                ThemeChoice(value=2, title="Paris Haze", wallpaper="assets/themes/paris.png", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=3, title="Meadow Morning", wallpaper="assets/themes/meadow.png", selected=theme, pick=chooseTheme)
+              row gap=12
+                ThemeChoice(value=4, title="Lavender Sky", wallpaper="assets/themes/lavender.png", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=5, title="Linen Journal", wallpaper="assets/themes/linen.png", selected=theme, pick=chooseTheme)
       when popupOpen and (not dragging or returning) and not editorOpen and not pickerOpen and not stickerOpen
         box id="date-popup-backdrop" testId="date-popup-backdrop" press=closePopup aria-label="Close schedules" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(popupClosing ? 0 : returnOpacity * (1 - unit(popupTranslation / max(1, popupCap)))) transition=(returning ? returnTransition : (viewport.prefersReducedMotion or popupPanning ? "none" : `opacity ${popupClosing ? 180 : 200}ms ${popupClosing ? "ease-in" : "ease-out"}`))
       when popupOpen

@@ -36,7 +36,8 @@ and fades the content. Reduced motion skips these animations. Changes
 are saved in the app's local SQLite store.
 
 The theme button in the header opens Classic plus five wallpaper themes: Blush
-Notebook, Paris Haze, Meadow Morning, Lavender Sky, and Linen Journal. A theme
+Notebook, Paris Haze, Meadow Morning, Lavender Sky, and Linen Journal. The picker
+shows two columns of thumbnails with theme names underneath. A theme
 changes the calendar colors and wallpaper while keeping filled Event blocks the
 same shape, and remains selected after
 restarting the app.
