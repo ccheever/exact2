@@ -38,6 +38,8 @@ mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
+mod uniform;
+pub use uniform::FrameUniform;
 
 /// One frame's context.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -6,7 +6,7 @@
 use crate::shaders::aurora::{entry, module, Uniforms, CHILDREN, CHILDREN_SAMPLER, GROUP_0, U};
 use exact_gpu::json::text;
 use exact_gpu::wgpu;
-use exact_gpu::{Frame, Surface, SurfaceError, Value};
+use exact_gpu::{Frame, FrameUniform, Surface, SurfaceError, Value};
 
 /// The aurora surface: one input, a seed string (the selected station).
 #[derive(Default)]
@@ -24,12 +24,13 @@ struct Gpu {
     /// The shader generation the pipeline was built at (LLP 1030 D8).
     generation: u32,
     pipeline: wgpu::RenderPipeline,
-    uniforms: wgpu::Buffer,
+    /// Written in place each frame (`FrameUniform`); a bind group per slot.
+    uniforms: FrameUniform,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     /// A 1×1 transparent texture: the children when there are none.
     blank: wgpu::TextureView,
-    bind_group: wgpu::BindGroup,
+    bind_groups: Vec<wgpu::BindGroup>,
 }
 
 impl AuroraSurface {
@@ -79,7 +80,7 @@ impl Surface for AuroraSurface {
         let children = self.children.as_ref();
         let gpu = self.gpu.as_mut().unwrap();
         if self.rebind {
-            gpu.bind_group = bind_group(
+            gpu.bind_groups = bind_groups(
                 device,
                 &gpu.layout,
                 &gpu.uniforms,
@@ -95,7 +96,7 @@ impl Surface for AuroraSurface {
             height: h as f32,
             seed: self.seed,
         };
-        queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
+        let slot = gpu.uniforms.write(queue, &uniforms.bytes());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aurora"),
@@ -114,7 +115,7 @@ impl Surface for AuroraSurface {
                 multiview_mask: None,
             });
             pass.set_pipeline(&gpu.pipeline);
-            pass.set_bind_group(0, &gpu.bind_group, &[]);
+            pass.set_bind_group(0, &gpu.bind_groups[slot], &[]);
             pass.draw(0..3, 0..1);
         }
         // Lit from the clock: another frame, always.
@@ -133,6 +134,19 @@ impl Surface for AuroraSurface {
         self.children = texture.cloned();
         self.rebind = true;
     }
+}
+
+/// One bind group per uniform slot.
+fn bind_groups(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &FrameUniform,
+    children: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> Vec<wgpu::BindGroup> {
+    (0..uniforms.slots())
+        .map(|slot| bind_group(device, layout, uniforms.buffer(slot), children, sampler))
+        .collect()
 }
 
 fn bind_group(
@@ -212,13 +226,8 @@ fn build(
         },
     );
     let blank = blank_texture.create_view(&Default::default());
-    let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("aurora uniforms"),
-        size: Uniforms::SIZE as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let bind_group = bind_group(device, &layout, &uniforms, &blank, &sampler);
+    let uniforms = FrameUniform::new(device, Uniforms::SIZE, "aurora uniforms");
+    let bind_groups = bind_groups(device, &layout, &uniforms, &blank, &sampler);
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("aurora"),
         bind_group_layouts: &[Some(&layout)],
@@ -253,6 +262,6 @@ fn build(
         layout,
         sampler,
         blank,
-        bind_group,
+        bind_groups,
     }
 }

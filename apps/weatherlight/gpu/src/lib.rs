@@ -36,8 +36,9 @@ struct Gpu {
     format: wgpu::TextureFormat,
     generation: u32,
     pipeline: wgpu::RenderPipeline,
-    uniforms: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    /// Written in place each frame (`FrameUniform`); a bind group per slot.
+    uniforms: exact_gpu::FrameUniform,
+    bind_groups: Vec<wgpu::BindGroup>,
 }
 
 fn input(value: &Value, name: &str, maximum: f64) -> Result<f32, SurfaceError> {
@@ -95,7 +96,7 @@ impl Surface for WeatherSurface {
         {
             self.gpu = Some(build(device, format, frame.shader_generation));
         }
-        let gpu = self.gpu.as_ref().unwrap();
+        let gpu = self.gpu.as_mut().unwrap();
         let (width, height) = frame.pixels();
         let animation_ms = self.animation_ms.get_or_insert_with(|| {
             if self.animated {
@@ -122,7 +123,7 @@ impl Surface for WeatherSurface {
             hour: self.hour,
             wind: self.wind,
         };
-        queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
+        let slot = gpu.uniforms.write(queue, &uniforms.bytes());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("weather sky"),
@@ -141,7 +142,7 @@ impl Surface for WeatherSurface {
                 multiview_mask: None,
             });
             pass.set_pipeline(&gpu.pipeline);
-            pass.set_bind_group(0, &gpu.bind_group, &[]);
+            pass.set_bind_group(0, &gpu.bind_groups[slot], &[]);
             pass.draw(0..3, 0..1);
         }
         self.animated
@@ -151,20 +152,19 @@ impl Surface for WeatherSurface {
 fn build(device: &wgpu::Device, format: wgpu::TextureFormat, generation: u32) -> Gpu {
     let shader = device.create_shader_module(module());
     let layout = device.create_bind_group_layout(&GROUP_0);
-    let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("weather uniforms"),
-        size: Uniforms::SIZE as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("weather"),
-        layout: &layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: U.binding,
-            resource: uniforms.as_entire_binding(),
-        }],
-    });
+    let uniforms = exact_gpu::FrameUniform::new(device, Uniforms::SIZE, "weather uniforms");
+    let bind_groups = (0..uniforms.slots())
+        .map(|slot| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("weather"),
+                layout: &layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: U.binding,
+                    resource: uniforms.buffer(slot).as_entire_binding(),
+                }],
+            })
+        })
+        .collect();
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("weather"),
         bind_group_layouts: &[Some(&layout)],
@@ -196,7 +196,7 @@ fn build(device: &wgpu::Device, format: wgpu::TextureFormat, generation: u32) ->
         generation,
         pipeline,
         uniforms,
-        bind_group,
+        bind_groups,
     }
 }
 

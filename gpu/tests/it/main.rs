@@ -6,3 +6,4 @@ mod frame;
 mod idle;
 mod module;
 mod shaders;
+mod uniform;

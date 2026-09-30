@@ -8,7 +8,7 @@
 
 use exact_gpu::json::text;
 use exact_gpu::wgpu;
-use exact_gpu::{Frame, Surface, SurfaceError, Value};
+use exact_gpu::{Frame, FrameUniform, Surface, SurfaceError, Value};
 
 use crate::shaders::glass::{entry, module, Uniforms, CHILDREN, GROUP_0, PREVIOUS, SKY, SMP, U};
 use crate::AuroraSurface;
@@ -43,13 +43,14 @@ struct Gpu {
     generation: u32,
     sky_pipeline: wgpu::RenderPipeline,
     compose_pipeline: wgpu::RenderPipeline,
-    uniforms: wgpu::Buffer,
+    /// Written in place each frame (`FrameUniform`); bind groups per slot.
+    uniforms: FrameUniform,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     blank: wgpu::TextureView,
     sky: Option<(u32, u32, wgpu::TextureView)>,
-    sky_group: wgpu::BindGroup,
-    compose_group: wgpu::BindGroup,
+    sky_groups: Vec<wgpu::BindGroup>,
+    compose_groups: Vec<wgpu::BindGroup>,
 }
 
 impl GlassSurface {
@@ -141,15 +142,19 @@ impl Surface for GlassSurface {
         }
         if self.rebind {
             let sky = &gpu.sky.as_ref().unwrap().2;
-            gpu.compose_group = bind_group(
-                device,
-                &gpu.layout,
-                &gpu.uniforms,
-                sky,
-                children.unwrap_or(&gpu.blank),
-                previous.unwrap_or(children.unwrap_or(&gpu.blank)),
-                &gpu.sampler,
-            );
+            gpu.compose_groups = (0..gpu.uniforms.slots())
+                .map(|slot| {
+                    bind_group(
+                        device,
+                        &gpu.layout,
+                        gpu.uniforms.buffer(slot),
+                        sky,
+                        children.unwrap_or(&gpu.blank),
+                        previous.unwrap_or(children.unwrap_or(&gpu.blank)),
+                        &gpu.sampler,
+                    )
+                })
+                .collect();
             self.rebind = false;
         }
         // A change of children after a quiet spell starts a fade; the first
@@ -180,7 +185,7 @@ impl Surface for GlassSurface {
             sky_width: sw as f32,
             sky_height: sh as f32,
         };
-        queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
+        let slot = gpu.uniforms.write(queue, &uniforms.bytes());
         {
             let sky = &gpu.sky.as_ref().unwrap().2;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -200,7 +205,7 @@ impl Surface for GlassSurface {
                 multiview_mask: None,
             });
             pass.set_pipeline(&gpu.sky_pipeline);
-            pass.set_bind_group(0, &gpu.sky_group, &[]);
+            pass.set_bind_group(0, &gpu.sky_groups[slot], &[]);
             pass.draw(0..3, 0..1);
         }
         {
@@ -221,7 +226,7 @@ impl Surface for GlassSurface {
                 multiview_mask: None,
             });
             pass.set_pipeline(&gpu.compose_pipeline);
-            pass.set_bind_group(0, &gpu.compose_group, &[]);
+            pass.set_bind_group(0, &gpu.compose_groups[slot], &[]);
             pass.draw(0..3, 0..1);
         }
         // Lit from the clock, and a fade may be running: another frame, always.
@@ -346,15 +351,21 @@ fn build(
         },
     );
     let blank = blank_texture.create_view(&Default::default());
-    let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("glass uniforms"),
-        size: Uniforms::SIZE as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let uniforms = FrameUniform::new(device, Uniforms::SIZE, "glass uniforms");
     // The sky pass binds nothing it renders into: blanks all round.
-    let sky_group = bind_group(device, &layout, &uniforms, &blank, &blank, &blank, &sampler);
-    let compose_group = bind_group(device, &layout, &uniforms, &blank, &blank, &blank, &sampler);
+    let each = |slot| {
+        bind_group(
+            device,
+            &layout,
+            uniforms.buffer(slot),
+            &blank,
+            &blank,
+            &blank,
+            &sampler,
+        )
+    };
+    let sky_groups = (0..uniforms.slots()).map(each).collect();
+    let compose_groups = (0..uniforms.slots()).map(each).collect();
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("glass"),
         bind_group_layouts: &[Some(&layout)],
@@ -379,7 +390,7 @@ fn build(
         sampler,
         blank,
         sky: None,
-        sky_group,
-        compose_group,
+        sky_groups,
+        compose_groups,
     }
 }

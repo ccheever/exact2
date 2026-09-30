@@ -11,7 +11,7 @@
 
 use exact_gpu::json::{list, number, text};
 use exact_gpu::wgpu;
-use exact_gpu::{Frame, Placement, Surface, SurfaceError, Value};
+use exact_gpu::{Frame, FrameUniform, Placement, Surface, SurfaceError, Value};
 
 use crate::shaders::stack::{entry, module, Card as CardUniforms, CARD, GROUP_0, PICTURE, SMP};
 
@@ -71,8 +71,9 @@ struct CardState {
     velocity: [f32; 6],
     target: Pose,
     placement: Option<Placement>,
-    uniforms: Option<wgpu::Buffer>,
-    bind_group: Option<wgpu::BindGroup>,
+    /// Written in place each frame it moves (`FrameUniform`); a bind group per slot.
+    uniforms: Option<FrameUniform>,
+    bind_groups: Vec<wgpu::BindGroup>,
 }
 
 impl CardState {
@@ -85,7 +86,7 @@ impl CardState {
             target: Pose::ZERO,
             placement: None,
             uniforms: None,
-            bind_group: None,
+            bind_groups: Vec::new(),
         }
     }
 }
@@ -386,10 +387,10 @@ impl Surface for StackSurface {
         }
         if let Some(t) = texture {
             card.texture = Some(t.clone());
-            card.bind_group = None;
+            card.bind_groups.clear();
         } else {
             card.texture = None;
-            card.bind_group = None;
+            card.bind_groups.clear();
         }
         self.targets();
         self.settled = false;
@@ -416,7 +417,8 @@ impl Surface for StackSurface {
         {
             self.gpu = Some(build(device, format, frame.shader_generation));
             for card in &mut self.cards {
-                card.bind_group = None;
+                card.bind_groups.clear();
+                card.uniforms = None;
             }
         }
         let mut dt = self
@@ -433,7 +435,7 @@ impl Surface for StackSurface {
         let (cx, cy) = (frame.width / 2.0, frame.height / 2.0);
         let to_clip = clip(frame.width, frame.height);
         // Poses, uniforms, placements; then draw back to front.
-        let mut order: Vec<(usize, f32)> = Vec::with_capacity(self.cards.len());
+        let mut order: Vec<(usize, f32, usize)> = Vec::with_capacity(self.cards.len());
         for (i, card) in self.cards.iter_mut().enumerate() {
             let model = StackSurface::model(card, cx, cy);
             let hidden = card.pose.alpha < 0.01;
@@ -450,14 +452,9 @@ impl Surface for StackSurface {
             });
             let m = mul(&to_clip, &model);
             let gpu = self.gpu.as_ref().unwrap();
-            let uniforms = card.uniforms.get_or_insert_with(|| {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("card"),
-                    size: CardUniforms::SIZE as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                })
-            });
+            let uniforms = card
+                .uniforms
+                .get_or_insert_with(|| FrameUniform::new(device, CardUniforms::SIZE, "card"));
             let dim = if hidden { 0.0 } else { 1.0 };
             let column = |k: usize| [m[0][k], m[1][k], m[2][k], m[3][k]];
             let u = CardUniforms {
@@ -469,31 +466,35 @@ impl Surface for StackSurface {
                 size: [card.frame[2], card.frame[3]],
                 pad: [0.0, 0.0],
             };
-            queue.write_buffer(uniforms, 0, &u.bytes());
-            if card.bind_group.is_none() {
+            let slot = uniforms.write(queue, &u.bytes());
+            if card.bind_groups.is_empty() {
                 if let Some(texture) = &card.texture {
-                    card.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("card"),
-                        layout: &gpu.layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: CARD.binding,
-                                resource: uniforms.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: PICTURE.binding,
-                                resource: wgpu::BindingResource::TextureView(texture),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: SMP.binding,
-                                resource: wgpu::BindingResource::Sampler(&gpu.sampler),
-                            },
-                        ],
-                    }));
+                    card.bind_groups = (0..uniforms.slots())
+                        .map(|slot| {
+                            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("card"),
+                                layout: &gpu.layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: CARD.binding,
+                                        resource: uniforms.buffer(slot).as_entire_binding(),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: PICTURE.binding,
+                                        resource: wgpu::BindingResource::TextureView(texture),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: SMP.binding,
+                                        resource: wgpu::BindingResource::Sampler(&gpu.sampler),
+                                    },
+                                ],
+                            })
+                        })
+                        .collect();
                 }
             }
-            if !hidden && card.bind_group.is_some() {
-                order.push((i, card.pose.z));
+            if !hidden && !card.bind_groups.is_empty() {
+                order.push((i, card.pose.z, slot));
             }
         }
         order.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -516,8 +517,8 @@ impl Surface for StackSurface {
                 multiview_mask: None,
             });
             pass.set_pipeline(&gpu.pipeline);
-            for (i, _) in &order {
-                pass.set_bind_group(0, self.cards[*i].bind_group.as_ref().unwrap(), &[]);
+            for (i, _, slot) in &order {
+                pass.set_bind_group(0, &self.cards[*i].bind_groups[*slot], &[]);
                 pass.draw(0..6, 0..1);
             }
         }
