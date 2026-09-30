@@ -86,7 +86,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
+        if gesture === layoutPanRecognizer, let pan = gesture as? UIPanGestureRecognizer {
+            guard SwipeInput.allows(self) else { return false }
+            let action = style["touch_action"]?.string ?? "auto"
+            // An explicit native pan axis belongs to the scroller. Keep the
+            // existing unqualified pan behavior for auto and manipulation.
+            if action == "auto" || action == "manipulation" { return true }
+            let velocity = pan.velocity(in: self)
+            let direction = velocity == .zero ? pan.translation(in: self) : velocity
+            return direction == .zero || !allowsTouchPan(direction)
+        }
         if let reorder = reorderShouldBegin(gesture) { return reorder }
         if let transform = transformShouldBegin(gesture) { return transform }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
