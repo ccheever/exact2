@@ -1,6 +1,7 @@
 # Five tests run in the async lane, not the blocking gate
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Accepted as async-only under Charlie’s 2026-09-22 gate-budget decision; all five current ignored tests pass, including repaired TypeScript Web API fixtures. Their async lane markers remain.
 **Systems:** kernel, contract, markdown, async lane
 **Author:** Charlie Cheever
 **Date:** 2026-09-22
