@@ -505,8 +505,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
-        if kind == "video" { video = VideoView(owner: self) }
-        embedPlatformView(presenter)
+        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
@@ -1345,6 +1344,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
+        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
         presenter?.collections.pointerDown(id, event: event)
         presenter?.mouseChain.down(self, event: event)
         guard !disabled else { pressed = false; return }

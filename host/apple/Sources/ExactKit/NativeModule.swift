@@ -539,6 +539,34 @@ final class NativeViews {
         attach(entry)
     }
 
+    /// Far module views, as UIKit's collection view treats the cells it
+    /// keeps and recycles (the SwiftUI baseline's map rows; LLP 1068 §5.2;
+    /// both hosts, the macOS hold passing `release: .infinity`):
+    /// `distance` says how far a node's box is from what shows, in
+    /// viewports (0 inside, nil when not in a list's row). A made view past
+    /// `hide` is hidden and shown again inside it; past `release` its
+    /// instance goes (parked for reuse or destroyed, as a destroyed node's)
+    /// and the node waits to be made again from its latest props when it
+    /// comes near. Returns the nodes whose instance went.
+    func recycleFar(hide: CGFloat, release: CGFloat, _ distance: (NodeView) -> CGFloat?) -> [NodeView] {
+        var gone: [NodeView] = []
+        for entry in Array(entries.values) {
+            guard let view = entry.view, let owner = entry.owner, let d = distance(owner) else { continue }
+            let away = d > hide
+            if view.isHidden != away { view.isHidden = away; hidden += away ? 1 : 0 }
+            guard d > release, entry.state == "ready", entry.handle != nil else { continue }
+            let name = entry.name
+            destroy(id: entry.id)
+            let fresh = NativeEntry(owner: owner)
+            fresh.name = name
+            entries[owner.id] = fresh
+            released += 1
+            gone.append(owner)
+        }
+        return gone
+    }
+
+
     /// A props commit: the first names the module (the create commit carries
     /// no props yet); later ones replace the whole aggregate.
     func update(_ owner: NodeView) {
@@ -706,32 +734,6 @@ extension NativeViews {
     /// the map feed's peak at the SwiftUI baseline's (889 against 886 MB on
     /// the iPad; four, 917) at a sixth more maps made.
     static let reuseCap = 2, reuseLimit = 2
-
-    /// Far module views, as UIKit's collection view treats the cells it
-    /// keeps and recycles (the SwiftUI baseline's map rows; LLP 1068 §5.2):
-    /// `distance` says how far a node's box is from what shows, in
-    /// viewports (0 inside, nil when not in a list's row). A made view past
-    /// `hide` is hidden and shown again inside it; past `release` its
-    /// instance goes (parked for reuse or destroyed, as a destroyed node's)
-    /// and the node waits to be made again from its latest props when it
-    /// comes near. Returns the nodes whose instance went.
-    func recycleFar(hide: CGFloat, release: CGFloat, _ distance: (NodeView) -> CGFloat?) -> [NodeView] {
-        var gone: [NodeView] = []
-        for entry in Array(entries.values) {
-            guard let view = entry.view, let owner = entry.owner, let d = distance(owner) else { continue }
-            let away = d > hide
-            if view.isHidden != away { view.isHidden = away; hidden += away ? 1 : 0 }
-            guard d > release, entry.state == "ready", entry.handle != nil else { continue }
-            let name = entry.name
-            destroy(id: entry.id)
-            let fresh = NativeEntry(owner: owner)
-            fresh.name = name
-            entries[owner.id] = fresh
-            released += 1
-            gone.append(owner)
-        }
-        return gone
-    }
 
     /// Whether a parked instance of `name` waits: taking one costs about a
     /// tenth of a creation, so it is never held mid-fling (LLP 1068 §5.1).
