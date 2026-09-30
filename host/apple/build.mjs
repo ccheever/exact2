@@ -756,7 +756,10 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // Usage strings for the devices the app's grants name (LLP 1069.008).
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
-  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app), ExactLaunchMode: launchMode(app) } : {}),
+  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
+  // Where a launch lands (LLP 1069.010 D4) is the manifest's `launch_handler`'s, with or
+  // without `file_handlers`: File ▸ New Window needs no document type.
+  ...(app.manifest.launch_handler ? { ExactLaunchMode: launchMode(app) } : {}),
   ...openingLinks(app, 'macos', development),
 });
 

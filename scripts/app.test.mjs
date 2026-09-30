@@ -967,3 +967,17 @@ test('device grants derive the plists, their translations and the release entitl
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', () => {
+  const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
+  // An app that opens nothing still gets File ▸ New Window from `navigate-new`.
+  const windows = macInfoPlist(app({ launch_handler: { client_mode: 'navigate-new' } }));
+  assert.match(windows, /<key>ExactLaunchMode<\/key><string>navigate-new<\/string>/);
+  assert.doesNotMatch(windows, /CFBundleDocumentTypes/);
+  // With documents, both keys; the W3C list's first mode after `auto` wins.
+  const documents = macInfoPlist(app({ file_handlers: [{ action: '/', accept: { 'text/markdown': ['.md'] } }], launch_handler: { client_mode: ['auto', 'navigate-new'] } }));
+  assert.match(documents, /<key>CFBundleDocumentTypes<\/key>/);
+  assert.match(documents, /<key>ExactLaunchMode<\/key><string>navigate-new<\/string>/);
+  // Neither key declared, neither key baked: the host's default is `navigate-existing`.
+  assert.doesNotMatch(macInfoPlist(app({})), /ExactLaunchMode|CFBundleDocumentTypes/);
+});

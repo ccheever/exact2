@@ -118,16 +118,18 @@ public enum DevMenu {
         bar.addItem(fileItem)
         let file = NSMenu(title: "File")
         fileItem.submenu = file
+        // ⌘N and the tab bar's + open an empty window with a session of its
+        // own (LLP 1069.010 D4), whether or not the app opens documents:
+        // `newWindowForTab:` goes up the responder chain to the adapter that
+        // owns the windows.
+        if ExactDocuments.launchMode == "navigate-new" {
+            file.addItem(withTitle: "New Window", action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "n")
+            if !documents { file.addItem(.separator()) }
+        }
         // ⌘O belongs to the app's own documents when it declares any
         // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
         // platform, and Develop ▸ Open Project… takes ⇧⌘O behind it.
         if documents {
-            // ⌘N and the tab bar's + open an empty window where each
-            // document has its own (LLP 1069.010 D4): `newWindowForTab:`
-            // goes up the responder chain to the adapter that owns them.
-            if ExactDocuments.launchMode == "navigate-new" {
-                file.addItem(withTitle: "New Window", action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "n")
-            }
             file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
             file.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "").submenu = recentMenu()
             file.addItem(.separator())

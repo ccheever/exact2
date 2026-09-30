@@ -1450,8 +1450,8 @@ if (app.id === 'com.exact.authfixture' && ['web', 'macos', 'ios'].includes(host)
 // 16. Documents in windows of their own (LLP 1069.010 slice 1), for an app
 // whose manifest says `navigate-new`: two documents on the command line
 // open two windows, each read through the carrier by its session's label;
-// each window's title is its `head`'s; Open Recent lists both.
-if (host === 'macos' && [app.manifest.launch_handler?.client_mode].flat()[0] === 'navigate-new') {
+// each window's title is its `head`'s; Open Recent lists both. Without `file_handlers` there is nothing to route.
+if (host === 'macos' && app.manifest.file_handlers?.length && [app.manifest.launch_handler?.client_mode].flat()[0] === 'navigate-new') {
   const docs = [resolve(app.dir, 'README.md'), resolve(ROOT, 'llp/1000-exact2-root.explainer.md')];
   const d = await open({ host, documents: docs });
   try {
