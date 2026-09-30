@@ -1,5 +1,30 @@
 use super::*;
 
+#[test]
+fn themes_survive_restart_without_changing_schedules_or_stickers() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 1);
+    assert_eq!(app.call("calendarTheme", vec![num(1)]), num(0));
+    set(&mut app, TODAY, "bunny", "new-sticker");
+    let selected = app.call("setTheme", vec![num(3), Value::str("meadow-theme")]);
+    success(&selected);
+    assert_eq!(app.call("calendarTheme", vec![num(3)]), num(3));
+    let invalid = app.call("setTheme", vec![num(6), Value::str("invalid-theme")]);
+    assert_eq!(fields(&invalid)[1], Value::Bool(false));
+    assert_eq!(at(&mut app, TODAY), "bunny");
+    drop(app);
+    let mut reopened = App::open(&root);
+    assert_eq!(reopened.load(), 3);
+    assert_eq!(reopened.call("calendarTheme", vec![num(3)]), num(3));
+    assert_eq!(at(&mut reopened, TODAY), "bunny");
+    success(&reopened.call("setTheme", vec![num(0), Value::str("default-theme")]));
+    drop(reopened);
+    let mut restored = App::open(&root);
+    assert_eq!(restored.load(), 4);
+    assert_eq!(restored.call("calendarTheme", vec![num(4)]), num(0));
+}
+
 fn set(app: &mut App, day: i32, sticker: &str, token: &str) -> Value {
     let result = app.call(
         "setSticker",

@@ -90,3 +90,40 @@ component StickerChoice
       image `assets/stickers/${value}.png` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48 object-fit="contain" pointer-events="none" opacity=(lifted ? 0 : 1) aria-hidden=true
       text title position="absolute" left=0 right=0 bottom=8 text-align="center" font-size=12 color="#74747c" pointer-events="none"
       calendar-drag-handle id=`sticker-pick-${value}` testId=`sticker-pick-${value}` event-id=`sticker-pick:${value}` enabled=(not disabled or (held and lifted) ? "true" : "false") press=pick(value) aria-label=`${title}. Hold to place on a date.` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48
+
+component StickerAgendaRow
+  props
+    day: number
+    date: string
+    stickerId: string
+    hidden: bool
+    disabled: bool
+    edit: action
+  view
+    column width="100%" box-sizing="border-box"
+      box position="relative" width="100%" height=64
+        button press=edit testId="edit-sticker" disabled=disabled position="absolute" left=0 right=0 top=0 bottom=0 padding-left=20 padding-right=20 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" gap=12
+          image `assets/stickers/${stickerId}.png` width=36 height=36 object-fit="contain" pointer-events="none" opacity=(hidden ? 0 : 1)
+          column flex=1 min-width=0 gap=4 align-items="flex-start" opacity=(hidden ? 0 : 1)
+            text stickerId text-transform="capitalize" font-size=16 font-weight=500 color="#242428"
+            text "Hold to move or tap to change" font-size=13 color="#85858d"
+          image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf" pointer-events="none" opacity=(hidden ? 0 : 1)
+        calendar-drag-handle id=`sticker-agenda-${date}` testId=`sticker-agenda-${date}` event-id=`sticker-day:${day}:${stickerId}` enabled=(disabled ? "false" : "true") press=edit aria-label=`${stickerId} sticker. Hold to move.` position="absolute" left=0 right=0 top=0 bottom=0
+      box margin-left=68 margin-right=20 height=1 background-color="#f0f0f3" opacity=(hidden ? 0 : 1)
+
+component ThemeChoice
+  props
+    value: number
+    title: string
+    detail: string
+    wallpaper: string
+    selected: number
+    pick: action
+  view
+    button press=pick(value) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) width="100%" height=80 box-sizing="border-box" padding-left=12 padding-right=16 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? "#d87f9a" : "#eeeeef") border-radius=16 background-color="#ffffff" display="flex" align-items="center" gap=14
+      image wallpaper width=54 height=58 object-fit="cover" border-radius=9 pointer-events="none"
+      column flex=1 min-width=0 gap=4 align-items="flex-start"
+        text title font-size=16 font-weight=600 color="#2a2a2d"
+        text detail font-size=12 color="#85858d"
+      when selected == value
+        text "✓" font-size=18 color="#d87f9a"

@@ -14,6 +14,7 @@ const TODOS: &str =
     "SELECT id,title,color,created_at,completed_at FROM todos WHERE id > ? ORDER BY id LIMIT 256";
 const STICKERS: &str = "SELECT day,sticker_id FROM stickers WHERE day > ? ORDER BY day LIMIT 256";
 const REVISION: &str = "SELECT value FROM calendar_meta WHERE key='revision'";
+const VERIFY: &str = "SELECT (SELECT value FROM calendar_meta WHERE key='revision'),COALESCE((SELECT value FROM calendar_meta WHERE key='theme'),0)";
 const INSERT: &str = "INSERT INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,notes=excluded.notes,color=excluded.color,all_day=excluded.all_day,start_day=excluded.start_day,end_day=excluded.end_day,start_minute=excluded.start_minute,end_minute=excluded.end_minute,kind=excluded.kind";
 
 pub(crate) enum AfterLoad {
@@ -78,6 +79,7 @@ enum Edit {
         to: i32,
         expected: String,
     },
+    Theme(u8),
 }
 
 pub(crate) struct Intent {
@@ -97,6 +99,7 @@ enum Change {
     Schedule { id: String, event: Option<Schedule> },
     Todo { id: String, todo: Option<Todo> },
     Sticker { day: i32, sticker: Option<String> },
+    Theme(u8),
 }
 
 pub(crate) struct Applied {
@@ -377,7 +380,7 @@ impl Calendar {
                         LoadStep::Stickers => {
                             load.step = LoadStep::Verify;
                             self.load = Some(load);
-                            sql(false, vec![query(REVISION, json!([]))])
+                            sql(false, vec![query(VERIFY, json!([]))])
                         }
                         _ => unreachable!(),
                     }
@@ -391,7 +394,11 @@ impl Calendar {
                 if load.revision != Some(current) {
                     return self.restart_load(load);
                 }
-                self.replace_library(load.events, load.todos, load.stickers, current);
+                let theme = match model::integer(&reply[0]["rows"][0][1]) {
+                    Ok(value) if (0..=5).contains(&value) => value as u8,
+                    _ => return self.failed_load(load.after, "Invalid calendar theme in storage."),
+                };
+                self.replace_library(load.events, load.todos, load.stickers, theme, current);
                 match load.after {
                     AfterLoad::Library => Answer::Now(self.library("")),
                     AfterLoad::ResumeMutation(intent) => self.lookup(intent),
@@ -707,6 +714,26 @@ impl Calendar {
                     commands,
                 ))
             }
+            Edit::Theme(theme) => {
+                let changed = self.theme != *theme;
+                Ok((
+                    Applied {
+                        id: format!("theme-{theme}"),
+                        day: 0,
+                        revision: if changed { next } else { self.revision },
+                        changes: if changed {
+                            vec![Change::Theme(*theme)]
+                        } else {
+                            vec![]
+                        },
+                    },
+                    if changed {
+                        vec![execute("INSERT INTO calendar_meta(key,value) VALUES('theme',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", json!([theme]))]
+                    } else {
+                        vec![]
+                    },
+                ))
+            }
         }
     }
 
@@ -808,6 +835,7 @@ impl Calendar {
                             self.todos.remove(&id);
                         }
                         Change::Sticker { day, sticker } => self.changed_sticker(day, sticker),
+                        Change::Theme(theme) => self.theme = theme,
                     }
                 }
                 self.revision = applied.revision;
@@ -824,6 +852,7 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
         "moveSchedule" | "scheduleTodo" | "setSticker" => (3, 2),
         "saveTodo" => (5, 4),
         "setTodoCompleted" | "moveSticker" => (4, 3),
+        "setTheme" => (2, 1),
         _ => return Err("Unknown calendar operation.".into()),
     };
     if args.len() != count {
@@ -833,7 +862,10 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
     if token.is_empty() || token.len() > 160 || token.chars().any(char::is_control) {
         return Err("The calendar operation identifier is invalid.".into());
     }
-    let id = if matches!(source, "setSticker" | "removeSticker" | "moveSticker") {
+    let id = if matches!(
+        source,
+        "setSticker" | "removeSticker" | "moveSticker" | "setTheme"
+    ) {
         ""
     } else {
         text(args, 0)?
@@ -940,6 +972,13 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
                 to,
                 expected: expected.into(),
             }
+        }
+        "setTheme" => {
+            let theme = whole(args, 0)?;
+            if !(0..=5).contains(&theme) {
+                return Err("Choose an available calendar theme.".into());
+            }
+            Edit::Theme(theme as u8)
         }
         _ => unreachable!(),
     };

@@ -27,8 +27,9 @@ impl Kind {
     }
 }
 
-pub(crate) const STICKERS: [&str; 10] = [
-    "sunshine", "coffee", "cake", "heart", "sparkle", "flower", "book", "workout", "travel", "rest",
+pub(crate) const STICKERS: [&str; 15] = [
+    "sunshine", "coffee", "cake", "heart", "sparkle", "flower", "book", "workout", "travel",
+    "rest", "bunny", "paris", "daisy", "moon", "picnic",
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]

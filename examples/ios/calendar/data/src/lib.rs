@@ -26,6 +26,7 @@ pub struct Calendar {
     events: BTreeMap<String, Schedule>,
     todos: BTreeMap<String, Todo>,
     stickers: BTreeMap<i32, String>,
+    theme: u8,
     index: BTreeMap<i32, Vec<String>>,
     pages: VecDeque<(i32, Value)>,
     revision: u64,
@@ -54,6 +55,7 @@ impl Calendar {
         events: BTreeMap<String, Schedule>,
         todos: BTreeMap<String, Todo>,
         stickers: BTreeMap<i32, String>,
+        theme: u8,
         revision: u64,
     ) {
         self.index.clear();
@@ -63,6 +65,7 @@ impl Calendar {
         self.events = events;
         self.todos = todos;
         self.stickers = stickers;
+        self.theme = theme;
         self.pages.clear();
         self.revision = revision;
         self.ready = true;
@@ -360,6 +363,7 @@ impl Calendar {
                 whole(args, 2).map_err(invalid)?,
             )),
             "calendarTodos" => Ok(self.todos()),
+            "calendarTheme" => Ok(Value::Number(f64::from(self.theme))),
             "loadCalendar" => Ok(self.library("")),
             "calendarEvent" => Ok(self.opened(text(args, 0).map_err(invalid)?, "", "")),
             _ => Err(DataError::UnknownSource(source.into())),
@@ -426,7 +430,7 @@ impl DataSource for Calendar {
             }
             "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
             | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
-            | "removeSticker" | "moveSticker" => {
+            | "removeSticker" | "moveSticker" | "setTheme" => {
                 store.observe_external_read();
                 Ok(self.begin_mutation(source, args))
             }
@@ -464,7 +468,7 @@ impl DataSource for Calendar {
             }
             "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
             | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
-            | "removeSticker" | "moveSticker" => Ok(self.parse_mutation(outcome)),
+            | "removeSticker" | "moveSticker" | "setTheme" => Ok(self.parse_mutation(outcome)),
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
@@ -597,6 +601,7 @@ mod tests {
                 .collect(),
             BTreeMap::new(),
             BTreeMap::new(),
+            0,
             1,
         );
         let september = dates::month_of(today);

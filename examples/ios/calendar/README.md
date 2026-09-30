@@ -5,8 +5,10 @@ An Exact calendar example with Contract views and a Rust data module. The coral
 **Sticker**, each with its own form. Saving from this global picker keeps the
 date sheet closed.
 
-Tap a date for its schedules in a full-width bottom sheet, then tap an item to
-edit it. Tap the dimmed backdrop or drag the top handle down to dismiss the sheet;
+Tap anywhere on a date, including a placed event or sticker, to open its
+full-width bottom sheet. Schedules and the sticker appear as rows there; tap a
+row to edit it, or hold it to drag it to another date. Tap the dimmed backdrop or
+drag the top handle down to dismiss the sheet;
 a short pull snaps back. Sheets slide out before being removed, including after
 saving or cancelling a form. The date and Todo sheets are capped at 360 points
 and 42% of the screen, including their bottom safe area (with a 176-point minimum
@@ -23,8 +25,15 @@ reach the last week above the Cancel zone.
 
 The landing preview uses the destination bar's size and lane. The calendar's
 row refresh waits until the 300 ms landing finishes, and the preview stays until
-the refreshed calendar is ready. Reduced motion skips these animations. Changes
+the refreshed calendar is ready. Sheets open in 200 ms with ease-out and close
+in 180 ms with ease-in; tapping a date or Todo row morphs its sheet into the form
+and fades the content. Reduced motion skips these animations. Changes
 are saved in the app's local SQLite store.
+
+The theme button in the header opens Classic plus five wallpaper themes: Blush
+Notebook, Paris Haze, Meadow Morning, Lavender Sky, and Linen Journal. A theme
+changes the calendar colors and event presentation and remains selected after
+restarting the app.
 
 Run these commands from the repository root, using the Bun version pinned in
 `package.json`:
@@ -80,8 +89,8 @@ The existing Apple build script handles signing and reports missing prerequisite
   cell's bottom right, with space reserved below its schedule bars. Tap the date
   again to change or remove its sticker. Choosing a replacement updates that
   date's existing sticker.
-- Hold a sticker in the picker to drag it straight onto the calendar. Hold a
-  placed image or the date sheet's sticker row to move it to another date,
+- Hold a sticker in the picker to drag it straight onto the calendar. Tap a
+  placed image to open its date sheet, then hold the sticker row to move it,
   including through month-edge paging. Dropping onto an occupied date replaces
   its sticker; moving a placed sticker clears its original date in the same
   transaction. The Cancel zone restores the source without saving.
@@ -100,12 +109,12 @@ The visual reference is `done-universal`; its Event and Plan styles, undated
 Todos, and Todo dragging inform the presentation. Forms, stickers, and local
 persistence are implemented in this example.
 
-`assets/stickers/` contains ten original transparent PNGs generated with the
-built-in `image_gen` tool: sunshine, coffee, cake, heart, sparkle, flower, book,
-workout, travel, and rest. Their prompts requested compact, centered soft-clay
-and gouache illustrations in coral, cream, yellow, sage, and lavender, readable
-at 28–36 points, without text, brands, or backgrounds. They were resized to
-512 × 512 with `sips`, preserving transparency. The same tool generated
+`assets/stickers/` contains fifteen transparent PNGs: sunshine, coffee, cake,
+heart, sparkle, flower, book, workout, travel, rest, bunny, daisy, moon, paris,
+and picnic. The original ten were generated with the built-in `image_gen` tool
+as compact, centered soft-clay and gouache illustrations, then resized to
+512 × 512 with `sips`, preserving transparency. Five wallpapers live in
+`assets/themes/`. The same tool generated
 `assets/icon.png`: a minimal black calendar symbol on an opaque white
 background. The 1024 × 1024 icon is declared through `app.json`'s standard `icons`
 field; the Apple build generates the required iPhone and iPad icon sizes.
@@ -122,7 +131,8 @@ Drive the running app through `bun scripts/agent.mjs ios` (or `web`). Useful IDs
 include `today`, `previous-month`, `next-month`, `add-schedule`, `picker-event`,
 `picker-plan`, `picker-todo`, `picker-sticker`, `schedule-title`, `start-date`,
 `end-date`, `all-day`, `save-schedule`, `delete-schedule`, `todos-button`,
-`date-sheet-handle`, `date-popup-backdrop`, `agenda-list`, and `cancel-zone`.
+`date-sheet-handle`, `date-popup-backdrop`, `agenda-list`, `theme-button`,
+`theme-0` through `theme-5`, and `cancel-zone`.
 
 In the browser, a landscape-to-portrait resize can clamp a month's vertical scroll
 offset to the top; the displayed month is retained.

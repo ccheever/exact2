@@ -4,6 +4,8 @@ use AgendaRow from "./parts.contract"
 use TodoRow from "./parts.contract"
 use PickerChoice from "./parts.contract"
 use StickerChoice from "./parts.contract"
+use ThemeChoice from "./parts.contract"
+use StickerAgendaRow from "./parts.contract"
 
 // The calendar view and editor are authored in Contract; dates and durable
 // schedules live in the app data module.
@@ -180,6 +182,11 @@ component Calendar
   derive headerLabel = floor(month / 12) == floor(clock.month / 12) ? monthName(month) : `${monthName(month)}, ${floor(month / 12)}`
   resource pages = calendarMonths(month, revision, (dragging and dragSource == "sticker-cell" ? dragSourceMonth : -1)) as shape list<Month>
   resource todos = calendarTodos(revision) as shape list<Todo>
+  resource theme = calendarTheme(revision) as shape number
+  derive themeInk = theme == 1 ? "#49333b" : (theme == 2 ? "#294653" : (theme == 3 ? "#394c36" : (theme == 4 ? "#393551" : (theme == 5 ? "#4d3d31" : "#242428"))))
+  derive themeAccent = theme == 1 ? "#d87f9a" : (theme == 2 ? "#6696ad" : (theme == 3 ? "#829c61" : (theme == 4 ? "#8e79bf" : (theme == 5 ? "#aa816a" : "#FA7070"))))
+  derive themeBase = theme == 1 ? "#fae5ec" : (theme == 2 ? "#dceef3" : (theme == 3 ? "#f7f4e4" : (theme == 4 ? "#eae7ff" : (theme == 5 ? "#f4eadb" : "#ffffff"))))
+  derive themeWallpaper = theme == 1 ? "assets/themes/blush.png" : (theme == 2 ? "assets/themes/paris.png" : (theme == 3 ? "assets/themes/meadow.png" : (theme == 4 ? "assets/themes/lavender.png" : "assets/themes/linen.png")))
   derive pageWidth = max(1, viewport.width)
   state stageHeight = 0
   state stageViewportHeight = 0
@@ -207,15 +214,28 @@ component Calendar
   state pickerClosing = false
   state pickerUntil = 0
   state pickerNext = ""
+  state themeOpen = false
+  state themeClosing = false
+  state themeUntil = 0
   state editorOrigin = "global"
   state creationDate = ""
   state editorOpen = false
   state editorClosing = false
   state editorUntil = 0
+  state editorMorphReady = false
+  state formContentReady = false
+  state editorMorphAt = 0
   state editorKind = "event"
   state editId = ""
   derive editorLabel = `${editId == "" ? "New" : "Edit"} ${editorKind == "todo" ? "todo" : (editorKind == "plan" ? "plan" : "event")}`
   derive editorHeight = min(editorKind == "todo" ? 420 : 690, viewport.height * (editorKind == "todo" ? 0.8 : 0.91))
+  derive stickerHeight = min(660, viewport.height * 0.9)
+  derive todoHeight = 112 + max(77, min(5, length(todos)) * 64)
+  derive sharedEditor = editorOpen and (editorOrigin == "date" and popupOpen or editorOrigin == "todos" and todoSheetOpen)
+  derive sharedSticker = stickerOpen and editorOrigin == "date" and popupOpen
+  derive editorStartHeight = editorOrigin == "date" ? min(popupCap, popupHeight) : min(popupCap, todoHeight)
+  derive morphHeight = sharedEditor ? (editorClosing or not editorMorphReady ? editorStartHeight : editorHeight) : editorHeight
+  derive stickerMorphHeight = sharedSticker ? (stickerClosing or not editorMorphReady ? editorStartHeight : stickerHeight) : stickerHeight
   state eventRetry = 0
   resource opened = calendarEvent(editorKind == "todo" ? "" : editId, revision, eventRetry) as shape Event
   state titleDraft = none
@@ -353,14 +373,15 @@ component Calendar
   derive landingScroll = min(contactScroll, min(max(0, contactLanding.contentHeight - portHeight), max(0, contactTarget.maxScroll - dragPadding)))
   derive dragging = dragId != ""
   derive held = dragPhase == "held"
-  derive modalOpen = popupOpen or todoSheetOpen or pickerOpen or editorOpen or stickerOpen
+  derive modalOpen = popupOpen or todoSheetOpen or pickerOpen or editorOpen or stickerOpen or themeOpen
   derive landed = dragCommitted and not held and dragPhase != "returning"
   derive lifted = held and liftPrepared
   derive ghostWidth = landed ? landingWidth : (lifted ? (dragKind == "sticker" ? 48 : 220) : sourceWidth)
   derive ghostHeight = landed ? landingHeight : (lifted ? (dragKind == "sticker" ? 48 : 36) : sourceHeight)
-  derive ghostTransition = viewport.prefersReducedMotion ? "none" : "opacity 300ms cubic-bezier(0.22, 1, 0.36, 1), scale 300ms cubic-bezier(0.22, 1, 0.36, 1)"
+  derive ghostTransition = viewport.prefersReducedMotion ? "none" : (landed ? "opacity 300ms ease-in-out, scale 300ms ease-in-out" : "opacity 300ms cubic-bezier(0.22, 1, 0.36, 1), scale 300ms cubic-bezier(0.22, 1, 0.36, 1)")
   derive edgeWanted = held and dragMoved and not hoverCancel and dragY >= portY and dragY <= portY + portHeight and dragX >= portX and dragX <= portX + portWidth ? (dragX < portX + 36 and month > 22800 ? -1 : (dragX > portX + portWidth - 36 and month < 25211 ? 1 : 0)) : 0
-  derive popupLowered = (dragging and (held or dragCommitted)) or pickerOpen or editorOpen or stickerOpen
+  derive popupLowered = (dragging and (held or dragCommitted)) or pickerOpen or (stickerOpen and not sharedSticker) or (editorOpen and editorOrigin != "date")
+  derive todoLowered = (dragging and (held or dragCommitted)) or pickerOpen or stickerOpen or (editorOpen and editorOrigin != "todos")
   derive hoverDay = held ? hoverTarget.day : -1000000
 
   action tick writes minute
@@ -478,7 +499,7 @@ component Calendar
               ghostY = sourceY
       case none
         error = "The drag contact could not be read."
-  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, liftPrepared, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, popupOpen, popupClosing, popupOffset, dataRevision, pendingMove, todoSheetOpen, todoClosing, pickerOpen, pickerClosing, pickerNext, editorOpen, editorClosing, stickerOpen, stickerClosing
+  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, liftPrepared, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, popupOpen, popupClosing, popupOffset, dataRevision, pendingMove, todoSheetOpen, todoClosing, pickerOpen, pickerClosing, pickerNext, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, stickerOpen, stickerClosing, themeOpen, themeClosing
     // Reuse this frame's geometry without caching it across frames or resizes.
     match some(frame("calendar-stage"))
       case some(stage)
@@ -507,6 +528,10 @@ component Calendar
       libraryStarted = true
       libraryMessage = "Loading schedules…"
       send loadedLibrary = loadCalendar(clock.today, clockReady)
+    if (editorOpen and not editorClosing or stickerOpen and not stickerClosing) and not editorMorphReady and now() >= editorMorphAt
+      editorMorphReady = true
+    if (editorOpen and not editorClosing or stickerOpen and not stickerClosing) and editorMorphReady and not formContentReady and now() >= editorMorphAt + 64
+      formContentReady = true
     if held
       if not liftPrepared and now() >= liftReadyAt
         liftPrepared = true
@@ -551,9 +576,15 @@ component Calendar
       pickerClosing = false
       if pickerNext == "sticker"
         stickerOpen = true
+        editorMorphReady = false
+        formContentReady = false
+        editorMorphAt = now() + 16
       else
         if pickerNext != ""
           editorOpen = true
+          editorMorphReady = false
+          formContentReady = false
+          editorMorphAt = now() + 16
       pickerNext = ""
     if editorClosing and now() >= editorUntil
       editorOpen = false
@@ -561,6 +592,9 @@ component Calendar
     if stickerClosing and now() >= stickerUntil
       stickerOpen = false
       stickerClosing = false
+    if themeClosing and now() >= themeUntil
+      themeOpen = false
+      themeClosing = false
   action calendarScrolled(page: number, left: number, top: number) writes calendarScrollTop, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6
     if page == month
       calendarScrollTop = top
@@ -642,7 +676,7 @@ component Calendar
     if not dragging and not popupClosing
       popupPanning = false
       popupClosing = true
-      popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
   action popupPan(dx: number, dy: number) writes popupOffset, popupPanning
     if popupOpen and not dragging and not busy and not editorOpen and not pickerOpen and not stickerOpen and not popupClosing and (popupPanning or (dy > 0 and dy > magnitude(dx)))
       popupPanning = true
@@ -652,7 +686,7 @@ component Calendar
       popupPanning = false
       if popupOffset >= max(48, popupCap * 0.18) or (popupOffset > 12 and vy > 700 and vy > magnitude(vx))
         popupClosing = true
-        popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+        popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       else
         popupOffset = 0
   action openPicker(origin: string) writes pickerOpen, pickerClosing, pickerNext, editorOrigin, creationDate, error
@@ -663,15 +697,33 @@ component Calendar
       editorOrigin = origin
       creationDate = origin == "date" ? agenda.date : clock.date
       error = ""
+  action openThemes writes themeOpen, themeClosing, error
+    if libraryReady and not busy and not dragging and not modalOpen
+      themeOpen = true
+      themeClosing = false
+      error = ""
+  action closeThemes writes themeClosing, themeUntil
+    if themeOpen and not themeClosing
+      themeClosing = true
+      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
+  action chooseTheme(value: number) writes themeClosing, themeUntil, changed, operationSequence, operation, error
+    if themeOpen and not themeClosing and not busy and value >= 0 and value <= 5
+      themeClosing = true
+      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
+      if value != theme
+        operationSequence = operationSequence + 1
+        operation = "theme"
+        error = ""
+        send changed = setTheme(value, freshToken)
   action closePicker writes pickerClosing, pickerUntil, pickerNext
     if not pickerClosing
       pickerNext = ""
       pickerClosing = true
-      pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
   action chooseType(kind: string) writes pickerClosing, pickerUntil, pickerNext, editorKind, editId, editorClosing, stickerClosing, stickerDateText, stickerChoice, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
     if not pickerClosing
       pickerClosing = true
-      pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       pickerNext = kind
       editorKind = kind
       editId = ""
@@ -691,7 +743,7 @@ component Calendar
       error = ""
       retryToken = ""
       retryOperation = ""
-  action editEvent(id: string, kind: string) writes editId, editorOpen, editorClosing, editorKind, editorOrigin, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
+  action editEvent(id: string, kind: string) writes editId, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, editorKind, editorOrigin, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
     if not busy and not dragging
       retryToken = ""
       retryOperation = ""
@@ -700,6 +752,9 @@ component Calendar
       editorOrigin = "date"
       editorOpen = true
       editorClosing = false
+      editorMorphReady = false
+      formContentReady = false
+      editorMorphAt = now() + 16
       titleDraft = none
       notesDraft = none
       colorDraft = none
@@ -718,41 +773,51 @@ component Calendar
   action closeTodos writes todoClosing, todoUntil
     if not dragging and not todoClosing
       todoClosing = true
-      todoUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
-  action editTodo(id: string) writes editId, editorOpen, editorClosing, editorKind, editorOrigin, titleDraft, colorDraft, confirmDelete, error, retryToken, retryOperation
+      todoUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
+  action editTodo(id: string) writes editId, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, editorKind, editorOrigin, titleDraft, colorDraft, confirmDelete, error, retryToken, retryOperation
     if not busy and not dragging
       editId = id
       editorKind = "todo"
       editorOrigin = "todos"
       editorOpen = true
       editorClosing = false
+      editorMorphReady = false
+      formContentReady = false
+      editorMorphAt = now() + 16
       titleDraft = match first(filter(todos, (item) => item.id == id)) { case some(item) => some(item.title), case none => none }
       colorDraft = match first(filter(todos, (item) => item.id == id)) { case some(item) => some(item.color), case none => none }
       confirmDelete = false
       error = ""
       retryToken = ""
       retryOperation = ""
-  action closeEditor writes editorClosing, editorUntil, confirmDelete, error, retryToken, retryOperation
+  action closeEditor writes editorClosing, editorUntil, editorMorphReady, formContentReady, confirmDelete, error, retryToken, retryOperation
     if not busy and not editorClosing
       retryToken = ""
       retryOperation = ""
       blur()
       editorClosing = true
-      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      editorMorphReady = false
+      formContentReady = false
+      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       confirmDelete = false
       error = ""
-  action editSticker writes stickerOpen, stickerClosing, stickerDateText, stickerChoice, editorOrigin, error
+  action editSticker writes stickerOpen, stickerClosing, stickerDateText, stickerChoice, editorOrigin, editorMorphReady, formContentReady, editorMorphAt, error
     if not busy and not dragging
       stickerOpen = true
       stickerClosing = false
       stickerDateText = agenda.date
       stickerChoice = agenda.stickerId
       editorOrigin = "date"
+      editorMorphReady = false
+      formContentReady = false
+      editorMorphAt = now() + 16
       error = ""
-  action closeSticker writes stickerClosing, stickerUntil, error
+  action closeSticker writes stickerClosing, stickerUntil, editorMorphReady, formContentReady, error
     if not busy and not dragging and not stickerClosing
       stickerClosing = true
-      stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      editorMorphReady = false
+      formContentReady = false
+      stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       error = ""
   action writeStickerDate(value: string) writes stickerDateText, stickerChoice, retryToken, retryOperation
     stickerDateText = value
@@ -848,7 +913,7 @@ component Calendar
         send changed = deleteTodo(editId, deleteToken)
       else
         send changed = deleteSchedule(editId, deleteToken)
-  action didChange writes dataRevision, editorClosing, editorUntil, stickerClosing, stickerUntil, confirmDelete, popupOpen, todoSheetOpen, error, dragPhase, dragUntil, dragCommitted, ghostX, ghostY, retryToken, retryOperation, pendingMove, pendingMoveRevision, pendingMoveDay
+  action didChange writes dataRevision, editorClosing, editorUntil, editorMorphReady, formContentReady, stickerClosing, stickerUntil, confirmDelete, popupOpen, todoSheetOpen, error, dragPhase, dragUntil, dragCommitted, ghostX, ghostY, retryToken, retryOperation, pendingMove, pendingMoveRevision, pendingMoveDay
     match changed
       case some(result)
         if result.success
@@ -865,13 +930,17 @@ component Calendar
             if operation == "save" or operation == "delete"
               blur()
               editorClosing = true
-              editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+              editorMorphReady = false
+              formContentReady = false
+              editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
               if editorOrigin == "global"
                 popupOpen = false
                 todoSheetOpen = false
             if operation == "sticker"
               stickerClosing = true
-              stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+              editorMorphReady = false
+              formContentReady = false
+              stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
         else
           dataRevision = max(dataRevision, result.revision)
           error = result.message
@@ -893,18 +962,22 @@ component Calendar
           ghostY = sourceY
 
   view
-    main id="calendar" testId="calendar" viewport-fit="cover" interactive-widget="resizes-content" position="relative" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 box-sizing="border-box" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#ffffff" color="#242428" font-family="system-ui"
+    main id="calendar" testId="calendar" viewport-fit="cover" interactive-widget="resizes-content" position="relative" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 box-sizing="border-box" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color=themeBase color=themeInk font-family="system-ui"
+      when theme != 0
+        image themeWallpaper testId="theme-wallpaper" position="absolute" left=0 top=0 width="100%" height="100%" object-fit="cover" pointer-events="none" aria-hidden=true
       calendar-input-root id="calendar-input" testId="calendar-input" ack=`${contactAck}` message=dragInput position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" aria-hidden=true
       row height=72 flex-shrink=0 box-sizing="border-box" padding-left=(viewport.width < 360 ? 12 : 20) padding-right=(viewport.width < 360 ? 8 : 12) align-items="center" gap=(viewport.width < 360 ? 2 : 4)
-        text (clockReady ? headerLabel : "Calendar") testId="month-label" flex=1 min-width=0 font-size=(viewport.width < 360 ? 24 : 28) font-weight=600 letter-spacing=-0.6 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        button press=openTodos testId="todos-button" aria-label="Open todos" class=QuietButton width=(viewport.width < 360 ? 48 : 56) height=36 background-color="#ffffff" disabled=(not libraryReady or dragging or modalOpen)
-          text "Todos" font-size=14 font-weight=500 color="#74747c"
-        button press=goToday testId="today" aria-label="Go to today" disabled=(dragging or modalOpen) height=36 padding-left=(viewport.width < 360 ? 10 : 14) padding-right=(viewport.width < 360 ? 10 : 14) border-width=0 border-radius=18 background-color="#fff0f0" display="flex" align-items="center" justify-content="center" press-scale=0.96
-          text "Today" font-size=14 font-weight=600 color="#d85358"
+        text (clockReady ? headerLabel : "Calendar") testId="month-label" flex=1 min-width=0 height=36 line-height="36px" translate="0px -2px" font-size=(viewport.width < 360 ? 21 : 28) font-weight=600 letter-spacing=-0.6 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        button press=openTodos testId="todos-button" aria-label="Open todos" class=QuietButton width=(viewport.width < 360 ? 32 : 36) height=36 background-color="#ffffff" disabled=(not libraryReady or dragging or modalOpen)
+          image "symbol:checkmark" font-size=16 tint-color="#74747c"
+        button press=goToday testId="today" aria-label="Go to today" disabled=(dragging or modalOpen) height=36 padding-left=(viewport.width < 360 ? 8 : 14) padding-right=(viewport.width < 360 ? 8 : 14) border-width=0 border-radius=18 background-color=(theme == 0 ? "#fff0f0" : "rgba(255,255,255,0.72)") display="flex" align-items="center" justify-content="center" press-scale=0.96
+          text "Today" font-size=14 font-weight=600 color=themeAccent
         button press=goMonth(-1) class=QuietButton testId="previous-month" aria-label="Previous month" disabled=(dragging or modalOpen or month == 22800) width=(viewport.width < 360 ? 32 : 36) height=36 background-color="#ffffff"
           image "symbol:back" font-size=16 tint-color="#727278"
         button press=goMonth(1) class=QuietButton testId="next-month" aria-label="Next month" disabled=(dragging or modalOpen or month == 25211) width=(viewport.width < 360 ? 32 : 36) height=36 background-color="#ffffff"
           image "symbol:forward-chevron" font-size=16 tint-color="#727278"
+        button press=openThemes class=QuietButton testId="theme-button" aria-label="Choose calendar theme" disabled=(dragging or modalOpen or not libraryReady) width=(viewport.width < 360 ? 32 : 36) height=36 background-color=(theme == 0 ? "#f5f5f6" : "rgba(255,255,255,0.74)")
+          image "symbol:photo" font-size=16 tint-color=themeAccent
       row height=30 flex-shrink=0 align-items="center" aria-hidden=true
         Weekday(label="S", tone="#d97777")
         Weekday(label="M", tone="#929299")
@@ -923,49 +996,67 @@ component Calendar
         when clockReady
           box id="calendar-pages" testId="calendar-pages" position="relative" width="100%" height="100%" translate=`${(month - pagerPosition) * pageWidth}px 0px`
             each page in pages key=page.id
-              MonthPage(page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, hasSelection=popupOpen, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, held=held, busy=busy, scrollPadding=(held ? dragPadding : 0), hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), scrolled=calendarScrolled, choose=chooseDate, pan=pagePan, release=pageRelease)
-      when error != "" and not editorOpen and not popupOpen and not todoSheetOpen and not stickerOpen and not pickerOpen
+              when magnitude(page.month - month) <= 1 or (dragging and page.month == dragSourceMonth)
+                MonthPage(page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, hasSelection=popupOpen, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, held=held, busy=busy, theme=theme, themeInk=themeInk, themeAccent=themeAccent, scrollPadding=(held ? dragPadding : 0), hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), scrolled=calendarScrolled, choose=chooseDate, pan=pagePan, release=pageRelease)
+      when error != "" and not editorOpen and not popupOpen and not todoSheetOpen and not stickerOpen and not pickerOpen and not themeOpen
         box position="absolute" bottom="calc(env(safe-area-inset-bottom) + 102px)" left=18 right=18 pointer-events="none" display="flex" justify-content="center"
           text error testId="calendar-error" aria-live="assertive" padding=12 border-radius=14 background-color="#fff1ef" color="#b74238" font-size=13
-      button id="add-schedule" testId="add-schedule" press=openPicker("global") aria-label="Add item" disabled=(not libraryReady or busy or dragging or popupOpen or todoSheetOpen or pickerOpen or editorOpen or stickerOpen) position="absolute" bottom="calc(env(safe-area-inset-bottom) + 24px)" right=20 width=56 height=56 border-width=0 border-radius=28 background-color="#FA7070" box-shadow="0 6px 20px rgba(238, 99, 107, 0.24)" display="flex" align-items="center" justify-content="center" press-scale=0.94 opacity=(dragging or popupOpen or todoSheetOpen or pickerOpen or editorOpen or stickerOpen ? 0 : 1) transition="opacity 160ms ease-out"
+      button id="add-schedule" testId="add-schedule" press=openPicker("global") aria-label="Add item" disabled=(not libraryReady or busy or dragging or modalOpen) position="absolute" bottom="calc(env(safe-area-inset-bottom) + 24px)" right=20 width=56 height=56 border-width=0 border-radius=28 background-color=themeAccent box-shadow="0 6px 20px rgba(72, 58, 66, 0.18)" display="flex" align-items="center" justify-content="center" press-scale=0.94 opacity=(dragging or modalOpen ? 0 : 1) transition="opacity 160ms ease-out"
         image "symbol:add" font-size=26 font-weight=400 tint-color="#ffffff"
+      when themeOpen
+        box testId="theme-backdrop" press=closeThemes position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(themeClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (themeClosing ? "opacity 180ms ease-in" : "opacity 200ms ease-out"))
+        column id="theme-popup" testId="theme-popup" role="dialog" aria-label="Calendar themes" position="absolute" left=0 right=0 bottom=0 height=min(650, viewport.height * 0.86) min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28,31,44,0.10)" z-index=11 translate=`0px ${themeClosing ? 690 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : (themeClosing ? "translate 180ms ease-in" : "translate 200ms ease-out")) animation=(viewport.prefersReducedMotion or themeClosing ? "none" : "sheetIn 200ms ease-out")
+          row height=64 flex-shrink=0 padding-left=20 padding-right=16 align-items="center"
+            text "Themes" flex=1 font-size=19 font-weight=600 color="#242428"
+            button press=closeThemes testId="close-themes" class=QuietButton width=36 height=36
+              image "symbol:close" font-size=14 tint-color="#77777e"
+          scroll testId="theme-list" flex=1 min-height=0 overflow-x="hidden"
+            column padding-left=16 padding-right=16 padding-bottom=20 gap=10
+              button press=chooseTheme(0) testId="theme-0" aria-label="Use Classic theme" aria-selected=(theme == 0) width="100%" height=80 box-sizing="border-box" padding-left=12 padding-right=16 border-width=(theme == 0 ? 2 : 1) border-style="solid" border-color=(theme == 0 ? "#d87f9a" : "#eeeeef") border-radius=16 background-color="#ffffff" display="flex" align-items="center" gap=14
+                box width=54 height=58 border-radius=9 border-width=1 border-style="solid" border-color="#eeeeef" background-color="#ffffff" display="flex" align-items="center" justify-content="center"
+                  image "symbol:calendar" font-size=24 tint-color="#FA7070"
+                column flex=1 min-width=0 gap=4 align-items="flex-start"
+                  text "Classic" font-size=16 font-weight=600 color="#2a2a2d"
+                  text "Clean white calendar" font-size=12 color="#85858d"
+                when theme == 0
+                  text "✓" font-size=18 color="#d87f9a"
+              ThemeChoice(value=1, title="Blush Notebook", detail="Playful pink stationery", wallpaper="assets/themes/blush.png", selected=theme, pick=chooseTheme)
+              ThemeChoice(value=2, title="Paris Haze", detail="Watercolor travel journal", wallpaper="assets/themes/paris.png", selected=theme, pick=chooseTheme)
+              ThemeChoice(value=3, title="Meadow Morning", detail="Soft cream and green", wallpaper="assets/themes/meadow.png", selected=theme, pick=chooseTheme)
+              ThemeChoice(value=4, title="Lavender Sky", detail="Gentle twilight colors", wallpaper="assets/themes/lavender.png", selected=theme, pick=chooseTheme)
+              ThemeChoice(value=5, title="Linen Journal", detail="Warm paper and ink", wallpaper="assets/themes/linen.png", selected=theme, pick=chooseTheme)
       when popupOpen and not dragging and not editorOpen and not pickerOpen and not stickerOpen
-        box id="date-popup-backdrop" testId="date-popup-backdrop" press=closePopup aria-label="Close schedules" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(popupClosing ? 0 : 1 - unit(popupOffset / max(1, popupCap))) transition=(viewport.prefersReducedMotion or popupPanning ? "none" : "opacity 180ms ease-out")
+        box id="date-popup-backdrop" testId="date-popup-backdrop" press=closePopup aria-label="Close schedules" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(popupClosing ? 0 : 1 - unit(popupOffset / max(1, popupCap))) transition=(viewport.prefersReducedMotion or popupPanning ? "none" : `opacity ${popupClosing ? 180 : 200}ms ${popupClosing ? "ease-in" : "ease-out"}`)
       when popupOpen
-        column id="date-popup" testId="date-popup" role="dialog" aria-label=agenda.label position="absolute" bottom=0 left=0 right=0 height=`calc(${popupHeight}px + env(safe-area-inset-bottom))` max-height=popupCap min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" z-index=5 translate=`0px ${popupLowered or popupClosing ? popupCap + 40 : popupOffset}px` transition=(viewport.prefersReducedMotion or popupPanning ? "none" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)") animation=(viewport.prefersReducedMotion or popupClosing ? "none" : "popupIn 180ms ease-out")
-          box id="date-sheet-handle" testId="date-sheet-handle" aria-label="Drag down to close schedules" pan=popupPan panrelease=popupRelease touch-action="none" width="100%" height=36 flex-shrink=0 display="flex" flex-direction="column" align-items="center" justify-content="flex-start"
+        column id="date-popup" testId="date-popup" role="dialog" aria-label=agenda.label position="absolute" bottom=0 left=0 right=0 height=(sharedEditor and editorOrigin == "date" ? morphHeight : (sharedSticker ? stickerMorphHeight : popupHeight)) max-height=(sharedEditor and editorOrigin == "date" ? editorHeight : (sharedSticker ? stickerHeight : popupCap)) min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" layout-transition=(viewport.prefersReducedMotion ? "none" : (editorClosing or stickerClosing ? "180ms ease-in" : "200ms ease-out")) z-index=((sharedEditor and editorOrigin == "date" or sharedSticker) ? 11 : 5) translate=`0px ${popupLowered or popupClosing ? popupCap + 40 : popupOffset}px` transition=(viewport.prefersReducedMotion or popupPanning ? "none" : `height ${editorClosing or stickerClosing ? 180 : 200}ms ${editorClosing or stickerClosing ? "ease-in" : "ease-out"}, translate ${popupClosing ? 180 : 200}ms ${popupClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or popupClosing ? "none" : "popupIn 200ms ease-out")
+          box id="date-sheet-handle" testId="date-sheet-handle" aria-label="Drag down to close schedules" pan=popupPan panrelease=popupRelease touch-action="none" width="100%" height=36 flex-shrink=0 display="flex" flex-direction="column" align-items="center" justify-content="flex-start" opacity=((sharedEditor and editorOrigin == "date" and not editorClosing or sharedSticker and not stickerClosing) ? 0 : 1) transition="opacity 80ms ease-in"
             box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
-          row height=64 flex-shrink=0 padding-left=20 padding-right=16 box-sizing="border-box" gap=8 align-items="center"
+          row height=64 flex-shrink=0 padding-left=20 padding-right=16 box-sizing="border-box" gap=8 align-items="center" opacity=((sharedEditor and editorOrigin == "date" and not editorClosing or sharedSticker and not stickerClosing) ? 0 : 1) transition="opacity 80ms ease-in"
             column flex=1 min-width=0 gap=4
               text (dragging ? "Move schedule" : agenda.label) testId="popup-date" font-size=18 font-weight=600 letter-spacing=-0.3 line-height="21px" line-clamp=2 overflow="hidden"
-              text (dragging ? "Hold near an edge to move further" : `${length(agenda.items)} ${length(agenda.items) == 1 ? "schedule" : "schedules"}`) font-size=13 color="#85858d"
+              text (dragging ? "Hold near an edge to move further" : `${length(agenda.items) + (agenda.stickerId == "" ? 0 : 1)} ${length(agenda.items) + (agenda.stickerId == "" ? 0 : 1) == 1 ? "item" : "items"}`) font-size=13 color="#85858d"
             button press=openPicker("date") testId="popup-add" aria-label="Add schedule on this date" class=QuietButton width=36 height=36 disabled=(busy or popupLowered or popupClosing)
               image "symbol:add" font-size=18 tint-color="#d85358"
             button press=closePopup testId="close-popup" aria-label="Close schedules" class=QuietButton width=36 height=36 disabled=(dragging or popupLowered or popupClosing)
               image "symbol:close" font-size=14 tint-color="#77777e"
-          scroll id="agenda-list" testId="agenda-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" scrollbar-width="none"
+          scroll id="agenda-list" testId="agenda-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" scrollbar-width="none" opacity=((sharedEditor and editorOrigin == "date" and not editorClosing or sharedSticker and not stickerClosing) ? 0 : 1) transition="opacity 80ms ease-in"
             column padding-bottom=12
-              when length(agenda.items) == 0
+              when length(agenda.items) == 0 and agenda.stickerId == ""
                 column padding=20 padding-top=14 gap=6 align-items="flex-start"
                   text "No schedules yet" font-size=16 font-weight=500 color="#494950"
                   text "Tap + to add something to your day." font-size=13 color="#85858d"
               each item in agenda.items key=item.id
                 AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, hidden=(dragId == item.id), disabled=(busy or editorOpen or pickerOpen or stickerOpen or popupClosing or (dragging and (not held or dragId != item.id))), edit=editEvent)
-          when agenda.stickerId != ""
-            box position="relative" height=60 flex-shrink=0
-              button press=editSticker testId="edit-sticker" disabled=(busy or popupLowered or popupClosing) position="absolute" left=0 right=0 top=0 bottom=0 padding-left=68 padding-right=20 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" gap=12
-                text "Change or remove sticker" flex=1 text-align="left" font-size=14 color="#74747c"
-                image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
-              image `assets/stickers/${agenda.stickerId}.png` position="absolute" left=20 top=12 width=36 height=36 object-fit="contain" pointer-events="none" opacity=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}` ? 0 : 1) aria-hidden=true
-              calendar-drag-handle id=`sticker-agenda-${agenda.date}` testId=`sticker-agenda-${agenda.date}` event-id=`sticker-day:${agenda.day}:${agenda.stickerId}` enabled=(not busy and not editorOpen and not pickerOpen and not stickerOpen and not popupClosing and (not dragging or (held and dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`)) ? "true" : "false") press=editSticker aria-label="Move sticker" position="absolute" left=20 top=12 width=36 height=36
+              when agenda.stickerId != ""
+                StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or editorOpen or pickerOpen or stickerOpen or popupClosing or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), edit=editSticker)
           when error != "" or busy
-            text (busy ? "Saving…" : error) testId="popup-status" aria-live="polite" padding-left=20 padding-right=20 padding-top=4 padding-bottom=12 font-size=13 color=(error != "" ? "#b74238" : "#85858d") flex-shrink=0 opacity=(popupLowered ? 0 : 1)
+            text (busy ? "Saving…" : error) testId="popup-status" aria-live="polite" padding-left=20 padding-right=20 padding-top=4 padding-bottom=12 font-size=13 color=(error != "" ? "#b74238" : "#85858d") flex-shrink=0 opacity=(popupLowered or (sharedEditor and editorOrigin == "date" and not editorClosing or sharedSticker and not stickerClosing) ? 0 : 1) transition="opacity 80ms ease-in"
       when todoSheetOpen and not dragging and not editorOpen and not pickerOpen and not stickerOpen
-        box testId="todo-backdrop" press=closeTodos position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(todoClosing ? 0 : 1) transition="opacity 240ms ease-out"
+        box testId="todo-backdrop" press=closeTodos position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(todoClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${todoClosing ? 180 : 200}ms ${todoClosing ? "ease-in" : "ease-out"}`)
       when todoSheetOpen
-        column id="todo-sheet" testId="todo-sheet" role="dialog" aria-label="Todos" position="absolute" bottom=0 left=0 right=0 height=`calc(${112 + max(77, min(5, length(todos)) * 64)}px + env(safe-area-inset-bottom))` max-height=popupCap min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" z-index=5 translate=`0px ${popupLowered or todoClosing ? popupCap + 40 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)") animation=(viewport.prefersReducedMotion or todoClosing ? "none" : "popupIn 180ms ease-out")
-          box width=32 height=4 margin-top=10 margin-bottom=14 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0
-          row height=64 flex-shrink=0 padding-left=20 padding-right=16 gap=8 align-items="center"
+        column id="todo-sheet" testId="todo-sheet" role="dialog" aria-label="Todos" position="absolute" bottom=0 left=0 right=0 height=(sharedEditor and editorOrigin == "todos" ? morphHeight : todoHeight) max-height=(sharedEditor and editorOrigin == "todos" ? editorHeight : popupCap) min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" layout-transition=(viewport.prefersReducedMotion ? "none" : (editorClosing ? "180ms ease-in" : "200ms ease-out")) z-index=(sharedEditor and editorOrigin == "todos" ? 11 : 5) translate=`0px ${todoLowered or todoClosing ? popupCap + 40 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : `height ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}, translate ${todoClosing ? 180 : 200}ms ${todoClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or todoClosing ? "none" : "popupIn 200ms ease-out")
+          box width=32 height=4 margin-top=10 margin-bottom=14 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0 opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
+          row height=64 flex-shrink=0 padding-left=20 padding-right=16 gap=8 align-items="center" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
             column flex=1 min-width=0 gap=4
               text "Todos" font-size=18 font-weight=600
               text "Hold an item to add it to a date" font-size=13 color="#85858d"
@@ -973,28 +1064,28 @@ component Calendar
               image "symbol:add" font-size=18 tint-color="#d85358"
             button press=closeTodos testId="close-todos" aria-label="Close todos" class=QuietButton width=36 height=36 disabled=(dragging or popupLowered or todoClosing)
               image "symbol:close" font-size=14 tint-color="#77777e"
-          scroll testId="todo-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain"
+          scroll testId="todo-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
             column padding-bottom=12
               when length(todos) == 0
                 text "A place for things you want to do." padding=20 font-size=15 color="#85858d"
               each item in todos key=item.id
                 TodoRow(id=item.id, title=item.title, color=item.color, completed=item.completed, hidden=(dragId == `todo:${item.id}`), disabled=(busy or editorOpen or pickerOpen or stickerOpen or todoClosing or (dragging and (not held or dragId != `todo:${item.id}`))), edit=editTodo, toggle=toggleTodo)
-          when error != "" and not popupLowered
-            text error testId="todo-error" padding=16 font-size=13 color="#b74238"
+          when error != "" and not todoLowered
+            text error testId="todo-error" padding=16 font-size=13 color="#b74238" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
       when held
         box id="cancel-zone" testId="cancel-zone" aria-label="Drop to cancel" position="absolute" left=0 right=0 bottom=0 height=112 background-image="linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.96) 70%, #ffffff)" pointer-events="none" z-index=20
           row position="absolute" left=0 right=0 bottom="calc(env(safe-area-inset-bottom) + 18px)" height=20 gap=6 align-items="center" justify-content="center"
             image "symbol:close" font-size=12 tint-color=(hoverCancel ? "#b95b60" : "#929299")
             text (hoverCancel ? "Release to cancel" : "Drop to cancel") font-size=13 font-weight=500 color=(hoverCancel ? "#b95b60" : "#929299")
       when dragging
-        box id="calendar-drag-image" testId="calendar-drag-image" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight translate=`${ghostX}px ${ghostY}px` overflow="visible" pointer-events="none" z-index=21 opacity=(dragPhase == "fading" ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (held ? "opacity 90ms linear" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 90ms linear"))
-          box position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight overflow="visible" translate=`${lifted ? dragOriginX - sourceX - (dragKind == "sticker" ? 24 : 30) : 0}px ${lifted ? dragOriginY - sourceY - 24 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)")
+        box id="calendar-drag-image" testId="calendar-drag-image" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight translate=`${ghostX}px ${ghostY}px` overflow="visible" pointer-events="none" z-index=21 opacity=(dragPhase == "fading" ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (held ? "opacity 90ms linear" : "translate 300ms ease-in-out, opacity 90ms linear"))
+          box position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight overflow="visible" translate=`${lifted ? dragOriginX - sourceX - (dragKind == "sticker" ? 24 : 30) : 0}px ${lifted ? dragOriginY - sourceY - 24 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : (landed ? "translate 300ms ease-in-out" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)"))
             when viewport.prefersReducedMotion
               box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind == "plan" ? "#ffffff00" : dragColor) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0))
             else
-              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind == "plan" ? "#ffffff00" : dragColor) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) transition="background-color 300ms cubic-bezier(0.22, 1, 0.36, 1)" layout-transition="300ms cubic-bezier(0.22, 1, 0.36, 1)"
+              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind == "plan" ? "#ffffff00" : dragColor) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) transition="background-color 300ms ease-in-out" layout-transition="300ms ease-in-out"
             when dragKind == "sticker"
-              image `assets/stickers/${dragStickerId}.png` id="calendar-drag-sticker" testId="calendar-drag-sticker" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight object-fit="contain" scale=(ghostWidth / sourceWidth) transform-origin="0px 0px" transition=(viewport.prefersReducedMotion ? "none" : "scale 300ms cubic-bezier(0.22, 1, 0.36, 1)") aria-hidden=true
+              image `assets/stickers/${dragStickerId}.png` id="calendar-drag-sticker" testId="calendar-drag-sticker" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight object-fit="contain" scale=(ghostWidth / sourceWidth) transform-origin="0px 0px" transition=(viewport.prefersReducedMotion ? "none" : (landed ? "scale 300ms ease-in-out" : "scale 300ms cubic-bezier(0.22, 1, 0.36, 1)")) aria-hidden=true
             else
               row id="calendar-drag-source-face" testId="calendar-drag-source-face" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight box-sizing="border-box" padding-left=(dragSource == "todos" ? 0 : 20) padding-right=(dragSource == "todos" ? 0 : 20) align-items="center" gap=12 opacity=(landed or lifted ? 0 : 1) scale=(landed ? landingWidth / sourceWidth : (lifted ? 220 / sourceWidth : 1)) transform-origin="0px 0px" transition=ghostTransition
                 when dragSource != "todos"
@@ -1021,8 +1112,8 @@ component Calendar
                       path d="M 1 1 L 7 5 L 1 9" fill="none" stroke=dragColor stroke-width=1.5
                 text dragTitle font-size=11 font-weight=500 color=(dragKind == "plan" ? dragColor : "#292934") background-color=(dragKind == "plan" ? "#ffffff" : "#ffffff00") padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
       when pickerOpen
-        box testId="picker-backdrop" press=closePicker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(pickerClosing ? 0 : 1) transition="opacity 240ms ease-out"
-        column id="type-picker" testId="type-picker" role="dialog" aria-label="Add to your calendar" position="absolute" left=0 right=0 bottom=0 height=min(380, viewport.height * 0.9) box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" z-index=11 translate=`0px ${pickerClosing ? 420 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate 240ms cubic-bezier(0.22, 1, 0.36, 1)") animation=(viewport.prefersReducedMotion or pickerClosing ? "none" : "sheetIn 240ms cubic-bezier(0.22, 1, 0.36, 1)")
+        box testId="picker-backdrop" press=closePicker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(pickerClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${pickerClosing ? 180 : 200}ms ${pickerClosing ? "ease-in" : "ease-out"}`)
+        column id="type-picker" testId="type-picker" role="dialog" aria-label="Add to your calendar" position="absolute" left=0 right=0 bottom=0 height=min(380, viewport.height * 0.9) box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" z-index=11 translate=`0px ${pickerClosing ? 420 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : `translate ${pickerClosing ? 180 : 200}ms ${pickerClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or pickerClosing ? "none" : "sheetIn 200ms ease-out")
           box width=32 height=4 margin-top=10 margin-bottom=2 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0
           row height=60 padding-left=20 padding-right=20 align-items="center" flex-shrink=0
             text "Add to your calendar" flex=1 font-size=18 font-weight=600
@@ -1037,9 +1128,9 @@ component Calendar
                 PickerChoice(kind="todo", title="Todo", detail="A task for later", symbol="symbol:checkmark", tone="#70B8A2", pick=chooseType)
                 PickerChoice(kind="sticker", title="Sticker", detail="Mark your day", symbol="symbol:photo", tone="#F39B65", pick=chooseType)
       when stickerOpen and not dragging
-        box testId="sticker-backdrop" press=closeSticker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(stickerClosing ? 0 : 1) transition="opacity 240ms ease-out"
+        box testId="sticker-backdrop" press=closeSticker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(stickerClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`)
       when stickerOpen
-        column id="sticker-editor" testId="sticker-editor" role="dialog" aria-label="Choose a sticker" position="absolute" left=0 right=0 bottom=0 height=min(660, viewport.height * 0.9) min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" z-index=11 translate=`0px ${stickerClosing or (dragging and (held or dragCommitted)) ? 700 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)") animation=(viewport.prefersReducedMotion or stickerClosing ? "none" : "sheetIn 240ms cubic-bezier(0.22, 1, 0.36, 1)")
+        column id="sticker-editor" testId="sticker-editor" role="dialog" aria-label="Choose a sticker" position="absolute" left=0 right=0 bottom=0 height=stickerMorphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" overflow="hidden" layout-transition=(viewport.prefersReducedMotion ? "none" : (stickerClosing ? "180ms ease-in" : "200ms ease-out")) z-index=12 translate=`0px ${stickerClosing and not sharedSticker or (dragging and (held or dragCommitted)) ? 700 : 0}px` opacity=(sharedSticker and (stickerClosing or not formContentReady) ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `height ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}, opacity ${stickerClosing ? 180 : 120}ms ${stickerClosing ? "ease-in" : "ease-out"}, translate ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or stickerClosing or sharedSticker ? "none" : "sheetIn 200ms ease-out")
           box width=32 height=4 margin-top=10 margin-bottom=2 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0
           row height=60 padding-left=20 padding-right=20 gap=4 align-items="center" flex-shrink=0
             button press=closeSticker testId="cancel-sticker" disabled=(busy or dragging) width=68 height=44 padding=0 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
@@ -1068,14 +1159,23 @@ component Calendar
                 row gap=10
                   StickerChoice(value="travel", title="Travel", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
                   StickerChoice(value="rest", title="Rest", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                row gap=10
+                  StickerChoice(value="bunny", title="Bunny", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                  StickerChoice(value="paris", title="Paris", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                row gap=10
+                  StickerChoice(value="daisy", title="Daisy", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                  StickerChoice(value="moon", title="Moon", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                row gap=10
+                  StickerChoice(value="picnic", title="Picnic", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
+                  box flex=1 min-width=0 height=88
               when stickerDate.valid and stickerAgenda.stickerId != ""
                 button press=clearSticker testId="remove-sticker" disabled=(busy or dragging) height=48 border-width=0 border-radius=12 background-color="#fff1ef" display="flex" align-items="center" justify-content="center"
                   text "Remove sticker" font-size=16 font-weight=500 color="#c85353"
               when error != "" or not stickerDate.valid
                 text (error != "" ? error : stickerDate.message) testId="sticker-error" color="#b74238" font-size=13
       when editorOpen
-        box press=closeEditor testId="editor-backdrop" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.18)" z-index=10 opacity=(editorClosing ? 0 : 1) transition="opacity 240ms ease-out"
-        column id="schedule-editor" testId=(editorKind == "todo" ? "todo-editor" : "schedule-editor") role="dialog" aria-label=editorLabel position="absolute" left=0 right=0 bottom=0 height=editorHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" background-color="#ffffff" border-top-left-radius=24 border-top-right-radius=24 box-shadow="0 -8px 44px rgba(28, 31, 44, 0.08)" z-index=11 translate=`0px ${editorClosing ? editorHeight + 40 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate 240ms cubic-bezier(0.22, 1, 0.36, 1)") animation=(viewport.prefersReducedMotion or editorClosing ? "none" : "sheetIn 240ms cubic-bezier(0.22, 1, 0.36, 1)")
+        box press=closeEditor testId="editor-backdrop" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.18)" z-index=10 opacity=(editorClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}`)
+        column id="schedule-editor" testId=(editorKind == "todo" ? "todo-editor" : "schedule-editor") role="dialog" aria-label=editorLabel position="absolute" left=0 right=0 bottom=0 height=morphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" background-color="#ffffff" border-top-left-radius=24 border-top-right-radius=24 box-shadow=(sharedEditor ? "none" : "0 -8px 44px rgba(28, 31, 44, 0.08)") overflow="hidden" layout-transition=(viewport.prefersReducedMotion ? "none" : (editorClosing ? "180ms ease-in" : "200ms ease-out")) z-index=12 translate=`0px ${editorClosing and not sharedEditor ? editorHeight + 40 : 0}px` opacity=(sharedEditor and (editorClosing or not formContentReady) ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `height ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}, opacity ${editorClosing ? 180 : 120}ms ${editorClosing ? "ease-in" : "ease-out"}, translate ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or editorClosing or sharedEditor ? "none" : "sheetIn 200ms ease-out")
           box width=32 height=4 margin-top=10 margin-bottom=2 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0
           row height=60 padding-left=20 padding-right=20 gap=4 align-items="center" flex-shrink=0
             button press=closeEditor testId="cancel-editor" aria-label="Cancel editing" width=68 height=44 padding=0 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" disabled=busy
@@ -1156,6 +1256,9 @@ component MonthPage
     activeDragId: string
     held: bool
     busy: bool
+    theme: number
+    themeInk: string
+    themeAccent: string
     scrollPadding: number
     hoverDay: number
     dragSpan: number
@@ -1173,9 +1276,9 @@ component MonthPage
             box testId=`week-${page.id}-${week.id}` width="100%" height=max(minimumWeek, 34 + week.lanes * 24 + week.footer) position="relative" flex-shrink=0
               row position="absolute" left=0 top=0 right=0 bottom=0
                 each cell in week.cells key=cell.id
-                  DateCell(cell=cell, month=page.id, today=today, selected=selected, hasSelection=hasSelection, blocked=blocked, activeDragId=activeDragId, held=held, busy=busy, hoverDay=hoverDay, dragSpan=dragSpan, choose=choose, pan=pan, release=release)
+                  DateCell(cell=cell, month=page.id, today=today, selected=selected, hasSelection=hasSelection, blocked=blocked, activeDragId=activeDragId, held=held, busy=busy, theme=theme, themeInk=themeInk, themeAccent=themeAccent, hoverDay=hoverDay, dragSpan=dragSpan, choose=choose, pan=pan, release=release)
               each bar in week.bars key=bar.id
-                box testId=`bar-${page.id}-${bar.id}` aria-hidden=true pointer-events="none" position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${bar.span * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=6 padding-right=6 background-color=(bar.kind == "plan" ? "#ffffff00" : bar.color) border-top-left-radius=(bar.continuesBefore ? 0 : 4) border-bottom-left-radius=(bar.continuesBefore ? 0 : 4) border-top-right-radius=(bar.continuesAfter ? 0 : 4) border-bottom-right-radius=(bar.continuesAfter ? 0 : 4) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
+                box testId=`bar-${page.id}-${bar.id}` aria-hidden=true pointer-events="none" position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${bar.span * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=6 padding-right=6 background-color=(bar.kind == "plan" ? "#ffffff00" : (theme == 2 or theme == 3 or theme == 5 ? "rgba(255,255,255,0.86)" : bar.color)) border-left-width=(bar.kind == "plan" or theme == 0 or theme == 1 or theme == 4 ? 0 : 3) border-left-style="solid" border-left-color=bar.color border-top-left-radius=(bar.continuesBefore ? 0 : (theme == 0 ? 4 : 9)) border-bottom-left-radius=(bar.continuesBefore ? 0 : (theme == 0 ? 4 : 9)) border-top-right-radius=(bar.continuesAfter ? 0 : (theme == 0 ? 4 : 9)) border-bottom-right-radius=(bar.continuesAfter ? 0 : (theme == 0 ? 4 : 9)) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
                   when bar.kind == "plan"
                     box position="absolute" left=0 right=0 top=9 height=2 background-color=bar.color
                     when not bar.continuesBefore
@@ -1183,7 +1286,9 @@ component MonthPage
                     when not bar.continuesAfter
                       svg position="absolute" right=0 top=5 width=8 height=10 viewBox="0 0 8 10"
                         path d="M 1 1 L 7 5 L 1 9" fill="none" stroke=bar.color stroke-width=1.5
-                  text bar.title font-size=11 font-weight=500 color=(bar.kind == "plan" ? bar.color : "#292934") background-color=(bar.kind == "plan" ? "#ffffff" : "#ffffff00") padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+                  text bar.title font-size=11 font-weight=500 color=(bar.kind == "plan" ? bar.color : (theme == 0 ? "#292934" : themeInk)) background-color=(bar.kind == "plan" ? (theme == 0 ? "#ffffff" : "rgba(255,255,255,0.84)") : "#ffffff00") padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+              each cell in week.cells key=`hit-${cell.id}`
+                button testId=`date-hit-${page.id}-${cell.date}` aria-hidden=true press=choose(cell.day) disabled=blocked touch-action="pan-y" pan=pan panrelease=release position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
 
 component DateCell
   props
@@ -1196,6 +1301,9 @@ component DateCell
     activeDragId: string
     held: bool
     busy: bool
+    theme: number
+    themeInk: string
+    themeAccent: string
     hoverDay: number
     dragSpan: number
     choose: action
@@ -1204,7 +1312,7 @@ component DateCell
   derive highlighted = inRange(cell.day, hoverDay, dragSpan)
   derive isSelected = hasSelection and selected == cell.day
   view
-    button id=`date-${month}-${cell.date}` testId=`date-${month}-${cell.date}` press=choose(cell.day) disabled=blocked touch-action="pan-y" pan=pan panrelease=release aria-label=cell.date aria-selected=isSelected position="relative" width="14.285714%" height="100%" box-sizing="border-box" margin=0 padding=0 padding-top=4 border-style="solid" border-top-width=1 border-top-color="#f1f1f3" border-bottom-width=0 border-left-width=0 border-right-width=0 background-color=(highlighted ? "#EEF1FF" : "#ffffff") display="flex" flex-direction="column" align-items="center" justify-content="flex-start"
+    button id=`date-${month}-${cell.date}` testId=`date-${month}-${cell.date}` press=choose(cell.day) disabled=blocked touch-action="pan-y" pan=pan panrelease=release aria-label=cell.date aria-selected=isSelected position="relative" width="14.285714%" height="100%" box-sizing="border-box" margin=0 padding=0 padding-top=4 border-style="solid" border-top-width=1 border-top-color=(theme == 0 ? "#f1f1f3" : "rgba(74,65,78,0.12)") border-bottom-width=0 border-left-width=0 border-right-width=0 background-color=(highlighted ? "rgba(174,192,255,0.30)" : (theme == 0 ? "#ffffff" : "#ffffff00")) display="flex" flex-direction="column" align-items="center" justify-content="flex-start"
       when highlighted
         svg position="absolute" left=0 top=0 width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" pointer-events="none" aria-hidden=true
           path d="M 0 0.5 L 100 0.5 M 0 99.5 L 100 99.5" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
@@ -1212,8 +1320,7 @@ component DateCell
             path d="M 0.5 0 L 0.5 100" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
           when cell.day == hoverDay + dragSpan or weekday(cell.day) == 6
             path d="M 99.5 0 L 99.5 100" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
-      box width=24 height=24 border-radius=12 background-color=(cell.day == today ? "#FA7070" : (isSelected ? "#fff0f0" : "#ffffff00")) display="flex" align-items="center" justify-content="center"
-        text `${cell.number}` font-size=13 font-weight=(cell.day == today or isSelected ? 600 : 400) color=(cell.day == today ? "#ffffff" : (isSelected ? "#df666c" : (cell.inMonth ? "#494950" : "#bfc0c6")))
+      box width=24 height=24 border-radius=12 background-color=(cell.day == today ? themeAccent : (isSelected ? "rgba(255,255,255,0.68)" : "#ffffff00")) display="flex" align-items="center" justify-content="center"
+        text `${cell.number}` font-size=13 font-weight=(cell.day == today or isSelected ? 600 : 400) color=(cell.day == today ? "#ffffff" : (isSelected ? themeAccent : (cell.inMonth ? themeInk : "#b1adb3")))
       when cell.stickerId != ""
         image `assets/stickers/${cell.stickerId}.png` testId=`sticker-${month}-${cell.date}` position="absolute" right=4 bottom=4 width=32 height=32 object-fit="contain" pointer-events="none" aria-hidden=true opacity=(activeDragId == `sticker-day:${cell.day}:${cell.stickerId}` ? 0 : 1)
-        calendar-drag-handle id=`sticker-cell-${month}-${cell.date}` testId=`sticker-cell-${month}-${cell.date}` event-id=`sticker-day:${cell.day}:${cell.stickerId}` enabled=(not blocked and not busy and (activeDragId == "" or (held and activeDragId == `sticker-day:${cell.day}:${cell.stickerId}`)) ? "true" : "false") press=choose(cell.day) aria-label="Move sticker" position="absolute" right=4 bottom=4 width=32 height=32

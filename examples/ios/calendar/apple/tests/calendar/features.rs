@@ -425,7 +425,7 @@ fn one_sticker_per_day_can_be_chosen_replaced_and_removed_across_restarts() {
     app.input("sticker-date", "2026-09-22");
     for id in [
         "sunshine", "coffee", "cake", "heart", "sparkle", "flower", "book", "workout", "travel",
-        "rest",
+        "rest", "bunny", "paris", "daisy", "moon", "picnic",
     ] {
         assert_eq!(
             app.runner
@@ -505,6 +505,52 @@ fn one_sticker_per_day_can_be_chosen_replaced_and_removed_across_restarts() {
 }
 
 #[test]
+fn wallpaper_theme_selection_updates_the_calendar_and_survives_restart() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    assert_eq!(app.runner.resource("theme"), Some(&Value::Number(0.0)));
+    app.press("theme-button");
+    assert_eq!(app.state("themeOpen"), &Value::Bool(true));
+    for value in 0..=5 {
+        assert_eq!(
+            app.runner
+                .kernel()
+                .find_by_test_id(&format!("theme-{value}"))
+                .len(),
+            1
+        );
+    }
+    app.press("theme-3");
+    app.finish_motion();
+    assert_eq!(app.runner.resource("theme"), Some(&Value::Number(3.0)));
+    assert_eq!(
+        app.derived("themeWallpaper").as_str(),
+        Some("assets/themes/meadow.png")
+    );
+    assert_eq!(
+        app.runner.kernel().find_by_test_id("theme-wallpaper").len(),
+        1
+    );
+    drop(app);
+
+    let mut app = App::open(&root);
+    assert_eq!(app.runner.resource("theme"), Some(&Value::Number(3.0)));
+    assert_eq!(
+        app.derived("themeWallpaper").as_str(),
+        Some("assets/themes/meadow.png")
+    );
+    app.press("theme-button");
+    app.press("theme-0");
+    app.finish_motion();
+    assert_eq!(app.runner.resource("theme"), Some(&Value::Number(0.0)));
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("theme-wallpaper")
+        .is_empty());
+}
+
+#[test]
 fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
     let root = Root::new();
     let mut app = App::open(&root);
@@ -575,13 +621,24 @@ fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
 }
 
 #[test]
-fn dragging_a_cell_sticker_atomically_clears_its_source_and_replaces_the_target() {
+fn a_placed_sticker_opens_its_date_sheet_and_moves_from_the_sheet() {
     let root = Root::new();
     let mut app = App::open(&root);
     save_sticker(&mut app, "2026-09-20", "coffee");
     save_sticker(&mut app, "2026-09-22", "flower");
     let revision = app.derived("revision").as_number().unwrap();
-    let source_id = "sticker-cell-2026-09-2026-09-20";
+    assert_eq!(
+        app.runner
+            .kernel()
+            .find_by_test_id("sticker-2026-09-2026-09-20")
+            .len(),
+        1
+    );
+    app.press("date-2026-09-2026-09-20");
+    assert_eq!(app.state("popupOpen"), &Value::Bool(true));
+    assert_eq!(app.state("dragPhase").as_str(), Some("idle"));
+    assert_eq!(app.text("popup-date"), "Sun, Sep 20");
+    let source_id = "sticker-agenda-2026-09-20";
     let source = app.key(source_id);
     let contact = Contact::from_source(
         &app,
@@ -593,7 +650,7 @@ fn dragging_a_cell_sticker_atomically_clears_its_source_and_replaces_the_target(
         "calendar-input",
         contact.event(1, "begin", contact.origin(), ""),
     );
-    assert_eq!(app.state("dragSource").as_str(), Some("sticker-cell"));
+    assert_eq!(app.state("dragSource").as_str(), Some("sticker-date"));
     let destination = app.center("date-2026-09-2026-09-22");
     app.event("calendar-input", contact.event(2, "end", destination, ""));
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
@@ -621,6 +678,21 @@ fn dragging_a_cell_sticker_atomically_clears_its_source_and_replaces_the_target(
     assert_eq!(app.derived("revision").as_number(), Some(revision + 1.0));
     assert_eq!(sticker_on(&mut app, TODAY + 19), "");
     assert_eq!(sticker_on(&mut app, TODAY + 21), "coffee");
+}
+
+#[test]
+fn tapping_a_date_over_a_placed_schedule_opens_its_sheet() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    assert!(!app
+        .runner
+        .kernel()
+        .find_by_test_id("date-hit-2026-09-2026-09-25")
+        .is_empty());
+    app.press("date-hit-2026-09-2026-09-25");
+    assert_eq!(app.state("popupOpen"), &Value::Bool(true));
+    assert_eq!(app.text("popup-date"), "Fri, Sep 25");
+    assert!(!app.agenda_id("Summer in Seoul").is_empty());
 }
 
 #[test]
@@ -679,10 +751,9 @@ fn cancelled_sticker_drags_restore_their_source_without_writing_storage() {
     for (origin, ending) in [
         ("picker", "zone"),
         ("date", "zone"),
-        ("cell", "zone"),
-        ("cell", "same-day"),
+        ("date", "same-day"),
         ("picker", "cancel"),
-        ("cell", "outside"),
+        ("date", "outside"),
     ] {
         let root = Root::new();
         let mut app = App::open(&root);
@@ -697,17 +768,11 @@ fn cancelled_sticker_drags_restore_their_source_without_writing_storage() {
             )
         } else {
             save_sticker(&mut app, "2026-09-22", "coffee");
-            if origin == "date" {
-                app.press("date-2026-09-2026-09-22");
-            }
+            app.press("date-2026-09-2026-09-22");
             (
                 format!("sticker-day:{}:coffee", TODAY + 21),
-                if origin == "date" {
-                    "sticker-agenda-2026-09-22"
-                } else {
-                    "sticker-cell-2026-09-2026-09-22"
-                },
-                (origin == "date").then_some("date-popup"),
+                "sticker-agenda-2026-09-22",
+                Some("date-popup"),
             )
         };
         let revision = app.derived("revision").clone();
@@ -763,11 +828,12 @@ fn a_committed_sticker_move_with_a_lost_reply_and_replayed_end_is_atomic_once() 
     save_sticker(&mut app, "2026-09-22", "flower");
     let revision = app.derived("revision").as_number().unwrap();
     let operation = app.state("operationSequence").as_number().unwrap();
+    app.press("date-2026-09-2026-09-20");
     let contact = Contact::from_source(
         &app,
         &format!("sticker-day:{}:coffee", TODAY + 19),
         1,
-        "sticker-cell-2026-09-2026-09-20",
+        "sticker-agenda-2026-09-20",
     );
     app.event(
         "calendar-input",
