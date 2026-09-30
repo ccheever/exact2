@@ -171,8 +171,12 @@ public final class ExactView: UIView {
         guard frame.width > 0, frame.height > 0 else { return }
         // Display changes can leave logical bounds unchanged. Update resources
         // independently of the resize commit, from this view's local traits.
+        // The raster budget follows this view's own bounds — the panel it
+        // covers — never the frame a keyboard or a sheet clips the viewport
+        // to: a keyboard rising is not a smaller display, and a shrink trims
+        // the cold cache and halves queued decodes in place.
         let scale = max(1, traitCollection.displayScale)
-        session.rasters.fit(size: frame.size, scale: scale)
+        session.rasters.fit(size: bounds.size, scale: scale)
         if scale != lastDisplayScale {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))

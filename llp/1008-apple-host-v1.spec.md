@@ -656,7 +656,9 @@ window creation. `ExactView` follows its own bounds and asymmetric safe-area
 insets across resize. Its local display-scale trait updates Canvas 2D and
 image decode resolution even when logical bounds do not change; its scene,
 not the process's first connected scene, supplies system appearance. Raster
-capacity follows eight viewport-sized RGBA bitmaps, bounded to 32–192 MiB.
+capacity follows eight RGBA bitmaps the size of the view's own bounds (the
+panel it covers, never the frame a keyboard or a sheet clips the viewport to),
+bounded to 32–192 MiB, and starts at the floor until the view's first layout.
 The session account changes capacity without resetting interests or releasing
 live backing owners. Shrinking drops cold images and prevents further
 allocation while surviving charges exceed the new capacity; growth wakes
