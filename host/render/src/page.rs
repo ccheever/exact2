@@ -169,7 +169,7 @@ fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
 pub(crate) struct Js {
     at: Places,
     preloads: Vec<(usize, usize)>,
-    classes: std::collections::HashMap<String, String>,
+    classes: Classes,
     fonts: bool,
 }
 
@@ -179,10 +179,7 @@ impl Js {
         let at = places(shell)?;
         Ok(Js {
             preloads: preloads(shell, &at),
-            classes: classes(shell)
-                .into_iter()
-                .map(|(css, class)| (css.to_string(), class.to_string()))
-                .collect(),
+            classes: classes(shell),
             fonts: shell.contains("as=\"font\""),
             at,
         })
@@ -370,9 +367,19 @@ fn without_fonts(head: &str) -> String {
 const ROOT: &str = "<div id=\"exact-root\"></div>";
 
 /// The shell stylesheet's static classes (`host/web-js/build.mjs`: `.c<n>{…}`
-/// inside `#exact-root#exact-root{…}`), by their CSS text.
-fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
-    let mut found = std::collections::HashMap::new();
+/// inside `#exact-root#exact-root{…}`): by their CSS text, and, for a class
+/// no other rule of the shell names (no `:hover`, no media variant), its
+/// declarations, which an element's inline style may contain with more.
+struct Classes {
+    exact: std::collections::HashMap<String, String>,
+    plain: Vec<(String, Vec<String>)>,
+}
+
+fn classes(shell: &str) -> Classes {
+    let mut found = Classes {
+        exact: std::collections::HashMap::new(),
+        plain: Vec::new(),
+    };
     let Some(start) = shell.find("#exact-root#exact-root{") else {
         return found;
     };
@@ -387,10 +394,52 @@ fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
             break;
         }
         // `c<n>`, from the `.c<n>{` at the head of `rest`.
-        found.entry(css).or_insert(&rest[1..2 + open]);
+        let class = &rest[1..2 + open];
+        found
+            .exact
+            .entry(css.to_string())
+            .or_insert_with(|| class.to_string());
+        let named = shell
+            .match_indices(&rest[..2 + open])
+            .filter(|(at, dot)| {
+                !shell.as_bytes()[at + dot.len()..]
+                    .first()
+                    .is_some_and(u8::is_ascii_digit)
+            })
+            .count();
+        if named == 1 {
+            found.plain.push((
+                class.to_string(),
+                declarations(css).map(str::to_string).collect(),
+            ));
+        }
         rest = &tail[open + close + 1..];
     }
+    // The class with the most declarations first: the fewest left inline.
+    found.plain.sort_by_key(|(_, d)| std::cmp::Reverse(d.len()));
     found
+}
+
+/// A style's declarations, as the document and the stylesheet write them
+/// (`name:value;` each).
+fn declarations(css: &str) -> impl Iterator<Item = &str> {
+    css.split(';').filter(|d| !d.is_empty())
+}
+
+/// An inline style as the class that carries most of it and the rest
+/// (a dynamic style row's element: its static class and its live rows), or
+/// `None` when no plain class's declarations are all in it.
+fn split_style<'a>(classes: &'a Classes, css: &str) -> Option<(&'a str, String)> {
+    let inline: Vec<&str> = declarations(css).collect();
+    let (class, of) = classes.plain.iter().find(|(_, d)| {
+        !d.is_empty() && d.len() < inline.len() && d.iter().all(|x| inline.contains(&x.as_str()))
+    })?;
+    let mut rest = String::new();
+    for d in inline.iter().filter(|x| !of.iter().any(|o| o == *x)) {
+        rest.push_str(d);
+        rest.push(';');
+    }
+    Some((class, rest))
 }
 
 /// The render host's document as the JavaScript runtime adopts it: an
@@ -404,7 +453,7 @@ fn classes(shell: &str) -> std::collections::HashMap<&str, &str> {
 /// but `!important` ones, as an inline style's is). On RealWorld's `/` the
 /// two took about 1.4 KB off the page (brotli, as sent); it paints
 /// pixel-for-pixel as before, with and without JavaScript.
-fn for_runtime(out: &mut String, root: &str, classes: &std::collections::HashMap<String, String>) {
+fn for_runtime(out: &mut String, root: &str, classes: &Classes) {
     out.reserve(root.len());
     let mut rest = root;
     let mut attrs: Vec<(&str, Option<&str>)> = Vec::new();
@@ -434,7 +483,7 @@ fn for_runtime(out: &mut String, root: &str, classes: &std::collections::HashMap
 fn start_tag<'t>(
     out: &mut String,
     tag: &'t str,
-    classes: &std::collections::HashMap<String, String>,
+    classes: &Classes,
     attrs: &mut Vec<(&'t str, Option<&'t str>)>,
 ) {
     let space = |b: u8| matches!(b, b' ' | b'\t' | b'\n');
@@ -482,7 +531,25 @@ fn start_tag<'t>(
                 continue;
             }
             ("data-view", _) => continue,
-            ("style", Some(css)) if !has_class => classes.get(unescape(css).as_ref()),
+            ("style", Some(css)) if !has_class => {
+                let css = unescape(css);
+                match classes.exact.get(css.as_ref()) {
+                    Some(class) => Some(class),
+                    // A dynamic row's element: its class, and only the live
+                    // rows inline, as the runtime writes them after adoption.
+                    None => match split_style(classes, &css) {
+                        Some((class, rest)) => {
+                            out.push_str(" class=\"");
+                            out.push_str(class);
+                            out.push_str("\" style=\"");
+                            out.push_str(&escape_attr(&rest));
+                            out.push('"');
+                            continue;
+                        }
+                        None => None,
+                    },
+                }
+            }
             _ => None,
         };
         out.push(' ');
@@ -503,6 +570,16 @@ fn start_tag<'t>(
     }
     out.push_str(close);
     out.push('>');
+}
+
+/// An attribute value as the document writes it (`unescape`'s inverse).
+fn escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\r', "&#13;")
 }
 
 /// An attribute value's text: the references the document writes, read.

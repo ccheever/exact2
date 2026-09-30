@@ -517,6 +517,24 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(&classed, &r).unwrap();
     assert!(html.contains(" class=\"c7\""), "{html}");
     assert!(!html.contains(&format!(" style=\"{style}\"")));
+    // A dynamic style row's element: the plain class that carries the rest
+    // of its style goes as that class, and only the live row stays inline,
+    // as the runtime writes it after adoption; a class another rule names
+    // (a hover, a media variant) is only ever taken whole.
+    let (live, fixed) = style.split_once(';').unwrap();
+    assert!(fixed.contains(';'), "{style}");
+    let split = shell.replace(
+        "<style>p{margin:0}</style>",
+        &format!("<style>#exact-root#exact-root{{.c9{{{fixed}}}}}</style>"),
+    );
+    let html = exact_render::page(&split, &r).unwrap();
+    assert!(
+        html.contains(&format!(" class=\"c9\" style=\"{live};\"")),
+        "{html}"
+    );
+    let hovered = split.replace("}}</style>", "}.c9:hover{opacity:0.5}}</style>");
+    let html = exact_render::page(&hovered, &r).unwrap();
+    assert!(html.contains(&format!(" style=\"{style}\"")), "{html}");
     assert!(!html.contains(" data-view=\""));
     for link in html.match_indices("<a ") {
         let tag = &html[link.0..link.0 + html[link.0..].find('>').unwrap()];
