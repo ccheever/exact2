@@ -572,7 +572,12 @@ The spec (1009.000) transcribes the landing.
   17). What remains on the main thread is wgpu-core's pass and submit
   bookkeeping and the tick — D8's subject. Readbacks: 133 fixture images
   (Caltrain, Weatherlight, the engine's render suites) byte-identical to
-  main.
+  main. macOS (the mac lane, an M4 mini at 60 Hz, the 19-kind feed, three
+  interleaved rounds with the order alternated, `~/bench/xheavy-mac/results/
+  ab1-bones`): at rest, where the shader canvases tick, process CPU 164 →
+  145 ms/s and main 67 → 63; a fling and an inner fling unchanged
+  (816/394 → 819/392, 431/312 → 436/314), fps 58.9–60 and peak memory
+  unchanged.
 - **macOS, 2026-09-28/29** (the same feed at rest, five canvases on
   screen; `~/bench/xheavy/gpusubmit/mac`). With the drawable acquired on
   the main thread, 54% of the main thread's wall-clock samples were waiting
