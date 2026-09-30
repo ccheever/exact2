@@ -71,6 +71,8 @@ enum MetalLayerPool {
 
     /// A layer, and whether it served a canvas before.
     static func take() -> (CAMetalLayer, Bool) {
+        // The spares are main's alone (no lock): a view made or freed off main traps here, in a debug build.
+        dispatchPrecondition(condition: .onQueue(.main))
         lastUse = CACurrentMediaTime()
         if let layer = spare.popLast() { return (layer, true) }
         made += 1
@@ -85,6 +87,7 @@ enum MetalLayerPool {
     }
 
     static func give(_ layer: CAMetalLayer) {
+        dispatchPrecondition(condition: .onQueue(.main))
         layer.removeFromSuperlayer()
         lastUse = CACurrentMediaTime()
         guard spare.count < keep else { return }
