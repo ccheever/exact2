@@ -495,6 +495,24 @@ component StageNine
       circle cx=11 cy=13 r=6 fill="#f59e0b" filter="url(#lone)"
       g transform="rotate(30 29 13)"
         rect x=24 y=8 width=10 height=10 rx=2 fill="#10b981" filter="drop-shadow(1px 1px 0.8px #111827)"
+    // Gradient masks as a vignette and a fade: one rectangle filled with a
+    // radial and a linear gradient.
+    svg testId="fx-mask-gradient" class=Tile viewBox="0 0 120 80"
+      defs
+        radialGradient id="vig"
+          stop offset=0.4 stop-color="#ffffff"
+          stop offset=1 stop-color="#202020"
+        linearGradient id="fade" x1=0 y1=0 x2=1 y2=0
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color="#ffffff" stop-opacity=0
+        mask id="vigmask" maskUnits="userSpaceOnUse" x=0 y=0 width=70 height=80
+          rect x=0 y=0 width=70 height=80 fill="url(#vig)"
+        mask id="fademask" maskContentUnits="objectBoundingBox"
+          rect x=0 y=0 width=1 height=1 fill="url(#fade)"
+      g mask="url(#vigmask)"
+        rect x=0 y=0 width=70 height=80 fill="#0ea5e9"
+        circle cx=35 cy=40 r=18 fill="#f59e0b"
+      rect x=76 y=8 width=40 height=64 fill="#7c3aed" mask="url(#fademask)"
     // A filter region and a mask region far larger than the svg (tens of
     // millions of pixels at device scale): drawn, never dropped.
     svg testId="fx-huge-region" class=Tile viewBox="0 0 120 80"

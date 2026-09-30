@@ -192,6 +192,9 @@ enum SvgIsland {
     /// device pixels per unit of the masked layer. Without the module the
     /// layer is empty, and masks everything away.
     static func mask(_ spec: [String: Any], k: CGFloat, seen: CGRect?, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
+        // One gradient rectangle (a vignette, a fade) is Core Animation's
+        // own gradient layer: no pixels of ours.
+        if let gradient = SvgGradientMask.layer(spec, dark: dark) { return gradient }
         let layer = CALayer()
         layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
         let r = nums(spec["r"])
