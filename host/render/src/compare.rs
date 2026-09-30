@@ -1,0 +1,131 @@
+//! The differential check (LLP 1048.004 D6): a location rendered with a
+//! kernel and without one, compared byte for byte — the document's root,
+//! head fields, checkpoint and activation.
+
+use crate::{render_with, Ids, Projection, Rendered, Settled};
+use exact_plan::Plan;
+use exact_runner::DataSource;
+use exact_web::document::Site;
+use std::time::Duration;
+
+/// `location` rendered both ways: the JSON fields `<app>-render --compare`
+/// prints after the location — `same`, and the first difference
+/// (`differs`), or why the page has no kernel-free render (`direct`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn location<D: DataSource + 'static, F: Fn() -> D>(
+    plan: &Plan,
+    data: &F,
+    viewport: exact_runner::Viewport,
+    location: &str,
+    site: &Site,
+    deadline: Duration,
+) -> String {
+    let render = |projection| {
+        render_with(
+            plan,
+            data,
+            viewport,
+            location,
+            site,
+            deadline,
+            Ids::Any,
+            projection,
+        )
+    };
+    let kernel = match render(Projection::Kernel) {
+        Ok(kernel) => kernel,
+        Err(e) => return format!(",\"same\":null,\"error\":{}", json(&e)),
+    };
+    let direct = match render(Projection::Direct) {
+        Ok(direct) => direct,
+        Err(why) => return format!(",\"same\":null,\"direct\":{}", json(&why)),
+    };
+    if let Some(differs) = documents(&kernel, &direct) {
+        return format!(",\"same\":false,\"differs\":{}", json(&differs));
+    }
+    let settled = kernel.settled == Settled::Complete && direct.settled == Settled::Complete;
+    format!(",\"same\":true,\"settled\":{settled}")
+}
+
+/// The first difference between two renders' documents.
+fn documents(kernel: &Rendered, direct: &Rendered) -> Option<String> {
+    let (k, d) = (&kernel.document, &direct.document);
+    // View ids follow the order answers landed in, which two renders need
+    // not share; nobody keeps them on these pages ([`Ids::Any`]).
+    let (kr, dr) = (without_ids(&k.root), without_ids(&d.root));
+    let fields: [(&str, &str, &str); 6] = [
+        ("root", &kr, &dr),
+        ("head", &kernel.head, &direct.head),
+        ("checkpoint", &kernel.checkpoint, &direct.checkpoint),
+        ("keyframes", &k.keyframes, &d.keyframes),
+        ("lang", &k.lang, &d.lang),
+        ("dir", &k.dir, &d.dir),
+    ];
+    for (field, a, b) in fields {
+        if let Some(at) = first_difference(a, b) {
+            return Some(format!("{field} at byte {at}: {}", around(a, b, at)));
+        }
+    }
+    if k.scroll_document != d.scroll_document {
+        return Some(format!(
+            "scroll_document: {} against {}",
+            k.scroll_document, d.scroll_document
+        ));
+    }
+    if kernel.activate != direct.activate {
+        return Some(format!(
+            "activate: {} against {}",
+            kernel.activate.name(),
+            direct.activate.name()
+        ));
+    }
+    (k.viewport_fit != d.viewport_fit || k.interactive_widget != d.interactive_widget)
+        .then(|| "the first root's viewport policies".to_string())
+}
+
+/// `root` with its view ids blanked.
+fn without_ids(root: &str) -> String {
+    const VIEW: &str = "data-view=\"";
+    let mut out = String::with_capacity(root.len());
+    let mut rest = root;
+    while let Some(at) = rest.find(VIEW) {
+        out.push_str(&rest[..at + VIEW.len()]);
+        rest = &rest[at + VIEW.len()..];
+        let end = rest.find('"').unwrap_or(rest.len());
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn first_difference(a: &str, b: &str) -> Option<usize> {
+    if a == b {
+        return None;
+    }
+    Some(
+        a.bytes()
+            .zip(b.bytes())
+            .position(|(x, y)| x != y)
+            .unwrap_or(a.len().min(b.len())),
+    )
+}
+
+/// The text around byte `at` in each.
+fn around(a: &str, b: &str, at: usize) -> String {
+    let cut = |s: &str| {
+        let mut from = at.saturating_sub(60).min(s.len());
+        while !s.is_char_boundary(from) {
+            from -= 1;
+        }
+        let mut to = (at + 60).min(s.len());
+        while !s.is_char_boundary(to) {
+            to += 1;
+        }
+        s[from..to].to_string()
+    };
+    format!("kernel «{}» direct «{}»", cut(a), cut(b))
+}
+
+fn json(text: &str) -> String {
+    serde_json::Value::String(text.into()).to_string()
+}

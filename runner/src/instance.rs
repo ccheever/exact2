@@ -19,6 +19,7 @@
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
 mod deps;
+mod document;
 mod find;
 mod region;
 mod text;
@@ -28,6 +29,7 @@ use crate::vm::{self, Env, Frame, RowSlots, Trap};
 pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
 pub(crate) use deps::{Deps, Input, Reads as DepReads};
+pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 use std::cell::RefCell;
@@ -359,6 +361,10 @@ pub struct Update<'a> {
     /// Journal lines for what the data got wrong and the tree absorbed: an
     /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
+    /// No kernel mirrors the tree (a detached kernel's runner, LLP
+    /// 1048.004): bindings are evaluated and kept, and no style or prop op
+    /// is built. The document is written from the tree ([`Tree::document`]).
+    pub discard: bool,
 }
 
 impl<'a> Update<'a> {
@@ -378,6 +384,7 @@ impl<'a> Update<'a> {
             dirty_fields: 0,
             on_path: true,
             notes: Vec::new(),
+            discard: false,
         }
     }
 
@@ -762,6 +769,10 @@ impl NodeInst {
                 .as_ref()
                 .is_some_and(|last| crate::compare::equal(last, &value) == Some(true))
             {
+                continue;
+            }
+            if u.discard {
+                self.last[i] = Some(value);
                 continue;
             }
             // A binding is a declaration whose value is computed from state,

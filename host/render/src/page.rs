@@ -298,18 +298,51 @@ pub(crate) fn body_js(
     late: bool,
     marked: bool,
 ) -> String {
-    let at = &js.at;
-    let mut out = String::with_capacity(
-        shell.len() - at.root + rendered.document.root.len() + rendered.checkpoint.len() + 1024,
+    let document = &rendered.document;
+    let mut out = body_open_js(
+        shell,
+        js,
+        &rendered.head,
+        document.scroll_document,
+        late,
+        marked,
     );
-    if js.fonts {
-        out.push_str(&without_fonts(&rendered.head));
+    out.reserve(document.root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
+    if rendered.runtime_form {
+        out.push_str(&document.root);
     } else {
-        out.push_str(&rendered.head);
+        for_runtime(&mut out, &document.root, &js.classes);
+    }
+    out.push_str(&body_close_js(
+        shell,
+        js,
+        &rendered.digest,
+        rendered.activate,
+        &rendered.checkpoint,
+    ));
+    out
+}
+
+/// [`body_js`] through `<div id="exact-root">`: what goes before the
+/// document, which a streamed page sends before its root is written
+/// (LLP 1048.004 Q3).
+pub(crate) fn body_open_js(
+    shell: &str,
+    js: &Js,
+    head: &str,
+    scroll: bool,
+    late: bool,
+    marked: bool,
+) -> String {
+    let mut out = String::with_capacity(head.len() + 1024);
+    if js.fonts {
+        out.push_str(&without_fonts(head));
+    } else {
+        out.push_str(head);
     }
     out.push('\n');
     // A head sent before the render could not mark `<html>` (`scroll_attr`).
-    if rendered.document.scroll_document && !marked {
+    if scroll && !marked {
         out.push_str("<script>");
         out.push_str(scroll_document_js());
         out.push_str("</script>\n");
@@ -320,16 +353,29 @@ pub(crate) fn body_js(
         }
     }
     out.push_str("<div id=\"exact-root\">");
-    for_runtime(&mut out, &rendered.document.root, &js.classes);
+    out
+}
+
+/// [`body_js`] from the root's `</div>`: the rest of the shell, with the
+/// checkpoint in the entry's place.
+pub(crate) fn body_close_js(
+    shell: &str,
+    js: &Js,
+    digest: &str,
+    activate: exact_plan::ActivatePolicy,
+    checkpoint: &str,
+) -> String {
+    let at = &js.at;
+    let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
     out.push_str(&shell[at.root + ROOT.len()..at.entry]);
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
             "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>",
-            rendered.digest,
-            activate_js(rendered.activate),
-            rendered.checkpoint
+            digest,
+            activate_js(activate),
+            checkpoint
         ),
     );
     out.push_str(&shell[at.entry + JS_ENTRY.len()..]);
@@ -370,7 +416,7 @@ const ROOT: &str = "<div id=\"exact-root\"></div>";
 /// inside `#exact-root#exact-root{…}`): by their CSS text, and, for a class
 /// no other rule of the shell names (no `:hover`, no media variant), its
 /// declarations, which an element's inline style may contain with more.
-struct Classes {
+pub(crate) struct Classes {
     exact: std::collections::HashMap<String, String>,
     plain: Vec<(String, Vec<String>)>,
 }
@@ -523,7 +569,7 @@ fn start_tag<'t>(
     out.push('<');
     out.push_str(&body[..name_end]);
     for &(name, value) in attrs.iter() {
-        let class = match (name, value) {
+        match (name, value) {
             // The shell styles a link by `a[data-view]` (the runtime's
             // links carry an empty one); no other element needs its id.
             ("data-view", _) if &body[..name_end] == "a" => {
@@ -531,45 +577,47 @@ fn start_tag<'t>(
                 continue;
             }
             ("data-view", _) => continue,
-            ("style", Some(css)) if !has_class => {
-                let css = unescape(css);
-                match classes.exact.get(css.as_ref()) {
-                    Some(class) => Some(class),
-                    // A dynamic row's element: its class, and only the live
-                    // rows inline, as the runtime writes them after adoption.
-                    None => match split_style(classes, &css) {
-                        Some((class, rest)) => {
-                            out.push_str(" class=\"");
-                            out.push_str(class);
-                            out.push_str("\" style=\"");
-                            out.push_str(&escape_attr(&rest));
-                            out.push('"');
-                            continue;
-                        }
-                        None => None,
-                    },
-                }
+            ("style", Some(css)) if !has_class && runtime_style(classes, &unescape(css), out) => {
+                continue;
             }
-            _ => None,
-        };
+            _ => {}
+        }
         out.push(' ');
-        match (class, value) {
-            (Some(class), _) => {
-                out.push_str("class=\"");
-                out.push_str(class);
-                out.push('"');
-            }
-            (None, Some(value)) => {
-                out.push_str(name);
-                out.push_str("=\"");
-                out.push_str(value);
-                out.push('"');
-            }
-            (None, None) => out.push_str(name),
+        out.push_str(name);
+        if let Some(value) = value {
+            out.push_str("=\"");
+            out.push_str(value);
+            out.push('"');
         }
     }
     out.push_str(close);
     out.push('>');
+}
+
+/// An element's inline style (`css`, its text) as the runtime has it
+/// (`for_runtime`): its static class when the style is one, else the
+/// class carrying most of it and only the live rows inline (a dynamic style
+/// row's element, as the runtime writes it after adoption), written to
+/// `out` as the attributes; `false`, writing nothing, when no class
+/// carries it. The kernel-free writer shares it (LLP 1048.004).
+pub(crate) fn runtime_style(classes: &Classes, css: &str, out: &mut String) -> bool {
+    if let Some(class) = classes.exact.get(css) {
+        out.push_str(" class=\"");
+        out.push_str(class);
+        out.push('"');
+        return true;
+    }
+    match split_style(classes, css) {
+        Some((class, rest)) => {
+            out.push_str(" class=\"");
+            out.push_str(class);
+            out.push_str("\" style=\"");
+            out.push_str(&escape_attr(&rest));
+            out.push('"');
+            true
+        }
+        None => false,
+    }
 }
 
 /// An attribute value as the document writes it (`unescape`'s inverse).
@@ -625,6 +673,7 @@ mod tests {
             state: Default::default(),
             settled: crate::Settled::Complete,
             activate: exact_plan::ActivatePolicy::Inferred,
+            runtime_form: false,
         };
         let js = Js::of(shell).unwrap();
         let head = head_js(shell, &js, "en", "ltr", true, false);

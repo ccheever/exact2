@@ -78,7 +78,7 @@ pub use instance::collection::{
     FeedbackError, ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress,
     ReorderStart, ReorderToken, ReorderWrapper, RowMeasurement,
 };
-pub use instance::{ListLinks, SurfaceUpdate, LISTS};
+pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement, Reply,

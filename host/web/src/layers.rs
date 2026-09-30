@@ -72,6 +72,11 @@ pub const INSETS: [StyleId; 5] = [
 
 /// A node's [`Paint`].
 pub fn paint(node: &NodeRef<'_>) -> Paint {
+    paint_of(&node.facts())
+}
+
+/// [`paint`], from a node's facts.
+pub fn paint_of(node: &exact_kernel::NodeFacts<'_>) -> Paint {
     let m = &node.style.mask;
     let props = node.props;
     let editor =

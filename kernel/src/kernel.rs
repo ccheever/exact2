@@ -208,6 +208,8 @@ pub struct Kernel {
     /// A kernel with layout on demand builds the engine only when a layout
     /// is first asked for, and again only then after a reset.
     on_demand: bool,
+    /// Keeps nothing ([`Kernel::detached`]).
+    detached: bool,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -269,6 +271,7 @@ impl Kernel {
             region: None,
             region_leases: Default::default(),
             on_demand: true,
+            detached: false,
         }
     }
 
@@ -890,6 +893,7 @@ impl Kernel {
             region: None,
             region_leases: Default::default(),
             on_demand: self.on_demand,
+            detached: self.detached,
         }
     }
 }

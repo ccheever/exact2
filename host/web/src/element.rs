@@ -6,7 +6,11 @@
 
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
-use exact_kernel::{Kernel, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+
+/// How a projection finds the element an SVG reference names: the kernel's
+/// `resolve_id`, or a tree's own (LLP 1055.000 D3).
+pub type Resolve<'r> = &'r dyn Fn(exact_kernel::ViewId, &str) -> Option<exact_kernel::ViewId>;
 
 /// A canvas's element hosts its surface element under its children
 /// (`glue.js`, LLP 1014 D2): a containing block for it, unless the author
@@ -15,7 +19,12 @@ use exact_kernel::{Kernel, NodeRef, NodeType, ObjectFit, PropId, PropValue, Styl
 /// above the canvas's background and below its children. A container a
 /// button holds is a `<span>` ([`tag_for`]) whose box is still a block unless
 /// a row says otherwise, as a `<div>`'s is.
-pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String {
+pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
+    host_css_of(&node.facts(), css, tag)
+}
+
+/// [`host_css`], from a node's facts.
+pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
@@ -89,7 +98,7 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
 /// absolutely positioned one is its natural size whatever its insets. Chrome
 /// sizes it as a `<canvas>` everywhere but a flex row's automatic minimum
 /// width, which would need the parent's direction (LLP 1001 §1).
-fn canvas_css(node: &NodeRef<'_>, css: &mut String) {
+fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
     use exact_kernel::{Dimension, PositionType};
     let style = &node.style;
     let given = |id: StyleId, value: Dimension| style.mask.has(id) && value != Dimension::Auto;
@@ -125,6 +134,11 @@ fn canvas_css(node: &NodeRef<'_>, css: &mut String) {
 /// holds only phrasing content, so there a container — a box, a paragraph,
 /// a heading, a landmark — is a `<span>` with the same style (LLP 1007 §1).
 pub(super) fn tag_for<'a>(node: &NodeRef<'a>, in_button: bool) -> &'a str {
+    tag_of(&node.facts(), in_button)
+}
+
+/// [`tag_for`], from a node's facts.
+pub fn tag_of<'a>(node: &NodeFacts<'a>, in_button: bool) -> &'a str {
     // @ref LLP 1024 D2 — a module node is its custom element, by the name
     // the plan carries, checked again: plan bytes are network bytes.
     if let Some(name) = node
@@ -170,7 +184,7 @@ pub(super) fn module_name(name: &str) -> bool {
 pub(super) fn in_button(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
     let mut parent = node.parent;
     while let Some(p) = parent.and_then(|id| kernel.node(id)) {
-        if element(&p) == "button" {
+        if element(&p.facts()) == "button" {
             return true;
         }
         parent = p.parent;
@@ -179,7 +193,7 @@ pub(super) fn in_button(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// The element for a node wherever it is: its type, refined by `semanticTag`.
-fn element(node: &NodeRef<'_>) -> &'static str {
+fn element(node: &NodeFacts<'_>) -> &'static str {
     if node.node_type == NodeType::TextInput
         && node.props.str(PropId::SemanticTag) == Some("textarea")
     {
@@ -243,7 +257,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::Text => {
             if node.is_inline_run() {
                 "span"
-            } else if exact_kernel::control::is_option(node) {
+            } else if exact_kernel::control::is_option_node(node.node_type, node.props) {
                 // @ref LLP 1069.001 D2 — the select's own options.
                 "option"
             } else {
@@ -277,7 +291,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
 /// `div` with `role="heading"`. `index.html` resets the UA heading styles, so
 /// the box stays a bare div's. The tag is fixed at creation; a level bound
 /// to data that changes later still reaches `aria-level`.
-fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
+fn heading_level(node: &NodeFacts<'_>) -> Option<i64> {
     if node.node_type != NodeType::Text || node.is_inline_run() {
         return None;
     }
@@ -331,11 +345,19 @@ pub(super) fn css_style<'a>(
     kernel: &Kernel,
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts())
+}
+
+/// [`css_style`], from a node's facts and its tree's references.
+pub fn css_style_of<'a>(
+    resolve: Resolve<'_>,
+    node: &NodeFacts<'a>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let as_attributes = attribute_rows(node.node_type);
     let url = |p: &Paint| matches!(p, Paint::Url(..));
     // @ref LLP 1069.001 D2 — an option is `display: none` to layout, never
     // to the browser's menu, which a hidden `<option>` leaves out.
-    if exact_kernel::control::is_option(node) {
+    if exact_kernel::control::is_option_node(node.node_type, node.props) {
         let mut style = node.style.clone();
         let mut mask = exact_kernel::StyleMask::EMPTY;
         mask.set(exact_kernel::StyleId::Display);
@@ -365,11 +387,7 @@ pub(super) fn css_style<'a>(
     }
     style.clear(mask);
     // @ref LLP 1055.000 D10 — a clipPath by the id the page gives it.
-    if let Some(target) = style
-        .clip_path
-        .url()
-        .and_then(|id| kernel.resolve_id(node.id, id))
-    {
+    if let Some(target) = style.clip_path.url().and_then(|id| resolve(node.id, id)) {
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
             style.clip_path = c;
         }
@@ -377,17 +395,13 @@ pub(super) fn css_style<'a>(
     // @ref LLP 1055.000 D14 — a filter by the id the page gives it.
     for f in style.filter.0.iter_mut() {
         if let exact_kernel::svg::filter::FilterFn::Url(id) = f {
-            if let Some(target) = kernel.resolve_id(node.id, id) {
+            if let Some(target) = resolve(node.id, id) {
                 *id = dom_id(target).into();
             }
         }
     }
     // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
-    if let Some(target) = style
-        .svg_mask
-        .url()
-        .and_then(|id| kernel.resolve_id(node.id, id))
-    {
+    if let Some(target) = style.svg_mask.url().and_then(|id| resolve(node.id, id)) {
         style.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
     }
     // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
@@ -396,14 +410,14 @@ pub(super) fn css_style<'a>(
         &mut style.marker_mid,
         &mut style.marker_end,
     ] {
-        if let Some(target) = marker.url().and_then(|id| kernel.resolve_id(node.id, id)) {
+        if let Some(target) = marker.url().and_then(|id| resolve(node.id, id)) {
             *marker = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
         }
     }
     // @ref LLP 1055.000 D3 — a paint server by the id the page gives it.
     for paint in [&mut style.fill, &mut style.stroke] {
         if let Paint::Url(id, fallback) = paint {
-            if let Some(target) = kernel.resolve_id(node.id, id) {
+            if let Some(target) = resolve(node.id, id) {
                 *paint = Paint::Url(dom_id(target).into(), *fallback);
             }
         }
@@ -441,6 +455,15 @@ fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str
 /// its `id` rewritten to its DOM id, `href` to its target's, and the rows
 /// of [`attribute_rows`] as attributes.
 pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
+    svg_props_of(&|from, id| kernel.resolve_id(from, id), &node.facts(), out)
+}
+
+/// [`svg_props`], from a node's facts and its tree's references.
+pub fn svg_props_of(
+    resolve: Resolve<'_>,
+    node: &NodeFacts<'_>,
+    out: &mut SortedMap<String, String>,
+) {
     if !node.node_type.is_svg_element() {
         return;
     }
@@ -451,7 +474,7 @@ pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap
         .props
         .str(PropId::Href)
         .and_then(|h| h.strip_prefix('#'))
-        .and_then(|h| kernel.resolve_id(node.id, h))
+        .and_then(|h| resolve(node.id, h))
     {
         out.insert("href".into(), format!("#{}", dom_id(target)));
     }
@@ -473,13 +496,18 @@ pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap
 }
 
 pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
+    props_of(&node.facts())
+}
+
+/// [`props_for`], from a node's facts.
+pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
     if node.node_type == NodeType::Text
         && !node.is_inline_run()
-        && !exact_kernel::control::is_option(node)
+        && !exact_kernel::control::is_option_node(node.node_type, node.props)
     {
         out.insert("data-exact-text".into(), String::new());
     }

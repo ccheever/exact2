@@ -13,7 +13,7 @@
 //! is flagged, and resolves only when no active screen carries it.
 
 use crate::{DataSource, Runner};
-use exact_kernel::{Kernel, NodeRef, NodeType, PropId, PropValue, ViewId};
+use exact_kernel::{NodeType, PropId, PropList, PropValue, ViewId};
 
 /// The active head's fields; `None` where no active head sets one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -56,55 +56,19 @@ const FIELDS: [PropId; 5] = [
     PropId::HeadRobots,
 ];
 
+/// A node as the head's walk reads it: its type, props and children.
+pub(crate) type HeadNode<'a> = (NodeType, &'a PropList, Vec<ViewId>);
+
 impl<D: DataSource> Runner<D> {
     /// The active head of the current tree: one walk from the roots, which
     /// skips the routes a navigation root has not selected.
     pub fn head(&self) -> Head {
         let kernel = self.kernel();
-        let mut best: [Option<(usize, &str)>; 5] = [None; 5];
-        let mut status: Option<(usize, u16)> = None;
-        let mut stack: Vec<(ViewId, usize)> = self
-            .roots()
-            .into_iter()
-            .rev()
-            .map(|root| (root, 0))
-            .collect();
-        while let Some((id, depth)) = stack.pop() {
-            let Some(node) = kernel.node(id) else {
-                continue;
-            };
-            if node.node_type == NodeType::Head {
-                for (slot, prop) in best.iter_mut().zip(FIELDS) {
-                    if let Some(value) = node.props.str(prop) {
-                        if slot.is_none_or(|(at, _)| depth >= at) {
-                            *slot = Some((depth, value));
-                        }
-                    }
-                }
-                if let Some(&PropValue::Int(code)) = node.props.get(PropId::HeadStatus) {
-                    if status.is_none_or(|(at, _)| depth >= at) {
-                        status = u16::try_from(code).ok().map(|code| (depth, code));
-                    }
-                }
-                continue;
-            }
-            let selected = selected_route(kernel, &node);
-            for child in node.children().into_iter().rev() {
-                if !covered(kernel, selected, child) {
-                    stack.push((child, depth + 1));
-                }
-            }
-        }
-        let [title, description, image, canonical, robots] =
-            best.map(|slot| slot.map(|(_, value)| value.to_owned()));
-        Head {
-            title,
-            description,
-            image,
-            canonical,
-            robots,
-            status: status.map(|(_, code)| code),
-        }
+        head_of(self.roots(), |id| {
+            kernel
+                .node(id)
+                .map(|n| (n.node_type, n.props, n.children()))
+        })
     }
 
     /// Whether `id` lies under a route its navigation root has not selected:
@@ -112,44 +76,100 @@ impl<D: DataSource> Runner<D> {
     /// and makes inert, so nothing there is pressed or read.
     pub fn inactive(&self, id: ViewId) -> bool {
         let kernel = self.kernel();
+        let node = |id: ViewId| {
+            kernel
+                .node(id)
+                .map(|n| (n.node_type, n.props, n.children()))
+        };
         let mut child = id;
         let mut parent = kernel.node(id).and_then(|node| node.parent);
-        while let Some(node) = parent.and_then(|id| kernel.node(id)) {
-            if covered(kernel, selected_route(kernel, &node), child) {
+        while let Some(at) = parent.and_then(|id| kernel.node(id)) {
+            let selected = node(at.id).and_then(|n| selected_route(&node, &n));
+            if covered(&node, selected, child) {
                 return true;
             }
-            child = node.id;
-            parent = node.parent;
+            child = at.id;
+            parent = at.parent;
         }
         false
+    }
+}
+
+/// The active head of the tree under `roots`, as `node` reads it: the walk
+/// [`Runner::head`] makes over the kernel, and a render host over the
+/// document it writes without one (LLP 1048.004).
+pub(crate) fn head_of<'a>(
+    roots: Vec<ViewId>,
+    node: impl Fn(ViewId) -> Option<HeadNode<'a>>,
+) -> Head {
+    let mut best: [Option<(usize, &str)>; 5] = [None; 5];
+    let mut status: Option<(usize, u16)> = None;
+    let mut stack: Vec<(ViewId, usize)> = roots.into_iter().rev().map(|root| (root, 0)).collect();
+    while let Some((id, depth)) = stack.pop() {
+        let Some(at) = node(id) else {
+            continue;
+        };
+        let props: &'a PropList = at.1;
+        if at.0 == NodeType::Head {
+            for (slot, prop) in best.iter_mut().zip(FIELDS) {
+                if let Some(value) = props.str(prop) {
+                    if slot.is_none_or(|(at, _)| depth >= at) {
+                        *slot = Some((depth, value));
+                    }
+                }
+            }
+            if let Some(&PropValue::Int(code)) = props.get(PropId::HeadStatus) {
+                if status.is_none_or(|(at, _)| depth >= at) {
+                    status = u16::try_from(code).ok().map(|code| (depth, code));
+                }
+            }
+            continue;
+        }
+        let selected = selected_route(&node, &at);
+        for child in at.2.iter().rev() {
+            if !covered(&node, selected, *child) {
+                stack.push((*child, depth + 1));
+            }
+        }
+    }
+    let [title, description, image, canonical, robots] =
+        best.map(|slot| slot.map(|(_, value)| value.to_owned()));
+    Head {
+        title,
+        description,
+        image,
+        canonical,
+        robots,
+        status: status.map(|(_, code)| code),
     }
 }
 
 /// A navigation root's selected route, when its key names one of its
 /// routes; `None` for any other node — a key that names none leaves every
 /// route as it is.
-fn selected_route<'a>(kernel: &'a Kernel, node: &NodeRef<'a>) -> Option<&'a str> {
-    let key = node
-        .props
+fn selected_route<'a>(
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    at: &HeadNode<'a>,
+) -> Option<&'a str> {
+    let props: &'a PropList = at.1;
+    let key = props
         .str(PropId::NavigationBack)
-        .and(node.props.str(PropId::NavigationKey))?;
-    node.children()
-        .into_iter()
-        .any(|c| {
-            kernel
-                .node(c)
-                .is_some_and(|c| c.props.str(PropId::NavigationKey) == Some(key))
-        })
+        .and(props.str(PropId::NavigationKey))?;
+    at.2.iter()
+        .any(|c| node(*c).is_some_and(|(_, c, _)| c.str(PropId::NavigationKey) == Some(key)))
         .then_some(key)
 }
 
 /// Whether `child`, under a root that selected `selected`, is a route that
 /// root has not selected.
-fn covered(kernel: &Kernel, selected: Option<&str>, child: ViewId) -> bool {
+fn covered<'a>(
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    selected: Option<&str>,
+    child: ViewId,
+) -> bool {
     selected.is_some_and(|key| {
-        kernel
-            .node(child)
-            .and_then(|c| c.props.str(PropId::NavigationKey))
+        node(child)
+            .and_then(|(_, c, _)| c.str(PropId::NavigationKey))
             .is_some_and(|route| route != key)
     })
 }

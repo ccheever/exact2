@@ -10,6 +10,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+mod direct;
 mod serve;
 
 /// How the fixture's `post` source answers later.

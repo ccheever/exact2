@@ -30,6 +30,7 @@ pub use source::{
 mod delivery;
 mod device;
 mod device_links;
+mod document;
 pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
@@ -910,6 +911,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
+            u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces, u.notes)
         };
@@ -1256,8 +1258,10 @@ impl<D: DataSource> Runner<D> {
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
-        // Forget destroyed views once they outnumber the live ones.
-        if self.ids.remembered() > 2 * self.kernel.live_count() + 256 {
+        // Forget destroyed views once they outnumber the live ones (a
+        // detached kernel holds none, and its runner asks for none).
+        if !self.kernel.is_detached() && self.ids.remembered() > 2 * self.kernel.live_count() + 256
+        {
             let kernel = &self.kernel;
             self.ids.retain(|view| kernel.node(view).is_some());
         }

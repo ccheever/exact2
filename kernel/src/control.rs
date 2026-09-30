@@ -209,7 +209,12 @@ pub struct Choice {
 
 /// Whether `node` is an `option`: a text node the `option` tag made.
 pub fn is_option(node: &NodeRef<'_>) -> bool {
-    node.node_type == NodeType::Text && node.props.str(PropId::SemanticTag) == Some("option")
+    is_option_node(node.node_type, node.props)
+}
+
+/// [`is_option`], from a node's type and props.
+pub fn is_option_node(node_type: NodeType, props: &crate::PropList) -> bool {
+    node_type == NodeType::Text && props.str(PropId::SemanticTag) == Some("option")
 }
 
 impl Kernel {

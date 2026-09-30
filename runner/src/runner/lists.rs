@@ -73,6 +73,7 @@ impl<D: DataSource> Runner<D> {
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             u.full = self.full;
+            u.discard = self.kernel.is_detached();
             u.rows = rows;
             update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces, u.notes))
         };

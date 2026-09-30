@@ -1,6 +1,49 @@
 //! Per-node-type rules that are semantics, not table data.
 
 use crate::generated::NodeType;
+use crate::kernel::NodeRef;
+use crate::{PropList, StyleProps, ViewId};
+
+/// A node's own facts, as a document projection reads them (LLP 1048.004):
+/// a kernel node's ([`NodeRef::facts`]), or those of a node a render host
+/// holds for a document it writes from the runner's instance tree, with no
+/// kernel. Its children and the ids it references are the tree's to answer.
+#[derive(Debug, Clone, Copy)]
+pub struct NodeFacts<'a> {
+    /// Wire id.
+    pub id: ViewId,
+    /// Type.
+    pub node_type: NodeType,
+    /// Style rows.
+    pub style: &'a StyleProps,
+    /// Props.
+    pub props: &'a PropList,
+    /// Whether the node is a root.
+    pub is_root: bool,
+    /// A `Text` inside a `Text`: an inline run of its paragraph.
+    pub inline_run: bool,
+}
+
+impl NodeFacts<'_> {
+    /// Whether the node is an inline run of its parent paragraph.
+    pub fn is_inline_run(&self) -> bool {
+        self.inline_run
+    }
+}
+
+impl<'a> NodeRef<'a> {
+    /// This node's [`NodeFacts`].
+    pub fn facts(&self) -> NodeFacts<'a> {
+        NodeFacts {
+            id: self.id,
+            node_type: self.node_type,
+            style: self.style,
+            props: self.props,
+            is_root: self.is_root,
+            inline_run: self.is_inline_run(),
+        }
+    }
+}
 
 impl NodeType {
     /// Whether `SetChildren` may target this type. A `Text` holds only inline

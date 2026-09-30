@@ -23,19 +23,21 @@
 //! repaired: the page a reader gets without JavaScript is the page the live
 //! host builds, or it is no page.
 
-use super::{font_names, host_css, layers, props_for, tag_for, Host};
+use super::element::{css_style_of, host_css_of, props_of, svg_props_of, tag_of};
+use super::{font_names, layers, Host};
 
 #[path = "page.rs"]
 mod page;
 use crate::css;
 use exact_kernel::SortedMap;
-use exact_kernel::{NodeRef, PropId, ViewId};
+use exact_kernel::{NodeFacts, PropId, ViewId};
 use exact_plan::EventKind;
-use exact_runner::{DataSource, Runner};
+use exact_runner::{DataSource, DocTree, Runner};
 pub use page::{
     build_locations, canonical_location, checkpoint, digest, read_checkpoint, route_at,
     route_location, Site,
 };
+use std::borrow::Cow;
 use std::fmt;
 
 /// A projected document.
@@ -104,16 +106,195 @@ pub(crate) fn project_keeping<D: DataSource>(
     })
 }
 
+/// A tree a document is written from: a kernel's nodes, or those a render
+/// holds without one ([`DocTree`], LLP 1048.004). One walk writes both, so
+/// the two documents differ only where the trees do.
+trait Source {
+    /// The facts of node `id`, when it is live.
+    fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>>;
+    /// Its children, in order.
+    fn children(&self, id: ViewId) -> Cow<'_, [ViewId]>;
+    /// The element an SVG reference from `from` names.
+    fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
+}
+
+struct KernelSource<'k>(&'k exact_kernel::Kernel);
+
+impl Source for KernelSource<'_> {
+    fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
+        self.0.node(id).map(|n| n.facts())
+    }
+    fn children(&self, id: ViewId) -> Cow<'_, [ViewId]> {
+        Cow::Owned(self.0.node(id).map(|n| n.children()).unwrap_or_default())
+    }
+    fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId> {
+        self.0.resolve_id(from, id)
+    }
+}
+
+impl Source for DocTree {
+    fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
+        DocTree::facts(self, id)
+    }
+    fn children(&self, id: ViewId) -> Cow<'_, [ViewId]> {
+        Cow::Borrowed(self.node(id).map_or(&[][..], |n| n.children.as_slice()))
+    }
+    /// A tree with no `id` props references nothing: a render writes one
+    /// only for a plan that binds none ([`writes_without_a_kernel`]).
+    fn resolve(&self, _: ViewId, _: &str) -> Option<ViewId> {
+        None
+    }
+}
+
+/// Whether a render may write `plan`'s documents from its runner's
+/// instance tree, with no kernel (LLP 1048.004 D5): the plan virtualizes no
+/// list and binds no `id` (which SVG references and popovers resolve through
+/// the kernel's index). `Err` names what keeps it on the kernel.
+pub fn writes_without_a_kernel(plan: &exact_plan::Plan) -> Result<(), &'static str> {
+    use exact_plan::BindingKind;
+    for binding in &plan.bindings {
+        if binding.kind != BindingKind::Prop {
+            continue;
+        }
+        if binding.id == PropId::Id as u16 {
+            return Err("an `id` prop");
+        }
+        let never = [
+            exact_plan::Opcode::Bool as u8,
+            0,
+            exact_plan::Opcode::Return as u8,
+        ];
+        if binding.id == PropId::Virtualized as u16 && plan.code(binding.expr) != never {
+            return Err("a virtualized list");
+        }
+    }
+    Ok(())
+}
+
+/// How a document is written beyond its tree: in which form, and to whom
+/// as it goes.
+#[derive(Default)]
+pub struct Writing<'w> {
+    /// The runtime's form (`host/render` `page::for_runtime`): only a link
+    /// keeps a `data-view`, which is empty, and each inline style goes
+    /// through this, which writes it as the shell's classes carry it and
+    /// says so (`false`: it stays inline). `None`: the document as the wasm
+    /// runtime adopts it, ids and all.
+    pub style: Option<StyleRewrite<'w>>,
+    /// Handed each finished run of the root's HTML of at least
+    /// [`STREAM_CHUNK`] bytes, as it is written: a server sends it on.
+    pub sink: Option<&'w mut dyn FnMut(&str)>,
+}
+
+/// How an inline style is written in the runtime's form ([`Writing::style`]).
+pub type StyleRewrite<'w> = &'w dyn Fn(&str, &mut String) -> bool;
+
+/// The run of HTML [`Writing::sink`] is handed at a time.
+pub const STREAM_CHUNK: usize = 16 << 10;
+
+/// The document of a render's own tree ([`exact_runner::Runner::document_tree`]),
+/// written as [`project`] writes a kernel's, and in `writing`'s form. The
+/// head, handlers and first root's policies are the tree's.
+pub fn project_tree<D: DataSource>(
+    tree: &DocTree,
+    runner: &Runner<D>,
+    writing: Writing<'_>,
+) -> Result<(Document, String), DocumentError> {
+    let handlers = tree.handlers(runner.plan());
+    let (out, keyframes, scroll_document, _, sent) = write(
+        tree,
+        tree.roots(),
+        handlers,
+        font_names(runner.plan()),
+        None,
+        writing,
+    )?;
+    let document = Document {
+        lang: runner.resolved_locale().into(),
+        dir: runner.direction().into(),
+        viewport_fit: first_prop(tree, tree.roots(), PropId::ViewportFit),
+        interactive_widget: first_prop(tree, tree.roots(), PropId::InteractiveWidget),
+        head: tree.head(),
+        keyframes,
+        scroll_document,
+        root: out,
+    };
+    Ok((document, sent))
+}
+
+/// What a document's head and body need before its root is written, from
+/// its tree alone (a streamed page sends them first): the `@keyframes`
+/// rules its elements' animations name, and whether an element is the
+/// page's scroller — as the walk finds them.
+pub fn before_root(tree: &DocTree) -> (String, bool) {
+    let mut keyframes = SortedMap::new();
+    let mut scroll = false;
+    for node in tree.nodes() {
+        if node.node_type.is_metadata() {
+            continue;
+        }
+        animations(&node.style, &mut keyframes);
+        // `props_for` names it `data-scrolldocument` but on a filter's
+        // elements, which take every prop by its own name.
+        scroll |= !matches!(
+            node.node_type,
+            exact_kernel::NodeType::SvgFe | exact_kernel::NodeType::SvgFilter
+        ) && node.props.bool(PropId::ScrollDocument) == Some(true);
+    }
+    (keyframes.values().map(String::as_str).collect(), scroll)
+}
+
+fn first_prop<S: Source>(src: &S, roots: &[ViewId], id: PropId) -> Option<String> {
+    roots
+        .first()
+        .and_then(|root| src.facts(*root))
+        .and_then(|n| n.props.str(id).map(str::to_owned))
+}
+
 fn walk<D: DataSource>(
     runner: &Runner<D>,
     computed: Option<Computed>,
 ) -> Result<(Document, Option<Computed>), DocumentError> {
-    let kernel = runner.kernel();
-    let mut walk = Walk {
-        runner,
+    let src = KernelSource(runner.kernel());
+    let roots = runner.roots();
+    let (out, keyframes, scroll_document, computed, _) = write(
+        &src,
+        &roots,
+        runner.handlers(),
+        font_names(runner.plan()),
         computed,
-        fonts: font_names(runner.plan()),
-        handlers: runner.handlers(),
+        Writing::default(),
+    )?;
+    let document = Document {
+        lang: runner.resolved_locale().into(),
+        dir: runner.direction().into(),
+        root: out,
+        viewport_fit: first_prop(&src, &roots, PropId::ViewportFit),
+        interactive_widget: first_prop(&src, &roots, PropId::InteractiveWidget),
+        head: runner.head(),
+        keyframes,
+        scroll_document,
+    };
+    Ok((document, computed))
+}
+
+/// The roots' elements; the `@keyframes`, whether an element is the page's
+/// scroller, what was computed, and what of the HTML the sink has not been
+/// handed yet.
+#[allow(clippy::type_complexity)]
+fn write<S: Source>(
+    src: &S,
+    roots: &[ViewId],
+    handlers: SortedMap<ViewId, Vec<EventKind>>,
+    fonts: Vec<String>,
+    computed: Option<Computed>,
+    writing: Writing<'_>,
+) -> Result<(String, String, bool, Option<Computed>, String), DocumentError> {
+    let mut walk = Walk {
+        src,
+        computed,
+        fonts,
+        handlers,
         routes: SortedMap::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
@@ -121,30 +302,38 @@ fn walk<D: DataSource>(
         buttons: 0,
         select: None,
         scroll_document: false,
+        css: std::collections::HashMap::new(),
+        style: writing.style,
+        sink: writing.sink,
+        sent: 0,
     };
-    let roots = runner.roots();
     let mut after = false;
-    for root in &roots {
+    for root in roots {
         after |= walk.element(*root, after)?;
     }
-    let first = roots.first().and_then(|id| kernel.node(*id));
-    let prop = |id| {
-        first
-            .as_ref()
-            .and_then(|n| n.props.str(id))
-            .map(str::to_owned)
-    };
-    let document = Document {
-        lang: runner.resolved_locale().into(),
-        dir: runner.direction().into(),
-        root: walk.out,
-        viewport_fit: prop(PropId::ViewportFit),
-        interactive_widget: prop(PropId::InteractiveWidget),
-        head: runner.head(),
-        keyframes: walk.keyframes.values().map(String::as_str).collect(),
-        scroll_document: walk.scroll_document,
-    };
-    Ok((document, walk.computed))
+    let rest = walk.out[walk.sent..].to_string();
+    Ok((
+        walk.out,
+        walk.keyframes.values().map(String::as_str).collect(),
+        walk.scroll_document,
+        walk.computed,
+        rest,
+    ))
+}
+
+/// Add the rules `style`'s animations name, once each by name, for the
+/// head: a reader without JavaScript sees them play (LLP 1055 D7).
+fn animations(style: &exact_kernel::StyleProps, keyframes: &mut SortedMap<String, String>) {
+    if let Some(link) = crate::link::linked().animations {
+        let press = css::press_composes(style);
+        for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+            let name = (link.name)(a, press);
+            if keyframes.get(&name).is_none() {
+                let rule = format!("@keyframes {}{{{}}}", name, (link.body)(a, press));
+                keyframes.insert(name, rule);
+            }
+        }
+    }
 }
 
 /// What the router's projection (`navigation.project`) sets on a route.
@@ -161,8 +350,8 @@ struct Route {
 /// projection visits them, and takes each from the end.
 pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
-struct Walk<'r, D: DataSource> {
-    runner: &'r Runner<D>,
+struct Walk<'r, 'w, S: Source> {
+    src: &'r S,
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
@@ -176,16 +365,23 @@ struct Walk<'r, D: DataSource> {
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
+    /// A shared style's CSS, by the style's address: the nodes of a
+    /// repeated template share one style, and its CSS is computed once.
+    css: std::collections::HashMap<usize, String>,
+    /// [`Writing::style`].
+    style: Option<StyleRewrite<'w>>,
+    /// [`Writing::sink`], and how much of `out` it has been handed.
+    sink: Option<&'w mut dyn FnMut(&str)>,
+    sent: usize,
 }
 
-impl<D: DataSource> Walk<'_, D> {
+impl<S: Source> Walk<'_, '_, S> {
     /// The element and its subtree; whether it paints with the positioned
     /// (`layers::layered`), for the siblings after it. `after`: one before
     /// it does.
     fn element(&mut self, id: ViewId, after: bool) -> Result<bool, DocumentError> {
-        let runner = self.runner;
-        let kernel = runner.kernel();
-        let node = kernel.node(id).expect("the runner's tree names live views");
+        let src = self.src;
+        let node = src.facts(id).expect("the runner's tree names live views");
         if node.node_type.is_metadata() {
             // The page's `<head>`, never an element (as the live host).
             return Ok(false);
@@ -194,43 +390,42 @@ impl<D: DataSource> Walk<'_, D> {
             view: id,
             reason: reason.to_owned(),
         };
-        let tag = tag_for(&node, self.buttons > 0);
+        let tag = tag_of(&node, self.buttons > 0);
         match tag {
             "a" if self.links > 0 => return Err(refuse("a link inside a link")),
             "button" if self.buttons > 0 => return Err(refuse("a button inside a button")),
             _ => {}
         }
-        let mut props = props_for(&node);
-        super::svg_props(kernel, &node, &mut props);
+        let resolve = |from: ViewId, target: &str| src.resolve(from, target);
+        let mut props = props_of(&node);
+        svg_props_of(&resolve, &node, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let (text, _) = css::css_text(&super::css_style(kernel, &node), &self.fonts);
-        // The rules its animations name, for the head: a reader without
-        // JavaScript sees them play (LLP 1055 D7).
-        if let Some(link) = crate::link::linked().animations {
-            let press = css::press_composes(&node.style);
-            for a in node
-                .style
-                .animation
-                .0
-                .iter()
-                .chain(&node.style.exit_animation.0)
-            {
-                let name = (link.name)(a, press);
-                if self.keyframes.get(&name).is_none() {
-                    let rule = format!("@keyframes {}{{{}}}", name, (link.body)(a, press));
-                    self.keyframes.insert(name, rule);
-                }
+        let text = match css_style_of(&resolve, &node) {
+            Cow::Borrowed(style) => {
+                let fonts = &self.fonts;
+                self.css
+                    .entry(style as *const exact_kernel::StyleProps as usize)
+                    .or_insert_with(|| css::css_text(style, fonts).0)
+                    .clone()
             }
-        }
-        let paint = layers::paint(&node);
-        let relative = layers::relative(paint, layers::holds_absolute(kernel, &node), after);
-        let mut style = layers::with_relative(host_css(&node, text, tag), relative);
+            Cow::Owned(style) => css::css_text(&style, &self.fonts).0,
+        };
+        animations(node.style, &mut self.keyframes);
+        let children = src.children(id);
+        let paint = layers::paint_of(&node);
+        let holds = children.iter().any(|c| {
+            src.facts(*c).is_some_and(|c| {
+                c.style.position_type == exact_kernel::PositionType::Absolute
+                    && !layers::paint_of(&c).outside
+            })
+        });
+        let relative = layers::relative(paint, holds, after);
+        let mut style = layers::with_relative(host_css_of(&node, text, tag), relative);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
-        let children = node.children();
         self.route_children(&node, &children);
         let chosen = (element == "select").then(|| props.get("value").cloned());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
@@ -343,7 +538,19 @@ impl<D: DataSource> Walk<'_, D> {
             return Ok(layers::layered(paint, relative, false));
         }
         if tag == "canvas" {
-            self.out.push_str(SURFACE);
+            if self.style.is_some() {
+                self.open(
+                    id,
+                    "canvas",
+                    &[
+                        ("data-surface".into(), Some(String::new())),
+                        ("style".into(), Some(SURFACE_STYLE.into())),
+                    ],
+                )?;
+                self.out.push_str("</canvas>");
+            } else {
+                self.out.push_str(SURFACE);
+            }
         }
         if let (Some(json), true) = (&markup, children.is_empty()) {
             // `renderMarkup`; a node's children replace its pieces.
@@ -360,7 +567,7 @@ impl<D: DataSource> Walk<'_, D> {
         self.buttons += u32::from(button);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let mut under = false;
-        for child in children {
+        for child in children.iter().copied() {
             under |= self.element(child, under)?;
         }
         if let Some(outer) = outer {
@@ -371,7 +578,18 @@ impl<D: DataSource> Walk<'_, D> {
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');
+        self.stream();
         Ok(layers::layered(paint, relative, under))
+    }
+
+    /// Hand the sink what has been written since, once it is a chunk.
+    fn stream(&mut self) {
+        if let Some(sink) = self.sink.as_mut() {
+            if self.out.len() - self.sent >= STREAM_CHUNK {
+                sink(&self.out[self.sent..]);
+                self.sent = self.out.len();
+            }
+        }
     }
 
     fn open(
@@ -382,7 +600,23 @@ impl<D: DataSource> Walk<'_, D> {
     ) -> Result<(), DocumentError> {
         self.out.push('<');
         self.out.push_str(element);
+        let runtime = self.style;
+        let has_class = runtime.is_some() && attrs.iter().any(|(n, _)| n == "class");
         for (name, value) in attrs {
+            // The runtime's form (`page::for_runtime`): a link keeps an
+            // empty `data-view`, no other element one; a style goes as the
+            // shell's classes carry it.
+            if let Some(rewrite) = runtime {
+                match (name.as_str(), value) {
+                    ("data-view", _) if element == "a" => {
+                        self.out.push_str(" data-view");
+                        continue;
+                    }
+                    ("data-view", _) => continue,
+                    ("style", Some(css)) if !has_class && rewrite(css, &mut self.out) => continue,
+                    _ => {}
+                }
+            }
             self.out.push(' ');
             self.out.push_str(name);
             if let Some(value) = value {
@@ -399,16 +633,15 @@ impl<D: DataSource> Walk<'_, D> {
     }
 
     /// Mark the routes under a navigation root as `navigation.project` does.
-    fn route_children(&mut self, node: &NodeRef<'_>, children: &[ViewId]) {
+    fn route_children(&mut self, node: &NodeFacts<'_>, children: &[ViewId]) {
         if node.props.str(PropId::NavigationBack).is_none() {
             return;
         }
-        let runner = self.runner;
-        let kernel = runner.kernel();
+        let src = self.src;
         let key = node.props.str(PropId::NavigationKey);
-        let routes: Vec<NodeRef<'_>> = children
+        let routes: Vec<NodeFacts<'_>> = children
             .iter()
-            .filter_map(|c| kernel.node(*c))
+            .filter_map(|c| src.facts(*c))
             .filter(|c| c.props.str(PropId::NavigationKey).is_some())
             .collect();
         // A key that names no route leaves the stack as it is.
@@ -485,6 +718,9 @@ impl<D: DataSource> Walk<'_, D> {
 
 /// The surface element `glue.js` puts first in a canvas's `div`.
 const SURFACE: &str = "<canvas data-surface=\"\" style=\"position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1\"></canvas>";
+/// [`SURFACE`]'s style.
+const SURFACE_STYLE: &str =
+    "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
 
 /// Append `text` escaped for HTML text (`attribute` false) or a
 /// double-quoted attribute value. A carriage return is a reference (the

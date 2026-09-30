@@ -64,6 +64,7 @@ pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{Kernel, NodeRef, PresentedHeight};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
+pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
