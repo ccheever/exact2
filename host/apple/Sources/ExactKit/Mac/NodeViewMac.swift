@@ -1119,6 +1119,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// picture (`BoxFilter`), drawn again after each batch.
     private var boxFilter: BoxFilter?
     func applyFilter() {
+        // A node with no filter makes no BoxFilter to learn so (three layers
+        // per styled node otherwise; iOS's 50e9abf6e).
+        guard boxFilter != nil || style["filter"] != nil else { return }
         let f = boxFilter ?? BoxFilter()
         if f.set(style["filter"]) {
             boxFilter = f
