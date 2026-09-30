@@ -592,11 +592,17 @@ export function nm(e) {
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) { effect(() => css(e, prop, unit, f())); }
 function css(e, prop, unit, v) {
-  if (v == null) return e.style.removeProperty(prop);
+  // The value this binding last wrote: the same again writes nothing (each
+  // write was two style mutations, for every dynamic row of every row a
+  // list update touched).
+  const last = e.$css ??= {}, t = v == null ? null : typeof v === "number" ? v + unit : String(v);
+  if (last[prop] === t) return;
+  last[prop] = t;
+  if (t == null) return e.style.removeProperty(prop);
   // A value the row refuses is invalid at computed-value time: unset,
   // never the earlier declaration (LLP 1005 §6).
   e.style.removeProperty(prop);
-  e.style.setProperty(prop, typeof v === "number" ? v + unit : String(v));
+  e.style.setProperty(prop, t);
   if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
 }
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
@@ -605,7 +611,12 @@ export const Hooks = {};
 /** `S` on a node the motion engine follows (`mo`): while a hold owns it, a
  * write goes to the authored style the hold restores. */
 export function Sm(e, prop, unit, f) {
-  effect(() => { const v = f(); if (!Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) css(e, prop, unit, v); });
+  effect(() => {
+    const v = f();
+    // Held: the hold's authored style takes it, and what css() last wrote no longer says what shows.
+    if (Hooks.style?.(e, prop, v == null ? null : typeof v === "number" ? v + unit : String(v))) { if (e.$css) delete e.$css[prop]; }
+    else css(e, prop, unit, v);
+  });
 }
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
@@ -883,14 +894,15 @@ export function each(p, list, key, row) {
   effect(() => {
     const items = list();
     untracked(() => {
-      const next = new Map(), seen = new Map();
+      const next = new Map(), seen = new Map(), old = new Map();
+      if (b) { let o = 0; for (const k of rows.keys()) old.set(k, o++); }
       items.forEach((item, i) => {
         let k = key(() => item, () => i);
         k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
         const n = seen.get(k) ?? 0; seen.set(k, n + 1);
         if (n) { k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
-        if (r) { rows.delete(k); write(r.item.n, item); write(r.index.n, i); }
+        if (r) { rows.delete(k); r.old = old.get(k); write(r.item.n, item); write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
           r = { item: sig(item), index: sig(i), start: mark(p) };
@@ -898,31 +910,66 @@ export function each(p, list, key, row) {
           r.end = mark(p);
         }
         else {
-          r = { item: sig(item), index: sig(i), start: document.createComment(""), end: document.createComment("") };
+          r = { item: sig(item), index: sig(i) };
           const frag = document.createDocumentFragment();
-          frag.append(r.start);
           r.s = scope(() => row(frag, r.item, r.index), own);
-          frag.append(r.end);
+          // A row of one element is that element (a region at its top would
+          // have put its own anchors beside it); any other is bracketed.
+          if (frag.childNodes.length === 1 && frag.firstChild.nodeType === 1) r.start = r.end = frag.firstChild;
+          else { r.start = document.createComment(""); r.end = document.createComment(""); frag.prepend(r.start); frag.append(r.end); }
           r.frag = frag;
         }
         next.set(k, r);
       });
-      for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
-      // Order: walk the rows, moving a row only when it is not already next.
-      let at = a;
-      for (const r of next.values()) {
-        if (r.frag) { at.after(r.frag); r.frag = null; }
-        else if (at.nextSibling !== r.start) {
-          const f = document.createDocumentFragment();
-          let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; }
-          at.after(f);
+      const list = [...next.values()];
+      // Every row goes and the region is all its parent holds: emptied at once.
+      if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
+        for (const r of rows.values()) end(r.s);
+        p.textContent = "";
+        p.append(a, b);
+      }
+      else for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
+      // Order, from the last row back: kept rows on the longest run already in
+      // order stay; any other moves before the row after it; new rows go in
+      // one fragment per run.
+      if (b) {
+        const stay = inOrder(list);
+        let anchor = b, batch = null, first = null;
+        const flush = () => { if (batch) { p.insertBefore(batch, anchor); anchor = first; batch = null; } };
+        for (let i = list.length - 1; i >= 0; i--) {
+          const r = list[i];
+          if (r.frag) { if (batch) batch.prepend(r.frag); else batch = r.frag; first = r.start; r.frag = null; continue; }
+          flush();
+          if (!stay.has(i)) {
+            const f = document.createDocumentFragment();
+            let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; }
+            p.insertBefore(f, anchor);
+          }
+          anchor = r.start;
         }
-        at = r.end;
+        flush();
       }
       rows = next;
       b ??= mark(p);
     });
   });
+}
+
+/** The indices of `list`'s kept rows (`old`, their former places) on a
+ * longest run in increasing former order: the rows that need not move. */
+function inOrder(list) {
+  const tails = [], prev = new Array(list.length);
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i].old;
+    if (o === undefined) continue;
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (list[tails[mid]].old < o) lo = mid + 1; else hi = mid; }
+    prev[i] = lo ? tails[lo - 1] : -1;
+    tails[lo] = i;
+  }
+  const stay = new Set();
+  for (let i = tails.length ? tails[tails.length - 1] : -1; i >= 0; i = prev[i]) stay.add(i);
+  return stay;
 }
 
 // ---------------------------------------------------------------- boot
