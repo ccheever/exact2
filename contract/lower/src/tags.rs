@@ -1352,10 +1352,8 @@ pub(crate) fn host_transform_recipients(
         let mut path = Vec::new();
         let mut child = preview;
         let mut panel = false;
+        // The authored root is below the host carrier: inspect it too.
         while let Some(parent) = boxes[child].parent {
-            if boxes[parent].parent.is_none() {
-                break;
-            }
             path.push((child, parent));
             panel |= boxes[parent].maybe_absolute;
             if boxes[parent].absolute {
@@ -1391,9 +1389,6 @@ pub(crate) fn host_transform_recipients(
             }
             let mut child = source;
             while let Some(parent) = boxes[child].parent {
-                if boxes[parent].parent.is_none() {
-                    break;
-                }
                 if boxes[parent].scrolls {
                     recipients.insert(boxes[child].key);
                     break;

@@ -23,3 +23,10 @@ non-reorder wrappers remain static. A live headless Chrome probe executed the
 existing `positionContexts` function: before the fix the side/trailing children's
 parent-relative right/bottom offsets changed from (50,160)/(130,140) to (0,0)
 on opening; with the lowered positions all four offsets stay zero.
+
+Review follow-up: inspect the authored root before ending either ancestor walk;
+the host carrier is above it. Two additional regressions reproduce absolute
+root-panel and scrolling-root source containment failures and verify their
+corrected descendant frames. Chrome running `positionContexts` confirms offsets
+remain zero before/after both root cases, instead of jumping from (50,160)
+and (130,160) respectively.

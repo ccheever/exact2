@@ -776,3 +776,55 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
         }
     }
 }
+
+fn check_context_root(source: &str) {
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(300., 400.))
+        .unwrap();
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let (p, c) = (node("recipient").frame, node("absolute").frame);
+    assert_eq!((c.x, c.y), (p.x + p.width - 5., p.y + p.height - 5.));
+    assert_eq!(
+        node("recipient").style.position_type,
+        exact_kernel::PositionType::Relative
+    );
+}
+
+#[test]
+fn context_panel_can_be_the_authored_absolute_root() {
+    check_context_root(
+        r#"component App
+  view
+    box position="absolute" width=200 height=200
+      row gap=10
+        box id="bubble" contextTarget="bubble" width=100 height=40
+        box testId="recipient" width=40 height=40
+          box testId="absolute" position="absolute" right=0 bottom=0 width=5 height=5
+"#,
+    );
+}
+
+#[test]
+fn context_source_can_scroll_in_the_authored_root() {
+    check_context_root(
+        r#"component App
+  view
+    scroll width=200 height=200
+      box testId="recipient" width=70 height=40
+        box id="bubble" height=30
+        box testId="absolute" position="absolute" right=0 bottom=0 width=5 height=5
+      box position="absolute" left=0 top=70 width=100 height=80
+        box contextTarget="bubble" width=50 height=30
+"#,
+    );
+}
