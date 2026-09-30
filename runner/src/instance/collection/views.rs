@@ -25,6 +25,7 @@ pub(super) fn row_wrapper(
     axis: ListAxis,
     children: Vec<ViewId>,
     key: &str,
+    reorderable: bool,
 ) -> Result<ViewId, InstanceError> {
     let view = u.ids.fresh();
     u.ops.push(Op::CreateView {
@@ -61,6 +62,11 @@ pub(super) fn row_wrapper(
                 ("box_sizing", Value::str("border-box")),
             ],
         )?,
+    }
+    // The host translates/raises this wrapper during Arrange; it must be
+    // the same containing block before, during and after the gesture (1074 D1).
+    if reorderable {
+        style(u, view, &[("position_type", Value::str("relative"))])?;
     }
     u.ops.push(Op::SetChildren { id: view, children });
     u.ops.push(Op::SetProp {

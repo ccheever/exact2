@@ -116,6 +116,7 @@ pub(crate) struct Collection {
     correction: Option<AnchorCorrection>,
     follow_end: bool,
     edge_handlers: [bool; 2],
+    reorderable: bool,
     edge_armed: [bool; 2],
     /// The last realization left window rows unbuilt or kept rows past it.
     pending: bool,
@@ -374,6 +375,10 @@ impl Collection {
                     .iter()
                     .any(|h| plan.handler(h).event == event)
             }),
+            reorderable: descriptor
+                .handlers
+                .iter()
+                .any(|h| plan.handler(h).event == EventKind::Reorderdrop),
             edge_armed: [true; 2],
             pending: false,
             parent: None,
@@ -777,7 +782,13 @@ impl Collection {
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
                     let mut row = self.create_row(u, position, frames)?;
                     self.adopt_nested(u, &mut row, &text, frames)?;
-                    let wrapper = views::row_wrapper(u, self.axis, roots_of(&row.roots), &text)?;
+                    let wrapper = views::row_wrapper(
+                        u,
+                        self.axis,
+                        roots_of(&row.roots),
+                        &text,
+                        self.reorderable,
+                    )?;
                     Mounted {
                         position,
                         wrapper,

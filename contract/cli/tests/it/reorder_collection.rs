@@ -852,3 +852,54 @@ fn contextful_match_binding_still_refreshes_collection_body() {
     assert_eq!(text.props.str(exact_kernel::PropId::Text), Some("after"));
     r.finish_reorder(t).unwrap();
 }
+
+#[test]
+fn reorder_wrappers_contain_absolute_descendants_before_and_after_preview() {
+    let source = SOURCE.replace("            text x", "            text x\n            box testId=`absolute-${x}` position=\"absolute\" right=0 bottom=0 width=5 height=5");
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        Rows { n: 20, queries: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let handle = ready(&mut r);
+    let binding = r.reorder_binding(handle).unwrap();
+    let check = |r: &mut Runner<Rows>| {
+        let root = r.roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, exact_kernel::Offer::definite(320., 400.))
+            .unwrap();
+        let wrapper = r.kernel().node_by_key(binding.wrapper).unwrap();
+        assert_eq!(
+            wrapper.style.position_type,
+            exact_kernel::PositionType::Relative
+        );
+        let child = r.kernel().node_by_key(key(r, "absolute-0")).unwrap();
+        let (p, c) = (wrapper.frame, child.frame);
+        assert_eq!((c.x, c.y), (p.x + p.width - 5., p.y + p.height - 5.));
+    };
+    check(&mut r);
+    let g = r.reorder_geometry(binding.list).unwrap();
+    let start = r.begin_reorder(binding, g.clone()).unwrap().unwrap();
+    r.preview_reorder(start.token, g, 80.).unwrap();
+    check(&mut r);
+    r.cancel_reorder(start.token).unwrap();
+    check(&mut r);
+    let plain = source.replace(" reorderdrop=receive", "");
+    let r = Runner::boot(
+        contract::compile(&plain).unwrap(),
+        Rows { n: 2, queries: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for row in &r.collections()[0].rows {
+        assert_eq!(
+            r.kernel().node(row.view).unwrap().style.position_type,
+            exact_kernel::PositionType::Static
+        );
+    }
+}

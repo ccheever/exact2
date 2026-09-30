@@ -665,3 +665,114 @@ fn logical_alignment_keywords_compile_from_the_schema() {
         }
     }
 }
+
+#[test]
+fn host_context_transform_recipients_contain_absolute_descendants() {
+    use exact_kernel::PositionType::{Relative, Static};
+    let source = r#"style Panel
+  position = "absolute"
+component App
+  state shown = true
+  view
+    column width=300 height=400
+      box testId="unrelated" height=10
+      scroll height=60
+        box testId="source-content"
+          box id="bubble" height=30
+      box class=Panel left=20 top=80 width=200 height=200
+        row testId="branch" gap=10
+          box contextTarget="bubble" width=100 height=40
+          when shown
+            box testId="side" width=40 height=40
+              box testId="side-absolute" position="absolute" right=0 bottom=0 width=5 height=5
+        box testId="trailing" width=70 height=20
+          box testId="inner" width=60 height=10
+          box testId="trailing-absolute" position="absolute" right=0 bottom=0 width=5 height=5
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(300., 400.))
+        .unwrap();
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    for id in ["side", "trailing", "source-content"] {
+        assert_eq!(node(id).style.position_type, Relative, "{id}");
+    }
+    for id in ["unrelated", "branch", "inner"] {
+        assert_eq!(node(id).style.position_type, Static, "{id}");
+    }
+    for (parent, child) in [("side", "side-absolute"), ("trailing", "trailing-absolute")] {
+        let (p, c) = (node(parent).frame, node(child).frame);
+        assert_eq!(
+            (c.x, c.y),
+            (p.x + p.width - 5., p.y + p.height - 5.),
+            "{child}"
+        );
+    }
+    let refused = source.replace("testId=\"side\"", "testId=\"side\" position=\"static\"");
+    assert_eq!(
+        contract::compile(&refused).unwrap_err().id,
+        "lower-attr-value"
+    );
+}
+
+#[test]
+fn repeated_context_branches_contain_descendants_in_every_instance() {
+    struct Items;
+    impl DataSource for Items {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(vec![Value::str("a"), Value::str("b")]))
+        }
+    }
+    for virtualized in ["", "virtualized=true"] {
+        let source = format!(
+            r#"component App
+  resource rows = rows() as shape list<string>
+  view
+    column
+      box id="bubble" height=10
+      box position="absolute" width=200 height=200
+        list height=100 {virtualized}
+          each x in rows key=x
+            box testId=`row-${{x}}` width=100 height=30
+              box contextTarget="bubble" width=20 height=10
+              box testId=`absolute-${{x}}` position="absolute" right=0 bottom=0 width=5 height=5
+"#
+        );
+        let mut r = Runner::boot(
+            contract::compile(&source).unwrap(),
+            Items,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let root = r.roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, exact_kernel::Offer::definite(300., 400.))
+            .unwrap();
+        let k = r.kernel();
+        for id in ["a", "b"] {
+            let p = k
+                .node_by_key(k.find_by_test_id(&format!("row-{id}"))[0])
+                .unwrap();
+            let c = k
+                .node_by_key(k.find_by_test_id(&format!("absolute-{id}"))[0])
+                .unwrap();
+            assert_eq!(
+                (c.frame.x, c.frame.y),
+                (p.frame.x + 95., p.frame.y + 25.),
+                "{virtualized}: {id}"
+            );
+            assert_eq!(p.style.position_type, exact_kernel::PositionType::Relative);
+        }
+    }
+}

@@ -821,4 +821,3 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - LLP 1024 §9 guardrails (Charlie, 2026-09-27): enforce the prop update size budget (a named refusal status) and flag per-frame prop churn in the journal. Neither is enforced yet.
 
 - **`exact release` re-signs the GPU module, and the host then refuses it** (2026-09-27, found fixing the release entitlements). `signingOrder` re-signs every `.dylib` with the Developer ID, which rewrites its bytes; `GpuModule.verify` compares them to the sha256 the bake embedded and refuses (`GPU module …/libexact_gpu.dylib: digest mismatch`). Reproduced by re-signing a built Caltrain.app ad hoc with `--options runtime`: the unmodified copy captures its canvases, the re-signed one logs the mismatch and draws none. A released app's canvases would be blank. Either sign the dylib with the release identity before the bake digests it, or have the digest exclude the signature.
-

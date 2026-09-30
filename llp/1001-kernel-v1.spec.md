@@ -393,6 +393,9 @@ box was a containing block:
   would still be clipped and scrolled by it, and a browser makes a box a
   containing block while a transform runs on it. The kernel's own rule is
   position alone; a producer other than the compiler sets the row itself.
+  This includes context-preview structural recipients (side/trailing siblings,
+  repeated flow roots and the source scroll content), and Runner-generated
+  row wrappers in a list with `reorderdrop` (LLP 1074 D1).
 - **The kernel paints in tree order.** A page paints its positioned boxes and
   stacking contexts after its in-flow boxes, so a web host makes a static box
   that follows one of those in tree order `isolation: isolate`

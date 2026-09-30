@@ -92,13 +92,15 @@ pub(crate) fn positioned(
     attrs: &[contract_syntax::Attr],
     in_svg: bool,
     span: contract_syntax::Span,
+    host_transform: bool,
 ) -> Result<Option<Vec<contract_syntax::Attr>>, crate::LowerError> {
     use contract_syntax::Expr;
     let literal =
         |a: &contract_syntax::Attr, v: &str| matches!(&a.value, Expr::Str(s, _) if s == v);
     let contains = !in_svg
         && !tag.node_type.is_svg_element()
-        && (attrs.iter().any(|a| contains_absolute(&a.name, &a.value))
+        && (host_transform
+            || attrs.iter().any(|a| contains_absolute(&a.name, &a.value))
             || tag.node_type.scrolls_by_default()
             || tag.node_type == NodeType::Canvas
             || attrs
@@ -1254,4 +1256,151 @@ pub(crate) fn check_exclusion(
         }
     }
     Ok(())
+}
+
+/// Host transforms can address a box by its place in the expanded view, not
+/// just its attributes (LLP 1074 D1). Regions have no box. Geometry decides
+/// which siblings move at runtime, so every possible recipient contains at rest.
+pub(crate) fn host_transform_recipients(
+    lower: &crate::Lowerer<'_>,
+    nodes: &[contract_syntax::Node],
+) -> std::collections::BTreeSet<(contract_syntax::Span, u32)> {
+    use contract_syntax::{Attr, Expr, Node, Span};
+    struct BoxSite {
+        key: (Span, u32),
+        parent: Option<usize>,
+        attrs: Vec<Attr>,
+        absolute: bool,
+        maybe_absolute: bool,
+        scrolls: bool,
+        repeated: bool,
+    }
+    fn collect(
+        lower: &crate::Lowerer<'_>,
+        nodes: &[Node],
+        parent: Option<usize>,
+        repeated: bool,
+        boxes: &mut Vec<BoxSite>,
+    ) {
+        for node in nodes {
+            match node {
+                Node::Element {
+                    tag: name,
+                    attrs,
+                    children,
+                    span,
+                    instance,
+                    ..
+                } => {
+                    // Normal lowering reports class errors with its other refusals.
+                    let mut rows = lower
+                        .class_rows(attrs)
+                        .ok()
+                        .flatten()
+                        .map_or_else(Vec::new, |(_, r)| r);
+                    rows.extend_from_slice(attrs);
+                    let position = rows.iter().rev().find(|a| a.name == "position");
+                    let fixed = tag(name).is_some_and(|t| {
+                        t.fixed_styles
+                            .iter()
+                            .any(|(id, v)| *id == StyleId::PositionType && *v == "absolute")
+                    });
+                    let absolute = position.map_or(
+                        fixed,
+                        |a| matches!(&a.value, Expr::Str(v, _) if v == "absolute"),
+                    );
+                    let maybe_absolute =
+                        absolute || position.is_some_and(|a| !matches!(&a.value, Expr::Str(_, _)));
+                    let scrolls = tag(name).is_some_and(|t| t.node_type.scrolls_by_default())
+                        || rows.iter().any(|a| matches!(a.name.as_str(), "overflow" | "overflow-y")
+                            && !matches!(&a.value, Expr::Str(v, _) if v != "auto" && v != "scroll"));
+                    let index = boxes.len();
+                    boxes.push(BoxSite {
+                        key: (*span, *instance),
+                        parent,
+                        attrs: rows,
+                        absolute,
+                        maybe_absolute,
+                        scrolls,
+                        repeated,
+                    });
+                    collect(lower, children, Some(index), false, boxes);
+                }
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    collect(lower, then, parent, repeated, boxes);
+                    collect(lower, otherwise, parent, repeated, boxes);
+                }
+                Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
+                Node::Provide { body, .. } => collect(lower, body, parent, repeated, boxes),
+                Node::Match { some, none, .. } => {
+                    collect(lower, &some.1, parent, repeated, boxes);
+                    collect(lower, none, parent, repeated, boxes);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut boxes = Vec::new();
+    collect(lower, nodes, None, false, &mut boxes);
+    let mut recipients = std::collections::BTreeSet::new();
+    for (preview, site) in boxes.iter().enumerate() {
+        let Some(target) = site.attrs.iter().find(|a| a.name == "contextTarget") else {
+            continue;
+        };
+        let mut path = Vec::new();
+        let mut child = preview;
+        let mut panel = false;
+        while let Some(parent) = boxes[child].parent {
+            if boxes[parent].parent.is_none() {
+                break;
+            }
+            path.push((child, parent));
+            panel |= boxes[parent].maybe_absolute;
+            if boxes[parent].absolute {
+                break;
+            }
+            child = parent;
+        }
+        if !panel {
+            continue;
+        }
+        for (child, parent) in path {
+            // Other instances of this same template are runtime siblings.
+            // In a virtual list the flow root also shields its descendants
+            // from the generated wrapper that the host transforms.
+            if boxes[child].repeated {
+                recipients.insert(boxes[child].key);
+            }
+            for (index, sibling) in boxes.iter().enumerate() {
+                if sibling.parent == Some(parent) && index != child {
+                    recipients.insert(sibling.key);
+                }
+            }
+        }
+        // contextContent(target): the source's child of its nearest scroll
+        // ancestor moves too. Literal IDs narrow this exactly; bound IDs may
+        // name any authored ID, but never an anonymous, unrelated subtree.
+        for (source, candidate) in boxes.iter().enumerate() {
+            let Some(id) = candidate.attrs.iter().find(|a| a.name == "id") else {
+                continue;
+            };
+            if matches!((&target.value, &id.value), (Expr::Str(a, _), Expr::Str(b, _)) if a != b) {
+                continue;
+            }
+            let mut child = source;
+            while let Some(parent) = boxes[child].parent {
+                if boxes[parent].parent.is_none() {
+                    break;
+                }
+                if boxes[parent].scrolls {
+                    recipients.insert(boxes[child].key);
+                    break;
+                }
+                child = parent;
+            }
+        }
+    }
+    recipients
 }

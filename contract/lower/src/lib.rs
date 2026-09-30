@@ -147,6 +147,7 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) svg_depth: u32,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +245,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         parent_positioned: true,
+        host_transforms: Default::default(),
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -497,6 +499,7 @@ fn lower_with_sites(
             view[0].span(),
         ));
     }
+    l.host_transforms = tags::host_transform_recipients(&l, view);
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
@@ -725,7 +728,13 @@ impl<'a> Lowerer<'a> {
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
-                let relative = tags::positioned(&t, expanded, in_svg, *span)?;
+                let relative = tags::positioned(
+                    &t,
+                    expanded,
+                    in_svg,
+                    *span,
+                    self.host_transforms.contains(&(*span, *instance)),
+                )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
