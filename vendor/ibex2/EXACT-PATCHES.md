@@ -86,4 +86,9 @@ macOS too.
   where they were everywhere but Apple.
 - `src/transport/mod.rs`: `rustls_http` and `RustlsHttpTransport` build on
   macOS too. `default_transport` is unchanged: `NSURLSession` on Apple.
+- `src/transport/rustls_http.rs`: the trust store is read once per process
+  (reading the macOS keychain took ~170 ms, and every transport paid it: a
+  render server's first render on each worker, 2026-09-30), and a pending
+  connect waits in `poll(2)` for the socket to be writable instead of
+  sleeping 10 ms between checks.
 - Not for upstream: it exists for one embedder's server role.

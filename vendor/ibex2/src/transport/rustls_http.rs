@@ -103,8 +103,16 @@ impl Default for RustlsHttpTransport {
         Self::new()
     }
 }
+/// The machine's trust store, read once per process: reading it (the macOS
+/// keychain) took ~170 ms, and every transport paid it — a render server's
+/// first render on each worker, each of whose executor owners makes one
+/// (Exact patch 3).
 fn tls_config() -> (ureq::tls::TlsConfig, Roots) {
-    tls_config_from(rustls_native_certs::load_native_certs().unwrap_or_default())
+    static TLS: std::sync::OnceLock<(ureq::tls::TlsConfig, Roots)> = std::sync::OnceLock::new();
+    TLS.get_or_init(|| {
+        tls_config_from(rustls_native_certs::load_native_certs().unwrap_or_default())
+    })
+    .clone()
 }
 fn tls_config_from(
     certs: Vec<rustls::pki_types::CertificateDer<'static>>,
@@ -285,11 +293,38 @@ pub(crate) fn connect_socket(
             }
             // A bounded wait on the caller's thread, not a second executor or
             // worker; abandoning the attempt closes the one pending socket.
-            std::thread::park_timeout(remaining.min(Duration::from_millis(10)));
+            wait_writable(&socket, remaining.min(Duration::from_millis(50)));
         }
     }
     socket.set_nonblocking(false)?;
     Ok(socket.into())
+}
+/// Wait until a connecting socket is writable (connected or failed), at most
+/// `timeout`. On Unix a `poll(2)`, which returns the moment the connection
+/// completes: a sleep between checks (a 10 ms park, which a busy macOS
+/// stretched to 50–90 ms) delayed every new connection by at least one sleep
+/// (Exact patch 3). The caller rechecks cancellation between waits.
+fn wait_writable(socket: &socket2::Socket, timeout: Duration) {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let mut fd = libc::pollfd {
+            fd: socket.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        let ms = timeout.as_millis().clamp(1, i32::MAX as u128) as libc::c_int;
+        // SAFETY: one valid pollfd for a descriptor the socket owns, alive
+        // for the call.
+        unsafe {
+            libc::poll(&mut fd, 1, ms);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = socket;
+        std::thread::park_timeout(timeout.min(Duration::from_millis(10)));
+    }
 }
 struct CancellableSocket {
     stream: TcpStream,

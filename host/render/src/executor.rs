@@ -22,11 +22,18 @@ impl Executor {
         // @ref LLP 1048.000 D10 — a server, not an app on a device: its
         // fetches go over rustls on macOS too (Charlie, 2026-09-29), not
         // NSURLSession, whose per-call cost was ~30% of a RealWorld page's CPU.
-        let transport: core::StreamHost = Arc::new(|| {
-            ibex2::host::Host::with_transport(
-                Box::new(ibex2::transport::RustlsHttpTransport::new()),
-            )
-        });
+        // `EXACT_RENDER_TRANSPORT=platform` keeps the platform's (a check
+        // against the platform, or a way back).
+        let platform = std::env::var("EXACT_RENDER_TRANSPORT").as_deref() == Ok("platform");
+        let transport: core::StreamHost = if platform {
+            Arc::new(ibex2::host::Host::new)
+        } else {
+            Arc::new(|| {
+                ibex2::host::Host::with_transport(Box::new(
+                    ibex2::transport::RustlsHttpTransport::new(),
+                ))
+            })
+        };
         let host = transport();
         let bindings = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
             .ok()
