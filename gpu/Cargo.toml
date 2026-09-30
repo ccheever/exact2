@@ -11,6 +11,8 @@ license.workspace = true
 description = "GPU canvas: the Surface trait, the on-demand module, wgpu on every host"
 publish = false
 
+build = "build.rs"
+
 [lib]
 name = "exact_gpu"
 crate-type = ["rlib"]
@@ -33,6 +35,10 @@ exact-gpu-reflect = { path = "reflect" }
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 objc2-metal = "0.3"
+# The Metal backend this module presents through is exact2's patched copy
+# (vendor/wgpu-hal/EXACT-PATCHES.md): named here so `build.rs` can refuse a
+# workspace that would link the published one.
+wgpu-hal = { version = "30", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }

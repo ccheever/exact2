@@ -59,10 +59,35 @@ impl Surface for Clear {
     }
 }
 
+/// Records a frame as [`Clear`] does, then reports a failure for it.
+struct Fails(Clear, bool);
+
+impl Surface for Fails {
+    fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+        Ok(())
+    }
+    fn render(
+        &mut self,
+        frame: &Frame,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> bool {
+        self.1 = true;
+        self.0.render(frame, device, queue, encoder, target, format)
+    }
+    fn take_error(&mut self) -> Option<SurfaceError> {
+        std::mem::take(&mut self.1).then(|| SurfaceError("failed after recording".into()))
+    }
+}
+
 static REGISTRY: Registry = Registry {
     surfaces: &[
         ("a", 0, || Box::new(Clear("a"))),
         ("b", 0, || Box::new(Clear("b"))),
+        ("f", 0, || Box::new(Fails(Clear("f"), false))),
     ],
     shaders: &[],
 };
@@ -74,6 +99,11 @@ type Layer = objc2::rc::Retained<objc2::runtime::AnyObject>;
 
 /// A module with canvases `a` and `b`, each on its own layer, bound.
 fn two() -> Option<(Module, [u32; 2], [Layer; 2])> {
+    on_layers(["a", "b"])
+}
+
+/// A module with those two surfaces, each on its own layer, bound.
+fn on_layers(names: [&str; 2]) -> Option<(Module, [u32; 2], [Layer; 2])> {
     let gpu = fixture::device_or_skip(fixture::device())?;
     let mut m = Module::new(&REGISTRY);
     m.set_seekable(true);
@@ -83,7 +113,7 @@ fn two() -> Option<(Module, [u32; 2], [Layer; 2])> {
         // SAFETY: a new CAMetalLayer, retained by the test past the module.
         unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] }
     });
-    for (i, name) in ["a", "b"].into_iter().enumerate() {
+    for (i, name) in names.into_iter().enumerate() {
         let ptr = objc2::rc::Retained::as_ptr(&layers[i]) as *mut std::ffi::c_void;
         // SAFETY: the layer outlives the module (dropped after it by the caller).
         let target = unsafe {
@@ -174,4 +204,92 @@ fn a_lost_device_drops_the_open_frame_unsubmitted() {
     assert!(take().is_empty(), "nothing submitted on a lost device");
     assert!(m.gpu().is_none());
     assert!(m.dirty(a) || !m.has_device(a));
+}
+
+/// What the device's Metal queue has committed and presented so far (the
+/// patched wgpu-hal's counters, vendor/wgpu-hal/EXACT-PATCHES.md).
+fn counts(m: &Module) -> wgpu::hal::metal::Counts {
+    // SAFETY: the queue's own counters are read; nothing is encoded or freed.
+    unsafe { m.gpu().unwrap().queue.as_hal::<wgpu::hal::api::Metal>() }
+        .expect("a Metal queue")
+        .counts()
+}
+
+/// wgpu-core wraps each pass in transition encodings Metal has no use for,
+/// and `present` had a command buffer of its own: five or six committed per
+/// canvas frame where an `MTKView` draw commits one. With the patched
+/// wgpu-hal an encoding that encoded nothing has no command buffer, and the
+/// frame's presentations ride the last one that did.
+#[test]
+fn a_frame_commits_one_command_buffer_a_canvas_and_its_presentations_ride_it() {
+    let Some((mut m, [a, b], _layers)) = two() else {
+        return;
+    };
+    // A first frame, so nothing the device does once is counted.
+    m.render(a, &frame());
+    m.render(b, &frame());
+    assert!(m.flush());
+    assert!(m.sync());
+    for _ in 0..4 {
+        let before = counts(&m);
+        assert_eq!(m.render(a, &frame()), Some(true));
+        assert_eq!(m.render(b, &frame()), Some(true));
+        assert!(m.flush());
+        let after = counts(&m);
+        assert_eq!(
+            after.committed - before.committed,
+            2,
+            "one command buffer a canvas: its pass"
+        );
+        assert_eq!(
+            after.presented_with_submit - before.presented_with_submit,
+            2,
+            "both drawables presented by the submit"
+        );
+        assert_eq!(
+            after.presented_alone, before.presented_alone,
+            "and `present` committed nothing"
+        );
+    }
+    assert!(m.sync());
+}
+
+/// A surface that fails after recording has its drawable in the frame's
+/// submit and must not be shown (LLP 1009 D7), so that frame's presentations
+/// do not ride the submit: the healthy canvas is presented once, by
+/// `present`, and the failed one's drawable is let go. More rounds than a
+/// layer has drawables: one neither presented nor let go would run it out.
+#[test]
+fn a_frame_with_a_failed_canvas_presents_the_others_once_and_it_never() {
+    let Some((mut m, [a, f], _layers)) = on_layers(["a", "f"]) else {
+        return;
+    };
+    for _ in 0..6 {
+        let before = counts(&m);
+        assert_eq!(m.render(a, &frame()), Some(true));
+        assert_eq!(m.render(f, &frame()), None, "the failure is reported");
+        assert_eq!(m.take_error(), "failed after recording");
+        assert!(m.flush());
+        let after = counts(&m);
+        assert_eq!(
+            after.presented_with_submit, before.presented_with_submit,
+            "nothing rides a submit that holds a failed canvas's drawable"
+        );
+        assert_eq!(
+            after.presented_alone - before.presented_alone,
+            1,
+            "the healthy canvas, once; the failed one never"
+        );
+    }
+    // The next healthy frame rides its submit again.
+    let before = counts(&m);
+    assert_eq!(m.render(a, &frame()), Some(true));
+    assert!(m.flush());
+    let after = counts(&m);
+    assert_eq!(
+        after.presented_with_submit - before.presented_with_submit,
+        1
+    );
+    assert_eq!(after.presented_alone, before.presented_alone);
+    assert!(m.sync());
 }

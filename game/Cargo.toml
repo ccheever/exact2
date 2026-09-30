@@ -62,6 +62,8 @@ opt-level = 3
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
+# exact-gpu presents through the patched Metal backend (vendor/wgpu-hal/EXACT-PATCHES.md).
+wgpu-hal = { path = "../vendor/wgpu-hal" }
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
 [profile.gpu-dev]

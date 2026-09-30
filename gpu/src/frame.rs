@@ -170,11 +170,41 @@ impl Module {
         let Some(gpu) = self.gpu.as_ref() else {
             return true;
         };
-        gpu.queue.submit([open.encoder.finish()]);
+        // On Metal the frame's presentations ride its one submit, on the
+        // last command buffer that encoded anything (the patched wgpu-hal,
+        // vendor/wgpu-hal/EXACT-PATCHES.md): one committed command buffer a
+        // canvas frame, as an `MTKView` draw is. Not when a surface failed
+        // after recording: its drawable is in the submit, and must not be
+        // shown.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let rode = {
+            let ride = open.canvases.iter().all(|c| c.failed.is_none());
+            let drawn = open.canvases.iter().filter(|c| c.texture.is_some()).count();
+            let before = ride.then(|| ride_next_submit(&gpu.queue)).flatten();
+            gpu.queue.submit([open.encoder.finish()]);
+            // Every drawable of the frame, or none: a surface that drew
+            // nothing into its target is in no command buffer, and then each
+            // is presented the ordinary way (one already scheduled is not
+            // scheduled twice).
+            before.is_some_and(|n| presented_with_submit(&gpu.queue) == Some(n + drawn))
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        let rode = {
+            gpu.queue.submit([open.encoder.finish()]);
+            false
+        };
         let mut ok = true;
         for c in open.canvases {
             if let Some(texture) = c.texture {
-                gpu.queue.present(texture);
+                if rode {
+                    // Scheduled by the submit. Letting the texture go tells
+                    // wgpu the canvas may acquire its next one; `present`
+                    // would make wgpu-core submit once more, empty, which
+                    // commits a command buffer only to signal it.
+                    drop(texture);
+                } else {
+                    gpu.queue.present(texture);
+                }
             }
             drop(c.failed);
             let Some(inst) = self.instances.get_mut(&c.id) else {
@@ -198,4 +228,24 @@ impl Module {
         }
         ok
     }
+}
+
+/// Ask the Metal queue to present, with its next submit, what that submit
+/// draws (the patched wgpu-hal); how many it has presented that way so far.
+/// `None` off Metal.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn ride_next_submit(queue: &wgpu::Queue) -> Option<usize> {
+    // SAFETY: a flag and a counter of the queue wgpu owns; nothing is encoded.
+    unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }.map(|q| {
+        q.present_with_next_submit(true);
+        q.counts().presented_with_submit
+    })
+}
+
+/// How many drawables this queue has presented with the submit that drew
+/// them; `None` off Metal.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn presented_with_submit(queue: &wgpu::Queue) -> Option<usize> {
+    // SAFETY: a counter of the queue wgpu owns is read; nothing is encoded.
+    unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }.map(|q| q.counts().presented_with_submit)
 }
