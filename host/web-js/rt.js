@@ -85,7 +85,8 @@ const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
 export function memo(fn, t) {
-  const n = node(t ? () => { const v = fn(); if (!conforms(v, t)) throw new Refusal("a derive's value does not conform to its type"); return v; } : fn);
+  // Against its last value, which conformed: an unchanged part is not checked again.
+  const n = node(t ? last => { const v = fn(); if (!conforms(v, t, [0], last)) throw new Refusal("a derive's value does not conform to its type"); return v; } : fn);
   Settle.push(n);
   return () => read(n);
 }
@@ -110,16 +111,25 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
- * numbers are finite, as the runner's shape checks require. */
-export function conforms(v, t, i = [0]) {
+ * numbers are finite, as the runner's shape checks require. `o` is a value
+ * that conformed: a part of `v` that is the same array as its part in `o`
+ * conforms as it did, unchecked (the Rust runner's `Conformed` re-checks
+ * only the list items that are not the same object, runner/src/conform.rs). */
+export function conforms(v, t, i = [0], o) {
+  if (o !== undefined && v === o && typeof v === "object" && v !== null) { skip(t, i); return true; }
   const c = t[i[0]++];
   if (c === "n") return typeof v === "number" && isFinite(v);
   if (c === "b") return typeof v === "boolean";
   if (c === "s") return typeof v === "string";
   if (c === "u") return v == null;
-  if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i); }
-  if (c === "[") { const at = i[0]; if (!Array.isArray(v)) return false; for (const x of v) { i[0] = at; if (!conforms(x, t, i)) return false; } i[0] = at; skip(t, i); return true; }
-  if (c === "{") { let k = 0; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i)) return false; i[0]++; return v.length === k; }
+  if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
+  if (c === "[") {
+    const at = i[0], was = Array.isArray(o) ? o : null;
+    if (!Array.isArray(v)) return false;
+    for (let k = 0; k < v.length; k++) { i[0] = at; if (!conforms(v[k], t, i, was?.[k])) return false; }
+    i[0] = at; skip(t, i); return true;
+  }
+  if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
   return true;
 }
 function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
@@ -353,7 +363,8 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     r.value = v;
   };
   const take = (v, a) => {
-    if (type && !conforms(v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(v, type, [0], r.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    r.checked = v;
     r.value = v; r.settled = a;
   };
   const land = t => outcome => commit(() => {

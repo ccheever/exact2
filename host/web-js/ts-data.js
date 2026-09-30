@@ -9,8 +9,41 @@ import * as source from '__APP_TS__';
 import { sourceTypes } from './names.js';
 import { clock, commit, journal, R, Resources } from './rt.js';
 __AUTH_IMPORT__
-export const named = (v, t) => v == null ? null : !t || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? named(v, t[1]) : v.map(x => named(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, named(v[i], t[k])]));
-const arrays = (v, t) => v == null ? null : typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? arrays(v, t[1]) : v.map(x => arrays(x, t[1]))) : Object.keys(t).map(k => arrays(v[k], t[k]));
+// A record type's field names, once per type.
+const fields = new WeakMap(), keys = t => { let k = fields.get(t); if (!k) { fields.set(t, k = Object.keys(t)); k.proto = k.includes('__proto__'); } return k; };
+export const named = (v, t) => {
+  if (v == null) return null;
+  if (!t || typeof t === 'string') return v;
+  if (Array.isArray(t)) return t[0] === '?' ? named(v, t[1]) : v.map(x => named(x, t[1]));
+  const k = keys(t);
+  if (k.proto) return Object.fromEntries(k.map((f, i) => [f, named(v[i], t[f])]));
+  const o = {};
+  for (let i = 0; i < k.length; i++) o[k[i]] = named(v[i], t[k[i]]);
+  return o;
+};
+// The module's answer as the runtime's arrays, against the last answer this
+// target was given: a record or list that converts to what it did is that
+// array itself, so the runtime compares and shape-checks an unchanged row as
+// an identity (the Rust runner keeps an equal answer's old object and
+// re-checks only the list items that are new, runner/src/conform.rs).
+const same = (a, b) => a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
+const arrays = (v, t, o) => {
+  if (v == null) return null;
+  if (typeof t === 'string') return v;
+  if (Array.isArray(t) && t[0] === '?') return arrays(v, t[1], o);
+  const list = Array.isArray(t);
+  if (list && !Array.isArray(v)) return v.map(x => arrays(x, t[1]));
+  // An item is matched by its index even when the list grew or shrank.
+  const k = list ? null : keys(t), n = list ? v.length : k.length, was = Array.isArray(o) ? o : null;
+  let out = was && was.length === n ? null : [];
+  for (let i = 0; i < n; i++) {
+    const x = list ? arrays(v[i], t[1], was?.[i]) : arrays(v[k[i]], t[k[i]], was?.[i]);
+    if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
+  }
+  return out ?? o;
+};
+const answered = new Map(); // target -> the arrays last made for it
+const conv = (v, t, target) => { const a = arrays(v, t, answered.get(target)); answered.set(target, a); return a; };
 // The app's page module as a source sees it (`native`, LLP 1067 D5), where
 // the app has one: `later` goes to the module artifact's `later` (native.js,
 // loaded after first paint); the web has no synchronous `call`; `watch`
@@ -73,8 +106,9 @@ export function install(data, mixed = false, modules = null) {
     asking = target ?? name; watching = name;
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }
-    if (r && typeof r.then === 'function') return { promise: r.then(v => arrays(v, result)), store: seen.read };
-    return { v: arrays(r, result), store: seen.read };
+    const target_ = target ?? name;
+    if (r && typeof r.then === 'function') return { promise: r.then(v => conv(v, result, target_)), store: seen.read };
+    return { v: conv(r, result, target_), store: seen.read };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
