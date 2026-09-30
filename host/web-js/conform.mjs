@@ -130,6 +130,11 @@ async function drive(t, report, fail, dir, ws, js) {
       const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');
       const [pw, pj] = [resolve(dir, `${slug}-wasm.png`), resolve(dir, `${slug}-js.png`)];
+      // Chrome picks how a scaled image is filtered per raster (a lower
+      // quality while it judges the layer busy, a higher one later, on its
+      // own clock); nearest-neighbour on both leaves one filter to compare.
+      const still = `document.getElementById('conform-still') || document.head.insertAdjacentHTML('beforeend', '<style id=conform-still>img{image-rendering:pixelated!important}</style>'); new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`;
+      await Promise.all([W, J].map(s => s.carrier?.evaluate(still).catch(() => {})));
       await Promise.all([W.screenshot(pw), J.screenshot(pj)]);
       // A playing video's frames and controls are the browser's clock, not the runner's.
       const share = diffPng(pw, pj, resolve(dir, `${slug}-side-by-side.png`), lw.nodes.filter(n => n.type === 'Video'));

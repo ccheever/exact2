@@ -1274,7 +1274,8 @@ measured; brotli):
   apps stay out of the async lane: their first photograph's screenshot
   differs by about 4% in some runs (a PNG scaled by `object-fit: cover`,
   rastered differently from run to run, on either target; calling
-  `decode()` on every image made it constant rather than rare).
+  `decode()` on every image made it constant rather than rare); Interaction Gallery joined the lane on 2026-09-29, below,
+  "Lane stability").
 
 **Press feedback** (landed 2026-09-29, measured; brotli): a node's
 `press-scale` showed nothing on the JS target, since the web host's own
@@ -1425,6 +1426,34 @@ presses on both pressed buttons). Found: a static `id` in a repeated row
 is the same DOM id in every instance on the JS target (the template's one
 view number), so a static reference there finds the first instance, not
 its own; not fixed here.
+
+**Lane stability and Messages Stress** (2026-09-29): conformance screenshots
+now draw every `<img>` nearest-neighbour on both pages
+(`image-rendering: pixelated`, injected by `conform.mjs` before each capture).
+Chrome picks a scaled image's filter at each raster, on its own clock, so the
+first photograph (1448 px shown at 388) came out sharper on one page than the
+other in about one run in twenty-five. Waiting for `decode()`, two frames and
+400 ms did not fix it. With nearest-neighbour, Interaction Gallery passes
+every run and joins the async lane. Exact Live does not: its rundown's first
+photograph now differs by 6.33% on every run, although both pages give the
+image the same box, the same computed styles all the way up and no
+transforms. A sub-pixel raster offset that smoothing used to hide is the
+likely cause; it is not found yet. Its crew messages carry test ids
+(`crew-swipe-<id>`), and `exact-live.steps` swipes one message past the knee
+and one short of it; both steps are equal.
+Messages Stress's `toggle-windowed` at 100,000 records is the seam's cap, not
+the list. Windowed mode asks for the whole history, and the answer is about
+23 MB. The wasm page calls its data source in process and gets all of it. The
+JS page calls the Rust module over LLP 1029's seam, which refuses any message
+over `MAX_MESSAGE` (16 MiB, `MAX_HOST_WORK_BYTES`). `rust-data.js` then keeps
+the previous answer (the bounded window's 200 records, or the manual page's
+100) and journals "Rust module rejected the call". Native hosts that load a
+Rust module through the same seam get the same refusal. Open, needing a ruling:
+raise or split the seam's cap for answers, show the refusal as the resource's
+failure, or have the app window its data. The wasm page hanging on
+`toggle-eager` at 100,000 is the eager mode doing what its label warns
+("may block input"): it mounts every row. That is the wasm side and is not
+changed here.
 
 ## 8. Rulings and open questions for Charlie
 

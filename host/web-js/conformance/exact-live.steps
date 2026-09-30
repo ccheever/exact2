@@ -1,4 +1,8 @@
-# Exact Live's rundown by finger: Arrange's reorder drag on its virtualized
-# list, a row carried two places down.
+# Exact Live by finger: Arrange's reorder drag on the rundown's virtualized
+# list, a row carried two places down; then the crew notes, a message
+# swiped past the knee to reply (swiperight), one short of it.
 tap pane-rundown
 drag arrange-grip-photo-00001 0 150 400
+tap pane-crew
+drag crew-swipe-crew-1 150 0 250
+drag crew-swipe-crew-2 30 0 300
