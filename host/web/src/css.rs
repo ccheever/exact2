@@ -403,6 +403,16 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
 /// The row's CSS property, appended: its name with `-` for `_`, but for the
 /// few spelled here.
 fn property(out: &mut String, id: StyleId) {
+    // Every node's every row asks: each name is spelled once per process.
+    static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
+    out.push_str(NAMES[id as usize].get_or_init(|| {
+        let mut name = String::new();
+        spell_property(&mut name, id);
+        name
+    }));
+}
+
+fn spell_property(out: &mut String, id: StyleId) {
     let name = match id {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
