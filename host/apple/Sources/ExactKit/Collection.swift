@@ -387,6 +387,8 @@ final class CollectionHost {
     /// retire-only report from fresh facts and the pins that hold now.
     func landed(_ view: UInt32, at now: Double) {
         if let sent = fillSent.removeValue(forKey: view) { fillLatency[view] = now - sent }
+        // The reports the slice held run in the next main-queue turn.
+        if !dirty.isEmpty { schedule() }
         guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
         retireOwed[view] = limit
         // The pump's next frame: the slice's apply and its retirement are
@@ -450,6 +452,11 @@ final class CollectionHost {
 
     func flush() {
         guard batchDepth == 0, let onFeedback, !dirty.isEmpty else { return }
+        // A slice in flight holds every report until it lands (T4), and its
+        // landing flushes again (`landed`). A continuation now would find it
+        // still in flight and queue another, every main-queue turn until it
+        // lands (LLP 1072 §3.2).
+        if filling?() == true { return }
         observeTurns()
         // Reserve the continuation before calling Rust: its batch can reenter us.
         schedule()
@@ -543,6 +550,8 @@ final class CollectionHost {
             budget.end(reported: reported || free < 0)
         }
     }
+    /// Continuations run (`schedule`), for tests.
+    private(set) var continuations = 0
     private func schedule() {
         guard !queued else { return }
         queued = true
@@ -550,6 +559,7 @@ final class CollectionHost {
         DispatchQueue.main.async { [weak self] in
             guard let self, generation == captured else { return }
             queued = false
+            continuations += 1
             budget.nextTurn()
             if refreshPins {
                 refreshPins = false; dirty.formUnion(entries.keys)

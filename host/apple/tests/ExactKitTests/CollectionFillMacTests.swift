@@ -142,6 +142,34 @@ final class CollectionFillMacTests: XCTestCase {
         XCTAssertEqual(limit(wires[1]), 5)
     }
 
+    /// A report held behind a slice in flight waits for its landing, not
+    /// in a continuation that queues itself every main-queue turn.
+    func testAReportHeldByASliceInFlightWaitsForItsLandingWithoutSpinning() throws {
+        let (p, list, _) = fixture(rows: 4)
+        defer { p.collections.reset() }
+        var wires: [Data] = []
+        var inFlight = false
+        p.collections.onFeedback = { wires.append($0) }
+        p.collections.onFill = { _, _ in inFlight = true }
+        p.collections.filling = { inFlight }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        p.collections.fillSlice(1, limit: 1)
+        clip.scroll(to: NSPoint(x: 0, y: 60))
+        p.collections.fillSlice(1, limit: 5)
+        XCTAssertTrue(inFlight)
+        let before = p.collections.continuations
+        clip.scroll(to: NSPoint(x: 0, y: 70))
+        p.collections.flush()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertLessThanOrEqual(p.collections.continuations - before, 1, "no continuation queues itself while the slice is in flight")
+        XCTAssertEqual(wires.count, 1, "the report waits")
+        // Landed: the held report runs in the next main-queue turn.
+        inFlight = false
+        p.collections.landed(1, at: 0)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(wires.count, 2, "the held report ran after the landing")
+    }
+
     func testASliceThatChangesThePortIsImmediate() throws {
         let (p, list, _) = fixture(rows: 4)
         defer { p.collections.reset() }
