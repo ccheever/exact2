@@ -1,0 +1,36 @@
+# Canvas 2D replayed on the GPU with vello (LLP 1056 §8.4; the bake-off's
+# vello candidate, bake/canvas-vello). A loaded module: the Apple host dlopens
+# `libexact_canvas_vello.dylib` (as `libexact_canvas_gpu.dylib`, ABI v2) and no
+# host links it. Every shader is Metal AIR compiled at build time
+# (`build.rs`); nothing compiles WGSL or MSL at run time.
+[package]
+name = "exact-canvas-vello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Canvas 2D lists replayed into a vello scene on the GPU (ABI v2 module)"
+publish = false
+
+[lib]
+name = "exact_canvas_vello"
+crate-type = ["rlib", "cdylib"]
+
+# Apple only: elsewhere the crate is empty (Linux replays Canvas 2D into
+# tiny-skia, LLP 1056 D7), so `cargo build --workspace` still builds there.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+exact-canvas = { path = ".." }
+# vello 0.10, patched (vendor/vello): precompiled pipelines, bump buffers
+# sized to the scene, a backdrop and premultiplied output in the fine stage.
+vello = { package = "exact-vello", path = "../../vendor/vello" }
+# vello 0.10 pins wgpu 29, as the Linux host's painter has it. No `wgsl`:
+# the module carries no WGSL front end.
+wgpu = { version = "29", default-features = false, features = ["std", "metal"] }
+wgpu-hal = { version = "29", default-features = false, features = ["metal"] }
+objc2 = "0.6"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLResource", "MTLTypes", "MTLAllocation"] }
+
+[build-dependencies]
+# Build time only: vello's WGSL, preprocessed and validated, then MSL.
+vello_shaders = { version = "0.10", default-features = false, features = ["compile", "msl"] }
+naga = { version = "29", default-features = false, features = ["wgsl-in", "msl-out"] }
+
