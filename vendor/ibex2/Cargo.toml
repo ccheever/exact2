@@ -67,8 +67,10 @@ sha2 = "0.10"
 # The transport off Apple platforms (LLP 0057 §3; OQ2 of LLP 0068, resolved
 # 2026-08-30): HTTP/1.1 over rustls with the webpki roots — pure Rust, no
 # system TLS, nothing a builder without -dev packages lacks. Redirects and
-# the rest of `fetch` stay above it, in Rust, as on Apple.
-[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+# the rest of `fetch` stay above it, in Rust, as on Apple. Exact patch 3: it
+# builds on macOS too, for a server that chooses it (LLP 1048.000 D10's render
+# host); Apple's device platforms never build it.
+[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))'.dependencies]
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }

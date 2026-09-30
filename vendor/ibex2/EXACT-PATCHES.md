@@ -7,7 +7,7 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** two, below. Otherwise the copy is the commit's tracked tree,
+- **Patches:** three, below. Otherwise the copy is the commit's tracked tree,
   byte for byte, plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
   hand-built outputs in the ibex checkout (`ios/Frameworks-vanilla`,
@@ -74,3 +74,16 @@ nothing.
   an over-limit and a binary message, a refused handshake, a dropped
   connection, an abort) run on both transports.
 
+## Patch 3: the rustls transport builds on macOS — Exact only
+
+Charlie, 2026-09-29 (LLP 1048.000 D10, "The server's transport"): the
+render host, a server rather than an app on a device, fetches over rustls on
+macOS too.
+
+- `Cargo.toml`: the rustls transport's dependencies (`ureq`, `rustls`,
+  `rustls-native-certs`, `webpki-roots`, `socket2`) are target dependencies
+  everywhere but Apple's device platforms (iOS, tvOS, watchOS, visionOS),
+  where they were everywhere but Apple.
+- `src/transport/mod.rs`: `rustls_http` and `RustlsHttpTransport` build on
+  macOS too. `default_transport` is unchanged: `NSURLSession` on Apple.
+- Not for upstream: it exists for one embedder's server role.

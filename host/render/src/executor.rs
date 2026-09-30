@@ -19,18 +19,21 @@ impl Executor {
     /// Start the core's owners under `grants` (the render's, never more
     /// than the app's).
     pub fn start(grants: &str) -> Self {
-        #[cfg(not(target_vendor = "apple"))]
-        let host = ibex2::host::Host::with_transport(Box::new(
-            ibex2::transport::RustlsHttpTransport::new(),
-        ));
-        #[cfg(target_vendor = "apple")]
-        let host = ibex2::host::Host::new();
+        // @ref LLP 1048.000 D10 — a server, not an app on a device: its
+        // fetches go over rustls on macOS too (Charlie, 2026-09-29), not
+        // NSURLSession, whose per-call cost was ~30% of a RealWorld page's CPU.
+        let transport: core::StreamHost = Arc::new(|| {
+            ibex2::host::Host::with_transport(
+                Box::new(ibex2::transport::RustlsHttpTransport::new()),
+            )
+        });
+        let host = transport();
         let bindings = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
             .ok()
             .map(|g| host.endow(g));
         let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let signal = wake.clone();
-        let core = core::Core::start(
+        let core = core::Core::start_on(
             bindings,
             grants,
             Box::new(move || {
@@ -39,6 +42,7 @@ impl Executor {
                 *woken.lock().unwrap() = true;
                 ready.notify_all();
             }),
+            transport,
         );
         Self { core, wake }
     }

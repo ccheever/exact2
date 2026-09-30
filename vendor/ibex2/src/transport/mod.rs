@@ -16,9 +16,10 @@ pub use dev_tcp::DevTcpTransport;
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
-#[cfg(any(not(target_vendor = "apple"), test))]
+// Also on macOS, never the default there: a server may choose it (Exact patch 3).
+#[cfg(any(not(target_vendor = "apple"), target_os = "macos", test))]
 pub mod rustls_http;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
 pub use rustls_http::RustlsHttpTransport;
 // A listening WebSocket (LLP 1016.000 D3): the platform's own on Apple,
 // TCP and rustls elsewhere (and in tests everywhere).

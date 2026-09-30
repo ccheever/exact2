@@ -101,7 +101,9 @@ pub(super) struct Core {
     /// A stream's own transport (the platform's; a test's scripted one).
     stream_host: StreamHost,
 }
-type StreamHost = Arc<dyn Fn() -> ibex2::host::Host + Send + Sync>;
+/// Makes the host (and its transport) an owner, a scoped grant or a stream
+/// fetches through: the platform's, unless the embedder names another.
+pub(super) type StreamHost = Arc<dyn Fn() -> ibex2::host::Host + Send + Sync>;
 
 impl Core {
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
@@ -110,7 +112,27 @@ impl Core {
         Self::with_owners(vec![bindings, None, None], grants, wake)
     }
 
+    /// [`Core::start`] with every transport the other owners, scoped grants
+    /// and streams open made by `host` (the render host's, LLP 1048.000 D10).
+    pub(super) fn start_on(
+        bindings: Option<ibex2::host::Bindings>,
+        grants: &str,
+        wake: Wake,
+        host: StreamHost,
+    ) -> Self {
+        Self::with_owners_on(vec![bindings, None, None], grants, wake, host)
+    }
+
     fn with_owners(owners: Vec<Option<ibex2::host::Bindings>>, grants: &str, wake: Wake) -> Self {
+        Self::with_owners_on(owners, grants, wake, Arc::new(ibex2::host::Host::new))
+    }
+
+    fn with_owners_on(
+        owners: Vec<Option<ibex2::host::Bindings>>,
+        grants: &str,
+        wake: Wake,
+        host: StreamHost,
+    ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 wake: Some(wake),
@@ -142,7 +164,7 @@ impl Core {
             shared,
             disabled: !reserved,
             grants: grants.to_string(),
-            stream_host: Arc::new(ibex2::host::Host::new),
+            stream_host: host,
         };
         if !reserved {
             return core;
@@ -150,12 +172,13 @@ impl Core {
         for (index, bindings) in owners.into_iter().enumerate() {
             let shared = core.shared.clone();
             let grants = grants.to_string();
+            let host = core.stream_host.clone();
             let guard = WorkerSlot;
             let spawned = std::thread::Builder::new()
                 .name(format!("exact-io-{index}"))
                 .spawn(move || {
                     let _guard = guard;
-                    worker(shared, usize::from(index != 0), bindings, grants);
+                    worker(shared, usize::from(index != 0), bindings, grants, host);
                 });
             if spawned.is_err() {
                 core.disabled = true;
@@ -639,10 +662,11 @@ fn worker(
     lane: usize,
     bindings: Option<ibex2::host::Bindings>,
     grants: String,
+    host: StreamHost,
 ) {
     let parsed = || ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&grants));
     let bindings = if lane == 1 && bindings.is_none() {
-        parsed().ok().map(|g| ibex2::host::Host::new().endow(g))
+        parsed().ok().map(|g| host().endow(g))
     } else {
         bindings
     };
@@ -694,7 +718,7 @@ fn worker(
         };
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                match scoped_bindings(&grants, request.grants.as_deref()) {
+                match scoped_bindings(&grants, request.grants.as_deref(), &host) {
                     Some(Err(message)) => failed(FailureKind::Refused, message),
                     Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort),
                     None => execute(
@@ -715,6 +739,7 @@ fn worker(
 fn scoped_bindings(
     grants: &str,
     scope: Option<&str>,
+    host: &StreamHost,
 ) -> Option<Result<ibex2::host::Bindings, String>> {
     scope.map(|scope| {
         exact_data::storage::scope(grants, Some(scope))
@@ -722,7 +747,7 @@ fn scoped_bindings(
                 ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s))
                     .map_err(|e| e.to_string())
             })
-            .map(|g| ibex2::host::Host::new().endow(g))
+            .map(|g| host().endow(g))
     })
 }
 
