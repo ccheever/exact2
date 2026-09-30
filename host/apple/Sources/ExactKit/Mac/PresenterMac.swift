@@ -999,8 +999,19 @@ final class Presenter {
             guard let panel = ancestor, let parent = panel.superview else { continue }
             let sourceBox = source.convert(source.bounds, to: parent)
             let port = viewport.convert(viewport.bounds, to: parent)
-            let minimum = max(parent.bounds.minY, port.minY + 8)
-            let maximum = min(parent.bounds.maxY, port.maxY - 8) - panel.bounds.height
+            // Static wrappers do not contain the panel. Clamp against its
+            // nearest positioned ancestor, expressed in the parent coordinates.
+            var containing = parent
+            while containing !== root && containing.superview !== root {
+                if let node = containing as? NodeView,
+                   node.style["position_type"]?.string != nil,
+                   node.style["position_type"]?.string != "static" { break }
+                guard let ancestor = containing.superview else { break }
+                containing = ancestor
+            }
+            let region = containing.convert(containing.bounds, to: parent)
+            let minimum = max(region.minY, port.minY + 8)
+            let maximum = min(region.maxY, port.maxY - 8) - panel.bounds.height
             let top = max(minimum, min(sourceBox.minY - preview.convert(preview.bounds, to: panel).minY, maximum))
             if panel.frame.origin.y != top { panel.setFrameOrigin(CGPoint(x: panel.frame.minX, y: top)) }
         }

@@ -1025,9 +1025,20 @@ final class Presenter {
             project(preview, CGAffineTransform(translationX: dx, y: extra / 2).scaledBy(x: scale, y: scale))
             // The authored containing region can reserve room for other
             // context content, such as a reaction's participant popover.
-            let minimum = max(parent.bounds.minY, port.minY + insets.top + 8)
+            // Static wrappers do not contain the panel. Clamp against its
+            // nearest positioned ancestor, expressed in the parent coordinates.
+            var containing = parent
+            while containing !== root && containing.superview !== root {
+                if let node = containing as? NodeView,
+                   node.style["position_type"]?.string != nil,
+                   node.style["position_type"]?.string != "static" { break }
+                guard let ancestor = containing.superview else { break }
+                containing = ancestor
+            }
+            let region = containing.convert(containing.bounds, to: parent)
+            let minimum = max(region.minY, port.minY + insets.top + 8)
             let overflow = max(extra / 2, content.maxY + extra - panel.frame.maxY)
-            let maximum = min(parent.bounds.maxY, port.maxY - insets.bottom - 8) - panel.bounds.height - overflow
+            let maximum = min(region.maxY, port.maxY - insets.bottom - 8) - panel.bounds.height - overflow
             let wanted = sourceBox.midY - (content.minY - panel.frame.minY) - content.height * scale / 2
             let top = max(minimum, min(wanted, maximum))
             if panel.frame.origin.y != top { panel.frame.origin.y = top }
@@ -1039,7 +1050,7 @@ final class Presenter {
             let trailing = panel.subviews.compactMap { $0 as? NodeView }.filter {
                 $0 !== branch && $0.frame.minY >= branch.frame.maxY - 0.01
             }
-            let bottom = min(parent.bounds.maxY, port.maxY - insets.bottom - 8)
+            let bottom = min(region.maxY, port.maxY - insets.bottom - 8)
             if let last = trailing.map({ $0.convert($0.bounds, to: parent).maxY }).max(),
                let first = trailing.map({ $0.convert($0.bounds, to: parent).minY }).min() {
                 let overflow = min(max(0, last - bottom), max(0, first - minimum))

@@ -994,14 +994,14 @@ if (caltrainFixture) {
 // 11. The deck and the materials (LLP 1014 §1a, §1b): `Deck` opens a canvas
 // whose cards are the kernel's buttons — placed by the surface on macOS, a
 // column over the surface on the web and on Linux (D2) — and a tap on a
-// card focuses it. On macOS the placements are settled before every reply
-// (§1c): at clock 0 the deck is closed, its cards placed near the top of the
-// canvas, and the canvas's middle is nothing but kernel frames — a tap there
-// reaches no card. Two seconds of the agent's clock move the springs. A
-// material button switches the sky.
+// card focuses it. Placements settle before each reply; the canvas centre
+// initially reaches no card. The agent clock moves springs deterministically.
 if (deckFixture) {
   const d = await open({ host });
   try {
+    const beforeDeck = await d.layout(), toggle = box(beforeDeck, 'deck-toggle');
+    if (toggle.y + toggle.h / 2 >= beforeDeck.viewport.h)
+      await d.tap('station-name', { wheel: [0, toggle.y + toggle.h - beforeDeck.viewport.h + 20] });
     await d.tap('deck-toggle');
     let st = await d.state();
     check(st.slots.deck === true, `the deck did not open (${JSON.stringify(st.slots.deck)})`);

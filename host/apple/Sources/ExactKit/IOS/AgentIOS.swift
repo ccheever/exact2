@@ -404,6 +404,14 @@ extension Agent {
 
     func tap(_ req: [String: Any]) -> [String: Any] {
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
+        if req["phase"] == nil, req["wheel"] == nil,
+           let node = view(req), node.isDescendant(of: presenter.viewport) {
+            let bounds = box(node)
+            let point = CGPoint(x: req["x"] as? Double ?? bounds.midX, y: req["y"] as? Double ?? bounds.midY)
+            if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
+                return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
+            }
+        }
         if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
@@ -465,10 +473,12 @@ extension Agent {
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
         // a double click is refused, having changed nothing, when the software
-        // keyboard or another view is over it. A target off the viewport is
-        // activated as before, and the reply says a finger could not reach it.
-        let away = offscreen(v, box: b, hit: seen)
-        let hit = away == nil ? seen ?? v : v
+        // keyboard or another view is over it. Off-viewport targets must be
+        // scrolled into view first, as on the web carrier.
+        if req["wheel"] == nil, let why = offscreen(v, box: b, hit: seen) {
+            return ["error": "tap #\(v.id): \(why)"]
+        }
+        let hit = seen ?? v
         if req["wheel"] == nil, req["hover"] == nil, let why = obscured(v, at: p, hit: hit) {
             return ["error": "tap #\(v.id) at (\(at[0]), \(at[1])): \(why)"]
         }
@@ -542,9 +552,7 @@ extension Agent {
         var pressed: Any = NSNull()
         if let element { presenter.press(element); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
-        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
-        if let away { reply["offscreen"] = away }
-        return reply
+        return ["tapped": Int(v.id), "at": at, "pressed": pressed]
     }
 
     /// Why `v`'s middle is not on screen for a finger, or nil: off the

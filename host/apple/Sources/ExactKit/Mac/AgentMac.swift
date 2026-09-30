@@ -378,6 +378,14 @@ extension Agent {
 
     func tap(_ req: [String: Any]) -> [String: Any] {
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
+        if req["phase"] == nil, req["wheel"] == nil,
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node) {
+            let bounds = box(node)
+            let point = CGPoint(x: req["x"] as? Double ?? bounds.midX, y: req["y"] as? Double ?? bounds.midY)
+            if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
+                return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
+            }
+        }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
@@ -418,6 +426,10 @@ extension Agent {
         let clip = presenter.viewport.contentView
         let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        if req["wheel"] == nil,
+           !clip.bounds.contains(clip.convert(p, from: nil)) {
+            return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
+        }
         if req["hover"] as? Bool == true {
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
