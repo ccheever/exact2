@@ -286,6 +286,8 @@ component App
     };
     let card = opening("card");
     assert!(card.starts_with("<button "), "{card}");
+    // Its native role isn't restated (ARIA in HTML).
+    assert!(!card.contains(" role="), "{card}");
     for want in [
         " type=\"button\"",
         "display:flex;",

@@ -711,6 +711,18 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             out.insert("alt".into(), String::new());
         }
     }
+    // A role the element already has natively is left off (ARIA in HTML:
+    // authors should not restate it): a button's `button`, a checkbox's
+    // `checkbox`, a link's `link`. Its accessibility is the element's own.
+    let implicit = match (element(node), out.get("type").map(String::as_str)) {
+        ("button", _) => Some("button"),
+        ("input", Some("checkbox")) => Some("checkbox"),
+        ("a", _) if out.contains_key("href") => Some("link"),
+        _ => None,
+    };
+    if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
+        out.remove("role");
+    }
     out
 }
 
