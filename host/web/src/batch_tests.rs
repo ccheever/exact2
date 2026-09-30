@@ -8,7 +8,7 @@ use exact_runner::{HttpScheduling, Request, RequestOut, SurfaceRequest};
 fn one(op: impl FnOnce(&mut Batch)) -> String {
     let mut batch = Batch::new();
     op(&mut batch);
-    batch.finish(None, 0.0, None)
+    batch.finish(None, false, 0.0, None)
 }
 
 fn request(ticket: u64, request: Request, forced: bool) -> RequestOut {
@@ -244,12 +244,12 @@ fn cases() -> Vec<(&'static str, String)> {
             let mut b = Batch::new();
             b.destroy(1);
             b.accept_collection();
-            b.finish(Some(16.0), 1234.5, Some("refused: \"x\""))
+            b.finish(Some(16.0), false, 1234.5, Some("refused: \"x\""))
         }),
-        ("finish-empty", Batch::new().finish(None, 0.0, None)),
+        ("finish-empty", Batch::new().finish(None, false, 0.0, None)),
         (
             "finish-fraction",
-            Batch::new().finish(Some(0.1), 1e-7, None),
+            Batch::new().finish(Some(0.1), false, 1e-7, None),
         ),
     ]
 }

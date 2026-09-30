@@ -1405,3 +1405,45 @@ fn what_follows_a_positioned_node_is_relative() {
         assert!(open.contains("position:relative;"), "{test_id}: {open}");
     }
 }
+
+// @ref LLP 1073 D2, D4, D5 — a presented frame fires the frame task once, at
+// the frame's time; once frames are presented the timeout fires none, and no
+// deadline is owed for them; a stall is not caught up.
+#[test]
+fn a_frame_task_fires_once_per_presented_frame() {
+    let plan = contract::compile(
+        r#"component App
+  state frames = 0
+  state at = 0
+  action step writes frames, at
+    frames = frames + 1
+    at = now()
+  task ticker mount
+    every(frame, step)
+  view
+    text `${frames}`
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(first.contains("\"frames\":true"), "{first}");
+    let slot = |host: &Host<caltrain_data::Caltrain>, name| host.runner().slot(name).cloned();
+    let number = exact_runner::Value::Number;
+    let frame = host.frame(10.0);
+    assert!(frame.contains("{\"op\":\"at\",\"ms\":10}"), "{frame}");
+    assert!(frame.contains("\"frames\":true"), "{frame}");
+    assert!(!frame.contains("timer_due_ms"), "{frame}");
+    assert_eq!(slot(&host, "frames"), Some(number(1.0)));
+    assert!(!host.advance(1_000.0).contains("\"op\":\"at\""));
+    assert_eq!(slot(&host, "frames"), Some(number(1.0)));
+    let at = slot(&host, "at");
+    host.frame(5_000.0);
+    assert_eq!(slot(&host, "frames"), Some(number(2.0)));
+    assert_ne!(slot(&host, "at"), at);
+}

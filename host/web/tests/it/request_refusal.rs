@@ -74,7 +74,7 @@ fn batch_refuses_invalid_annotations_before_serializing_any_effect() {
             request,
             forced: false,
         });
-        refused(&batch.finish(None, 0.0, None));
+        refused(&batch.finish(None, false, 0.0, None));
     }
     for limit in [1, 64 * 1024 * 1024] {
         let mut batch = Batch::new();
@@ -84,7 +84,9 @@ fn batch_refuses_invalid_annotations_before_serializing_any_effect() {
             request: Request::get("https://example.test").independent_http(limit),
             forced: false,
         });
-        assert!(batch.finish(None, 0.0, None).contains("\"op\":\"request\""));
+        assert!(batch
+            .finish(None, false, 0.0, None)
+            .contains("\"op\":\"request\""));
     }
 }
 #[test]

@@ -596,22 +596,14 @@ impl<D: DataSource> Host<D> {
     /// kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         if self.drag.is_some_and(|drag| !(drag.valid_event)(&event)) {
-            return Batch::new().finish(
-                self.runner.timer_due_ms(),
-                self.runner.now_ms(),
-                Some("invalid transform event"),
-            );
+            return self.finish(Batch::new(), Some("invalid transform event"));
         }
         if let Event::HeightRelease { height, velocity } = &event {
             if !height.is_finite()
                 || !(0.0..=f32::MAX as f64).contains(height)
                 || !velocity.is_finite()
             {
-                return Batch::new().finish(
-                    self.runner.timer_due_ms(),
-                    self.runner.now_ms(),
-                    Some("invalid height release"),
-                );
+                return self.finish(Batch::new(), Some("invalid height release"));
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
@@ -648,7 +640,7 @@ impl<D: DataSource> Host<D> {
         let retired = self.springs.set_height_owner(self.runner.kernel(), view)?;
         if previous == self.springs.height_owner() {
             // Same live registration preserves its provenance and pending work.
-            return Ok(Batch::new().finish(self.runner.timer_due_ms(), self.runner.now_ms(), None));
+            return Ok(self.finish(Batch::new(), None));
         }
         self.height_drags.programmatic();
         let mut batch = Batch::new();
@@ -662,7 +654,7 @@ impl<D: DataSource> Host<D> {
         self.cancel_invalid_height_drag();
         self.emit_springs(&mut batch, &[], self.now_ms / 1000.0);
         self.emit_height_drags(&mut batch);
-        Ok(batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None))
+        Ok(self.finish(batch, None))
     }
 
     /// The page's line for the runner's journal (LLP 1012 §3): a refused
@@ -703,6 +695,15 @@ impl<D: DataSource> Host<D> {
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
         let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a)
+    }
+
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
+    /// every frame task once at it, in one batch as [`Host::advance`]'s.
+    pub fn frame(&mut self, now_ms: f64) -> String {
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
+        self.runner.present_frames(true);
+        let a = self.runner.frame(now_ms);
         self.advanced(a)
     }
 
@@ -857,11 +858,7 @@ impl<D: DataSource> Host<D> {
                 batch.accept_collection();
                 self.batch_from(batch, &result.receipts, error.as_deref())
             }
-            Err(error) => Batch::new().finish(
-                self.runner.timer_due_ms(),
-                self.runner.now_ms(),
-                Some(&format!("collection: {error:?}")),
-            ),
+            Err(error) => self.finish(Batch::new(), Some(&format!("collection: {error:?}"))),
         }
     }
 
@@ -1069,8 +1066,14 @@ impl<D: DataSource> Host<D> {
             batch.language(language, self.runner.direction());
             self.language = Some(language.into());
         }
-        let timers = self.runner.timer_due_ms();
-        batch.finish(timers, self.runner.now_ms(), error.as_deref())
+        self.finish(batch, error.as_deref())
+    }
+
+    /// Close a batch with the runner's deadline, whether it wants each
+    /// animation frame (LLP 1073 D5), and its clock.
+    pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
+        let due = self.runner.timer_due_ms();
+        batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 
     fn emit_request(
@@ -1162,10 +1165,7 @@ impl<D: DataSource> Host<D> {
             &[],
             property == Property::Translate,
         );
-        Ok(Some((
-            start,
-            batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None),
-        )))
+        Ok(Some((start, self.finish(batch, None))))
     }
 
     /// Check before any action, clock change, or presentation mutation.
@@ -1244,7 +1244,7 @@ impl<D: DataSource> Host<D> {
         Self::emit_lowered(&mut batch, synced);
         self.reconcile_transform_drags(&mut batch);
         self.emit_springs(&mut batch, &[], now_ms / 1000.0);
-        batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
+        self.finish(batch, None)
     }
 
     /// Complete the authored swipe while its translate hold still owns the

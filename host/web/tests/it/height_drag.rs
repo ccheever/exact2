@@ -566,7 +566,7 @@ fn binding_batch_preserves_every_bit_even_beyond_javascript_safe_integers() {
     };
     let mut batch = exact_web::batch::Batch::new();
     batch.height_drag(1, handle, Some((target, 2)));
-    let out = batch.finish(None, 0.0, None);
+    let out = batch.finish(None, false, 0.0, None);
     assert!(
         out.contains("\"handleKey\":\"18446744073709551615\""),
         "{out}"

@@ -104,12 +104,12 @@ async function loadRust() {
   await rustLoading;
 }
 // @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
-let textflow = null, flowLoading = null, flowContexts = [], flowDue = null;
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowFrames = false, present = timestamp => send(wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
 function flowBatch(batch) {
   const op = batch.ops?.find(op => op.op === "textflow");
   if (op) flowContexts = op.contexts;
-  flowDue = batch.timer_due_ms ?? null;
-  ticker?.update(flowDue);
+  flowDue = batch.timer_due_ms ?? null; flowFrames = !!batch.frames;
+  ticker?.update(flowDue, flowFrames);
   if (textflow) { textflow.afterBatch(batch); return; }
   if (!flowContexts.length || flowLoading) return;
   ticker?.dispose(); ticker = null;
@@ -117,10 +117,10 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => send(wasm.exact_advance(now(), 0)) });
+      advance: () => send(wasm.exact_advance(now(), 0)), present });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
-    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue });
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames });
   });
   flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
@@ -1260,7 +1260,7 @@ async function clock(request) {
 let ticker = null, timerFactory = null;
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time, 0)) }); ticker.update(flowDue);
+    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time, 0)), present }); ticker.update(flowDue, flowFrames);
   }
 }
 function activateData() {
@@ -1337,7 +1337,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   ticker?.dispose(); ticker = null;
   arrange.reset(); motion.reset();
   if (textflow) for (const el of views.values()) retiredViews.add(el);
-  textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null;
+  textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null; flowFrames = false;
   globalThis.exact?.gpu?.reset(Boolean(bytes));
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();

@@ -166,7 +166,7 @@ fn storage_batch_preserves_text_and_scope_and_refuses_invalid_utf8() {
             request,
             forced: false,
         });
-        let wire = batch.finish(None, 0., None);
+        let wire = batch.finish(None, false, 0., None);
         assert!(wire.contains(encoded), "{wire}");
         assert!(
             wire.contains(r#""scope":"""#),
@@ -194,7 +194,7 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
             request,
             forced: false,
         });
-        let wire = batch.finish(None, 0., None);
+        let wire = batch.finish(None, false, 0., None);
         assert!(wire.contains(&format!(
             r#""op":"surfaceWork","ticket":7,"mode":"{mode}","name":"world""#
         )));
@@ -228,7 +228,7 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
         request: mixed,
         forced: false,
     });
-    let wire = batch.finish(None, 0., None);
+    let wire = batch.finish(None, false, 0., None);
     assert!(wire.contains(r#""op":"surfaceWork""#));
     assert!(wire.contains("surface request combines multiple host-work kinds"));
     assert!(!wire.contains(r#""payload":"#));

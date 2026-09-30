@@ -324,7 +324,7 @@ impl<D: DataSource> Host<D> {
             }
             return Ok(format!("{{\"accepted\":true,\"runtime\":\"{}\",\"geometrySequence\":\"{}\",\"translateToken\":\"{}\",\"scaleToken\":\"{}\",\"value\":[{},{},{}],\"batch\":{}}}",
                 input.runtime,input.sequence,held.translate().token.serial(),held.scale().token.serial(),held.translate().value.x,held.translate().value.y,held.scale().value.x,
-                batch.finish(self.runner.timer_due_ms(),self.runner.now_ms(),None)));
+                self.finish(batch, None)));
         }
         let active = active.expect("paired operation");
         if !self
@@ -396,11 +396,7 @@ impl<D: DataSource> Host<D> {
                 && previous.ready == dimensions.into_iter().all(|v| v > 0.0)
                 || input.op == 14 && !previous.ready
             {
-                return Ok(accepted(Batch::new().finish(
-                    self.runner.timer_due_ms(),
-                    self.runner.now_ms(),
-                    None,
-                )));
+                return Ok(accepted(self.finish(Batch::new(), None)));
             }
             return Err("geometry sequence cannot change its facts");
         }
@@ -461,11 +457,7 @@ impl<D: DataSource> Host<D> {
             }
         } else {
             Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
-            Ok(accepted(batch.finish(
-                self.runner.timer_due_ms(),
-                self.runner.now_ms(),
-                None,
-            )))
+            Ok(accepted(self.finish(batch, None)))
         }
     }
 
@@ -577,7 +569,7 @@ impl<D: DataSource> Host<D> {
         Self::emit_lowered(&mut batch, lowered);
         format!(
             "{{\"accepted\":false,\"batch\":{}}}",
-            batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
+            self.finish(batch, None)
         )
     }
 

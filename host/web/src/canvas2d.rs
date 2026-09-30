@@ -80,7 +80,7 @@ impl<D: DataSource> Host<D> {
         );
         let mut batch = Batch::new();
         self.canvas_turn(&mut batch);
-        batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
+        self.finish(batch, None)
     }
 }
 
@@ -110,7 +110,7 @@ impl<D: DataSource> Host<D> {
         self.runner.canvas_image(src, result, &lifetimes);
         let mut batch = Batch::new();
         self.canvas_turn(&mut batch);
-        batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
+        self.finish(batch, None)
     }
 
     /// A font finished loading on the page (LLP 1056 D8): canvases that drew
@@ -119,6 +119,6 @@ impl<D: DataSource> Host<D> {
         self.runner.canvas_fonts_loaded();
         let mut batch = Batch::new();
         self.canvas_turn(&mut batch);
-        batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
+        self.finish(batch, None)
     }
 }

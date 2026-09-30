@@ -706,8 +706,15 @@ impl Batch {
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
     /// the runner's clock after the call (an advance a timer refused stops at
-    /// that timer's due time).
-    pub fn finish(self, timer_due_ms: Option<f64>, clock_ms: f64, error: Option<&str>) -> String {
+    /// that timer's due time); `"frames":true` while a frame task wants each
+    /// animation frame (LLP 1073 D5).
+    pub fn finish(
+        self,
+        timer_due_ms: Option<f64>,
+        frames: bool,
+        clock_ms: f64,
+        error: Option<&str>,
+    ) -> String {
         let mut s = String::from("{\"ops\":[");
         for (i, op) in self.ops.iter().enumerate() {
             if i > 0 {
@@ -719,6 +726,9 @@ impl Batch {
         let timers = timer_due_ms.is_some();
         if let Some(due) = timer_due_ms {
             push_text!(&mut s, ",\"timer_due_ms\":{}", Shortest(due));
+        }
+        if frames {
+            s.push_str(",\"frames\":true");
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
@@ -764,11 +774,14 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
 mod timer_tests {
     #[test]
     fn batches_carry_deadlines_and_omit_them_without_timers() {
-        let next = super::Batch::new().finish(Some(16.0), 0.0, None);
+        let next = super::Batch::new().finish(Some(16.0), false, 0.0, None);
         assert!(next.contains("\"timer_due_ms\":16,"), "{next}");
         assert!(next.contains("\"timers\":true"), "{next}");
-        let empty = super::Batch::new().finish(None, 0.0, None);
+        let empty = super::Batch::new().finish(None, false, 0.0, None);
         assert!(!empty.contains("timer_due_ms"), "{empty}");
+        assert!(!empty.contains("frames"), "{empty}");
+        let frames = super::Batch::new().finish(None, true, 0.0, None);
+        assert!(frames.contains("\"frames\":true"), "{frames}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
     }
 }

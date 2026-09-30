@@ -496,6 +496,26 @@ test('one scheduler catches up once before paint, replaces wakes, and cancels on
   clock.update(501); clock.requestFrame(); expect(frames.size + timers.size).toBe(0);
 });
 
+// @ref LLP 1073 D5 — while the batch says frames, each animation frame is one
+// present at its timestamp (never a catch-up), and a slow timer keeps its timeout.
+test('a batch that wants frames presents every animation frame and keeps timer timeouts', () => {
+  let now = 0, id = 0; const frames = new Map(), timers = new Map(), events = [];
+  const run = ts => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(ts)); };
+  const clock = createTimerScheduler({ now: () => now, advance(time) { events.push(['advance', time]); },
+    present(ts) { events.push(['present', ts]); clock.update(5000, true); },
+    raf(fn) { frames.set(++id, fn); return id; }, cancel(id) { frames.delete(id); },
+    delay(fn, ms) { timers.set(++id, { fn, ms }); return id; }, clearDelay(id) { timers.delete(id); } });
+  clock.update(5000, true);
+  expect(frames.size).toBe(1); expect(timers.size).toBe(1);
+  now = 16; run(16); now = 900; run(900);
+  expect(events).toEqual([['present', 16], ['present', 900]]);
+  expect(frames.size).toBe(1); expect(timers.size).toBe(1);
+  clock.update(5000); expect(frames.size).toBe(0); expect(timers.size).toBe(1);
+  const agent = createTimerScheduler({ now: () => 0, advance() {}, present() {}, agentMode: true,
+    raf(fn) { frames.set(++id, fn); return id; }, cancel(id) { frames.delete(id); }, delay() { throw new Error('timeout'); } });
+  agent.update(null, true); expect(frames.size).toBe(0);
+});
+
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 test('flowed links keep press ownership through document capture', async () => {

@@ -574,7 +574,7 @@ impl<D: DataSource> Bridge<D> {
     /// A 2D canvas's geometry from the page (LLP 1056 D4).
     pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
-            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
             |host| host.canvas_geometry(view, width, height, scale),
         );
         self.emit(out)
@@ -585,7 +585,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn canvas_image(&mut self, len: usize) -> u32 {
         let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let out = self.host.as_mut().map_or_else(
-            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
             |host| host.canvas_image(&text),
         );
         self.emit(out)
@@ -594,7 +594,7 @@ impl<D: DataSource> Bridge<D> {
     /// A font finished loading on the page (LLP 1056 D8).
     pub fn canvas_fonts(&mut self) -> u32 {
         let out = self.host.as_mut().map_or_else(
-            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
             |host| host.canvas_fonts(),
         );
         self.emit(out)
@@ -684,13 +684,11 @@ impl<D: DataSource> Bridge<D> {
     /// Unlike events this reports layout facts and never advances the clock.
     pub fn collection_feedback(&mut self, len: usize) -> u32 {
         let out = match (self.host.as_mut(), self.input.get(..len)) {
-            (Some(host), None) => crate::batch::Batch::new().finish(
-                host.runner().timer_due_ms(),
-                host.runner().now_ms(),
-                Some("collection input length"),
-            ),
+            (Some(host), None) => {
+                host.finish(crate::batch::Batch::new(), Some("collection input length"))
+            }
             (Some(host), Some(bytes)) => host.collection_feedback(bytes),
-            (None, _) => crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            (None, _) => crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
         };
         self.emit(out)
     }
@@ -706,7 +704,7 @@ impl<D: DataSource> Bridge<D> {
         );
         let out = match self.host.as_mut() {
             Some(host) => host.scroll_into_view(view, key, block, inline),
-            None => crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            None => crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
         };
         self.emit(out)
     }
@@ -849,6 +847,15 @@ impl<D: DataSource> Bridge<D> {
         let out = match self.host.as_mut() {
             Some(h) if until_request => h.advance_until_request(now_ms),
             Some(h) => h.advance(now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
+    /// A presented frame (LLP 1073 D5).
+    pub fn frame(&mut self, now_ms: f64) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(h) => h.frame(now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
         self.emit(out)
@@ -1136,6 +1143,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_advance(now_ms: f64, until_request: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms, until_request != 0))
+        }
+
+        /// A presented animation frame at `now_ms` (LLP 1073 D5): timers
+        /// due by then, then every frame task once.
+        #[no_mangle]
+        pub extern "C" fn exact_frame(now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().frame(now_ms))
         }
 
         /// An agent request from the input buffer; returns the reply's length.

@@ -241,7 +241,7 @@ function fixture(agentMode = true) {
     getBoundingClientRect: () => box, hasAttribute: () => false };
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
   const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
-    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, lists: new Map(),
+    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
     Date: { now: () => 123 }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {},
     document: { activeElement: null, body: {}, querySelector: () => null },
