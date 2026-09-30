@@ -1035,16 +1035,17 @@ alternating rounds on the iPhone against the same build without it
 
 | | CPU ms/s | peak MB | fps | maps made |
 |---|---|---|---|---|
-| 19-kind feed, before → after (SwiftUI) | 654 → 591 (578) | 240 → 286 (273) | 110.7 → 110.8 (100.3) | 16 → 11 (20) |
-| map feed, two rounds | 3,084 → 2,983 (3,150) | 865 → 804 (901) | 82.7 → 81.1 (43.1) | 228 → 221 (520) |
+| 19-kind feed, before → after (SwiftUI) | 654 → 591 (578) | 301 → 296 (279) | 110.7 → 110.8 (100.3) | 16 → 11 (20) |
+| map feed, two rounds | 3,084 → 2,983 (3,150) | 879 → 827 (1,048) | 82.7 → 81.1 (43.1) | 228 → 221 (520) |
 
-The CPU gap to SwiftUI on the 19-kind feed goes from +76 to +13 ms/s. The
-price is the map that is kept: the base has no map alive at most segment
-ends and the change keeps one, which moves the 19-kind peak by +29 to +46 MB
-a round (median +46, 13 over SwiftUI's). By §5.2.1's rule (match or beat
+(Peaks are the probe's own, as in §5.2.1; the first version of this table
+read the largest segment-end breakdown, 240 → 286 (273) and 865 → 804 (901),
+which misses SwiftUI's transient peaks.) The CPU gap to SwiftUI on the
+19-kind feed goes from +76 to +13 ms/s and the peak does not rise (301 → 296
+against 279; rounds swing 30–40 MB). By §5.2.1's rule (match or beat
 SwiftUI's peak on both feeds without losing fps or CPU), neither build
-qualifies on this feed; the change is nearer SwiftUI on both counts, and
-better on the map feed. **Ruled** (the coordinator, for Charlie's "ideal end
+qualifies on the 19-kind feed in these three rounds; the change is nearer
+SwiftUI on both counts, and better on the map feed. **Ruled** (the coordinator, for Charlie's "ideal end
 state" and SwiftUI parity, 2026-09-30): land it. A returning row taking its
 own parked map is what SwiftUI's cell identity does, so an identity return
 does not count toward the reuse limit (§5.2.1).
@@ -1055,12 +1056,15 @@ rounds against the SwiftUI baseline at LOCK_PRIO=0, no crash logs,
 
 | | peak MB | CPU ms/s | fps |
 |---|---|---|---|
-| iPhone, map feed | 917 (SwiftUI 1,109) | 2,891 (3,246) | 88.8 (42.9) |
-| iPhone, 19-kind feed | 271 (246) | 616 (633) | 114.3 (100.1) |
+| iPhone, map feed | 980 (SwiftUI 1,228) | 2,891 (3,246) | 88.8 (42.9) |
+| iPhone, 19-kind feed | 302 (306) | 616 (633) | 114.3 (100.1) |
 
-The 19-kind feed's CPU is now under SwiftUI's. Its peak swings by 50 MB a
-round on both sides (exact2 241–294, SwiftUI 245–299). The iPad was down for
-the soak (its launches hang); its rounds are owed.
+Peak is the probe's own, as in §5.2.1's table (the first version of this
+table read segment-end breakdowns: 917 (1,109) and 271 (246)). Six more
+rounds at the same build agree: 19-kind peak 289 against 294 MB (per round
+exact2 238–297, SwiftUI 229–321). So the 19-kind feed now beats SwiftUI on
+CPU and fps and matches it on peak. The iPad was down for the soak (its
+launches hang); its rounds are owed.
 
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
