@@ -200,7 +200,9 @@ fn cancelling_an_editor_keeps_it_mounted_until_the_slide_out_finishes() {
 fn closing_the_todo_list_keeps_it_mounted_until_the_slide_out_finishes() {
     let root = Root::new();
     let mut app = App::open(&root);
+    app.press("add-schedule");
     app.press("todos-button");
+    app.finish_motion();
     app.finish_motion();
     let key = app.key("todo-sheet");
     app.press("close-todos");
@@ -292,7 +294,9 @@ fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_dr
     let id = fields(&created)[0].as_str().unwrap().to_owned();
     assert_eq!(fields(&created)[2].as_str(), Some("#747AFF"));
     assert_eq!(fields(&created)[3], Value::Bool(false));
+    app.press("add-schedule");
     app.press("todos-button");
+    app.finish_motion();
     app.press(&format!("todo-item-{id}"));
     assert!(!app
         .runner
@@ -315,7 +319,9 @@ fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_dr
 
     let mut app = App::open(&root);
     assert_eq!(fields(&todo(&app, "Undated task"))[3], Value::Bool(true));
+    app.press("add-schedule");
     app.press("todos-button");
+    app.finish_motion();
     app.press(&format!("todo-check-{id}"));
     let wire_id = format!("todo:{id}");
     let contact = Contact::from_source(&app, &wire_id, 1, &format!("todo-item-{id}"));

@@ -580,11 +580,15 @@ component Calendar
         formContentReady = false
         editorMorphAt = now() + 16
       else
-        if pickerNext != ""
-          editorOpen = true
-          editorMorphReady = false
-          formContentReady = false
-          editorMorphAt = now() + 16
+        if pickerNext == "todos"
+          todoSheetOpen = true
+          todoClosing = false
+        else
+          if pickerNext != ""
+            editorOpen = true
+            editorMorphReady = false
+            formContentReady = false
+            editorMorphAt = now() + 16
       pickerNext = ""
     if editorClosing and now() >= editorUntil
       editorOpen = false
@@ -765,10 +769,11 @@ component Calendar
       endTimeDraft = none
       confirmDelete = false
       error = ""
-  action openTodos writes todoSheetOpen, todoClosing, error
+  action openTodos writes pickerClosing, pickerUntil, pickerNext, error
     if not busy and not dragging
-      todoSheetOpen = true
-      todoClosing = false
+      pickerClosing = true
+      pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
+      pickerNext = "todos"
       error = ""
   action closeTodos writes todoClosing, todoUntil
     if not dragging and not todoClosing
@@ -968,8 +973,6 @@ component Calendar
       calendar-input-root id="calendar-input" testId="calendar-input" ack=`${contactAck}` message=dragInput position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" aria-hidden=true
       row height=72 flex-shrink=0 box-sizing="border-box" padding-left=(viewport.width < 360 ? 12 : 20) padding-right=(viewport.width < 360 ? 8 : 12) align-items="center" gap=(viewport.width < 360 ? 2 : 4)
         text (clockReady ? headerLabel : "Calendar") testId="month-label" flex=1 min-width=0 height=36 line-height="36px" translate="0px -2px" font-size=(viewport.width < 360 ? 21 : 28) font-weight=600 letter-spacing=-0.6 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        button press=openTodos testId="todos-button" aria-label="Open todos" class=QuietButton width=(viewport.width < 360 ? 32 : 36) height=36 background-color="#ffffff" disabled=(not libraryReady or dragging or modalOpen)
-          image "symbol:checkmark" font-size=16 tint-color="#74747c"
         button press=goToday testId="today" aria-label="Go to today" disabled=(dragging or modalOpen) height=36 padding-left=(viewport.width < 360 ? 8 : 14) padding-right=(viewport.width < 360 ? 8 : 14) border-width=0 border-radius=18 background-color=(theme == 0 ? "#fff0f0" : "rgba(255,255,255,0.72)") display="flex" align-items="center" justify-content="center" press-scale=0.96
           text "Today" font-size=14 font-weight=600 color=themeAccent
         button press=goMonth(-1) class=QuietButton testId="previous-month" aria-label="Previous month" disabled=(dragging or modalOpen or month == 22800) width=(viewport.width < 360 ? 32 : 36) height=36 background-color="#ffffff"
@@ -1127,6 +1130,8 @@ component Calendar
               row gap=12
                 PickerChoice(kind="todo", title="Todo", detail="A task for later", symbol="symbol:checkmark", tone="#70B8A2", pick=chooseType)
                 PickerChoice(kind="sticker", title="Sticker", detail="Mark your day", symbol="symbol:photo", tone="#F39B65", pick=chooseType)
+              button press=openTodos testId="todos-button" disabled=(busy or pickerClosing) height=36 border-width=0 background-color="#ffffff" display="flex" align-items="center" justify-content="center"
+                text "View todos" font-size=14 color="#74747c"
       when stickerOpen and not dragging
         box testId="sticker-backdrop" press=closeSticker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(stickerClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`)
       when stickerOpen

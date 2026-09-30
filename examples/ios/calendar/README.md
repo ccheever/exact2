@@ -81,7 +81,7 @@ The existing Apple build script handles signing and reports missing prerequisite
 ## Todos and stickers
 
 - Todos have a title, color, and completion state, with no date. Open the Todo
-  list from the header to edit or complete them. Unfinished items appear first;
+  list through **+ → View todos** to edit or complete them. Unfinished items appear first;
   completed items are muted and struck through.
 - Dragging a Todo onto the calendar creates a one-day, all-day Event and removes
   the Todo in one transaction. Cancelling keeps the Todo in its original list.
