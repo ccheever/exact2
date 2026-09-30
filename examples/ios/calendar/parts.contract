@@ -1,0 +1,92 @@
+component Weekday
+  props
+    label: string
+    tone: string
+  view
+    text label width="14.285714%" font-size=12 font-weight=500 text-align="center" color=tone
+
+component ColorChoice
+  props
+    value: string
+    label: string
+    selected: string
+    disabled: bool
+    pick: action
+  view
+    button press=pick(value) disabled=disabled testId=`color-${label}` aria-label=label aria-selected=(selected == value) width=32 height=32 flex-shrink=0 padding=0 border-width=(selected == value ? 2 : 0) border-style="solid" border-color="#ffffff" box-shadow=(selected == value ? `0 0 0 2px ${value}` : "none") border-radius=16 background-color=value display="flex" align-items="center" justify-content="center" press-scale=0.94
+      when selected == value
+        text "✓" font-size=17 font-weight=600 color="#ffffff"
+
+component AgendaRow
+  props
+    id: string
+    title: string
+    color: string
+    rangeLabel: string
+    kind: string
+    hidden: bool
+    disabled: bool
+    edit: action
+  view
+    column width="100%" box-sizing="border-box"
+      box position="relative" width="100%" height=64
+        row aria-hidden=true width="100%" height=64 box-sizing="border-box" padding-left=20 padding-right=20 background-color="#ffffff" opacity=(hidden ? 0 : 1) align-items="center" gap=12
+          box width=12 height=(kind == "plan" ? 3 : 12) flex-shrink=0 border-radius=6 background-color=color
+          column flex=1 min-width=0 gap=4 align-items="flex-start"
+            text title font-size=16 font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+            text rangeLabel font-size=13 color="#85858d" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+          image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
+        calendar-drag-handle id=`agenda-item-${id}` testId=`agenda-item-${id}` event-id=id enabled=(disabled ? "false" : "true") press=edit(id, kind) aria-label=`${title}, ${rangeLabel}. Hold to move.` position="absolute" left=0 top=0 right=0 bottom=0
+      box margin-left=44 margin-right=20 height=1 background-color="#f0f0f3" opacity=(hidden ? 0 : 1)
+
+component TodoRow
+  props
+    id: string
+    title: string
+    color: string
+    completed: bool
+    hidden: bool
+    disabled: bool
+    edit: action
+    toggle: action
+  view
+    row width="100%" height=64 flex-shrink=0 box-sizing="border-box" padding-left=12 padding-right=20 align-items="center" gap=4
+      button testId=`todo-check-${id}` press=toggle(id, not completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled width=40 height=44 padding=0 border-width=0 background-color="#ffffff" display="flex" align-items="center" justify-content="center" opacity=(hidden ? 0 : 1)
+        box width=20 height=20 box-sizing="border-box" border-width=(completed ? 0 : 2) border-style="solid" border-color=color border-radius=10 background-color=(completed ? "#9a9aa2" : "#ffffff") display="flex" align-items="center" justify-content="center"
+          when completed
+            text "✓" font-size=13 font-weight=600 color="#ffffff"
+      box position="relative" flex=1 min-width=0 height=64
+        column height="100%" justify-content="center" gap=4 opacity=(hidden ? 0 : 1) aria-hidden=true
+          text title font-size=16 font-weight=500 color=(completed ? "#929299" : "#242428") text-decoration-line=(completed ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+          text (completed ? "Completed" : "Hold to add to your calendar") font-size=13 color="#85858d"
+        calendar-drag-handle id=`todo-item-${id}` testId=`todo-item-${id}` event-id=`todo:${id}` enabled=(disabled ? "false" : "true") press=edit(id) aria-label=`${title}. Hold to add to your calendar.` position="absolute" left=0 top=0 right=0 bottom=0
+
+component PickerChoice
+  props
+    kind: string
+    title: string
+    detail: string
+    symbol: string
+    tone: string
+    pick: action
+  view
+    button testId=`picker-${kind}` press=pick(kind) flex=1 min-width=0 height=100 box-sizing="border-box" padding=16 border-width=0 border-radius=18 background-color="#f5f5f7" display="flex" flex-direction="column" align-items="flex-start" justify-content="center" gap=6 press-scale=0.97
+      image symbol font-size=22 tint-color=tone
+      text title font-size=17 font-weight=600 color="#242428"
+      text detail font-size=12 color="#85858d"
+
+component StickerChoice
+  props
+    value: string
+    title: string
+    selected: string
+    disabled: bool
+    dragId: string
+    held: bool
+    pick: action
+  derive lifted = dragId == `sticker-pick:${value}`
+  view
+    button testId=`sticker-${value}` press=pick(value) disabled=(disabled and not (held and lifted)) aria-label=title aria-selected=(selected == value) position="relative" flex=1 min-width=0 height=88 padding=0 box-sizing="border-box" border-width=(selected == value ? 2 : 0) border-style="solid" border-color="#FA7070" border-radius=16 background-color=(selected == value ? "#fff0f0" : "#f5f5f7")
+      image `assets/stickers/${value}.png` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48 object-fit="contain" pointer-events="none" opacity=(lifted ? 0 : 1) aria-hidden=true
+      text title position="absolute" left=0 right=0 bottom=8 text-align="center" font-size=12 color="#74747c" pointer-events="none"
+      calendar-drag-handle id=`sticker-pick-${value}` testId=`sticker-pick-${value}` event-id=`sticker-pick:${value}` enabled=(not disabled or (held and lifted) ? "true" : "false") press=pick(value) aria-label=`${title}. Hold to place on a date.` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48

@@ -2,7 +2,7 @@
 
 use calendar_data::Calendar;
 use exact_data_host::Storage;
-use exact_kernel::{Env, Frame, Kernel, NodeKey, Offer};
+use exact_kernel::{Env, Frame, Kernel, NodeKey, Offer, PropId};
 use exact_plan::{Plan, Value};
 use exact_runner::{
     DataSource, Dispatch, Event, Outcome, Reply, RequestOut, Runner, RunnerError, Viewport, Work,
@@ -17,6 +17,9 @@ const TODAY: i32 = 20_697; // 2026-09-01.
 const WIDTH: f32 = 402.0;
 const HEIGHT: f32 = 874.0;
 type CalendarRunner = Runner<Storage<Calendar>>;
+
+#[path = "calendar/features.rs"]
+mod features;
 
 struct Root(PathBuf);
 impl Root {
@@ -40,6 +43,7 @@ impl Drop for Root {
 struct App {
     runner: CalendarRunner,
     lose_write_reply_after: Option<usize>,
+    fail_write_reply_after: Option<usize>,
 }
 impl App {
     fn open(root: &Root) -> Self {
@@ -79,6 +83,7 @@ impl App {
         let mut app = Self {
             runner,
             lose_write_reply_after: None,
+            fail_write_reply_after: None,
         };
         app.settle();
         assert!(app.runner.frame(1.0).error.is_none());
@@ -153,12 +158,20 @@ impl App {
                 "pending calendar work cannot make progress"
             );
             for (ticket, item, mutation_request) in work {
-                let mut outcome = run(item);
                 if mutation_request {
                     if let Some(remaining) = &mut self.lose_write_reply_after {
                         *remaining -= 1;
                     }
+                    if let Some(remaining) = &mut self.fail_write_reply_after {
+                        *remaining -= 1;
+                    }
                 }
+                let mut outcome = if self.fail_write_reply_after == Some(0) {
+                    self.fail_write_reply_after = None;
+                    Outcome::Storage(br#"{"error":"Simulated failed storage write."}"#.to_vec())
+                } else {
+                    run(item)
+                };
                 if self.lose_write_reply_after == Some(0) {
                     let Outcome::Storage(bytes) = &outcome else {
                         panic!("expected a completed SQLite transaction");
@@ -195,6 +208,35 @@ impl App {
     fn input(&mut self, test_id: &str, value: &str) {
         self.event(test_id, Event::Input(value.into()));
     }
+    fn create(&mut self, kind: &str) {
+        self.press(if self.state("popupOpen") == &Value::Bool(true) {
+            "popup-add"
+        } else {
+            "add-schedule"
+        });
+        self.press(&format!("picker-{kind}"));
+        self.finish_motion();
+    }
+    fn finish_motion(&mut self) {
+        for _ in 0..72 {
+            self.presented_frame(1000.0 / 120.0);
+        }
+    }
+    fn assert_creation_closed(&self) {
+        for id in [
+            "date-popup",
+            "todo-sheet",
+            "type-picker",
+            "schedule-editor",
+            "todo-editor",
+            "sticker-editor",
+        ] {
+            assert!(
+                self.runner.kernel().find_by_test_id(id).is_empty(),
+                "global creation unexpectedly opens {id}"
+            );
+        }
+    }
     fn presented_frame(&mut self, elapsed_ms: f64) {
         assert!(self
             .runner
@@ -215,6 +257,22 @@ impl App {
             .find(|item| fields(item)[1].as_str() == Some(title))
             .map(|item| fields(item)[0].as_str().unwrap().to_owned())
             .unwrap_or_else(|| panic!("agenda has no {title}"))
+    }
+    fn date_for_day(&mut self, day: f64) -> String {
+        let revision = self.derived("revision").clone();
+        let value = self
+            .runner
+            .data()
+            .query(
+                "calendarDay",
+                &[
+                    Value::Number(day),
+                    revision,
+                    Value::Number(f64::from(TODAY)),
+                ],
+            )
+            .unwrap();
+        fields(&value)[1].as_str().unwrap().to_owned()
     }
     fn key(&self, test_id: &str) -> NodeKey {
         let keys = self.runner.kernel().find_by_test_id(test_id);
@@ -245,6 +303,15 @@ impl App {
             .content
             .1
     }
+    fn text(&self, test_id: &str) -> &str {
+        self.runner
+            .kernel()
+            .node_by_key(self.key(test_id))
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .unwrap()
+    }
     fn center(&self, test_id: &str) -> (f64, f64) {
         let frame = self.frame(test_id);
         let root = self.frame("calendar");
@@ -269,7 +336,10 @@ struct Contact {
 }
 impl Contact {
     fn new(app: &App, id: &str, serial: u64) -> Self {
-        let mut source = app.frame(&format!("agenda-item-{id}"));
+        Self::from_source(app, id, serial, &format!("agenda-item-{id}"))
+    }
+    fn from_source(app: &App, id: &str, serial: u64, test_id: &str) -> Self {
+        let mut source = app.frame(test_id);
         let root = app.frame("calendar");
         source.x -= root.x;
         source.y -= root.y;
@@ -384,6 +454,9 @@ fn the_sheet_backdrop_covers_the_calendar_and_dismisses_without_selecting_anothe
     ));
     assert_eq!(app.derived("pagerPosition"), &position);
     app.press("date-popup-backdrop");
+    assert_eq!(app.state("popupClosing"), &Value::Bool(true));
+    assert!(app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT);
+    app.finish_motion();
     assert_eq!(app.state("popupOpen"), &Value::Bool(false));
     assert_eq!(app.derived("day"), &selected);
     assert_eq!(app.derived("month"), &month);
@@ -395,13 +468,14 @@ fn the_sheet_backdrop_covers_the_calendar_and_dismisses_without_selecting_anothe
         .is_empty());
 
     app.press("date-2026-09-2026-09-25");
-    app.press("popup-add");
+    app.create("event");
     assert!(app
         .runner
         .kernel()
         .find_by_test_id("date-popup-backdrop")
         .is_empty());
     app.press("cancel-editor");
+    app.finish_motion();
     assert_eq!(
         app.runner
             .kernel()
@@ -509,13 +583,17 @@ fn a_second_swipe_catches_the_presented_page_and_keeps_seven_months_mounted() {
 fn editor_create_edit_delete_runs_through_contract_and_survives_restart() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("add-schedule");
+    app.create("event");
     app.input("schedule-title", "Planning");
     app.input("schedule-notes", "Bring café notes.\nSecond line.");
     app.input("start-date", "2026-09-25");
     app.input("end-date", "2026-09-30");
     app.press("save-schedule");
+    app.finish_motion();
     assert_eq!(app.state("editorOpen"), &Value::Bool(false));
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+    app.assert_creation_closed();
+    app.press("date-2026-09-2026-09-25");
     let id = app.agenda_id("Planning");
     drop(app);
 
@@ -530,10 +608,12 @@ fn editor_create_edit_delete_runs_through_contract_and_survives_restart() {
     assert_eq!(app.derived("endDate").as_str(), Some("2026-09-30"));
     app.input("schedule-title", "Updated planning");
     app.press("save-schedule");
+    app.finish_motion();
     assert_eq!(app.agenda_id("Updated planning"), id);
     app.press(&format!("agenda-item-{id}"));
     app.press("delete-schedule");
     app.press("confirm-delete");
+    app.finish_motion();
     assert_eq!(app.state("editorOpen"), &Value::Bool(false));
     drop(app);
 
@@ -549,83 +629,109 @@ fn invalid_editor_save_keeps_the_draft_open_and_commits_no_schedule() {
     let root = Root::new();
     let mut app = App::open(&root);
     let revision = app.derived("revision").clone();
-    app.press("add-schedule");
+    app.create("event");
     app.input("schedule-title", "Draft");
     app.input("schedule-notes", "Unsaved draft");
     app.input("start-date", "2026-09-30");
     app.input("end-date", "2026-09-25");
     app.press("save-schedule");
+    app.finish_motion();
     assert_eq!(app.state("editorOpen"), &Value::Bool(true));
     assert_eq!(app.derived("notes").as_str(), Some("Unsaved draft"));
     assert!(!app.state("error").as_str().unwrap().is_empty());
     assert_eq!(app.derived("revision"), &revision);
     app.input("end-date", "2026-10-01");
     app.press("save-schedule");
+    app.finish_motion();
     assert_eq!(app.state("editorOpen"), &Value::Bool(false));
     assert_eq!(app.derived("revision"), &Value::Number(2.0));
+    app.press("date-2026-09-2026-09-30");
     assert!(!app.agenda_id("Draft").is_empty());
 }
 
 #[test]
-fn retrying_a_committed_create_and_delete_after_a_lost_reply_is_exactly_once() {
-    let root = Root::new();
-    let mut app = App::open(&root);
-    app.press("add-schedule");
-    app.input("schedule-title", "Reply lost");
-    app.input("schedule-notes", "Keep this draft until success.");
-    app.input("start-date", "2026-09-20");
-    app.input("end-date", "2026-09-25");
-    // Native storage consumes the opaque first request for the journal lookup;
-    // its second request commits the write before we replace only the reply.
-    app.lose_write_reply_after = Some(2);
-    app.press("save-schedule");
-    assert!(
-        app.lose_write_reply_after.is_none(),
-        "the committed write must be intercepted"
-    );
-    assert_eq!(app.state("editorOpen"), &Value::Bool(true));
-    assert!(!app.state("error").as_str().unwrap().is_empty());
-    assert_eq!(
-        app.derived("notes").as_str(),
-        Some("Keep this draft until success.")
-    );
+fn create_and_delete_recover_lost_replies_and_retry_uncommitted_failures_once() {
+    for committed in [false, true] {
+        let root = Root::new();
+        let mut app = App::open(&root);
+        app.create("event");
+        app.input("schedule-title", "Reply lost");
+        app.input("schedule-notes", "Keep this draft until success.");
+        app.input("start-date", "2026-09-20");
+        app.input("end-date", "2026-09-25");
+        // The first native request reads the journal. The second either never
+        // executes, or commits before its reply is lost. Recovery must distinguish
+        // these cases without writing a committed mutation a second time.
+        if committed {
+            app.lose_write_reply_after = Some(2);
+        } else {
+            app.fail_write_reply_after = Some(2);
+        }
+        app.press("save-schedule");
+        app.finish_motion();
+        assert!(
+            app.lose_write_reply_after.is_none() && app.fail_write_reply_after.is_none(),
+            "the write must be intercepted"
+        );
+        if !committed {
+            assert_eq!(app.state("editorOpen"), &Value::Bool(true));
+            assert!(!app.state("error").as_str().unwrap().is_empty());
+            assert_eq!(
+                app.derived("notes").as_str(),
+                Some("Keep this draft until success.")
+            );
 
-    app.press("save-schedule");
-    assert_eq!(app.state("editorOpen"), &Value::Bool(false));
-    assert_eq!(app.derived("revision"), &Value::Number(2.0));
-    let id = app.agenda_id("Reply lost");
-    assert_eq!(
-        items(&fields(app.runner.resource("agenda").unwrap())[3])
+            app.press("save-schedule");
+            app.finish_motion();
+        }
+        assert_eq!(app.state("editorOpen"), &Value::Bool(false));
+        assert!(app.state("error").as_str().unwrap().is_empty());
+        assert_eq!(app.derived("revision"), &Value::Number(2.0));
+        assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+        app.press("date-2026-09-2026-09-20");
+        let id = app.agenda_id("Reply lost");
+        assert_eq!(
+            items(&fields(app.runner.resource("agenda").unwrap())[3])
+                .iter()
+                .filter(|event| fields(event)[1].as_str() == Some("Reply lost"))
+                .count(),
+            1
+        );
+        drop(app);
+
+        let mut app = App::open(&root);
+        app.press("date-2026-09-2026-09-20");
+        app.press(&format!("agenda-item-{id}"));
+        assert_eq!(
+            app.derived("notes").as_str(),
+            Some("Keep this draft until success.")
+        );
+        app.press("delete-schedule");
+        if committed {
+            app.lose_write_reply_after = Some(2);
+        } else {
+            app.fail_write_reply_after = Some(2);
+        }
+        app.press("confirm-delete");
+        app.finish_motion();
+        assert!(app.lose_write_reply_after.is_none() && app.fail_write_reply_after.is_none());
+        if !committed {
+            assert_eq!(app.state("editorOpen"), &Value::Bool(true));
+            assert!(!app.state("error").as_str().unwrap().is_empty());
+            app.press("confirm-delete");
+            app.finish_motion();
+        }
+        assert_eq!(app.state("editorOpen"), &Value::Bool(false));
+        assert!(app.state("error").as_str().unwrap().is_empty());
+        assert_eq!(app.derived("revision"), &Value::Number(3.0));
+        drop(app);
+
+        let mut app = App::open(&root);
+        app.press("date-2026-09-2026-09-20");
+        assert!(items(&fields(app.runner.resource("agenda").unwrap())[3])
             .iter()
-            .filter(|event| fields(event)[1].as_str() == Some("Reply lost"))
-            .count(),
-        1
-    );
-    drop(app);
-
-    let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-20");
-    app.press(&format!("agenda-item-{id}"));
-    assert_eq!(
-        app.derived("notes").as_str(),
-        Some("Keep this draft until success.")
-    );
-    app.press("delete-schedule");
-    app.lose_write_reply_after = Some(2);
-    app.press("confirm-delete");
-    assert!(app.lose_write_reply_after.is_none());
-    assert_eq!(app.state("editorOpen"), &Value::Bool(true));
-    assert!(!app.state("error").as_str().unwrap().is_empty());
-    app.press("confirm-delete");
-    assert_eq!(app.state("editorOpen"), &Value::Bool(false));
-    assert_eq!(app.derived("revision"), &Value::Number(3.0));
-    drop(app);
-
-    let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-20");
-    assert!(items(&fields(app.runner.resource("agenda").unwrap())[3])
-        .iter()
-        .all(|event| fields(event)[0].as_str() != Some(&id)));
+            .all(|event| fields(event)[0].as_str() != Some(&id)));
+    }
 }
 
 #[test]
@@ -638,6 +744,7 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     let metadata = ["title", "notes", "color", "allDay", "startTime", "endTime"]
         .map(|name| (name, app.derived(name).clone()));
     app.press("cancel-editor");
+    app.finish_motion();
     let contact = Contact::new(&app, &id, 1);
     let popup = app.key("date-popup");
     let input = app.key("calendar-input");
@@ -706,34 +813,28 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
         .kernel()
         .find_by_test_id("date-popup-backdrop")
         .is_empty());
-    assert_eq!(app.derived("revision"), &Value::Number(2.0));
-    let moved = items(&fields(app.runner.resource("agenda").unwrap())[3])
-        .iter()
-        .find(|event| fields(event)[0].as_str() == Some(&id))
-        .unwrap();
-    assert_eq!(fields(moved)[7].as_str(), Some("2026-09-20"));
-    assert_eq!(fields(moved)[8].as_str(), Some("2026-09-25"));
-
     app.event("calendar-input", contact.event(3, "end", final_point, ""));
     app.event("calendar-input", contact.event(4, "end", final_point, ""));
+    app.finish_motion();
     assert_eq!(
         app.derived("revision"),
         &Value::Number(2.0),
-        "a terminal packet cannot replay storage"
+        "terminal packets cannot replay storage"
     );
-    app.runner.advance(400.0).unwrap();
-    app.settle();
     assert_eq!(app.state("dragId").as_str(), Some(""));
-    assert_eq!(app.key("date-popup"), popup);
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+    assert!(app.runner.kernel().find_by_test_id("date-popup").is_empty());
     assert_eq!(app.key("calendar-input"), input);
-    assert_eq!(app.translation_y("date-popup"), 0.0);
-    assert_eq!(
-        app.runner
-            .kernel()
-            .find_by_test_id("date-popup-backdrop")
-            .len(),
-        1
-    );
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("calendar-notice")
+        .is_empty());
     assert!(app
         .runner
         .kernel()
@@ -752,19 +853,21 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
 }
 
 #[test]
-fn cancel_outside_and_same_date_drops_do_not_change_storage() {
-    for ending in ["cancel", "outside", "same-date"] {
+fn cancel_zone_outside_and_same_date_drops_restore_the_original_sheet_without_writes() {
+    for ending in ["cancel", "cancel-zone", "outside", "same-date"] {
         let root = Root::new();
         let mut app = App::open(&root);
         app.press("date-2026-09-2026-09-25");
         let id = app.agenda_id("Summer in Seoul");
         let contact = Contact::new(&app, &id, 1);
         let popup = app.key("date-popup");
+        let original_day = app.derived("day").clone();
         app.event(
             "calendar-input",
             contact.event(1, "begin", contact.origin(), ""),
         );
         let point = match ending {
+            "cancel-zone" => app.center("cancel-zone"),
             "outside" => (-10.0, 180.0),
             _ => app.center("date-2026-09-2026-09-25"),
         };
@@ -781,11 +884,11 @@ fn cancel_outside_and_same_date_drops_do_not_change_storage() {
             "{ending}"
         );
         assert_eq!(app.derived("revision"), &Value::Number(1.0), "{ending}");
-        assert!(app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT);
-        app.runner.advance(400.0).unwrap();
-        app.settle();
+        assert_eq!(app.translation_y("date-popup"), 0.0);
+        app.finish_motion();
         assert_eq!(app.state("dragId").as_str(), Some(""));
         assert_eq!(app.key("date-popup"), popup);
+        assert_eq!(app.derived("day"), &original_day);
         assert_eq!(app.translation_y("date-popup"), 0.0);
         assert_eq!(
             app.runner
@@ -843,9 +946,10 @@ fn the_sheet_stays_offscreen_until_a_pending_drop_finishes() {
     }
     assert_eq!(app.derived("revision"), &Value::Number(2.0));
     assert_eq!(app.key("calendar-input"), input);
-    assert_eq!(app.key("date-popup"), popup);
-    assert_eq!(app.translation_y("date-popup"), 0.0);
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+    assert!(app.runner.kernel().find_by_test_id("date-popup").is_empty());
     assert_eq!(app.state("dragId").as_str(), Some(""));
+    app.press("date-2026-09-2026-09-20");
     assert_eq!(app.agenda_id("Summer in Seoul"), id);
 }
 
@@ -927,14 +1031,7 @@ fn releasing_over_a_partly_presented_month_uses_the_cell_under_the_finger() {
     assert!(final_point.0 > 0.0 && final_point.0 < f64::from(WIDTH));
     app.event("calendar-input", contact.event(3, "end", final_point, ""));
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
-    assert_eq!(app.derived("revision"), &Value::Number(2.0));
     assert_eq!(app.derived("contactMonth"), &Value::Number(september + 1.0));
-    let moved = items(&fields(app.runner.resource("agenda").unwrap())[3])
-        .iter()
-        .find(|event| fields(event)[0].as_str() == Some(&id))
-        .unwrap();
-    assert_eq!(fields(moved)[7].as_str(), Some("2026-10-04"));
-    assert_eq!(fields(moved)[8].as_str(), Some("2026-10-09"));
     app.runner.advance(app.runner.now_ms() + 100.0).unwrap();
     app.settle();
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
@@ -943,6 +1040,9 @@ fn releasing_over_a_partly_presented_month_uses_the_cell_under_the_finger() {
         &Value::Number(presented),
         "the destination page stays still while the drop image lands"
     );
+    app.finish_motion();
+    assert_eq!(app.derived("revision"), &Value::Number(2.0));
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
     drop(app);
 
     let mut app = App::open(&root);
@@ -964,12 +1064,14 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
     // Natural-height dense weeks create actual overflow; do not manufacture
     // impossible native offsets in a month whose content already fits.
     for n in 0..20 {
-        app.press("add-schedule");
+        app.create("event");
         app.input("schedule-title", &format!("Dense schedule {n}"));
         app.input("start-date", "2026-09-15");
         app.input("end-date", "2026-09-15");
         app.press("save-schedule");
+        app.finish_motion();
     }
+    app.press("date-2026-09-2026-09-15");
     let popup = app.frame("date-popup");
     assert!(
         popup.height <= 360.0,
@@ -993,7 +1095,8 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
     let top = app.state("portY").as_number().unwrap();
     let width = app.state("portWidth").as_number().unwrap();
     let height = app.state("portHeight").as_number().unwrap();
-    let corner = (left + width - 8.0, top + height - 8.0);
+    let scroll_edge = f64::from(app.frame("cancel-zone").y) - 8.0;
+    let corner = (left + width - 8.0, scroll_edge);
     app.event("calendar-input", contact.event(2, "move", corner, ""));
     assert_eq!(app.derived("edgeWanted"), &Value::Number(1.0));
     let initial_request = app.state("calendarScrollRequest").clone();
@@ -1006,7 +1109,7 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
             "a corner prepares horizontal paging without vertical scrolling"
         );
     }
-    let point = (left + width / 2.0, top + height - 8.0);
+    let point = (left + width / 2.0, scroll_edge);
     app.event("calendar-input", contact.event(3, "move", point, ""));
     let initial_day = app.derived("hoverDay").clone();
     assert_ne!(initial_day, Value::Number(-1_000_000.0));
@@ -1015,14 +1118,16 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
         .unwrap();
     assert!(max_scroll > 300.0);
     let last_week = app.frame("date-2026-09-2026-10-03");
+    let drag_padding = app.derived("dragPadding").as_number().unwrap();
     assert!(
-        (max_scroll - (f64::from(last_week.y + last_week.height) - top - height)).abs() < 0.001,
-        "drag scrolling must stop at the exact rendered final week"
+        (max_scroll - (f64::from(last_week.y + last_week.height) - top - height + drag_padding))
+            .abs()
+            < 0.001,
+        "held scroll room must end at the final week plus the cancel overlap"
     );
     let revision = app.derived("revision").clone();
-    for _ in 0..20 {
-        app.runner.advance(app.runner.now_ms() + 34.0).unwrap();
-        app.settle();
+    for _ in 0..120 {
+        app.presented_frame(1000.0 / 120.0);
         let requested = app.state("calendarScrollRequest").as_number().unwrap();
         assert!(requested > app.state("calendarScrollTop").as_number().unwrap());
         // The native scroll executor reports the authored offset back. No new
@@ -1040,16 +1145,20 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
     let expected_day = app.derived("hoverDay").clone();
     app.event("calendar-input", contact.event(4, "end", point, ""));
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
+    app.finish_motion();
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
     assert_eq!(
         app.derived("revision").as_number().unwrap(),
         revision.as_number().unwrap() + 1.0
     );
+    let saved_date = app.date_for_day(expected_day.as_number().unwrap());
+    app.press(&format!("date-2026-09-{saved_date}"));
     let moved = items(&fields(app.runner.resource("agenda").unwrap())[3])
         .iter()
         .find(|event| fields(event)[0].as_str() == Some(&id))
         .unwrap();
     assert_eq!(fields(moved)[5], expected_day);
-    let saved_date = fields(moved)[7].as_str().unwrap().to_owned();
+    assert_eq!(fields(moved)[7].as_str(), Some(saved_date.as_str()));
     drop(app);
 
     let mut app = App::open(&root);

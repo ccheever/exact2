@@ -7,6 +7,7 @@
   "display": "standalone",
   "theme_color": "#F7F7FA",
   "background_color": "#F7F7FA",
+  "icons": [{ "src": "assets/icon.png", "sizes": "1024x1024", "type": "image/png" }],
   "app": { "id": "com.exact.calendar", "name": "Calendar" },
   "modules": ["calendar-input-root", "calendar-drag-handle"],
   "rust": "off",

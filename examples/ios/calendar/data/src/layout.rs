@@ -2,9 +2,9 @@
 
 use crate::{dates, model::Schedule};
 use exact_plan::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
+pub(crate) fn month(month: i32, events: &[&Schedule], stickers: &BTreeMap<i32, String>) -> Value {
     let first = dates::month_first(month);
     let last = dates::month_first(month + 1) - 1;
     let from = first - dates::weekday(first) as i32;
@@ -23,6 +23,7 @@ pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
                         Value::str(&date),
                         Value::Number(dates::civil(day).2.into()),
                         Value::Bool(first <= day && day <= last),
+                        Value::str(stickers.get(&day).map_or("", String::as_str)),
                     ])
                 })
                 .collect();
@@ -33,6 +34,7 @@ pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
                 .collect();
             touching.sort_by(|a, b| {
                 (
+                    a.kind,
                     a.start,
                     std::cmp::Reverse(a.last_day()),
                     !a.all_day,
@@ -40,6 +42,7 @@ pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
                     &a.id,
                 )
                     .cmp(&(
+                        b.kind,
                         b.start,
                         std::cmp::Reverse(b.last_day()),
                         !b.all_day,
@@ -77,6 +80,7 @@ pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
                         Value::Bool(event.last_day() > start + 6),
                         Value::Bool(event.all_day),
                         Value::str(&event.time_label()),
+                        Value::str(event.kind.name()),
                     ])
                 })
                 .collect();
@@ -86,6 +90,11 @@ pub(crate) fn month(month: i32, events: &[&Schedule]) -> Value {
                 Value::list(cells),
                 Value::list(bars),
                 Value::Number(occupied.len() as f64),
+                Value::Number(if stickers.range(start..=start + 6).next().is_some() {
+                    40.0
+                } else {
+                    14.0
+                }),
             ])
         })
         .collect();
@@ -133,7 +142,7 @@ mod tests {
             })
             .collect();
         let refs: Vec<_> = events.iter().collect();
-        let page = month(m, &refs);
+        let page = month(m, &refs, &BTreeMap::new());
         let mut in_month = 0;
         let mut covered = HashMap::<String, usize>::new();
         for week in list(&fields(&page)[3]) {
@@ -170,7 +179,10 @@ mod tests {
     #[test]
     fn four_five_and_six_week_months_fit_their_actual_dates() {
         for (month, weeks) in [(2026 * 12 + 1, 4), (2026 * 12 + 8, 5), (2026 * 12 + 7, 6)] {
-            assert_eq!(list(&fields(&self::month(month, &[]))[3]).len(), weeks);
+            assert_eq!(
+                list(&fields(&self::month(month, &[], &BTreeMap::new()))[3]).len(),
+                weeks
+            );
         }
     }
 }

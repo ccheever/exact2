@@ -4,6 +4,33 @@ use crate::dates;
 use exact_plan::Value;
 use serde_json::{json, Value as Json};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Kind {
+    Event,
+    Plan,
+}
+
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Event => "event",
+            Self::Plan => "plan",
+        }
+    }
+
+    pub fn read(text: &str) -> Result<Self, String> {
+        match text {
+            "event" => Ok(Self::Event),
+            "plan" => Ok(Self::Plan),
+            _ => Err("Invalid calendar item type in storage.".into()),
+        }
+    }
+}
+
+pub(crate) const STICKERS: [&str; 10] = [
+    "sunshine", "coffee", "cake", "heart", "sparkle", "flower", "book", "workout", "travel", "rest",
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Schedule {
     pub id: String,
@@ -14,6 +41,7 @@ pub(crate) struct Schedule {
     pub end: i32,
     pub start_time: u16,
     pub end_time: u16,
+    pub kind: Kind,
 }
 
 impl Schedule {
@@ -89,6 +117,7 @@ impl Schedule {
             Value::str(&dates::time(self.start_time)),
             Value::str(&dates::time(self.end_time)),
             Value::str(&self.range_label()),
+            Value::str(self.kind.name()),
         ])
     }
 
@@ -102,7 +131,8 @@ impl Schedule {
             self.start,
             self.end,
             self.start_time,
-            self.end_time
+            self.end_time,
+            self.kind.name()
         ])
     }
 
@@ -132,6 +162,7 @@ impl Schedule {
             end,
             start_time,
             end_time,
+            kind: Kind::read(&text(8)?)?,
         };
         schedule.validate()?;
         Ok(schedule)
@@ -144,10 +175,7 @@ impl Schedule {
         if self.title.trim().is_empty() || self.title.chars().count() > 160 {
             return Err("Enter a title with 1 to 160 characters.".into());
         }
-        let color = self.color.as_bytes();
-        if color.len() != 7 || color[0] != b'#' || !color[1..].iter().all(u8::is_ascii_hexdigit) {
-            return Err("Choose a valid schedule color.".into());
-        }
+        validate_color(&self.color)?;
         if !dates::in_range(self.start) || !dates::in_range(self.end) || self.end < self.start {
             return Err(
                 "The end date must be on or after the start date, between 1900 and 2100.".into(),
@@ -161,6 +189,71 @@ impl Schedule {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Todo {
+    pub id: String,
+    pub title: String,
+    pub color: String,
+    pub created_at: i64,
+    pub completed_at: i64,
+}
+
+impl Todo {
+    pub fn value(&self) -> Value {
+        Value::record(vec![
+            Value::str(&self.id),
+            Value::str(&self.title),
+            Value::str(&self.color),
+            Value::Bool(self.completed_at != 0),
+            Value::Number(self.created_at as f64),
+            Value::Number(self.completed_at as f64),
+        ])
+    }
+
+    pub fn read(row: &Json) -> Result<Self, String> {
+        let text = |i| {
+            row[i]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or("Invalid todo text in storage.")
+        };
+        let todo = Self {
+            id: text(0)?,
+            title: text(1)?,
+            color: text(2)?,
+            created_at: integer(&row[3])?,
+            completed_at: integer(&row[4])?,
+        };
+        todo.validate()?;
+        Ok(todo)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() || self.id.len() > 192 {
+            return Err("The todo identifier is invalid.".into());
+        }
+        if self.title.trim().is_empty() || self.title.chars().count() > 160 {
+            return Err("Enter a title with 1 to 160 characters.".into());
+        }
+        if self.created_at <= 0
+            || self.created_at > 9_007_199_254_740_991
+            || self.completed_at < 0
+            || self.completed_at > 9_007_199_254_740_991
+        {
+            return Err("The todo time is invalid.".into());
+        }
+        validate_color(&self.color)
+    }
+}
+
+fn validate_color(color: &str) -> Result<(), String> {
+    let color = color.as_bytes();
+    if color.len() != 7 || color[0] != b'#' || !color[1..].iter().all(u8::is_ascii_hexdigit) {
+        return Err("Choose a valid color.".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn integer(value: &Json) -> Result<i64, String> {
@@ -180,6 +273,7 @@ pub(crate) fn empty_schedule() -> Schedule {
         end: 0,
         start_time: 9 * 60,
         end_time: 10 * 60,
+        kind: Kind::Event,
     }
 }
 
@@ -197,7 +291,7 @@ pub(crate) fn samples(today: i32) -> Vec<(Schedule, String)> {
         ("Summer in Seoul", "#70B8A2", true, 24, 29, 0, 0, "The 25th through the 30th, inclusive. Move it to the 20th to keep the full range through the 25th."),
     ].into_iter().enumerate().map(|(i, (title, color, all_day, start, end, start_time, end_time, notes))| {
         (Schedule { id: format!("sample-{}-{i}", dates::month_id(month)), title: title.into(), color: color.into(),
-            all_day, start: (base + start).min(last), end: (base + end).min(last), start_time, end_time }, notes.into())
+            all_day, start: (base + start).min(last), end: (base + end).min(last), start_time, end_time, kind: Kind::Event }, notes.into())
     }).collect()
 }
 

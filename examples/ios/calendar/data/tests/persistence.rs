@@ -3,13 +3,19 @@
 use calendar_data::{Calendar, GRANTS};
 use exact_data_host::Storage;
 use exact_plan::Value;
-use exact_runner::{Answer, DataSource, Dispatch, InFlight, Outcome, Reply, Store, Target, Work};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, InFlight, Outcome, Reply, Store, Target, Work,
+};
+use serde_json::{json, Value as Json};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 const TODAY: i32 = 20_697; // 2026-09-01, days since 1970-01-01.
+
+#[path = "persistence/stickers.rs"]
+mod stickers;
 
 struct Root(PathBuf);
 impl Root {
@@ -160,6 +166,113 @@ fn storage_error() -> Outcome {
     Outcome::Storage(br#"{"error":"Simulated storage interruption."}"#.to_vec())
 }
 
+struct Sql {
+    transaction: bool,
+    commands: Json,
+}
+impl DataSource for Sql {
+    fn app_id(&self) -> &str {
+        calendar_data::APP
+    }
+    fn grants(&self) -> &str {
+        GRANTS
+    }
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::Unit)
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(exact_data::storage::request(
+            if self.transaction {
+                "sqlite.transaction"
+            } else {
+                "sqlite"
+            },
+            json!({ "path": "app:/data/calendar.db", "commands": self.commands }),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let result = exact_data::storage::response(outcome).map_err(DataError::Unavailable)?;
+        Ok(Answer::Now(Value::str(&result.to_string())))
+    }
+}
+
+fn sql(root: &Root, transaction: bool, commands: Json) -> Json {
+    let mut data = Storage::new(Sql {
+        transaction,
+        commands,
+    });
+    data.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("temporary"),
+    )
+    .unwrap();
+    data.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let Answer::Later(request) = data.answer(&mut store, "fixture", &[]).unwrap() else {
+        panic!("fixture request")
+    };
+    let Dispatch::Run(work) = data.dispatch(request.continuation.unwrap(), &store) else {
+        panic!("fixture work")
+    };
+    let Answer::Now(value) = data.parse(&mut store, "fixture", &[], run(work)).unwrap() else {
+        panic!("fixture result")
+    };
+    serde_json::from_str(value.as_str().unwrap()).unwrap()
+}
+
+fn legacy_database(root: &Root) -> String {
+    let args = save_args("", "Legacy schedule", "legacy-create");
+    let values: Vec<Json> = args[..9]
+        .iter()
+        .map(|value| match value {
+            Value::Bool(value) => json!(value),
+            value => json!(value.as_str().unwrap()),
+        })
+        .collect();
+    let fingerprint = json!(["saveSchedule", values]).to_string();
+    sql(
+        root,
+        true,
+        json!([
+            {"kind":"execute","sql":"CREATE TABLE schedules (id TEXT PRIMARY KEY NOT NULL,title TEXT NOT NULL,notes TEXT NOT NULL,color TEXT NOT NULL,all_day INTEGER NOT NULL,start_day INTEGER NOT NULL,end_day INTEGER NOT NULL,start_minute INTEGER NOT NULL,end_minute INTEGER NOT NULL)","params":[]},
+            {"kind":"execute","sql":"CREATE TABLE calendar_meta (key TEXT PRIMARY KEY NOT NULL,value INTEGER NOT NULL)","params":[]},
+            {"kind":"execute","sql":"CREATE TABLE calendar_operations (token TEXT PRIMARY KEY NOT NULL,fingerprint TEXT NOT NULL,revision INTEGER NOT NULL,event_id TEXT NOT NULL,day INTEGER NOT NULL)","params":[]},
+            {"kind":"execute","sql":"INSERT INTO calendar_meta VALUES('seeded',1),('revision',12)","params":[]},
+            {"kind":"execute","sql":"INSERT INTO schedules VALUES(?,?,?,?,?,?,?,?,?)","params":["event-legacy-create","Legacy schedule",args[2].as_str().unwrap(),"#747AFF",0,TODAY+24,TODAY+29,570,1035]},
+            {"kind":"execute","sql":"INSERT INTO calendar_operations VALUES(?,?,?,?,?)","params":["legacy-create",fingerprint,12,"event-legacy-create",TODAY+24]}
+        ]),
+    );
+    fingerprint
+}
+
+fn todo_args(id: &str, title: &str, color: &str, at: i64, token: &str) -> Vec<Value> {
+    vec![
+        Value::str(id),
+        Value::str(title),
+        Value::str(color),
+        Value::Number(at as f64),
+        Value::str(token),
+    ]
+}
+
+fn date_cell(page: &Value, day: i32) -> (&[Value], &[Value]) {
+    for week in list(&fields(page)[3]) {
+        for cell in list(&fields(week)[1]) {
+            if fields(cell)[1] == num(day) {
+                return (fields(week), fields(cell));
+            }
+        }
+    }
+    panic!("date was not in the month page");
+}
+
 #[test]
 fn unknown_boot_clock_creates_no_storage_and_real_clock_seeds_the_current_month() {
     let root = Root::new();
@@ -190,7 +303,7 @@ fn unknown_boot_clock_creates_no_storage_and_real_clock_seeds_the_current_month(
     assert_eq!(fields(&loaded)[0], Value::Bool(true));
     assert_eq!(fields(&loaded)[1], num(1));
     app.event("sample-2026-09-0");
-    let epoch_day = app.call("calendarDay", vec![num(0), num(1)]);
+    let epoch_day = app.call("calendarDay", vec![num(0), num(1), num(TODAY)]);
     assert!(list(&fields(&epoch_day)[3]).is_empty());
 }
 
@@ -227,7 +340,7 @@ fn changing_day_during_initial_load_replaces_the_retired_read() {
     let loaded = app.finish("loadCalendar", &args, next);
     assert_eq!(fields(&loaded)[0], Value::Bool(true));
     app.event("sample-2026-09-0");
-    let august = app.call("calendarDay", vec![num(TODAY - 29), num(1)]);
+    let august = app.call("calendarDay", vec![num(TODAY - 29), num(1), num(TODAY)]);
     assert!(list(&fields(&august)[3]).is_empty());
 }
 
@@ -321,7 +434,7 @@ fn range_moves_are_absolute_and_replays_do_not_undo_later_moves() {
 }
 
 #[test]
-fn committed_write_with_lost_reply_is_reconciled_before_retry() {
+fn committed_write_with_lost_reply_is_reconciled_without_another_write() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.load();
@@ -341,15 +454,14 @@ fn committed_write_with_lost_reply_is_reconciled_before_retry() {
         .data
         .parse(&mut app.store, "saveSchedule", &args, storage_error())
         .unwrap();
-    assert_eq!(
-        fields(&app.finish("saveSchedule", &args, failure))[1],
-        Value::Bool(false)
-    );
+    let recovered = app.finish("saveSchedule", &args, failure);
+    assert_eq!(success(&recovered), "event-lost-create");
+    assert_eq!(fields(&recovered)[0], num(2));
     let retried = app.call("saveSchedule", args);
     let id = success(&retried);
     assert_eq!(fields(&retried)[0], num(2));
     assert_eq!(fields(&app.event(id))[1].as_str(), Some("Exactly once"));
-    let day = app.call("calendarDay", vec![num(20_721), num(2)]);
+    let day = app.call("calendarDay", vec![num(20_721), num(2), num(TODAY)]);
     assert_eq!(
         list(&fields(&day)[3])
             .iter()
@@ -417,7 +529,7 @@ fn deleting_every_sample_does_not_reseed_a_reopened_calendar() {
     let mut app = App::open(&root);
     assert_eq!(app.load(), 8);
     for day in TODAY..TODAY + 31 {
-        let agenda = app.call("calendarDay", vec![num(day), num(8)]);
+        let agenda = app.call("calendarDay", vec![num(day), num(8), num(TODAY)]);
         assert!(list(&fields(&agenda)[3]).is_empty());
     }
 }
@@ -436,8 +548,8 @@ fn paginated_summary_reload_keeps_large_notes_out_of_month_scrolls() {
     let mut app = App::open(&root);
     assert_eq!(app.load(), 261);
     assert_eq!(
-        app.requests, 4,
-        "schema check, two summary pages, snapshot verification"
+        app.requests, 6,
+        "schema check, two schedule pages, todos, stickers, snapshot verification"
     );
     let before = app.requests;
     for month in (2026 * 12 - 48)..(2026 * 12 + 48) {
@@ -447,7 +559,7 @@ fn paginated_summary_reload_keeps_large_notes_out_of_month_scrolls() {
             assert!((4..=6).contains(&list(&fields(page)[3]).len()));
         }
     }
-    let day = app.call("calendarDay", vec![num(20_721), num(261)]);
+    let day = app.call("calendarDay", vec![num(20_721), num(261), num(TODAY)]);
     assert_eq!(
         app.requests, before,
         "paging and agenda summaries perform no storage work"
@@ -501,4 +613,545 @@ fn invalid_dates_and_failed_writes_leave_stored_events_unchanged() {
     let mut app = App::open(&root);
     assert_eq!(app.load(), 2);
     assert_eq!(fields(&app.event(&id))[1].as_str(), Some("Original title"));
+}
+
+#[test]
+fn original_database_upgrades_without_reseeding_or_changing_saved_operation_results() {
+    let root = Root::new();
+    let fingerprint = legacy_database(&root);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 12);
+    let event = app.event("event-legacy-create");
+    assert_eq!(fields(&event)[1].as_str(), Some("Legacy schedule"));
+    assert_eq!(
+        fields(&event)[2].as_str(),
+        Some("Bring the draft and café notes.\nSecond line.")
+    );
+    assert_eq!(fields(&event)[12].as_str(), Some("event"));
+    let replay = app.save("", "Legacy schedule", "legacy-create");
+    assert_eq!(success(&replay), "event-legacy-create");
+    assert_eq!(fields(&replay)[0], num(12));
+    let inspection = sql(
+        &root,
+        false,
+        json!([
+            {"kind":"query","sql":"SELECT COUNT(*) FROM schedules","params":[]},
+            {"kind":"query","sql":"SELECT fingerprint FROM calendar_operations WHERE token='legacy-create'","params":[]},
+            {"kind":"query","sql":"SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name","params":[]}
+        ]),
+    );
+    assert_eq!(inspection[0]["rows"][0][0]["integer"], "1");
+    assert_eq!(inspection[1]["rows"][0][0], fingerprint);
+    assert_eq!(inspection[2]["rows"].as_array().unwrap().len(), 5);
+    assert!(list(&app.call("calendarTodos", vec![num(12)])).is_empty());
+}
+
+#[test]
+fn two_windows_reprobe_when_the_other_window_has_already_added_the_kind_column() {
+    let root = Root::new();
+    legacy_database(&root);
+    let mut first = App::open(&root);
+    let mut second = App::open(&root);
+    let args = vec![num(TODAY), Value::Bool(true)];
+    let first_probe = first
+        .data
+        .answer(&mut first.store, "loadCalendar", &args)
+        .unwrap();
+    let first_reply = run(first.work(first_probe));
+    let first_migration = first
+        .data
+        .parse(&mut first.store, "loadCalendar", &args, first_reply)
+        .unwrap();
+    let second_probe = second
+        .data
+        .answer(&mut second.store, "loadCalendar", &args)
+        .unwrap();
+    let second_reply = run(second.work(second_probe));
+    let second_migration = second
+        .data
+        .parse(&mut second.store, "loadCalendar", &args, second_reply)
+        .unwrap();
+    assert_eq!(
+        fields(&first.finish("loadCalendar", &args, first_migration))[0],
+        Value::Bool(true)
+    );
+    assert_eq!(
+        fields(&second.finish("loadCalendar", &args, second_migration))[0],
+        Value::Bool(true)
+    );
+    assert_eq!(
+        fields(&second.event("event-legacy-create"))[12].as_str(),
+        Some("event")
+    );
+    assert_eq!(second.load(), 12);
+}
+
+#[test]
+fn plans_keep_their_type_notes_and_time_range_through_edits_moves_and_restarts() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.load();
+    let result = app.call("savePlan", save_args("", "Plan the launch", "new-plan"));
+    let id = success(&result).to_owned();
+    let moved = app.call(
+        "moveSchedule",
+        vec![Value::str(&id), num(TODAY + 19), Value::str("move-plan")],
+    );
+    success(&moved);
+    drop(app);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 3);
+    let event = app.event(&id);
+    assert_eq!(fields(&event)[12].as_str(), Some("plan"));
+    assert_eq!(fields(&event)[7].as_str(), Some("2026-09-20"));
+    assert_eq!(fields(&event)[8].as_str(), Some("2026-09-25"));
+    assert_eq!(fields(&event)[9].as_str(), Some("09:30"));
+    assert_eq!(fields(&event)[10].as_str(), Some("17:15"));
+    assert_eq!(
+        fields(&event)[2].as_str(),
+        Some("Bring the draft and café notes.\nSecond line.")
+    );
+    success(&app.call("savePlan", save_args(&id, "Updated plan", "edit-plan")));
+    let page = app.call("calendarMonth", vec![num(24320), num(4)]);
+    let bars: Vec<_> = list(&fields(&page)[3])
+        .iter()
+        .flat_map(|week| list(&fields(week)[2]))
+        .filter(|bar| fields(bar)[1].as_str() == Some(&id))
+        .collect();
+    assert!(!bars.is_empty());
+    assert!(bars
+        .iter()
+        .all(|bar| fields(bar)[11].as_str() == Some("plan")));
+    success(&app.call(
+        "deleteSchedule",
+        vec![Value::str(&id), Value::str("delete-plan")],
+    ));
+    drop(app);
+    let mut app = App::open(&root);
+    app.load();
+    assert_eq!(
+        fields(&app.call("calendarEvent", vec![Value::str(&id), num(5)]))[0],
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn undated_todos_keep_creation_and_completion_order_when_edited_and_reopened() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.load();
+    let at = 1_790_737_200_000_i64;
+    let mut first_args = todo_args("", "First", "#747AFF", at, "todo-first");
+    first_args[3] = Value::Number(at as f64 + 0.75);
+    let first = success(&app.call("saveTodo", first_args)).to_owned();
+    let second = success(&app.call(
+        "saveTodo",
+        todo_args("", "Second", "#70B8A2", at + 1, "todo-second"),
+    ))
+    .to_owned();
+    success(&app.call(
+        "setTodoCompleted",
+        vec![
+            Value::str(&first),
+            Value::Bool(true),
+            Value::Number((at + 10) as f64 + 0.875),
+            Value::str("complete-first"),
+        ],
+    ));
+    success(&app.call(
+        "saveTodo",
+        todo_args(&first, "First, edited", "#F39B65", at + 20, "edit-first"),
+    ));
+    drop(app);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 5);
+    let todos = app.call("calendarTodos", vec![num(5)]);
+    assert_eq!(fields(&list(&todos)[0])[0].as_str(), Some(second.as_str()));
+    let completed = fields(&list(&todos)[1]);
+    assert_eq!(completed[0].as_str(), Some(first.as_str()));
+    assert_eq!(completed[1].as_str(), Some("First, edited"));
+    assert_eq!(completed[3], Value::Bool(true));
+    assert_eq!(completed[4], Value::Number(at as f64));
+    assert_eq!(completed[5], Value::Number((at + 10) as f64));
+    success(&app.call(
+        "setTodoCompleted",
+        vec![
+            Value::str(&first),
+            Value::Bool(false),
+            Value::Number((at + 30) as f64),
+            Value::str("reopen-first"),
+        ],
+    ));
+    let todos = app.call("calendarTodos", vec![num(6)]);
+    assert_eq!(fields(&list(&todos)[0])[0].as_str(), Some(first.as_str()));
+    assert_eq!(fields(&list(&todos)[0])[5], num(0));
+    success(&app.call(
+        "deleteTodo",
+        vec![Value::str(&first), Value::str("delete-first")],
+    ));
+    drop(app);
+    let mut app = App::open(&root);
+    app.load();
+    assert_eq!(list(&app.call("calendarTodos", vec![num(7)])).len(), 1);
+}
+
+#[test]
+fn todo_conversion_replays_a_committed_lost_reply_without_duplicate_events() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.load();
+    let id = success(&app.call(
+        "saveTodo",
+        todo_args("", "Take a walk", "#70B8A2", 1_790_737_200_000, "walk"),
+    ))
+    .to_owned();
+    let args = vec![Value::str(&id), num(TODAY + 6), Value::str("schedule-walk")];
+    let lookup = app
+        .data
+        .answer(&mut app.store, "scheduleTodo", &args)
+        .unwrap();
+    let lookup = run(app.work(lookup));
+    let write = app
+        .data
+        .parse(&mut app.store, "scheduleTodo", &args, lookup)
+        .unwrap();
+    assert!(exact_data::storage::response(run(app.work(write))).is_ok());
+    let failed = app
+        .data
+        .parse(&mut app.store, "scheduleTodo", &args, storage_error())
+        .unwrap();
+    let recovered = app.finish("scheduleTodo", &args, failed);
+    assert_eq!(success(&recovered), id);
+    assert_eq!(fields(&recovered)[0], num(3));
+    let result = app.call("scheduleTodo", args.clone());
+    assert_eq!(success(&result), id);
+    assert_eq!(fields(&result)[0], num(3));
+    assert_eq!(success(&app.call("scheduleTodo", args)), id);
+    assert!(list(&app.call("calendarTodos", vec![num(3)])).is_empty());
+    let event = app.event(&id);
+    assert_eq!(fields(&event)[1].as_str(), Some("Take a walk"));
+    assert_eq!(fields(&event)[3].as_str(), Some("#70B8A2"));
+    assert_eq!(fields(&event)[4], Value::Bool(true));
+    assert_eq!(fields(&event)[5], num(TODAY + 6));
+    assert_eq!(fields(&event)[6], num(TODAY + 6));
+    assert_eq!(fields(&event)[12].as_str(), Some("event"));
+    drop(app);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 3);
+    let agenda = app.call("calendarDay", vec![num(TODAY + 6), num(3), num(TODAY)]);
+    assert_eq!(
+        list(&fields(&agenda)[3])
+            .iter()
+            .filter(|item| fields(item)[0].as_str() == Some(&id))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn todo_conversion_rolls_back_both_tables_if_the_final_journal_insert_conflicts() {
+    let root = Root::new();
+    let mut first = App::open(&root);
+    first.load();
+    let id = success(&first.call(
+        "saveTodo",
+        todo_args("", "Keep me", "#747AFF", 1_790_737_200_000, "keep"),
+    ))
+    .to_owned();
+    let args = vec![Value::str(&id), num(TODAY), Value::str("claimed-token")];
+    let lookup = first
+        .data
+        .answer(&mut first.store, "scheduleTodo", &args)
+        .unwrap();
+    let outcome = run(first.work(lookup));
+    let write = first
+        .data
+        .parse(&mut first.store, "scheduleTodo", &args, outcome)
+        .unwrap();
+    let mut second = App::open(&root);
+    second.load();
+    let no_op = second.call(
+        "removeSticker",
+        vec![num(TODAY), Value::str("claimed-token")],
+    );
+    success(&no_op);
+    assert_eq!(fields(&no_op)[0], num(2));
+    let outcome = run(first.work(write));
+    let failed = first
+        .data
+        .parse(&mut first.store, "scheduleTodo", &args, outcome)
+        .unwrap();
+    assert_eq!(
+        fields(&first.finish("scheduleTodo", &args, failed))[1],
+        Value::Bool(false)
+    );
+    drop(first);
+    drop(second);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 2);
+    assert_eq!(list(&app.call("calendarTodos", vec![num(2)])).len(), 1);
+    assert_eq!(
+        fields(&app.call("calendarEvent", vec![Value::str(&id), num(2)]))[0],
+        Value::Bool(false)
+    );
+    assert_eq!(
+        success(&app.call(
+            "scheduleTodo",
+            vec![Value::str(&id), num(TODAY), Value::str("fresh-conversion")]
+        )),
+        id
+    );
+}
+
+#[test]
+fn stickers_replace_remove_and_invalidate_spill_cells_without_changing_event_lanes() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.load();
+    let day = TODAY + 29;
+    let september = app.call("calendarMonth", vec![num(24320), num(1)]);
+    let october = app.call("calendarMonth", vec![num(24321), num(1)]);
+    success(&app.call(
+        "setSticker",
+        vec![num(day), Value::str("sunshine"), Value::str("sunshine-1")],
+    ));
+    for (month, before) in [(24320, &september), (24321, &october)] {
+        let after = app.call("calendarMonth", vec![num(month), num(2)]);
+        let (week, cell) = date_cell(&after, day);
+        assert_eq!(cell[5].as_str(), Some("sunshine"));
+        assert_eq!(week[4], num(40));
+        assert_eq!(
+            date_cell(before, day).0[2],
+            week[2],
+            "stickers never change event lanes"
+        );
+    }
+    success(&app.call(
+        "setSticker",
+        vec![num(day), Value::str("coffee"), Value::str("coffee-1")],
+    ));
+    let rows = sql(
+        &root,
+        false,
+        json!([{"kind":"query","sql":"SELECT day,sticker_id FROM stickers","params":[]}]),
+    );
+    assert_eq!(rows[0]["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["rows"][0][1], "coffee");
+    drop(app);
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 3);
+    let agenda = app.call("calendarDay", vec![num(day), num(3), num(TODAY)]);
+    assert_eq!(fields(&agenda)[4].as_str(), Some("coffee"));
+    let before = app.requests;
+    assert_eq!(
+        fields(&app.call(
+            "setSticker",
+            vec![
+                num(day),
+                Value::str("invalid"),
+                Value::str("invalid-sticker")
+            ]
+        ))[1],
+        Value::Bool(false)
+    );
+    assert_eq!(app.requests, before);
+    let removed = app.call("removeSticker", vec![num(day), Value::str("remove-coffee")]);
+    success(&removed);
+    assert_eq!(fields(&removed)[0], num(4));
+    let repeated = app.call("removeSticker", vec![num(day), Value::str("remove-coffee")]);
+    assert_eq!(fields(&repeated)[0], num(4));
+    let page = app.call("calendarMonth", vec![num(24321), num(4)]);
+    assert_eq!(date_cell(&page, day).1[5].as_str(), Some(""));
+    assert_eq!(date_cell(&page, day).0[4], num(14));
+}
+
+#[test]
+fn snapshot_retry_clears_todos_and_stickers_loaded_before_another_window_changed_them() {
+    let root = Root::new();
+    let mut writer = App::open(&root);
+    writer.load();
+    let id = success(&writer.call(
+        "saveTodo",
+        todo_args("", "Transient", "#747AFF", 1_790_737_200_000, "transient"),
+    ))
+    .to_owned();
+    success(&writer.call(
+        "setSticker",
+        vec![
+            num(TODAY),
+            Value::str("sunshine"),
+            Value::str("transient-sticker"),
+        ],
+    ));
+    let mut reader = App::open(&root);
+    let args = vec![num(TODAY), Value::Bool(true)];
+    let mut pending = reader
+        .data
+        .answer(&mut reader.store, "loadCalendar", &args)
+        .unwrap();
+    for _ in 0..3 {
+        let outcome = run(reader.work(pending));
+        pending = reader
+            .data
+            .parse(&mut reader.store, "loadCalendar", &args, outcome)
+            .unwrap();
+    }
+    success(&writer.call(
+        "deleteTodo",
+        vec![Value::str(&id), Value::str("remove-transient")],
+    ));
+    success(&writer.call(
+        "removeSticker",
+        vec![num(TODAY), Value::str("remove-transient-sticker")],
+    ));
+    let loaded = reader.finish("loadCalendar", &args, pending);
+    assert_eq!(fields(&loaded)[0], Value::Bool(true));
+    assert_eq!(fields(&loaded)[1], num(5));
+    assert!(list(&reader.call("calendarTodos", vec![num(5)])).is_empty());
+    let agenda = reader.call("calendarDay", vec![num(TODAY), num(5), num(TODAY)]);
+    assert_eq!(fields(&agenda)[4].as_str(), Some(""));
+}
+
+fn assert_landing_matches_bar(preview: &Value, page: &Value, day: i32, id: &str) {
+    let preview = fields(preview);
+    assert_eq!(preview[0], Value::Bool(true));
+    assert_eq!(preview[1].as_str(), Some(id));
+    let mut top = 0.0;
+    for week in list(&fields(page)[3]) {
+        let week = fields(week);
+        if list(&week[1])
+            .iter()
+            .any(|cell| fields(cell)[1] == num(day))
+        {
+            let bar = list(&week[2])
+                .iter()
+                .find(|bar| fields(bar)[1].as_str() == Some(id))
+                .unwrap();
+            let bar = fields(bar);
+            assert_eq!(preview[2], bar[11]);
+            assert_eq!(
+                preview[3],
+                Value::Number(bar[4].as_number().unwrap() * 50.0 + 2.0)
+            );
+            assert_eq!(
+                preview[4],
+                Value::Number(top + 34.0 + bar[6].as_number().unwrap() * 24.0)
+            );
+            assert_eq!(
+                preview[5],
+                Value::Number(bar[5].as_number().unwrap() * 50.0 - 4.0)
+            );
+            assert_eq!(preview[6], num(20));
+            assert_eq!(preview[7], bar[7]);
+            assert_eq!(preview[8], bar[8]);
+            return;
+        }
+        top +=
+            (34.0 + week[3].as_number().unwrap() * 24.0 + week[4].as_number().unwrap()).max(76.0);
+    }
+    panic!("landing week missing");
+}
+
+#[test]
+fn dense_landing_previews_match_committed_todo_and_plan_bars_without_changing_the_live_page() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.load();
+    for n in 0..10 {
+        let mut args = save_args("", &format!("Tie {n}"), &format!("lane-{n:02}"));
+        args[4] = Value::Bool(true);
+        args[5] = Value::str("2026-09-07");
+        args[6] = Value::str("2026-09-07");
+        args[7] = Value::str("00:00");
+        args[8] = Value::str("00:00");
+        success(&app.call("saveSchedule", args));
+    }
+    let mut args = save_args("", "Earlier plan", "earlier-plan");
+    args[4] = Value::Bool(true);
+    args[5] = Value::str("2026-09-01");
+    args[6] = Value::str("2026-09-07");
+    let plan = success(&app.call("savePlan", args)).to_owned();
+    let todo = success(&app.call(
+        "saveTodo",
+        todo_args(
+            "",
+            "One more tie",
+            "#747AFF",
+            1_790_737_200_000,
+            "dense-todo",
+        ),
+    ))
+    .to_owned();
+    success(&app.call(
+        "setSticker",
+        vec![
+            num(TODAY),
+            Value::str("sunshine"),
+            Value::str("preview-sticker"),
+        ],
+    ));
+    let before = app.call("calendarMonth", vec![num(24320), num(14)]);
+    let requests = app.requests;
+    let preview = app.call(
+        "calendarLanding",
+        vec![
+            Value::str(&format!("todo:{todo}")),
+            num(TODAY + 6),
+            num(24320),
+            num(14),
+            num(350),
+            num(76),
+        ],
+    );
+    assert_eq!(
+        app.requests, requests,
+        "prospective layout performs no storage work"
+    );
+    assert_eq!(app.call("calendarMonth", vec![num(24320), num(14)]), before);
+    assert_eq!(list(&app.call("calendarTodos", vec![num(14)])).len(), 1);
+    let conversion = app.call(
+        "scheduleTodo",
+        vec![
+            Value::str(&todo),
+            num(TODAY + 6),
+            Value::str("a-conversion"),
+        ],
+    );
+    assert_eq!(success(&conversion), todo);
+    let after = app.call("calendarMonth", vec![num(24320), num(15)]);
+    assert_landing_matches_bar(&preview, &after, TODAY + 6, &todo);
+    let agenda = app.call("calendarDay", vec![num(TODAY + 6), num(15), num(TODAY)]);
+    let items = list(&fields(&agenda)[3]);
+    assert_eq!(
+        fields(items.last().unwrap())[12].as_str(),
+        Some("plan"),
+        "Events are listed before an earlier-starting Plan"
+    );
+
+    let preview = app.call(
+        "calendarLanding",
+        vec![
+            Value::str(&plan),
+            num(TODAY + 10),
+            num(24320),
+            num(15),
+            num(350),
+            num(76),
+        ],
+    );
+    success(&app.call(
+        "moveSchedule",
+        vec![
+            Value::str(&plan),
+            num(TODAY + 10),
+            Value::str("move-preview-plan"),
+        ],
+    ));
+    let after = app.call("calendarMonth", vec![num(24320), num(16)]);
+    assert_landing_matches_bar(&preview, &after, TODAY + 10, &plan);
+    assert_eq!(
+        fields(&preview)[8],
+        Value::Bool(true),
+        "a seven-day Plan continues into the next week"
+    );
 }

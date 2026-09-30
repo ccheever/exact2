@@ -121,6 +121,110 @@ fn hit_value(day: f64, x: f64, y: f64, width: f64, height: f64, max_scroll: f64)
     )
 }
 
+pub(crate) fn no_landing() -> Value {
+    Value::record(vec![
+        Value::Bool(false),
+        Value::str(""),
+        Value::str(""),
+        Value::Number(0.0),
+        Value::Number(0.0),
+        Value::Number(0.0),
+        Value::Number(0.0),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Number(0.0),
+    ])
+}
+
+fn week_rows(page: &Value, minimum: f64) -> Option<Vec<(&[Value], f64)>> {
+    list(record(page)?.get(3)?)?
+        .iter()
+        .map(|week| {
+            let fields = record(week)?;
+            let lanes = fields.get(3)?.as_number()?;
+            let footer = fields.get(4)?.as_number()?;
+            Some((fields, minimum.max(34.0 + lanes * 24.0 + footer)))
+        })
+        .collect()
+}
+
+/// The prospective first segment, in month-page coordinates. It uses the same
+/// week/footer heights and 2px bar inset as the Contract calendar.
+pub(crate) fn landing(page: &Value, day: i32, id: &str, width: f64, minimum: f64) -> Value {
+    landing_inner(page, day, id, width, minimum).unwrap_or_else(no_landing)
+}
+
+fn landing_inner(page: &Value, day: i32, id: &str, width: f64, minimum: f64) -> Option<Value> {
+    let rows = week_rows(page, minimum)?;
+    let content_height: f64 = rows.iter().map(|(_, height)| height).sum();
+    let mut top = 0.0;
+    for (week, height) in rows {
+        let contains_day = list(week.get(1)?)?.iter().any(|cell| {
+            record(cell)
+                .and_then(|fields| fields.get(1))
+                .and_then(Value::as_number)
+                == Some(f64::from(day))
+        });
+        if contains_day {
+            for bar in list(week.get(2)?)? {
+                let bar = record(bar)?;
+                if bar.get(1)?.as_str()? == id {
+                    return Some(Value::record(vec![
+                        Value::Bool(true),
+                        bar[1].clone(),
+                        bar.get(11)?.clone(),
+                        Value::Number(bar.get(4)?.as_number()? * width / 7.0 + 2.0),
+                        Value::Number(top + 34.0 + bar.get(6)?.as_number()? * 24.0),
+                        Value::Number((bar.get(5)?.as_number()? * width / 7.0 - 4.0).max(0.0)),
+                        Value::Number(20.0),
+                        bar.get(7)?.clone(),
+                        bar.get(8)?.clone(),
+                        Value::Number(content_height),
+                    ]));
+                }
+            }
+            return None;
+        }
+        top += height;
+    }
+    None
+}
+
+pub(crate) fn sticker_landing(page: &Value, day: i32, id: &str, width: f64, minimum: f64) -> Value {
+    let Some(rows) = week_rows(page, minimum) else {
+        return no_landing();
+    };
+    let content_height: f64 = rows.iter().map(|(_, height)| height).sum();
+    let mut top = 0.0;
+    for (week, height) in rows {
+        let Some(cells) = week.get(1).and_then(list) else {
+            return no_landing();
+        };
+        for (column, cell) in cells.iter().enumerate() {
+            if record(cell)
+                .and_then(|fields| fields.get(1))
+                .and_then(Value::as_number)
+                == Some(f64::from(day))
+            {
+                return Value::record(vec![
+                    Value::Bool(true),
+                    Value::str(id),
+                    Value::str("sticker"),
+                    Value::Number((column + 1) as f64 * width / 7.0 - 36.0),
+                    Value::Number(top + height - 36.0),
+                    Value::Number(32.0),
+                    Value::Number(32.0),
+                    Value::Bool(false),
+                    Value::Bool(false),
+                    Value::Number(content_height),
+                ]);
+            }
+        }
+        top += height;
+    }
+    no_landing()
+}
+
 /// The visible month uses natural, variable week heights. Its scroll container
 /// clips dates at the final week, matching `MonthPage` without trailing padding.
 /// Args: month, revision, pointer x/y, port x/y/width/height, scrollTop,
@@ -146,15 +250,7 @@ fn target_inner(page: &Value, args: &[Value]) -> Option<Value> {
     if width <= 0.0 || height <= 0.0 || minimum < 0.0 || span < 0.0 || span.fract() != 0.0 {
         return None;
     }
-    let weeks = list(record(page)?.get(3)?)?;
-    let rows: Vec<(&[Value], f64)> = weeks
-        .iter()
-        .map(|week| {
-            let fields = record(week)?;
-            let lanes = fields.get(3)?.as_number()?;
-            Some((fields, minimum.max(34.0 + lanes * 24.0 + 14.0)))
-        })
-        .collect::<Option<_>>()?;
+    let rows = week_rows(page, minimum)?;
     let max_scroll = (rows.iter().map(|(_, h)| h).sum::<f64>() - height).max(0.0);
     let outside = || hit_value(NO_DAY, 0.0, 0.0, 0.0, 0.0, max_scroll);
     if x < left || x >= left + width || y < top || y >= top + height {
@@ -305,11 +401,22 @@ mod tests {
             })
             .collect();
         let refs = events.iter().collect::<Vec<_>>();
-        let page = crate::layout::month(month, &refs);
+        let page = crate::layout::month(month, &refs, &Default::default());
         let hit = target(&page, &geometry(month, 145.0, 250.0, 0.0, 0.0));
         assert_eq!(record(&hit).unwrap()[0], Value::Number(f64::from(first)));
         assert_eq!(record(&hit).unwrap()[4], Value::Number(288.0));
         assert_eq!(record(&hit).unwrap()[5], Value::Number(292.0));
+
+        let stickers = [(first, "sunshine".to_owned())].into_iter().collect();
+        let with_sticker = crate::layout::month(month, &refs, &stickers);
+        let sticker_hit = target(&with_sticker, &geometry(month, 145.0, 250.0, 0.0, 0.0));
+        assert_eq!(record(&sticker_hit).unwrap()[4], Value::Number(314.0));
+        assert_eq!(record(&sticker_hit).unwrap()[5], Value::Number(318.0));
+        let on_footer = target(&with_sticker, &geometry(month, 145.0, 250.0, 150.0, 0.0));
+        assert_eq!(
+            record(&on_footer).unwrap()[0],
+            Value::Number(f64::from(first))
+        );
 
         let scrolled = target(&page, &geometry(month, 145.0, 250.0, 150.0, 0.0));
         assert_eq!(
@@ -318,7 +425,7 @@ mod tests {
         );
         assert_eq!(record(&scrolled).unwrap()[2], Value::Number(238.0));
 
-        let empty = crate::layout::month(month, &[]);
+        let empty = crate::layout::month(month, &[], &Default::default());
         let empty_hit = target(&empty, &geometry(month, 145.0, 250.0, 0.0, 0.0));
         assert_eq!(
             record(&empty_hit).unwrap()[0],
@@ -329,7 +436,7 @@ mod tests {
     #[test]
     fn clipping_stops_at_the_last_week_and_rejects_dates_outside_the_calendar_range() {
         let month = 2026 * 12 + 8;
-        let page = crate::layout::month(month, &[]);
+        let page = crate::layout::month(month, &[], &Default::default());
         for (x, y) in [(19.0, 150.0), (370.0, 150.0), (145.0, 99.0), (145.0, 400.0)] {
             let answer = target(&page, &geometry(month, x, y, 0.0, 0.0));
             assert_eq!(record(&answer).unwrap()[0], Value::Number(NO_DAY));
@@ -354,7 +461,7 @@ mod tests {
         assert_eq!(record(&past_last_week).unwrap()[0], Value::Number(NO_DAY));
 
         let last_month = crate::dates::LAST_MONTH;
-        let page = crate::layout::month(last_month, &[]);
+        let page = crate::layout::month(last_month, &[], &Default::default());
         let last = crate::dates::month_first(last_month + 1) - 1;
         let from = crate::dates::month_first(last_month)
             - crate::dates::weekday(crate::dates::month_first(last_month)) as i32;

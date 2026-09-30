@@ -93,18 +93,15 @@ pub(crate) fn weekday(day: i32) -> usize {
     (day + 4).rem_euclid(7) as usize
 }
 
-pub(crate) fn day_label(day: i32) -> String {
+pub(crate) fn day_label(day: i32, today: i32) -> String {
     let (y, m, d) = civil(day);
-    let weekday = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-    ][weekday(day)];
-    format!("{weekday}, {} {d}, {y}", MONTH_NAMES[m as usize - 1])
+    let weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday(day)];
+    let label = format!("{weekday}, {} {d}", &MONTH_NAMES[m as usize - 1][..3]);
+    if y == civil(today).0 {
+        label
+    } else {
+        format!("{label}, {y}")
+    }
 }
 
 pub(crate) fn short_date(day: i32) -> String {
@@ -193,5 +190,13 @@ mod tests {
         assert!(parse_time("1:00").is_err());
         assert_eq!(display_time(0), "12:00 AM");
         assert_eq!(display_time(12 * 60), "12:00 PM");
+    }
+
+    #[test]
+    fn sheet_dates_show_the_year_only_outside_the_current_year() {
+        let today = ordinal(2026, 9, 30);
+        assert_eq!(day_label(ordinal(2026, 8, 31), today), "Mon, Aug 31");
+        assert_eq!(day_label(ordinal(2025, 8, 31), today), "Sun, Aug 31, 2025");
+        assert_eq!(day_label(ordinal(2027, 1, 1), today), "Fri, Jan 1, 2027");
     }
 }

@@ -11,7 +11,7 @@ mod storage;
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
-use model::Schedule;
+use model::{Schedule, Todo};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity shared by the Contract bake, browser store and Apple app.
@@ -24,6 +24,8 @@ pub const GRANTS: &str = "sqlite.open app:/data/calendar.db";
 #[derive(Default)]
 pub struct Calendar {
     events: BTreeMap<String, Schedule>,
+    todos: BTreeMap<String, Todo>,
+    stickers: BTreeMap<i32, String>,
     index: BTreeMap<i32, Vec<String>>,
     pages: VecDeque<(i32, Value)>,
     revision: u64,
@@ -47,12 +49,20 @@ impl Calendar {
         }
     }
 
-    fn replace_events(&mut self, events: BTreeMap<String, Schedule>, revision: u64) {
+    fn replace_library(
+        &mut self,
+        events: BTreeMap<String, Schedule>,
+        todos: BTreeMap<String, Todo>,
+        stickers: BTreeMap<i32, String>,
+        revision: u64,
+    ) {
         self.index.clear();
         for event in events.values() {
             self.index_event(event);
         }
         self.events = events;
+        self.todos = todos;
+        self.stickers = stickers;
         self.pages.clear();
         self.revision = revision;
         self.ready = true;
@@ -84,6 +94,21 @@ impl Calendar {
         self.revision = revision;
     }
 
+    fn changed_sticker(&mut self, day: i32, sticker: Option<String>) {
+        if let Some(sticker) = sticker {
+            self.stickers.insert(day, sticker);
+        } else {
+            self.stickers.remove(&day);
+        }
+        self.pages.retain(|(month, _)| {
+            let first = dates::month_first(*month);
+            let from = first - dates::weekday(first) as i32;
+            let last = dates::month_first(*month + 1) - 1;
+            let to = last + 6 - dates::weekday(last) as i32;
+            day < from || day > to
+        });
+    }
+
     fn month_events(&self, month: i32) -> Vec<&Schedule> {
         // Leading/trailing date cells may show the adjacent month's events.
         let mut ids = BTreeSet::new();
@@ -104,7 +129,7 @@ impl Calendar {
             self.pages.push_back(entry);
             return value;
         }
-        let page = layout::month(month, &self.month_events(month));
+        let page = layout::month(month, &self.month_events(month), &self.stickers);
         self.pages.push_back((month, page.clone()));
         while self.pages.len() > 9 {
             self.pages.pop_front();
@@ -112,7 +137,7 @@ impl Calendar {
         page
     }
 
-    fn agenda(&self, day: i32) -> Value {
+    fn agenda(&self, day: i32, today: i32) -> Value {
         let mut events: Vec<_> = self
             .index
             .get(&dates::month_of(day))
@@ -122,7 +147,8 @@ impl Calendar {
             .filter(|event| event.occurs(day))
             .collect();
         events.sort_by(|a, b| {
-            (!a.all_day, a.start_time, a.start, &a.id).cmp(&(
+            (a.kind, !a.all_day, a.start_time, a.start, &a.id).cmp(&(
+                b.kind,
                 !b.all_day,
                 b.start_time,
                 b.start,
@@ -132,9 +158,26 @@ impl Calendar {
         Value::record(vec![
             Value::Number(day.into()),
             Value::str(&dates::iso(day)),
-            Value::str(&dates::day_label(day)),
+            Value::str(&dates::day_label(day, today)),
             Value::list(events.into_iter().map(|event| event.value("")).collect()),
+            Value::str(self.stickers.get(&day).map_or("", String::as_str)),
         ])
+    }
+
+    fn todos(&self) -> Value {
+        let mut todos: Vec<_> = self.todos.values().collect();
+        todos.sort_by_key(|todo| {
+            (
+                todo.completed_at != 0,
+                if todo.completed_at == 0 {
+                    todo.created_at
+                } else {
+                    todo.completed_at
+                },
+                &todo.id,
+            )
+        });
+        Value::list(todos.into_iter().map(Todo::value).collect())
     }
 
     fn opened(&self, id: &str, notes: &str, message: &str) -> Value {
@@ -146,9 +189,122 @@ impl Calendar {
         ])
     }
 
+    fn sticker_drag<'a>(&self, wire_id: &'a str) -> Option<(Option<i32>, &'a str)> {
+        let (day, id) = if let Some(id) = wire_id.strip_prefix("sticker-pick:") {
+            (None, id)
+        } else {
+            let (day, id) = wire_id.strip_prefix("sticker-day:")?.split_once(':')?;
+            let day: i32 = day.parse().ok()?;
+            if !dates::in_range(day) || self.stickers.get(&day).map(String::as_str) != Some(id) {
+                return None;
+            }
+            (Some(day), id)
+        };
+        model::STICKERS.contains(&id).then_some((day, id))
+    }
+
+    fn landing(&self, wire_id: &str, day: i32, month: i32, width: f64, minimum: f64) -> Value {
+        if !(dates::FIRST_MONTH..=dates::LAST_MONTH).contains(&month)
+            || width <= 4.0
+            || minimum < 0.0
+        {
+            return drag::no_landing();
+        }
+        if wire_id.starts_with("sticker-pick:") || wire_id.starts_with("sticker-day:") {
+            let Some((source, id)) = self.sticker_drag(wire_id) else {
+                return drag::no_landing();
+            };
+            if !dates::in_range(day) {
+                return drag::no_landing();
+            }
+            let first = dates::month_first(month);
+            let from = first - dates::weekday(first) as i32;
+            let last = dates::month_first(month + 1) - 1;
+            let to = last + 6 - dates::weekday(last) as i32;
+            // Only this page's at-most-42 date marks are needed for the preview.
+            let mut stickers: BTreeMap<_, _> = self
+                .stickers
+                .range(from..=to)
+                .map(|(day, id)| (*day, id.clone()))
+                .collect();
+            if let Some(source) = source {
+                stickers.remove(&source);
+            }
+            stickers.insert(day, id.to_owned());
+            let page = layout::month(month, &self.month_events(month), &stickers);
+            return drag::sticker_landing(&page, day, id, width, minimum);
+        }
+        let candidate = if let Some(id) = wire_id.strip_prefix("todo:") {
+            let Some(todo) = self.todos.get(id) else {
+                return drag::no_landing();
+            };
+            if self.events.contains_key(id) {
+                return drag::no_landing();
+            }
+            Schedule {
+                id: id.into(),
+                title: todo.title.clone(),
+                color: todo.color.clone(),
+                all_day: true,
+                start: day,
+                end: day,
+                start_time: 0,
+                end_time: 0,
+                kind: model::Kind::Event,
+            }
+        } else {
+            let Some(event) = self.events.get(wire_id) else {
+                return drag::no_landing();
+            };
+            let Ok(moved) = event.moved(day) else {
+                return drag::no_landing();
+            };
+            moved
+        };
+        if candidate.validate().is_err() {
+            return drag::no_landing();
+        }
+        let mut events = self.month_events(month);
+        events.retain(|event| event.id != candidate.id);
+        events.push(&candidate);
+        let page = layout::month(month, &events, &self.stickers);
+        drag::landing(&page, day, &candidate.id, width, minimum)
+    }
+
     fn pure(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         let invalid = |message: String| DataError::Unavailable(message);
         match source {
+            "calendarStickerDrag" => Ok(match self.sticker_drag(text(args, 0).map_err(invalid)?) {
+                Some((day, id)) => Value::record(vec![
+                    Value::Bool(true),
+                    Value::str(id),
+                    Value::Number(f64::from(day.unwrap_or(-1_000_000))),
+                ]),
+                None => Value::record(vec![
+                    Value::Bool(false),
+                    Value::str(""),
+                    Value::Number(-1_000_000.0),
+                ]),
+            }),
+            "calendarLanding" => Ok(self.landing(
+                text(args, 0).map_err(invalid)?,
+                whole(args, 1).map_err(invalid)?,
+                whole(args, 2).map_err(invalid)?,
+                number(args, 4).map_err(invalid)?,
+                number(args, 5).map_err(invalid)?,
+            )),
+            "calendarDate" => Ok(match dates::parse_date(text(args, 0).map_err(invalid)?) {
+                Ok(day) => Value::record(vec![
+                    Value::Bool(true),
+                    Value::Number(day.into()),
+                    Value::str(""),
+                ]),
+                Err(message) => Value::record(vec![
+                    Value::Bool(false),
+                    Value::Number(0.0),
+                    Value::str(&message),
+                ]),
+            }),
             "calendarDragInput" => Ok(drag::decode(text(args, 0).map_err(invalid)?)),
             "calendarDragTarget" => {
                 let month = whole(args, 0).map_err(invalid)?;
@@ -179,11 +335,18 @@ impl Calendar {
                 if !(dates::FIRST_MONTH..=dates::LAST_MONTH).contains(&center) {
                     return Err(invalid("Month is outside the calendar range.".into()));
                 }
-                Ok(Value::list(
-                    ((center - 3).max(dates::FIRST_MONTH)..=(center + 3).min(dates::LAST_MONTH))
-                        .map(|month| self.month(month))
-                        .collect(),
-                ))
+                let first = (center - 3).max(dates::FIRST_MONTH);
+                let last = (center + 3).min(dates::LAST_MONTH);
+                let mut pages: Vec<_> = (first..=last).map(|month| self.month(month)).collect();
+                if args.len() > 2 {
+                    let pinned = whole(args, 2).map_err(invalid)?;
+                    if (dates::FIRST_MONTH..=dates::LAST_MONTH).contains(&pinned)
+                        && !(first..=last).contains(&pinned)
+                    {
+                        pages.push(self.month(pinned));
+                    }
+                }
+                Ok(Value::list(pages))
             }
             "calendarMonth" => {
                 let month = whole(args, 0).map_err(invalid)?;
@@ -192,7 +355,11 @@ impl Calendar {
                 }
                 Ok(self.month(month))
             }
-            "calendarDay" => Ok(self.agenda(whole(args, 0).map_err(invalid)?)),
+            "calendarDay" => Ok(self.agenda(
+                whole(args, 0).map_err(invalid)?,
+                whole(args, 2).map_err(invalid)?,
+            )),
+            "calendarTodos" => Ok(self.todos()),
             "loadCalendar" => Ok(self.library("")),
             "calendarEvent" => Ok(self.opened(text(args, 0).map_err(invalid)?, "", "")),
             _ => Err(DataError::UnknownSource(source.into())),
@@ -257,7 +424,9 @@ impl DataSource for Calendar {
                 store.observe_external_read();
                 Ok(storage::notes(id))
             }
-            "saveSchedule" | "deleteSchedule" | "moveSchedule" => {
+            "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
+            | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
+            | "removeSticker" | "moveSticker" => {
                 store.observe_external_read();
                 Ok(self.begin_mutation(source, args))
             }
@@ -293,7 +462,9 @@ impl DataSource for Calendar {
                     Err(message) => self.opened(id, "", &message),
                 }))
             }
-            "saveSchedule" | "deleteSchedule" | "moveSchedule" => Ok(self.parse_mutation(outcome)),
+            "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
+            | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
+            | "removeSticker" | "moveSticker" => Ok(self.parse_mutation(outcome)),
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
@@ -371,14 +542,61 @@ mod tests {
     }
 
     #[test]
+    fn a_pinned_drag_source_survives_distant_month_paging_with_a_bounded_cache() {
+        let mut app = Calendar::default();
+        let source = dates::month_of(dates::ordinal(2026, 9, 1));
+        for center in source..source + 48 {
+            let Value::List(pages) = app
+                .pure(
+                    "calendarMonths",
+                    &[
+                        Value::Number(center.into()),
+                        Value::Number(0.0),
+                        Value::Number(source.into()),
+                    ],
+                )
+                .unwrap()
+            else {
+                panic!("expected month pages");
+            };
+            let keys: Vec<_> = pages
+                .iter()
+                .map(|page| match page {
+                    Value::Record(fields) => fields[0].as_str().unwrap(),
+                    _ => panic!("expected month payload"),
+                })
+                .collect();
+            assert_eq!(keys.iter().filter(|key| **key == "2026-09").count(), 1);
+            assert_eq!(keys.len(), if center <= source + 3 { 7 } else { 8 });
+            assert!(app.pages.len() <= 9);
+        }
+        let Value::List(pages) = app
+            .pure(
+                "calendarMonths",
+                &[
+                    Value::Number((source + 48).into()),
+                    Value::Number(0.0),
+                    Value::Number(-1.0),
+                ],
+            )
+            .unwrap()
+        else {
+            panic!("expected month pages");
+        };
+        assert_eq!(pages.len(), 7);
+    }
+
+    #[test]
     fn month_cache_is_bounded_and_only_affected_pages_are_invalidated() {
         let today = dates::ordinal(2026, 9, 1);
         let mut app = Calendar::default();
-        app.replace_events(
+        app.replace_library(
             model::samples(today)
                 .into_iter()
                 .map(|(e, _)| (e.id.clone(), e))
                 .collect(),
+            BTreeMap::new(),
+            BTreeMap::new(),
             1,
         );
         let september = dates::month_of(today);
