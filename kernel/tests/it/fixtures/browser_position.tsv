@@ -236,6 +236,12 @@ block root: auto width, margin auto	display:block;margin-left:auto;margin-right:
 block root: auto width, margins	display:block;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,720,10
 block root: width, margins	display:block;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,100,10
 block root: wider than the offer, margin auto	display:block;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+block root: wider than the offer, margin-left auto, margin-right 20	display:block;width:900px;margin-left:auto;margin-right:20px	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+block root: wider than the offer, margin-left 20, margin-right auto	display:block;width:900px;margin-left:20px;margin-right:auto	2>1>height:10px>	1=20,0,900,10 2=20,0,900,10
+block root: width + ratio, the root's frame	display:block;width:400px;aspect-ratio:2	2>1>height:10px>	1=0,0,400,200 2=0,0,400,10
+block root: ratio only, the root's frame	display:block;aspect-ratio:2	2>1>height:10px>	1=0,0,800,400 2=0,0,800,10
+block root: height + ratio, the root's frame	display:block;height:100px;aspect-ratio:2	2>1>height:10px>	1=0,0,200,100 2=0,0,200,10
+block root: width, ratio, max-height, the root's frame	display:block;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	1=0,0,200,50 2=0,0,200,10
 flex root: width + ratio	display:flex;width:400px;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
 flex root: ratio only	display:flex;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
 flex root: height + ratio	display:flex;height:100px;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
@@ -249,6 +255,12 @@ flex root: auto width, margin auto	display:flex;margin-left:auto;margin-right:au
 flex root: auto width, margins	display:flex;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,0,10
 flex root: width, margins	display:flex;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,0,10
 flex root: wider than the offer, margin auto	display:flex;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,0,10
+flex root: wider than the offer, margin-left auto, margin-right 20	display:flex;width:900px;margin-left:auto;margin-right:20px	2>1>height:10px>	1=0,0,900,10 2=0,0,0,10
+flex root: wider than the offer, margin-left 20, margin-right auto	display:flex;width:900px;margin-left:20px;margin-right:auto	2>1>height:10px>	1=20,0,900,10 2=20,0,0,10
+flex root: width + ratio, the root's frame	display:flex;width:400px;aspect-ratio:2	2>1>height:10px>	1=0,0,400,200 2=0,0,0,10
+flex root: ratio only, the root's frame	display:flex;aspect-ratio:2	2>1>height:10px>	1=0,0,800,400 2=0,0,0,10
+flex root: height + ratio, the root's frame	display:flex;height:100px;aspect-ratio:2	2>1>height:10px>	1=0,0,200,100 2=0,0,0,10
+flex root: width, ratio, max-height, the root's frame	display:flex;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	1=0,0,200,50 2=0,0,0,10
 grid root: width + ratio	display:grid;width:400px;aspect-ratio:2	2>1>height:10px>	2=0,0,400,10
 grid root: ratio only	display:grid;aspect-ratio:2	2>1>height:10px>	2=0,0,800,10
 grid root: height + ratio	display:grid;height:100px;aspect-ratio:2	2>1>height:10px>	2=0,0,200,10
@@ -262,6 +274,12 @@ grid root: auto width, margin auto	display:grid;margin-left:auto;margin-right:au
 grid root: auto width, margins	display:grid;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,720,10
 grid root: width, margins	display:grid;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,100,10
 grid root: wider than the offer, margin auto	display:grid;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+grid root: wider than the offer, margin-left auto, margin-right 20	display:grid;width:900px;margin-left:auto;margin-right:20px	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+grid root: wider than the offer, margin-left 20, margin-right auto	display:grid;width:900px;margin-left:20px;margin-right:auto	2>1>height:10px>	1=20,0,900,10 2=20,0,900,10
+grid root: width + ratio, the root's frame	display:grid;width:400px;aspect-ratio:2	2>1>height:10px>	1=0,0,400,200 2=0,0,400,10
+grid root: ratio only, the root's frame	display:grid;aspect-ratio:2	2>1>height:10px>	1=0,0,800,400 2=0,0,800,10
+grid root: height + ratio, the root's frame	display:grid;height:100px;aspect-ratio:2	2>1>height:10px>	1=0,0,200,100 2=0,0,200,10
+grid root: width, ratio, max-height, the root's frame	display:grid;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	1=0,0,200,50 2=0,0,200,10
 grid item: ratio only	display:grid;width:400px	2>1>aspect-ratio:2>	2=0,0,400,200
 grid item: width + ratio	display:grid;width:400px	2>1>width:100px;aspect-ratio:2>	2=0,0,100,50
 grid item: height + ratio	display:grid;width:400px	2>1>height:50px;aspect-ratio:2>	2=0,0,100,50

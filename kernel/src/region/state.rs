@@ -734,13 +734,10 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
         return Err(bad());
     }
     // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
-    // where it contains an absolutely positioned member; the ordinary tree
-    // agrees only if the owner is that member's containing block there too.
-    let absolute =
-        |key: NodeKey| arena.style(key.index).position_type == crate::PositionType::Absolute;
-    if s.position_type == crate::PositionType::Static
-        && (absolute(b.content) || absolute(b.pending))
-    {
+    // where it contains every absolutely positioned descendant; the ordinary
+    // tree agrees only if the owner is positioned there too. (The compiler
+    // positions a clipping box, which the owner is.)
+    if s.position_type == crate::PositionType::Static {
         return Err(bad());
     }
     // Deliberately narrow certificate: percentages only under a direct root.

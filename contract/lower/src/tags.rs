@@ -65,13 +65,14 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
 
 /// Whether an attribute makes its box a containing block (see
 /// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
-/// or a navigation screen or modal (which the host moves).
+/// a navigation screen or modal (which the host moves), or a context
+/// preview (which the host transforms).
 pub fn contains_absolute(name: &str) -> bool {
     match attr(name) {
         Some(AttrTarget::Styles(rows)) => rows.iter().any(|row| CONTAINS_ABSOLUTE.contains(row)),
         _ => matches!(
             name,
-            "backgroundMaterial" | "navigationKey" | "navigationPresentation"
+            "backgroundMaterial" | "navigationKey" | "navigationPresentation" | "contextTarget"
         ),
     }
 }
@@ -106,6 +107,11 @@ pub(crate) fn positioned(
         Some(a) if literal(a, "static") => crate::err(
             "lower-attr-value",
             "`position: static` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so it is `relative`; remove `position`",
+            a.span,
+        ),
+        Some(a) if !matches!(&a.value, Expr::Str(..)) => crate::err(
+            "lower-attr-value",
+            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so its position must be a literal",
             a.span,
         ),
         Some(_) => Ok(None),

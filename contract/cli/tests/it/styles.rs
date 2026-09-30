@@ -624,4 +624,14 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     assert_eq!(error.id, "lower-attr-value");
     assert!(error.message.contains("remove `position`"), "{error:?}");
     contract::compile("component App\n  view\n    box position=\"static\"\n").unwrap();
+    let error = contract::compile(
+        "component App\n  state on = true\n  view\n    box position=(on ? \"relative\" : \"static\") overflow=\"hidden\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-attr-value");
+    assert!(error.message.contains("must be a literal"), "{error:?}");
+    contract::compile(
+        "component App\n  state on = true\n  view\n    box position=(on ? \"relative\" : \"static\")\n",
+    )
+    .unwrap();
 }

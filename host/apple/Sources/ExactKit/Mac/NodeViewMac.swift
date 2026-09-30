@@ -1140,6 +1140,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        // A static flex or grid item's z-index depends on its parent, which a
+        // view styled before it was mounted did not have.
+        if superview != nil, let layer, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
     }
 
     /// `overflow: hidden` clips to the rounded corners: one radius rides the

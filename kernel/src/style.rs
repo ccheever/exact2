@@ -1374,6 +1374,12 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.min_size.height = length(height);
         }
     }
+    // @ref LLP 1074 T1 — a root is the containing block of every absolutely
+    // positioned box no positioned ancestor holds, on every host: a static
+    // root is `relative` (its insets apply, as on the web's root element).
+    if arena.is_root(slot) && s.position == taffy::style::Position::Static {
+        s.position = taffy::style::Position::Relative;
+    }
     s
 }
 

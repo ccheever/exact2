@@ -147,7 +147,15 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
         // under it; the rest are static and hand theirs up.
         s.position_type = PositionType::Relative;
         s.mask.set(StyleId::PositionType);
+    } else if rng.side(4) == 0 {
+        // An explicit `static` resets a box a patch had positioned.
+        s.position_type = PositionType::Static;
+        s.mask.set(StyleId::PositionType);
     }
+    // Not drawn here: `display: none`. A box re-parented under a hidden
+    // subtree keeps its last frame where a fresh layout has none
+    // (issues/20260930-hidden-subtree-keeps-stale-frames.md); a draw of
+    // `rng.side(12) == 0` here shows it on seeds 5, 10, 405, 1412, 2423214.
     if rng.chance(4) {
         s.row_gap = rng.below(8) as f32;
         s.mask.set(StyleId::RowGap);
@@ -1144,4 +1152,115 @@ fn default_block_alignment_preserves_nested_collapsed_margins() {
     .unwrap();
     k.compute_layout(1, Offer::definite(200., 500.)).unwrap();
     assert_eq!(k.node(4).unwrap().frame.y, 211.);
+}
+
+/// LLP 1074 T1: hiding a static box between an absolute box and its
+/// containing block hides the absolute box too; the containing block must not
+/// lay it out from the static position its parent kept while visible.
+#[test]
+fn a_hidden_static_ancestor_hides_a_hoisted_absolute_box() {
+    let mut k = Kernel::with_monospace();
+    let mut root = StyleProps::default();
+    root.width = Dimension::Points(200.0);
+    root.height = Dimension::Points(200.0);
+    root.display = Display::Grid;
+    root.position_type = PositionType::Relative;
+    for id in [
+        StyleId::Width,
+        StyleId::Height,
+        StyleId::Display,
+        StyleId::PositionType,
+    ] {
+        root.mask.set(id);
+    }
+    let mut middle = StyleProps::default();
+    middle.width = Dimension::Points(100.0);
+    middle.height = Dimension::Points(100.0);
+    middle.mask.set(StyleId::Width);
+    middle.mask.set(StyleId::Height);
+    let mut absolute = StyleProps::default();
+    absolute.position_type = PositionType::Absolute;
+    absolute.left = Dimension::Points(300.0);
+    absolute.top = Dimension::Points(0.0);
+    absolute.width = Dimension::Points(20.0);
+    absolute.height = Dimension::Points(20.0);
+    for id in [
+        StyleId::PositionType,
+        StyleId::Left,
+        StyleId::Top,
+        StyleId::Width,
+        StyleId::Height,
+    ] {
+        absolute.mask.set(id);
+    }
+    let view = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    k.apply(
+        0,
+        0,
+        &[
+            view(1),
+            view(2),
+            view(3),
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(middle),
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: Box::new(absolute),
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    let offer = Offer::definite(200.0, 200.0);
+    k.compute_layout(1, offer).unwrap();
+    assert_eq!(k.node(3).unwrap().frame.x, 300.0);
+    let mut hide = StyleProps::default();
+    hide.display = Display::None;
+    hide.mask.set(StyleId::Display);
+    k.apply(
+        0,
+        1,
+        &[Op::SetStyle {
+            id: 2,
+            patch: Box::new(hide),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, offer).unwrap();
+    let mut fresh = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+    fresh.compute_layout(1, offer).unwrap();
+    assert_eq!(frames(&k), frames(&fresh));
+    let (w, _) = k.arena().content(k.arena().slot_of(1).unwrap());
+    assert!(w <= 200.0, "a hidden box adds no scroll extent: {w}");
+    let mut show = StyleProps::default();
+    show.display = Display::Block;
+    show.mask.set(StyleId::Display);
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 2,
+            patch: Box::new(show),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, offer).unwrap();
+    assert_eq!(k.node(3).unwrap().frame.x, 300.0);
 }

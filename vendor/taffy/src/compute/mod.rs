@@ -59,6 +59,7 @@ use crate::tree::{
 };
 use crate::util::debug::{debug_log, debug_log_node, debug_pop_node, debug_push_node};
 use crate::util::sys::round;
+use crate::util::sys::f32_max;
 use crate::util::ResolveOrZero;
 use crate::{CacheTree, MaybeMath, MaybeResolve};
 
@@ -135,7 +136,7 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
     };
 
     // Recursively compute node layout
-    let output = tree.perform_child_layout(
+    let mut output = tree.perform_child_layout(
         root,
         known_dimensions,
         parent_size,
@@ -143,6 +144,21 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
         SizingMode::InherentSize,
         Line::FALSE,
     );
+    // A height the ratio derived is a floor its content can pass (patch 12): a
+    // flex or grid root that came out shorter is laid out again at the floor,
+    // so its items stretch to it as a block root's content is clamped to it.
+    if let (None, Some(floor)) = (known_dimensions.height, min_size.height) {
+        if in_flow && output.size.height < floor {
+            output = tree.perform_child_layout(
+                root,
+                Size { width: Some(output.size.width), height: Some(floor) },
+                parent_size,
+                available_space,
+                SizingMode::InherentSize,
+                Line::FALSE,
+            );
+        }
+    }
 
     let margin = match parent_size.width {
         Some(available_width) if in_flow => {
@@ -156,8 +172,9 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
                     }
                 }
                 (None, None) => (free_space / 2.0, free_space / 2.0),
-                (None, Some(right)) => (free_space, right),
-                (Some(left), None) => (left, free_space),
+                // Over-constrained: an auto margin is zero, and the end margin gives way.
+                (None, Some(right)) => (f32_max(free_space, 0.0), right),
+                (Some(left), None) => (left, f32_max(free_space, 0.0)),
                 (Some(left), Some(right)) => (left, right),
             };
             crate::geometry::Rect { left, right, ..non_auto_margin }

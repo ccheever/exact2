@@ -776,6 +776,11 @@ pub(crate) fn apply_document(
                     let slot = live_slot(arena, op_index, *id)?;
                     if !arena.is_root(slot) {
                         arena.set_root(slot, true);
+                        // A root's engine style differs from a child's (a static
+                        // root is positioned): re-derive it now that the node is one.
+                        if let Some(node) = arena.taffy(slot) {
+                            layout.restyle(arena, slot, node);
+                        }
                         touched.push(arena.key(slot));
                         receipt.layout_invalidated = true;
                     }

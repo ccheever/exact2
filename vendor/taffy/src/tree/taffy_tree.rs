@@ -515,10 +515,15 @@ where
         let position = *taffy.static_positions.get(child.into())?;
         // The origin of the child's parent in `node_id`'s coordinates: the locations of the
         // boxes from that parent up to, not including, `node_id`.
+        // A box under a hidden ancestor generates no box; its parent's record is stale.
         let mut origin = Point::ZERO;
         let mut at = (*taffy.parents.get(child.into())?)?;
         while at != node_id {
-            let location = taffy.nodes.get(at.into())?.unrounded_layout.location;
+            let node = taffy.nodes.get(at.into())?;
+            if node.style.display == Display::None {
+                return None;
+            }
+            let location = node.unrounded_layout.location;
             origin = Point { x: origin.x + location.x, y: origin.y + location.y };
             at = (*taffy.parents.get(at.into())?)?;
         }

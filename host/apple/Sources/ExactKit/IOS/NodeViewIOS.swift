@@ -510,6 +510,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     required init?(coder: NSCoder) { nil }
 
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        // A static flex or grid item's z-index depends on its parent, which a
+        // view styled before it was mounted did not have.
+        if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         presenter?.transformGeometry.changed()
