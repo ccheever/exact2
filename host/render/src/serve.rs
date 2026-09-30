@@ -219,6 +219,8 @@ impl Server {
             std::thread::spawn(move || {
                 let (state, ready) = &*waiting;
                 let mut answered = None;
+                // Its first render's realm, before any request.
+                crate::make_realm(data);
                 loop {
                     // Free for the next request while the last one closes.
                     state.lock().unwrap().1 += 1;
@@ -249,6 +251,12 @@ impl Server {
                     // waited (RealWorld at concurrency 64, 12 renders: p95
                     // 2-3x the median).
                     answered = loop {
+                        // The page is sent: the render's realm is dropped
+                        // now, and the next one made while nothing waits.
+                        crate::retire_renders();
+                        if state.lock().unwrap().0.is_empty() {
+                            crate::make_realm(data);
+                        }
                         if !keep || !crate::stream::idle(&stream, state, &stop) {
                             break Some(stream);
                         }

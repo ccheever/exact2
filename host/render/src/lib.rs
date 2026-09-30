@@ -173,13 +173,24 @@ pub fn render_as<D: DataSource + 'static>(
     // with it, instead of building a realm per render (LLP 1048.000 D10's
     // fresh realm). For anonymous pages only: a realm's module state (its
     // caches, counters) carries from one render to the next.
-    let warm = std::env::var("EXACT_RENDER_REALMS").as_deref() == Ok("warm");
+    let warm = warm_realms();
+    // The last render's runner, if its worker did not drop it after sending.
+    retire_renders();
     let pooled = warm
         .then(|| REALMS.with(|p| p.borrow_mut().pop()))
         .flatten()
         .and_then(|b| b.downcast::<Anonymous<D>>().ok())
         .map(|b| *b);
-    let settling = pooled.unwrap_or_else(|| Anonymous::new(data()));
+    // Else the realm this worker made while it was idle ([`make_realm`]):
+    // nothing has run in it but the module's own initialization.
+    let made = || {
+        MADE.with(|m| m.borrow_mut().take())
+            .and_then(|b| b.downcast::<Anonymous<D>>().ok())
+            .map(|b| *b)
+    };
+    let settling = pooled
+        .or_else(made)
+        .unwrap_or_else(|| Anonymous::new(data()));
     // The deadline waits for sources, not for the transport to start. A
     // worker keeps its executor between renders that settled, so the
     // transport's connections to an origin are reused (a fresh TLS
@@ -238,7 +249,9 @@ pub fn render_as<D: DataSource + 'static>(
         let used = std::mem::replace(runner.data(), Anonymous::new(data()));
         REALMS.with(|p| p.borrow_mut().push(Box::new(used)));
     }
-    drop(runner);
+    // Dropped once the page is sent ([`retire_renders`]): destroying the
+    // realm is off the response's path.
+    RETIRED.with(|r| r.borrow_mut().push(Box::new(runner)));
     // @ref LLP 1048.000 D6 — the document is the checkpoint's projection,
     // from a runner booted from the page's checkpoint with a fresh source,
     // as the runtime boots: its first tree is built in one pass, so its view
@@ -310,6 +323,39 @@ thread_local! {
     static EXECUTORS: std::cell::RefCell<Vec<(String, Executor)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Each render worker's warm data sources (`EXACT_RENDER_REALMS=warm`).
     static REALMS: std::cell::RefCell<Vec<Box<dyn std::any::Any>>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Each render worker's realm made ahead, never used ([`make_realm`]).
+    static MADE: std::cell::RefCell<Option<Box<dyn std::any::Any>>> = const { std::cell::RefCell::new(None) };
+    /// Each render worker's finished runners, dropped after the page is sent.
+    static RETIRED: std::cell::RefCell<Vec<Box<dyn std::any::Any>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn warm_realms() -> bool {
+    static WARM: OnceLock<bool> = OnceLock::new();
+    *WARM.get_or_init(|| std::env::var("EXACT_RENDER_REALMS").as_deref() == Ok("warm"))
+}
+
+/// Drop this worker's finished renders: their runners and module realms.
+pub(crate) fn retire_renders() {
+    let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    drop(retired);
+}
+
+/// Make this worker's next render's module realm now (LLP 1048.000 D10's
+/// fresh realm, made ahead): a new source from `data`, loaded, which only
+/// the next render on this thread takes, once. A worker calls it when it is
+/// idle and nothing waits for it, and keeps at most one: the realm is made
+/// on the thread that will use it (an engine never crosses a thread), and
+/// every realm made is one a render would have made, so the CPU is moved
+/// off the request's path, not added. A source that cannot load now is
+/// left for the render to make, and to report.
+pub(crate) fn make_realm<D: DataSource + 'static>(data: fn() -> D) {
+    if warm_realms() || MADE.with(|m| m.borrow().is_some()) {
+        return;
+    }
+    let mut source = Anonymous::new(data());
+    if matches!(source.preload(), Ok(true)) && source.activate().is_ok() {
+        MADE.with(|m| *m.borrow_mut() = Some(Box::new(source)));
+    }
 }
 
 /// The deadline, for a source call still running then (LLP 1048.000 D10):
@@ -814,4 +860,81 @@ fn drain_on_signal(stopper: Stopper) {
 
 fn json(text: &str) -> String {
     serde_json::Value::String(text.into()).to_string()
+}
+
+#[cfg(test)]
+mod realm_tests {
+    use super::*;
+    use exact_runner::{Answer, DataError, Store};
+    use std::sync::atomic::AtomicUsize;
+
+    static MADE_SOURCES: AtomicUsize = AtomicUsize::new(0);
+
+    /// A source that names itself: its number, in the order made.
+    struct Counted(usize);
+
+    fn counted() -> Counted {
+        Counted(MADE_SOURCES.fetch_add(1, Ordering::SeqCst))
+    }
+
+    impl DataSource for Counted {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n = format!("source-{}", self.0);
+            match source {
+                "post" | "emptyPost" => Ok(Answer::Now(Value::record(vec![
+                    Value::str(&n),
+                    Value::str(&n),
+                ]))),
+                "comments" => Ok(Answer::Now(Value::list(vec![]))),
+                other => Err(DataError::UnknownSource(other.into())),
+            }
+        }
+    }
+
+    use exact_plan::Value;
+
+    /// D10: a realm made ahead serves the next render, and only that one.
+    #[test]
+    fn a_realm_made_ahead_serves_one_render() {
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../contract/corpus/placeholder.contract"),
+        )
+        .unwrap();
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Blog",
+            origin: None,
+        };
+        let render = || {
+            render(
+                &plan,
+                counted,
+                Default::default(),
+                "/post/7",
+                &site,
+                DEADLINE,
+            )
+            .unwrap()
+            .document
+            .root
+        };
+        make_realm(counted);
+        let made = MADE_SOURCES.load(Ordering::SeqCst) - 1;
+        let first = render();
+        assert!(first.contains(&format!(">source-{made}<")), "{first}");
+        let second = render();
+        assert!(!second.contains(&format!(">source-{made}<")), "{second}");
+        assert!(MADE.with(|m| m.borrow().is_none()));
+        retire_renders();
+        assert!(RETIRED.with(|r| r.borrow().is_empty()));
+    }
 }
