@@ -917,7 +917,9 @@ export function bakeSelection(graph, part) {
 }
 
 /** One actual target build, including the optional GPU artifact. Consumers
- * classify its completed receipt; compatibility is never recomputed in JS. */
+ * classify its completed receipt; compatibility is never recomputed in JS.
+ * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
+ * with no linked product (delivery's web bake, host/web/build.mjs --bake). */
 export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
@@ -957,7 +959,7 @@ export function buildBake(app, platform, target, options = {}) {
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
     const archive=kind==='apple'&&pkg.id===graph.root.id;
-    const args=[archive?'rustc':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {

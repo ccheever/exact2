@@ -75,11 +75,10 @@ web build's JS target (LLP 1071): the same Contract compiled ahead of time to on
 ES module over a ~20 KB runtime, the DOM as the tree, used by default for an app
 it compiles; the Rust render host stays the primary pre-render and the JS render
 the option (his ruling of the same day). Unblocks a web first interaction in
-about a tenth of the wasm target's bytes. Until these gaps close, an app that
-needs one is refused by name and builds the wasm target, which then retires:
-state carried across the
-dev loop's reload, native clients on the dev URL (the resident loop's producers
-without its wasm page) and the rest of the agent (these build `--wasm`);
+about a tenth of the wasm target's bytes. What the JS target refuses fails an
+app's build (a game builds wasm); left open: state carried across the
+dev loop's reload and the rest of the agent (node detail, iframe outlines,
+accessibility props, gesture and key deliveries; the smoke's fixtures build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
 Take: none named yet (LLP 1071 §8 asks). A Rust source's Canvas 2D surfaces and
 declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7), as did
@@ -105,7 +104,11 @@ pickers, `share`, and app storage for TypeScript and Rust sources (Fieldnotes an
 Markdown build) — LLP 1071 §7, "Files and storage";
 and press feedback, and every dynamic style row (shadows, font stacks, line clamp,
 numeric variants, backdrop blur, press scale, a pressed node's animation and
-transition, an SVG `transform`, markers and `url(#…)` references).
+transition, an SVG `transform`, markers and `url(#…)` references); and native
+clients on the dev URL (the JS loop forwards them to the resident loop's producers),
+delivery's bake without `app.wasm`, and animated images on the agent's clock — LLP
+1071 §7, "Retiring the wasm target on the web". Games stay on the wasm target
+(Charlie, 2026-09-29).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

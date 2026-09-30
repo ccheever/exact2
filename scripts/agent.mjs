@@ -82,13 +82,24 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? defaultWebDist());
   if (!pageURL) await assertWebDistApp(dist, selected);
-  // A JS-target build (LLP 1071) is served as its tree; a `--plan` swap needs the wasm target's runner.
+  // A JS-target build (LLP 1071) is served as its tree. It compiles one plan
+  // ahead of time, so `--plan` is a JS build of that plan (host/web-js/build.mjs
+  // --plan, over the app's data sources: its Rust module from the dist, when
+  // it has one), served instead of the app's; on the wasm target the page
+  // boots the app and swaps the plan in (`exact.reload`).
   const js = !pageURL && jsTargetBuild(dist);
-  if (js && plan) throw new Error(`--plan swaps the plan a runner interprets; ${dist} is a JS-target build (compiled ahead of time): build it with --wasm`);
+  let served = dist, planBuild = null;
+  if (js && plan) {
+    planBuild = mkdtempSync(resolve(tmpdir(), 'exact-agent-plan-'));
+    const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), selected.name, '--plan', resolve(plan), '--out', planBuild, '--render', 'none',
+      ...(existsSync(resolve(dist, 'rust/wasm/app.module.wasm')) ? ['--data', dist] : [])], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: selected.dir }, encoding: 'utf8', maxBuffer: 64 << 20 });
+    if (b.status !== 0) { rmSync(planBuild, { recursive: true, force: true }); throw new Error(`--plan ${plan}: its JS build failed: ${(b.stderr ?? '').trim().split('\n').slice(-3).join(' ')}`); }
+    served = planBuild;
+  }
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
-    if (js) return serveBuildTree(dist, req, res);
+    if (js) return serveBuildTree(served, req, res);
     serveStatic(dist, req, res);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -130,6 +141,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     await waitAtMost(exited, 2000);
     server.close();
     rmSync(profile, { recursive: true, force: true });
+    if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
     const { targetInfos } = await cdp.send('Target.getTargets');
@@ -194,7 +206,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
       boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null);
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
-    if (plan) {
+    if (plan && !js) {
       const carry = world ? `exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(worldFile(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
       // Another plan is a new document: its autofocus runs (LLP 1035.000 D9).
       await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b), true); })`);

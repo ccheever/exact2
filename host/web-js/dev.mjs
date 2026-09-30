@@ -11,7 +11,7 @@
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
@@ -50,19 +50,19 @@ function build(app, dist) {
   });
 }
 
-/** Build `app` on the JS target and serve it with reload. Resolves to the
- * refusal when the JS target doesn't take the app (dev.mjs then runs the
- * wasm loop); otherwise serves until the process ends. */
+/** Build `app` on the JS target and serve it with reload, until the process ends. */
 export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
-  const refused = await build(app, dist);
-  if (refused) return refused;
-  console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
+  // A first build that fails (a refusal or a compile error) serves its
+  // errors in the page and builds again at the next edit.
+  let error = await build(app, dist);
+  if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
+  else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   console.log('plan ready');
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
-  let seq = 1, error = null, saved = 0, again = false, timer = null, since = t0;
+  let seq = 1, saved = 0, again = false, timer = null, since = t0;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     if (building) { again = true; return; }
@@ -92,7 +92,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // The page's side: reload on a new build, the errors of a failed one in an
   // overlay, and a beacon when the reloaded page's runtime is up.
-  const client = (n) => `<script>(()=>{const seq=${n},es=new EventSource('/__dev');let o;
+  const client = (n) => `<script>(()=>{const seq=${n},es=new EventSource('/__dev/page');let o;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;location.reload()}};
 const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload;const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);fetch('/__dev/reloaded?seq='+r+'&boot='+b+'&at='+Date.now(),{method:'POST'})}},2)}})()</script>`;
@@ -100,7 +100,7 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
     if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    if (url.pathname === '/__dev') {
+    if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify(error ? { error, reload: seq } : { reload: seq })}\n\n`);
       clients.add(res);
@@ -118,26 +118,55 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
       res.writeHead(204); res.end(); return;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-    // A native client opening this URL reads the envelope and dev generations
-    // the wasm loop serves (LLP 1023); this loop has neither.
-    if (url.pathname === '/exact.json' || url.pathname.startsWith('/__dev/') || (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json')) {
-      res.writeHead(404, { 'content-type': 'text/plain', 'cache-control': 'no-store' });
-      res.end(`${app.name} is on the JS target's dev loop, which serves browsers only; a native client opens the wasm loop: bun host/web/dev.mjs --app ${app.name} --wasm\n`);
-      return;
-    }
+    // A native client opening this URL (`build.mjs --url`, `/__dev/open`,
+    // `exact run`) reads the envelope, the dev generations and their event
+    // stream (LLP 1023), which the resident loop's producers make: forwarded
+    // to it (below), started at the first such request.
+    if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
+      || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
     const found = buildTreeFile(dist, url.pathname);
+    // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
+    if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     let body = readFileSync(found.path);
     if (found.route.endsWith('.html')) body = body.toString() + client(seq);
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
   });
-  const stop = () => { for (const w of watchers) w.close(); building?.kill('SIGKILL'); server.close(); process.exit(0); };
+  // The resident loop's producers (host/web/dev.mjs `--serve-as`: the
+  // resident compiler, the TypeScript and Rust module producers, the
+  // envelope and generations) on a loopback port, into their own dist; a
+  // native client's requests are forwarded as they came (Host included, so
+  // the pages it serves name this URL). Its wasm build is internal.
+  let resident = null, residentChild = null;
+  const residentLoop = () => resident ??= new Promise((ok, fail) => {
+    const probe = createServer().listen(0, '127.0.0.1', () => {
+      const internal = probe.address().port;
+      probe.close(() => {
+        console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
+        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : [])],
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident') }, stdio: ['ignore', 'pipe', 'inherit'] });
+        let buf = '';
+        residentChild.stdout.on('data', (d) => {
+          buf += d; const lines = buf.split('\n'); buf = lines.pop();
+          for (const l of lines) { console.log(`  [resident] ${l}`); if (/^(?:plan ready|module generation ready|Rust generation \w+ ready)/.test(l)) ok(internal); }
+        });
+        residentChild.on('exit', (code) => { resident = null; residentChild = null; fail(new Error(`the resident loop exited ${code}`)); });
+      });
+    });
+  });
+  const forward = (req, res) => residentLoop().then((internal) => {
+    const out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
+    out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    req.pipe(out);
+  }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+  const stop = () => { for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close(); process.exit(0); };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
     .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); process.exit(1); });
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
-  console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; --wasm for the resident wasm loop; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
+  console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; a native client's requests go to the resident loop's producers, started at the first; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
   await new Promise(() => {});
 }

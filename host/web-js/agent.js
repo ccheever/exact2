@@ -4,6 +4,7 @@
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
 import { R, eq } from './rt.js';
+import { environment } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
@@ -75,7 +76,15 @@ export function install(exact) {
       return to;
     },
   };
-  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); };
+  // Animated images held to the agent's clock (LLP 1011.000): the web host's
+  // own `image-glue.js`, fetched at the first seek of a page with a GIF or
+  // WebP (the only images it holds; a page without one does no work).
+  let images = null;
+  const holdImages = () => {
+    if (!images && document.querySelector('#exact-root img[src*=".gif" i], #exact-root img[src*=".webp" i]')) images = import('./image-glue.js').then(() => exact.holdImages({ root: document.getElementById('exact-root'), now: () => exact.clock.now }));
+    images?.then(h => h.seek());
+  };
+  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); holdImages(); };
   exact.After.push(seek);
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
@@ -105,8 +114,10 @@ export function install(exact) {
       case 'layout': {
         // Every view, a zero box too (an empty text, a closed popover), as
         // the wasm host's layout reports them.
-        const nodes = all().map(n => { const b = views.get(n.id).getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height }; });
-        return { nodes, ...tags() };
+        // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
+        const r2 = x => Math.round(x * 100) / 100;
+        const nodes = all().map(n => { const el = views.get(n.id), b = el.getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) }; });
+        return { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
       case 'tap':
@@ -167,7 +178,13 @@ export function install(exact) {
         // What is in flight: the network's by resource, then held device requests.
         const pending = [...exact.resources.filter(r => r.ticket).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
-        return { slots, derives, resources, pending, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
+        const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null, activeId = active ? id(active) : null;
+        const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
+        const focus = { logical: activeId, editor: active && (active.localName === 'input' || active.localName === 'textarea' || active.exactMarkup) ? activeId : null, responder: active?.localName ?? null, pending: null };
+        const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
+        const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
+        return { slots, derives, resources, pending, focus, language, keyboard, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }

@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-// Build the web app (LLP 1071). By default, the JS target when the app
-// qualifies: `host/web-js/build.mjs`, the plan compiled to one ES module over
-// a small runtime, into the same dist. An app it refuses (a capability the
-// runtime lacks, named) gets the wasm target, with the reason printed: the wasm under the `web` profile (size-tuned),
+// Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
+// plan compiled to one ES module over a small runtime, into the same dist;
+// what it refuses (a capability the runtime lacks, named) fails the build.
+// A game (LLP 1046), and `--wasm`, get the wasm target: the wasm under the `web` profile (size-tuned),
 // `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
 // glue.js + app.wasm.
-// Usage: bun host/web/build.mjs [crate=caltrain-web] [--js]
-// `--js` fails rather than fall back. `--wasm` is internal, for what the
+// Usage: bun host/web/build.mjs [crate=caltrain-web]
+// (`--js` is accepted and is the default.) `--wasm` is internal, for what the
 // retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
 // on the web"): conformance's reference, delivery's bake (the streams'
 // bundle, whose plan the JS web root compiles), the resident dev loop a
@@ -34,12 +34,22 @@ import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
-process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm');
+// `--bake` (internal, delivery's): the web crate's bake without its wasm —
+// `cargo check` runs the build script (the baked plan, its receipt, a
+// TypeScript module's artifacts), and the origin files are written as the
+// wasm build writes them, with no `app.wasm`, glue or leaf wasm (LLP 1071
+// §7, "Retiring the wasm target on the web", step c).
+const bakeOnly = process.argv.includes('--bake');
+process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm' && a !== '--bake');
 // `--render <rust|js|none>`: the JS target's pages at build (host/web-js/build.mjs).
 const renderFlag = process.argv.indexOf('--render');
 const render = renderFlag < 0 ? [] : process.argv.splice(renderFlag, 2);
 const app = resolveApp(process.argv[2]);
-if (target !== '--wasm') {
+// A game's web build is the wasm target (Charlie, 2026-09-29: "Game runtime
+// is fine to be on wasm"; LLP 1071 §8). For an app the JS target is the web
+// build, and what it refuses is an error; `--wasm` is internal (below).
+const game = app.manifest.game !== undefined;
+if (target !== '--wasm' && !game && !bakeOnly) {
   // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
   const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   if (js.status === 0) {
@@ -48,8 +58,8 @@ if (target !== '--wasm') {
     process.exit(0);
   }
   const reason = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('\n');
-  if (target === '--js') { console.error(`${reason}\nthe JS target refused ${app.name} (--js)`); process.exit(1); }
-  console.error(`${reason}\n${app.name}: the JS target refused it; building the wasm target`);
+  console.error(`${reason}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
+  process.exit(1);
 }
 const crate = app.crate('web');
 const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
@@ -76,7 +86,7 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // whole, as does a machine whose binaryen isn't the pinned one.
 const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv});
+const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly});
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
 // dist, so a server sees the previous app or the next one, never a mixture;
@@ -104,9 +114,10 @@ const out = resolve(stage, 'app.wasm');
 // wraps below zero. Rust's pointers never wrap, and nothing lives there:
 // the stack is first in memory and grows down from 1 MiB, so it reaches
 // below 1024 only in its last KiB (2026-09-28: 0.7–1.4 KiB brotli).
+let optNote = 'none (--bake)';
+if (!bakeOnly) {
 const named = resolve(stage, 'app.named.wasm');
 const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--low-memory-unused', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
-let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = `wasm-opt not on PATH (binaryen: brew install binaryen, or ${BINARYEN_DOWNLOAD}): shipped unoptimized`; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
 else if (unsplit) optNote = `wasm-opt -Oz; unsplit: ${unsplit}`;
@@ -116,6 +127,7 @@ else {
   for (const [path, bytes] of split.files) { mkdirSync(resolve(stage, path, '..'), { recursive: true }); writeFileSync(resolve(stage, path), bytes); }
   rmSync(named);
   optNote = `wasm-opt -Oz; the core, with stages: ${split.report.join('; ')}`;
+}
 }
 
 // The app's static files ride beside the page: `assets/…` images and an
@@ -150,10 +162,11 @@ function copyHostFiles(group) {
     writeFileSync(resolve(stage, name), result.code);
   }
 }
-copyHostFiles('base');
+if (!bakeOnly) copyHostFiles('base');
 // The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
 // own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
 const webEnv = webToolchainEnv(buildEnv);
+if (!bakeOnly) {
 const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
 if (editor.status !== 0) process.exit(editor.status ?? 1);
 const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
@@ -166,6 +179,7 @@ if (flow.status !== 0) process.exit(flow.status ?? 1);
 const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
 const flowWasm = resolve(stage, 'textflow.wasm');
 if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', flowWasm, flowBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(flowBuilt, flowWasm);
+}
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -173,31 +187,38 @@ if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-
 // GETs the page URL, follows index.html's link to exact.json, and fetches this
 // app.plan; a browser never notices. Header offsets are the generated
 // encoder's fixed little-endian layout.
+// `--bake` reads the same bytes from the bake's own output.
 const planOut = resolve(stage, 'app.plan');
-const wasm = readFileSync(out);
+let wasm = null, exports = {}, planBytes;
+if (bakeOnly) planBytes = readFileSync(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.plan'));
+else {
+wasm = readFileSync(out);
 const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
 const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted } });
-const exports = instance.exports;
+exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');
 }
 const planLen = exports.exact_plan();
 const planPtr = exports.exact_out();
-const planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen));
+planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen));
+}
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
 let pairedModule = null;
 // A module client's build script emits paired artifacts beside its receipt.
 // Extract the exact embedded receipt/JS rather than rebaking moving sources.
 // Native bytecode is a separate download: it never executes in the browser.
-if (typeof exports.exact_module_artifact === 'function') {
+// `--bake` reads them from the build script's output, which the wasm embeds.
+const moduleInput = buildReceipt.binary.inputs.find(input => input.name === `generated:${crate}:wasm32-unknown-unknown/app.module.json`);
+if (bakeOnly ? !!moduleInput : typeof exports.exact_module_artifact === 'function') {
   const files = new Map([['app.plan', planBytes]]);
   for (const [index, name] of ['app.module.json', 'app.js'].entries()) {
-    const len = exports.exact_module_artifact(index);
-    const body = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), len));
+    // The length first: the call can grow memory, detaching an earlier view of it.
+    const len = bakeOnly ? 0 : exports.exact_module_artifact(index);
+    const body = bakeOnly ? readFileSync(resolve(moduleInput.path, '..', name)) : Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), len));
     files.set(name, body); writeFileSync(resolve(stage, name), body);
   }
-  const moduleInput = buildReceipt.binary.inputs.find(input => input.name === `generated:${crate}:wasm32-unknown-unknown/app.module.json`);
   if (!moduleInput) throw new Error('the build receipt does not name the paired module output');
   const bytecode = readFileSync(resolve(moduleInput.path, '..', 'app.hbc'));
   files.set('app.hbc', bytecode);
@@ -214,11 +235,13 @@ if (typeof exports.exact_module_artifact === 'function') {
   try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
   finally { await bundle.close(); }
 }
-if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
-const compatLen = exports.exact_compat();
-const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
-if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
+if (!bakeOnly) {
+  if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
+  const compatLen = exports.exact_compat();
+  const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
+  if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
+}
 // Storage is an app capability, including apps whose only logic is Rust.
 if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
   copyHostFiles('storage');
@@ -303,10 +326,12 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
 // browser keeps the build as the dictionary the render server sends the next
 // one against (`--generations`). The file keeps its name, and the glue stays
 // the same across builds: a deploy that changes only the wasm leaves it cached.
-const wasmUrl = `./app.wasm?v=${createHash('sha256').update(readFileSync(out)).digest('hex').slice(0, 16)}`;
-const shellText = readFileSync(resolve(stage, 'index.html'), 'utf8');
-if (!shellText.includes('href="./app.wasm"')) throw new Error('index.html no longer preloads ./app.wasm');
-writeFileSync(resolve(stage, 'index.html'), shellText.replace('href="./app.wasm"', `href="${wasmUrl}"`));
+if (!bakeOnly) {
+  const wasmUrl = `./app.wasm?v=${createHash('sha256').update(readFileSync(out)).digest('hex').slice(0, 16)}`;
+  const shellText = readFileSync(resolve(stage, 'index.html'), 'utf8');
+  if (!shellText.includes('href="./app.wasm"')) throw new Error('index.html no longer preloads ./app.wasm');
+  writeFileSync(resolve(stage, 'index.html'), shellText.replace('href="./app.wasm"', `href="${wasmUrl}"`));
+}
 // Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
 // `render=build`, rendered by the app's native render entry (`<app>-render`,
 // exact_render::main; looked up in its Linux crate beside its native data
@@ -324,8 +349,9 @@ const renderAt = [['linux', app.crate('linux')], ['web', crate]]
 const renderCrate = renderAt?.[1];
 // Pay for what you use: an app that renders nothing at build builds and runs
 // no render entry (the wasm says which locations it renders, from its plan).
+// `--bake` has no wasm to ask: the entry, where there is one, renders what the plan declares.
 const locationsLen = typeof exports.exact_build_locations === 'function' ? exports.exact_build_locations() : null;
-const buildLocations = locationsLen === null ? [] : JSON.parse(Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), locationsLen)).toString('utf8'));
+const buildLocations = bakeOnly ? (renderAt ? ['the plan\'s'] : []) : locationsLen === null ? [] : JSON.parse(Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), locationsLen)).toString('utf8'));
 if (buildLocations.error) throw new Error(`the plan's render=build routes: ${buildLocations.error}`);
 let documentNote = buildLocations.length ? `${buildLocations.length} declared, but no ${renderBin} entry in ${app.crate('linux')} or ${crate}` : 'none declared';
 if (buildLocations.length && renderAt) {
@@ -396,7 +422,7 @@ if (authReach.sessions) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 // Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
 // the first time a canvas of one of its surfaces mounts.
-const gpu = webGpuArtifacts(app, stage);
+const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage);
 let gpuNote = gpu.note;
 if (gpu.built) {
   copyHostFiles('gpu');
@@ -435,6 +461,7 @@ try {
   throw error;
 }
 rmSync(previous, { recursive: true, force: true });
+if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
 console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}${authNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);

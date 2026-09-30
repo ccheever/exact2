@@ -28,7 +28,7 @@ const glue = () => Glue ??= import(new URL('picker-glue.js', document.baseURI).h
     if (!el) return;
     if (kind === 26) el.dispatchEvent(new CustomEvent('exact-picked', { detail: payload }));
     else if (kind === 27) el.dispatchEvent(new Event('cancel'));
-    else { el.value = payload; el.dispatchEvent(new Event('change')); }
+    else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
 }));
 const counted = p => { inflight.n++; return Promise.resolve(p).finally(() => inflight.n--); };
@@ -160,7 +160,9 @@ Hosts.share = (title, text, url) => {
   const refuse = why => say(`share: refused: ${why}`);
   if (text == null && url == null) return refuse('needs text= or url=');
   if (url != null && !/^https?:\/\/[^/?#\s]\S*$/i.test(url)) return refuse('url is not an absolute http: or https: URL');
-  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, anchor: null }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
+  // The pressed node anchors the sheet (the press's own event, in whose commit commands run).
+  const source = globalThis.event?.currentTarget, anchor = source instanceof Element ? viewId(source) : null;
+  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
   if (typeof navigator.share !== 'function') return refuse('unavailable');
   navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
     .then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`).then(say);
@@ -176,7 +178,7 @@ const docs = () => Docs ??= import(new URL('documents-glue.js', document.baseURI
     const el = Views.get(view);
     if (!el) return;
     if (kind === 27) el.dispatchEvent(new Event('cancel'));
-    else { el.value = payload; el.dispatchEvent(new Event('change')); }
+    else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
 }));
 const PICKERS = { showOpenFilePicker: ['open-file', 'showOpenFilePicker takes (id) or (id, multiple)'], showDirectoryPicker: ['open-directory', 'showDirectoryPicker takes (id)'], showSaveFilePicker: ['save-file', 'showSaveFilePicker takes (id, suggestedName)'] };

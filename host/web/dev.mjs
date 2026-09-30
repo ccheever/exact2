@@ -49,19 +49,23 @@ const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXAC
 let app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const lan = argv.includes('--lan');
-const host = lan ? '0.0.0.0' : '127.0.0.1';
+// `--serve-as <port>` (internal): the resident loop's producers behind the
+// JS loop on that port (host/web-js/dev.mjs forwards a native client's
+// requests here): its names are that port's, and it listens on loopback.
+const servedAs = arg('--serve-as', null) == null ? null : Number(arg('--serve-as'));
+const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
 // The addresses printed at startup are the only names requests may use.
-const origins = installBrowserOrigins({ host, port });
-const gate = developmentGate(origins, port);
+const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
+const gate = developmentGate(origins, servedAs ?? port);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
-// The JS target (LLP 1071) when it takes the app: the runtime the app ships,
-// rebuilt and reloaded on an edit (host/web-js/dev.mjs). `--wasm`, or a
-// refusal, runs the resident wasm loop below.
-if (!argv.includes('--wasm')) {
-  const refused = await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
-  console.error(`${refused}\n${app.name}: the JS target refused it; the wasm dev loop`);
+// The JS target (LLP 1071): the runtime the app ships, rebuilt and reloaded
+// on an edit (host/web-js/dev.mjs); a build it refuses shows in the page.
+// A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
+// native client opening the dev URL reads), run the resident wasm loop below.
+if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
 }
 let typescript = existsSync(resolve(app.dir, 'app.ts'));
 let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';

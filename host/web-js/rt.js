@@ -695,8 +695,10 @@ export function on(e, kind, f) {
     // A link with a press is the app's navigation: the browser's is prevented.
     case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
     // A checkbox's value is whether it is checked; the platform flips the
-    // box at once, and an action that refuses snaps it back (glue.js).
-    case "change": case "input": return l(kind, () => { if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
+    // box at once, and an action that refuses snaps it back (glue.js). A
+    // host's change carries its own text (files.js: a picker's lines, which
+    // an input's value would flatten).
+    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => f(ev.key));
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });

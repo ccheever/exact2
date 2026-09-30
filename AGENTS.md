@@ -53,17 +53,18 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
   one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
 - The web build, `bun host/web/build.mjs <app>`, makes the JS target (LLP 1071: the
-  plan compiled to one ES module over a ~20 KB runtime, `host/web-js`) when the app
-  qualifies, else the wasm target, printing what the JS target refused; `--js` or
-  `--wasm` forces one. The dev loop, the agent's web host, the smoke's app drive and
+  plan compiled to one ES module over a ~20 KB runtime, `host/web-js`); what it refuses
+  fails the build. A game builds the wasm target (LLP 1071 §8), and `--wasm` is the
+  internal flag for the uses below. The dev loop, the agent's web host, the smoke's app drive and
   metrics run what the build makes: on the JS target an edit rebuilds and reloads the
-  page (~0.1 s, no state carried); `dev.mjs --wasm` is the resident loop, and the one a
-  native client opening the dev URL needs. Delivery bakes `--wasm` for the native
-  streams and publishes the JS build of that bake's plan as the web root; the bare-plan
-  fixtures, the parity smokes and conformance's oracle stay `--wasm` (LLP 1071 §7, "The tools").
-- The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
-  restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
-  and the page reloads. `bun scripts/metrics.mjs` prints every number
+  page (~0.1 s, no state carried); a native client opening the dev URL is forwarded to
+  the resident loop's producers (`dev.mjs --wasm`, started at its first request).
+  Delivery bakes the web crate without its wasm for the native streams and publishes
+  the JS build of that bake's plan as the web root; the smoke's bare-plan fixtures and
+  conformance's oracle stay `--wasm` (LLP 1071 §7, "Retiring the wasm target on the web").
+- The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract` or its data
+  crate, the page rebuilds and reloads (`--wasm`: the resident loop restarts the plan in
+  place in ~20 ms). `bun scripts/metrics.mjs` prints every number
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);

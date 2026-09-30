@@ -5,7 +5,7 @@
 **Systems:**
 - Contract: a second backend, from the validated plan to JavaScript (`host/web-js`, crate `exact-web-js`).
 - Web host: a JavaScript runtime beside `exact-web` (`host/web-js/rt.js`); the glue, capture and adoption.
-- Build: `host/web/build.mjs` builds the JS target by default and falls back to wasm with the refusal named (`--js`/`--wasm` force one); a build-time stylesheet from `css.rs`. The dev loop, the agent's web host, the smoke and metrics run what it makes (§7, "The tools").
+- Build: `host/web/build.mjs` builds the JS target, and what it refuses fails the build (a game builds wasm, §8; `--wasm` is internal); a build-time stylesheet from `css.rs`. The dev loop, the agent's web host, the smoke and metrics run what it makes (§7, "The tools").
 - Render server (LLP 1048): unchanged as the producer of documents; the checkpoint gains instance state for D6.
 - Agent (LLP 1012): the nine operations over the JavaScript runtime, in a development module.
 - Native hosts: none.
@@ -295,8 +295,8 @@ grow one capability at a time.
 
 As landed, the backend and `host/web-js/build.mjs` refuse by name: a
 dynamic `virtualized`, a dynamic canvas bitmap size, the events and the
-dynamic rows in §7's table. `host/web/build.mjs` prints the refusal and
-builds the wasm target. RealWorld, the video player, completion-storm,
+dynamic rows in §7's table. `host/web/build.mjs` printed the refusal and
+built the wasm target; since 2026-09-29 the refusal fails the build. RealWorld, the video player, completion-storm,
 Motion Gallery, Typetour, Carousel, LLP, Markdown, auth-fixture, Sparkline,
 SVG Gallery, Spark, Messages, Messages Stress, Markdown Stress, Reflow and
 Text Flow build JS,
@@ -700,7 +700,7 @@ from (a) today.
 | | apps |
 |---|---|
 | every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4, Caltrain 12/12, Typetour 12/12, Carousel 16/16, Sparkline 4/4 and SVG Gallery 12/12 (since 2026-09-29, below); synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, composite 3/3, timers 3/3, lists 14/14 |
-| state, tree and layout equal; pixels differ | Motion Gallery (animated images) |
+| every step equal since animated images are held (2026-09-29, "Retiring…", step e) | Motion Gallery 4/4 |
 | every step equal, since the build gaps closed (2026-09-29, below) | Canvas Gallery 9/9, Update Lab 7/7, native-fixture 7/7, photo-editor 4/4, map-demo 5/5, recorder 3/3, Fieldnotes 10/10, Markdown 5/5 |
 | refused at build, by name | none in `apps/` |
 
@@ -727,7 +727,7 @@ content-named.
 
 | Tool | Target | How |
 |---|---|---|
-| Dev loop (`host/web/dev.mjs`) | JS when it takes the app | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 307 ms for Caltrain, whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Dev loop (`host/web/dev.mjs`) | JS (a refusal shows in the page) | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 307 ms for Caltrain, whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
 | Delivery (`scripts/deploy.mjs`) | the web root JS when it takes the app | the production wasm bake stays the streams' bundle and receipts; its baked plan compiled to JS (`--production`) is the web root (below, "Delivery on the web") |
 | Agent, web host (`scripts/agent.mjs web`) | what dist holds | a JS dist is served as a tree; the tree reply carries `roots`, the journal a `boot:` line |
 | Smoke (`smoke.mjs web`), the app drive and its tests | the default build | the staged-core check is the wasm's only |
@@ -1340,8 +1340,8 @@ client depends on is deleted before its replacement runs.
 
 | Surface | Today | After |
 |---|---|---|
-| `host/web/build.mjs <app>` | the JS target; wasm with the refusal printed | the JS target only (a game excepted, until its runtime has a web half); a refusal is an error naming the gap. `--wasm` leaves the usage text (done) and the README; it stays as an internal flag for the rows below |
-| `host/web/dev.mjs` | the JS loop; `--wasm` is the resident loop | the JS loop. A native client's live reload keeps the resident loop's producers (below) without its wasm page |
+| `host/web/build.mjs <app>` | the JS target; wasm with the refusal printed | the JS target only (landed); a refusal is an error naming the gap. A game builds wasm (ruled, §8). `--wasm` has left the usage text; it stays as an internal flag for the rows below |
+| `host/web/dev.mjs` | the JS loop; `--wasm` is the resident loop | the JS loop, a refusal shown in the page (landed). A native client's live reload keeps the resident loop's producers (below) without its wasm page |
 | `scripts/deploy.mjs` web root | the JS build of the bake's plan (landed) | unchanged |
 | `serve.mjs`, the agent's web host, the smoke's app drive, metrics | what the build makes | JS only |
 
@@ -1393,15 +1393,45 @@ client depends on is deleted before its replacement runs.
    JS target's per-capability bytes (its chunks) take the row.
 
 **Order.** (a) `reorderdrop` lands and the two apps build JS (landed);
-games build JS, or are declared the wasm target's until they do — the
-game runtime's web half is its own plan, not this one; (b) the build's
-fallback becomes an error for everything but a game and `--wasm` leaves the user-facing text;
-(c) delivery's bake without the wasm compile; (d) the resident producers
-beside the JS page; (e) the fixtures and router sweep as per-plan JS
-builds, and `motionparity` once animated images are carried; (f) the
-Linux-host state/tree oracle and pinned JS baselines in the lane; then (g)
-the wasm web host (`host/web/glue.js`, the web crate's wasm entry,
-`stages.mjs`) is deleted.
+games stay on the wasm target (ruled, §8). (b) The build's fallback becomes
+an error for everything but a game, and `--wasm` leaves the user-facing
+text (landed: `host/web/build.mjs`; the dev loop shows a refusal or a
+compile error in the page and builds again at the next edit). (c)
+Delivery's bake without the wasm compile (landed: `host/web/build.mjs
+--bake`, internal, runs `cargo check` on the web crate — its build script
+writes the baked plan, the receipt and a TypeScript module's artifacts, the
+receipt's inputs are the same dep-info — and writes the origin files as the
+wasm build does, with no `app.wasm`, glue or leaf wasm; `deploy.mjs` bakes
+`--bake` for an app and `--wasm` for a game; the JS root carries the files
+the envelope names, a TypeScript module's under `module/`, since the
+root's `app.js` is its runtime; RealWorld's bake 9 s against the wasm
+build's minutes cold). (d) The resident producers beside the JS page
+(landed: the JS loop forwards a native client's requests — the envelope,
+`/__dev` and its generations, `/__dev/open` — to the resident loop on a
+loopback port, `host/web/dev.mjs --wasm --serve-as <port>`, started at the
+first such request; the page's own reload stream is `/__dev/page`; an edit
+reaches both, the page rebuilt and generation 2 announced. The resident
+loop still makes its wasm page, internal and unserved; its producers
+without that build are the next cut). (e) The bare-plan fixtures as
+per-plan JS builds: `agent.mjs web --plan` on a JS dist builds that plan
+(`host/web-js/build.mjs --plan`, over the dist's Rust module) and serves
+it, and the share and document-picker fixtures pass that way. The smoke's
+fixtures still take the wasm build: on the JS target they need what the
+JS agent does not report yet (`layout <node>`'s detail, an iframe's
+outline and load state, a host section in `state`, the tree's
+accessibility props, gesture and key deliveries), the same gaps that fail
+the smoke's Caltrain drive on the JS target (QUEUE). The router sweep
+(`host/web/tests/navigation.mjs`) drives the wasm host's boot ABI and
+stays its test; the JS target's router is held by conformance's
+synthetic `router` plan, step by step against the runner. `motionparity`
+(landed): the JS agent holds animated images to its clock with the web
+host's own `image-glue.js`; JS and wasm captures of Motion Gallery at
+every parity time agree (105 of 105 crops in the band), conformance's
+Motion Gallery is 4/4, and `motionparity` takes the JS build. (f) The
+Linux-host state/tree oracle and pinned JS baselines in the lane; then
+(g) the wasm web host (`host/web/glue.js`, the web crate's wasm entry,
+`stages.mjs`) is deleted from everything but games and conformance's
+reference, which it stays for until (f).
 
 **The rest of the dynamic rows** (landed 2026-09-29, measured; brotli):
 every dynamic style row is now carried (rows.rs). `box-shadow` is one
@@ -1498,6 +1528,10 @@ reports no `value`), and an option is `Text`.
   runs in the async lane (`conform.mjs --strict`), since RULES keeps the five
   blocking checks under a minute and this run takes minutes and a network.
   Questions 1, 2 and 6 below are answered by this ruling.
+- *Games* (Charlie, 2026-09-29, relayed): "Game runtime is fine to be on
+  wasm." A game (`game/games`, LLP 1046) builds the wasm target on the web;
+  for an app, what the JS target refuses fails the build (§7, "Retiring the
+  wasm target on the web", step b).
 
 **Open.**
 

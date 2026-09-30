@@ -539,8 +539,8 @@ export function deployRun(target, release) {
  * (`host/web-js/build.mjs --production`), carrying the bake's origin files,
  * so the root and every stream's bundle share one plan. The bake stays what
  * the streams publish; the web needs no update client, since a fresh load
- * of the atomic root is current. Returns the directory, or null with the
- * refusal logged (the wasm bake is then the root). */
+ * of the atomic root is current. Returns the directory; a JS build that
+ * fails refuses the deploy, as the app's web build does. */
 function bakeJs(app, run, web, exactRoot, sourceRoot) {
   const out = resolve(run, 'web-js');
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_APP_DIR: app.dir });
@@ -548,10 +548,8 @@ function bakeJs(app, run, web, exactRoot, sourceRoot) {
     cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   if (r.status === 0) { process.stderr.write(`web root: the JS target (${out})\n`); return out; }
-  rmSync(out, { recursive: true, force: true });
   const reason = `${r.stderr ?? ''}`.trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('; ');
-  process.stderr.write(`web root: the wasm target; the JS target refused ${app.name}: ${reason}\n`);
-  return null;
+  refuse(`the web root's JS build failed: ${reason}`);
 }
 
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
@@ -561,7 +559,10 @@ function bake(app, run, exactRoot, sourceRoot) {
   const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
   if (app.workspace === exactRoot) delete env.EXACT_APP_DIR;
   else env.EXACT_APP_DIR = app.dir;
-  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web'), '--wasm'], {
+  // An app's bake needs no wasm (`--bake`: the build script's outputs and the
+  // origin files; its web root is the JS build, below); a game's web root
+  // is the wasm build (LLP 1071 §8).
+  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web'), app.manifest.game === undefined ? '--bake' : '--wasm'], {
     cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   if (r.stdout) process.stderr.write(r.stdout);
@@ -1228,7 +1229,7 @@ async function deployCaptured(opts, capsule) {
 
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);
-  const webRoot = wantOrigin ? bakeJs(app, run, web, exactRoot, sourceRoot) ?? web : web;
+  const webRoot = wantOrigin && app.manifest.game === undefined ? bakeJs(app, run, web, exactRoot, sourceRoot) : web;
   const bundle = readBundle(web, app);
   const builds = {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(run,'bake')}).find(r=>r.compat.inputs.platform==='web')};
   if(!builds.web)refuse('the web build emitted no completed graph receipt');

@@ -115,6 +115,8 @@ for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js'
 for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
+// Animated images on the agent's clock, the web host's own (agent.js only).
+cpSync(resolve(root, 'host/web/image-glue.js'), resolve(gen, 'image-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 // A TypeScript app whose web build script does more than bake it (Messages
 // compiles its schema and copies its device into files its TypeScript
@@ -208,7 +210,21 @@ if (production) {
   const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest|icon)"|meta name="theme-color")[^>]*>$/gm) ?? [];
   writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)
     .replace('<html lang="en">', readFileSync(resolve(bake, 'index.html'), 'utf8').match(/<html lang="[^"]*">/)?.[0] ?? '<html lang="en">'));
-  for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
+  for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact', 'rust']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
+  // What the envelope names beside the plan and assets, for a native client
+  // following the page's link (LLP 1023 D1): the Rust module's files (above,
+  // the bytes this page loads) and a TypeScript module's, under `module/`,
+  // since this root's `app.js` is its runtime.
+  const envelope = existsSync(resolve(bake, 'exact.json')) && JSON.parse(readFileSync(resolve(bake, 'exact.json'), 'utf8'));
+  if (envelope?.module) {
+    mkdirSync(resolve(out, 'module'), { recursive: true });
+    for (const card of Object.values(envelope.module)) {
+      const name = card.url.replace(/^\.\//, '');
+      cpSync(resolve(bake, name), resolve(out, 'module', name));
+      card.url = `./module/${name}`;
+    }
+    writeFileSync(resolve(out, 'exact.json'), JSON.stringify(envelope) + '\n');
+  }
 }
 // The web's auth callback page (host/web/build.mjs does the same for the wasm target).
 if (auth) {

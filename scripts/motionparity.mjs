@@ -1,6 +1,6 @@
 // The motion parity smoke (LLP 1011.000, LLP 1055 D7): `apps/motion-gallery`
 // on each native host against Chrome's at fixed clock times. Chrome (the web
-// host in agent mode) is the reference: its animated images are its own
+// build, the JS target, in agent mode) is the reference: its animated images are its own
 // decoder's frames placed by Chrome's schedule (host/web/image-glue.js), and
 // its keyframes are the browser's own, seeked. Each `fx-*` box is cropped by
 // its host's layout at one pixel per point, registered within ±2 px, and
@@ -24,10 +24,11 @@ const IMAGES = /^fx-(gif|once|zero|large|webp|alpha|round)$/;
 const UNSUPPORTED = { linux: IMAGES };
 
 function webBuild() {
-  const dist = resolve(ROOT, 'target/web-dist/motion-gallery');
+  const dist = resolve(ROOT, 'target/web-dist-js/motion-gallery');
   if (process.env.EXACT_MOTION_REBUILD === '1' || !existsSync(resolve(dist, '.exact-build.json'))) {
     mkdirSync(dirname(dist), { recursive: true });
-    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'motion-gallery-web', '--wasm'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
+    // The web the app ships (LLP 1071): the JS target, its animated images held by the web host's own image-glue.js.
+    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'motion-gallery-web', '--js'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
     if (b.status !== 0) throw new Error('the motion-gallery web build failed');
   }
   return dist;
