@@ -1,6 +1,6 @@
 //! Portable SQLite continuations. Layout queries never enter this module.
 
-use crate::{dates, model, number, text, whole, Calendar, Schedule, Todo};
+use crate::{dates, model, number, text, whole, Calendar, Schedule};
 use exact_data::storage;
 use exact_plan::Value;
 use exact_runner::{Answer, Outcome};
@@ -9,13 +9,11 @@ use std::collections::BTreeMap;
 
 const PATH: &str = "app:/data/calendar.db";
 const PAGE: usize = 256;
-const SUMMARY: &str = "SELECT id,title,color,all_day,start_day,end_day,start_minute,end_minute,kind FROM schedules WHERE id > ? ORDER BY id LIMIT 256";
-const TODOS: &str =
-    "SELECT id,title,color,created_at,completed_at FROM todos WHERE id > ? ORDER BY id LIMIT 256";
+const SUMMARY: &str = "SELECT id,title,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed FROM schedules WHERE id > ? ORDER BY id LIMIT 256";
 const STICKERS: &str = "SELECT day,sticker_id FROM stickers WHERE day > ? ORDER BY day LIMIT 256";
 const REVISION: &str = "SELECT value FROM calendar_meta WHERE key='revision'";
 const VERIFY: &str = "SELECT (SELECT value FROM calendar_meta WHERE key='revision'),COALESCE((SELECT value FROM calendar_meta WHERE key='theme'),0)";
-const INSERT: &str = "INSERT INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,notes=excluded.notes,color=excluded.color,all_day=excluded.all_day,start_day=excluded.start_day,end_day=excluded.end_day,start_minute=excluded.start_minute,end_minute=excluded.end_minute,kind=excluded.kind";
+const INSERT: &str = "INSERT INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,notes=excluded.notes,color=excluded.color,all_day=excluded.all_day,start_day=excluded.start_day,end_day=excluded.end_day,start_minute=excluded.start_minute,end_minute=excluded.end_minute,kind=excluded.kind,completed=excluded.completed";
 
 pub(crate) enum AfterLoad {
     Library,
@@ -26,8 +24,9 @@ pub(crate) enum AfterLoad {
 enum LoadStep {
     Schema,
     Initialized,
+    ReviewSamples,
+    Upgraded,
     Schedules,
-    Todos,
     Stickers,
     Verify,
 }
@@ -38,8 +37,8 @@ pub(crate) struct Load {
     step: LoadStep,
     today: i32,
     revision: Option<u64>,
+    sample_version: i64,
     events: BTreeMap<String, Schedule>,
-    todos: BTreeMap<String, Todo>,
     stickers: BTreeMap<i32, String>,
     restarts: u8,
 }
@@ -56,19 +55,9 @@ enum Edit {
         id: String,
         day: i32,
     },
-    SaveTodo {
-        todo: Todo,
-        create: bool,
-    },
     CompleteTodo {
         id: String,
         completed: bool,
-        at: i64,
-    },
-    DeleteTodo(String),
-    ScheduleTodo {
-        id: String,
-        day: i32,
     },
     Sticker {
         day: i32,
@@ -97,7 +86,6 @@ struct Recovery {
 
 enum Change {
     Schedule { id: String, event: Option<Schedule> },
-    Todo { id: String, todo: Option<Todo> },
     Sticker { day: i32, sticker: Option<String> },
     Theme(u8),
 }
@@ -150,23 +138,41 @@ fn revision(reply: &Json) -> Result<u64, String> {
         .ok_or_else(|| "Invalid calendar revision in storage.".into())
 }
 
-fn schema(reply: &Json) -> Result<(bool, bool), String> {
+struct Schema {
+    exists: bool,
+    kind: bool,
+    completed: bool,
+    todos: bool,
+    current: bool,
+    version: i64,
+}
+
+fn schema(reply: &Json) -> Result<Schema, String> {
     let columns = reply[0]["rows"]
         .as_array()
         .ok_or("Invalid calendar schema response.")?;
     let tables = rows(reply)?;
     let has_table = |name: &str| tables.iter().any(|row| row[0].as_str() == Some(name));
-    let schedules = !columns.is_empty();
-    if (schedules && (!has_table("calendar_meta") || !has_table("calendar_operations")))
-        || (!schedules && !tables.is_empty())
+    let exists = !columns.is_empty();
+    if (exists && (!has_table("calendar_meta") || !has_table("calendar_operations")))
+        || (!exists && !tables.is_empty())
     {
         return Err("The calendar database is incomplete.".into());
     }
     let kind = columns.iter().any(|row| row[1].as_str() == Some("kind"));
-    Ok((
-        schedules && kind && has_table("todos") && has_table("stickers"),
-        schedules && !kind,
-    ))
+    let completed = columns
+        .iter()
+        .any(|row| row[1].as_str() == Some("completed"));
+    let todos = has_table("todos");
+    let version = model::integer(&reply[1]["rows"][0][0])?;
+    Ok(Schema {
+        exists,
+        kind,
+        completed,
+        todos,
+        current: exists && kind && completed && !todos && has_table("stickers") && version == 5,
+        version,
+    })
 }
 
 fn sticker(row: &Json) -> Result<(i32, String), String> {
@@ -213,8 +219,8 @@ impl Calendar {
             step: LoadStep::Schema,
             today,
             revision: None,
+            sample_version: 0,
             events: BTreeMap::new(),
-            todos: BTreeMap::new(),
             stickers: BTreeMap::new(),
             restarts: 0,
         };
@@ -232,6 +238,7 @@ impl Calendar {
             false,
             vec![
                 query("PRAGMA table_info(schedules)", json!([])),
+                query("PRAGMA user_version", json!([])),
                 query("SELECT name FROM sqlite_schema WHERE type='table' AND name IN ('calendar_meta','calendar_operations','todos','stickers')", json!([])),
             ],
         )
@@ -243,13 +250,6 @@ impl Calendar {
                 SUMMARY,
                 json!([load
                     .events
-                    .last_key_value()
-                    .map_or("", |(id, _)| id.as_str())]),
-            ),
-            LoadStep::Todos => query(
-                TODOS,
-                json!([load
-                    .todos
                     .last_key_value()
                     .map_or("", |(id, _)| id.as_str())]),
             ),
@@ -267,30 +267,133 @@ impl Calendar {
         sql(false, vec![query(REVISION, json!([])), command])
     }
 
-    fn initialize(&mut self, mut load: Load, add_kind: bool) -> Answer {
+    fn initialize(&mut self, mut load: Load, schema: Schema) -> Answer {
+        load.sample_version = schema.version;
         let mut commands = vec![
-            execute("CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY NOT NULL,title TEXT NOT NULL,notes TEXT NOT NULL,color TEXT NOT NULL,all_day INTEGER NOT NULL,start_day INTEGER NOT NULL,end_day INTEGER NOT NULL,start_minute INTEGER NOT NULL,end_minute INTEGER NOT NULL,kind TEXT NOT NULL DEFAULT 'event')", json!([])),
+            execute("CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY NOT NULL,title TEXT NOT NULL,notes TEXT NOT NULL,color TEXT NOT NULL,all_day INTEGER NOT NULL,start_day INTEGER NOT NULL,end_day INTEGER NOT NULL,start_minute INTEGER NOT NULL,end_minute INTEGER NOT NULL,kind TEXT NOT NULL DEFAULT 'event',completed INTEGER NOT NULL DEFAULT 0)", json!([])),
             execute("CREATE TABLE IF NOT EXISTS calendar_meta (key TEXT PRIMARY KEY NOT NULL,value INTEGER NOT NULL)", json!([])),
             execute("CREATE TABLE IF NOT EXISTS calendar_operations (token TEXT PRIMARY KEY NOT NULL,fingerprint TEXT NOT NULL,revision INTEGER NOT NULL,event_id TEXT NOT NULL,day INTEGER NOT NULL)", json!([])),
-            execute("CREATE TABLE IF NOT EXISTS todos (id TEXT PRIMARY KEY NOT NULL,title TEXT NOT NULL,color TEXT NOT NULL,created_at INTEGER NOT NULL,completed_at INTEGER NOT NULL DEFAULT 0)", json!([])),
             execute("CREATE TABLE IF NOT EXISTS stickers (day INTEGER PRIMARY KEY NOT NULL,sticker_id TEXT NOT NULL)", json!([])),
         ];
-        if add_kind {
+        if schema.exists && !schema.kind {
             commands.push(execute(
                 "ALTER TABLE schedules ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'",
                 json!([]),
             ));
         }
+        if schema.exists && !schema.completed {
+            commands.push(execute(
+                "ALTER TABLE schedules ADD COLUMN completed INTEGER NOT NULL DEFAULT 0",
+                json!([]),
+            ));
+        }
+        if schema.todos {
+            // An undated item's creation time supplies its local date. Invalid or
+            // out-of-range timestamps fall back to the reported launch date.
+            let first = dates::month_first(dates::FIRST_MONTH);
+            let last = dates::month_first(dates::LAST_MONTH + 1) - 1;
+            commands.push(execute("WITH dated AS (SELECT *,CAST((created_at+?*60000-CASE WHEN created_at+?*60000<0 THEN 86399999 ELSE 0 END)/86400000 AS INTEGER) AS local_day FROM todos),converted AS (SELECT *,CASE WHEN created_at>0 AND local_day BETWEEN ? AND ? THEN local_day ELSE ? END AS day FROM dated) INSERT INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed) SELECT id,title,'',color,1,day,day,0,0,'todo',CASE WHEN completed_at>0 THEN 1 ELSE 0 END FROM converted", json!([self.utc_offset,self.utc_offset,first,last,load.today])));
+            commands.push(execute("UPDATE calendar_meta SET value=value+1 WHERE key='revision' AND EXISTS(SELECT 1 FROM todos)", json!([])));
+            commands.push(execute("DROP TABLE todos", json!([])));
+        }
         for (event, notes) in model::samples(load.today) {
-            commands.push(execute("INSERT OR IGNORE INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM calendar_meta WHERE key='seeded')", event.params(&notes)));
+            commands.push(execute("INSERT OR IGNORE INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM calendar_meta WHERE key='seeded')", event.params(&notes)));
+        }
+        for (day, sticker) in model::sample_stickers(load.today) {
+            commands.push(execute("INSERT OR IGNORE INTO stickers(day,sticker_id) SELECT ?,? WHERE NOT EXISTS (SELECT 1 FROM calendar_meta WHERE key='seeded')", json!([day,sticker])));
         }
         commands.push(execute(
             "INSERT OR IGNORE INTO calendar_meta VALUES('seeded',1),('revision',1)",
             json!([]),
         ));
-        load.step = LoadStep::Initialized;
+        if schema.exists {
+            load.step = LoadStep::Initialized;
+        } else {
+            commands.push(execute("PRAGMA user_version=5", json!([])));
+            load.step = LoadStep::Upgraded;
+        }
         self.load = Some(load);
         sql(true, commands)
+    }
+
+    fn refresh_samples(&mut self, mut load: Load, reply: &Json) -> Result<Answer, String> {
+        let replies = reply
+            .as_array()
+            .ok_or("Invalid calendar initialization response.")?;
+        let current = model::integer(&replies[replies.len().saturating_sub(2)]["rows"][0][0])?;
+        let mut unchanged = BTreeMap::new();
+        let mut original_ids = std::collections::BTreeSet::new();
+        for row in rows(reply)? {
+            let Some(id) = row[0].as_str() else { continue };
+            let Some(date) = id.strip_prefix("sample-").and_then(|tail| tail.get(..7)) else {
+                continue;
+            };
+            let Ok(day) = dates::parse_date(&format!("{date}-01")) else {
+                continue;
+            };
+            let originals = model::original_samples(day);
+            let previous = model::previous_samples(day);
+            let previous_v4 = model::previous_samples_v4(day);
+            if load.sample_version >= 2 {
+                original_ids.extend(previous.iter().map(|(event, _)| event.id.clone()));
+            } else if originals.iter().any(|(event, _)| event.id == id) {
+                original_ids.extend(originals.iter().map(|(event, _)| event.id.clone()));
+            }
+            if originals
+                .iter()
+                .chain(previous.iter())
+                .chain(previous_v4.iter())
+                .any(|(original, notes)| {
+                    let expected = original.params(notes);
+                    expected
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .enumerate()
+                        .all(|(index, expected)| {
+                            if let Some(text) = expected.as_str() {
+                                row[index].as_str() == Some(text)
+                            } else {
+                                model::integer(&row[index]).ok() == expected.as_i64()
+                            }
+                        })
+                })
+            {
+                unchanged.insert(id.to_owned(), ());
+            }
+        }
+        let ranged_todos = model::integer(&replies[0]["rows"][0][1])? != 0;
+        let revision = current + i64::from(!unchanged.is_empty() || ranged_todos);
+        let mut commands = vec![execute("UPDATE calendar_meta SET value=CASE WHEN value=? THEN ? ELSE NULL END WHERE key='revision'", json!([current,revision]))];
+        if !unchanged.is_empty() {
+            for id in unchanged.keys() {
+                commands.push(execute("DELETE FROM schedules WHERE id=?", json!([id])));
+            }
+            for (event, notes) in model::samples(load.today) {
+                // A deleted original stays deleted; a modified original wins its
+                // existing ID. New trip examples fill only previously unused IDs.
+                if original_ids.contains(&event.id) && !unchanged.contains_key(&event.id) {
+                    continue;
+                }
+                commands.push(execute("INSERT OR IGNORE INTO schedules(id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed) VALUES(?,?,?,?,?,?,?,?,?,?,?)", event.params(&notes)));
+            }
+        }
+        if !unchanged.is_empty() {
+            for (day, sticker) in model::sample_stickers(load.today) {
+                commands.push(execute(
+                    "INSERT OR IGNORE INTO stickers(day,sticker_id) VALUES(?,?)",
+                    json!([day, sticker]),
+                ));
+            }
+        }
+        commands.push(execute(
+            "UPDATE schedules SET end_day=start_day WHERE kind='todo' AND end_day<>start_day",
+            json!([]),
+        ));
+        commands.push(execute("PRAGMA user_version=5", json!([])));
+        load.step = LoadStep::Upgraded;
+        self.load = Some(load);
+        Ok(sql(true, commands))
     }
 
     fn failed_load(&self, after: AfterLoad, message: &str) -> Answer {
@@ -314,7 +417,6 @@ impl Calendar {
             );
         }
         load.events.clear();
-        load.todos.clear();
         load.stickers.clear();
         load.revision = None;
         load.restarts += 1;
@@ -329,7 +431,10 @@ impl Calendar {
             Ok(reply) => reply,
             // Another app window may have added the column after our probe.
             // Re-read the schema after a rolled-back transaction; never reset it.
-            Err(_) if load.step == LoadStep::Initialized && load.restarts < 2 => {
+            Err(_)
+                if matches!(load.step, LoadStep::Initialized | LoadStep::Upgraded)
+                    && load.restarts < 2 =>
+            {
                 load.restarts += 1;
                 return self.probe_schema(load);
             }
@@ -337,12 +442,21 @@ impl Calendar {
         };
         match load.step {
             LoadStep::Schema => match schema(&reply) {
-                Ok((true, _)) => self.load_page(load, LoadStep::Schedules),
-                Ok((false, add_kind)) => self.initialize(load, add_kind),
+                Ok(schema) if schema.current => self.load_page(load, LoadStep::Schedules),
+                Ok(schema) => self.initialize(load, schema),
                 Err(message) => self.failed_load(load.after, &message),
             },
-            LoadStep::Initialized => self.load_page(load, LoadStep::Schedules),
-            LoadStep::Schedules | LoadStep::Todos | LoadStep::Stickers => {
+            LoadStep::Initialized => {
+                load.step = LoadStep::ReviewSamples;
+                self.load = Some(load);
+                sql(false, vec![query("SELECT value,EXISTS(SELECT 1 FROM schedules WHERE kind='todo' AND end_day<>start_day) FROM calendar_meta WHERE key='revision'", json!([])), query("SELECT id,title,notes,color,all_day,start_day,end_day,start_minute,end_minute,kind,completed FROM schedules WHERE id LIKE 'sample-%'", json!([]))])
+            }
+            LoadStep::ReviewSamples => match self.refresh_samples(load, &reply) {
+                Ok(answer) => answer,
+                Err(message) => Answer::Now(self.library(&message)),
+            },
+            LoadStep::Upgraded => self.load_page(load, LoadStep::Schedules),
+            LoadStep::Schedules | LoadStep::Stickers => {
                 let page =
                     revision(&reply).and_then(|revision| rows(&reply).map(|rows| (revision, rows)));
                 let (revision, rows) = match page {
@@ -358,9 +472,6 @@ impl Calendar {
                         LoadStep::Schedules => Schedule::read(row).map(|event| {
                             load.events.insert(event.id.clone(), event);
                         }),
-                        LoadStep::Todos => Todo::read(row).map(|todo| {
-                            load.todos.insert(todo.id.clone(), todo);
-                        }),
                         LoadStep::Stickers => sticker(row).map(|(day, id)| {
                             load.stickers.insert(day, id);
                         }),
@@ -375,8 +486,7 @@ impl Calendar {
                     self.load_page(load, step)
                 } else {
                     match load.step {
-                        LoadStep::Schedules => self.load_page(load, LoadStep::Todos),
-                        LoadStep::Todos => self.load_page(load, LoadStep::Stickers),
+                        LoadStep::Schedules => self.load_page(load, LoadStep::Stickers),
                         LoadStep::Stickers => {
                             load.step = LoadStep::Verify;
                             self.load = Some(load);
@@ -398,7 +508,7 @@ impl Calendar {
                     Ok(value) if (0..=5).contains(&value) => value as u8,
                     _ => return self.failed_load(load.after, "Invalid calendar theme in storage."),
                 };
-                self.replace_library(load.events, load.todos, load.stickers, theme, current);
+                self.replace_library(load.events, load.stickers, theme, current);
                 match load.after {
                     AfterLoad::Library => Answer::Now(self.library("")),
                     AfterLoad::ResumeMutation(intent) => self.lookup(intent),
@@ -467,8 +577,13 @@ impl Calendar {
                 notes,
                 create,
             } => {
-                if !create && !self.events.contains_key(&event.id) {
-                    return Err("This schedule no longer exists.".into());
+                let mut event = event.clone();
+                if !create {
+                    let current = self
+                        .events
+                        .get(&event.id)
+                        .ok_or("This schedule no longer exists.")?;
+                    event.completed = event.kind == model::Kind::Todo && current.completed;
                 }
                 let applied = Applied {
                     changes: vec![Change::Schedule {
@@ -532,51 +647,19 @@ impl Calendar {
                     commands,
                 ))
             }
-            Edit::SaveTodo { todo, create } => {
-                let mut todo = todo.clone();
-                if !create {
-                    let current = self
-                        .todos
-                        .get(&todo.id)
-                        .ok_or("This todo no longer exists.")?;
-                    todo.created_at = current.created_at;
-                    todo.completed_at = current.completed_at;
-                }
-                let commands = vec![execute("INSERT INTO todos(id,title,color,created_at,completed_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,color=excluded.color", json!([todo.id,todo.title,todo.color,todo.created_at,todo.completed_at]))];
-                Ok((
-                    Applied {
-                        id: todo.id.clone(),
-                        day: 0,
-                        revision: next,
-                        changes: vec![Change::Todo {
-                            id: todo.id.clone(),
-                            todo: Some(todo),
-                        }],
-                    },
-                    commands,
-                ))
-            }
-            Edit::CompleteTodo { id, completed, at } => {
-                let mut todo = self
-                    .todos
+            Edit::CompleteTodo { id, completed } => {
+                let mut event = self
+                    .events
                     .get(id)
+                    .filter(|event| event.kind == model::Kind::Todo)
                     .ok_or("This todo no longer exists.")?
                     .clone();
-                let completed_at = if *completed {
-                    if todo.completed_at == 0 {
-                        *at
-                    } else {
-                        todo.completed_at
-                    }
-                } else {
-                    0
-                };
-                let changed = completed_at != todo.completed_at;
-                todo.completed_at = completed_at;
+                let changed = event.completed != *completed;
+                event.completed = *completed;
                 let commands = if changed {
                     vec![execute(
-                        "UPDATE todos SET completed_at=? WHERE id=?",
-                        json!([completed_at, id]),
+                        "UPDATE schedules SET completed=? WHERE id=?",
+                        json!([*completed as u8, id]),
                     )]
                 } else {
                     vec![]
@@ -584,73 +667,16 @@ impl Calendar {
                 Ok((
                     Applied {
                         id: id.clone(),
-                        day: 0,
+                        day: event.start,
                         revision: if changed { next } else { self.revision },
                         changes: if changed {
-                            vec![Change::Todo {
+                            vec![Change::Schedule {
                                 id: id.clone(),
-                                todo: Some(todo),
+                                event: Some(event),
                             }]
                         } else {
                             vec![]
                         },
-                    },
-                    commands,
-                ))
-            }
-            Edit::DeleteTodo(id) => {
-                if !self.todos.contains_key(id) {
-                    return Err("This todo no longer exists.".into());
-                }
-                Ok((
-                    Applied {
-                        id: id.clone(),
-                        day: 0,
-                        revision: next,
-                        changes: vec![Change::Todo {
-                            id: id.clone(),
-                            todo: None,
-                        }],
-                    },
-                    vec![execute("DELETE FROM todos WHERE id=?", json!([id]))],
-                ))
-            }
-            Edit::ScheduleTodo { id, day } => {
-                let todo = self.todos.get(id).ok_or("This todo no longer exists.")?;
-                if self.events.contains_key(id) {
-                    return Err("A schedule with this todo identifier already exists.".into());
-                }
-                let event = Schedule {
-                    id: id.clone(),
-                    title: todo.title.clone(),
-                    color: todo.color.clone(),
-                    all_day: true,
-                    start: *day,
-                    end: *day,
-                    start_time: 0,
-                    end_time: 0,
-                    kind: model::Kind::Event,
-                };
-                event.validate()?;
-                let commands = vec![
-                    execute(INSERT, event.params("")),
-                    execute("DELETE FROM todos WHERE id=?", json!([id])),
-                ];
-                Ok((
-                    Applied {
-                        id: event.id.clone(),
-                        day: *day,
-                        revision: next,
-                        changes: vec![
-                            Change::Schedule {
-                                id: event.id.clone(),
-                                event: Some(event),
-                            },
-                            Change::Todo {
-                                id: id.clone(),
-                                todo: None,
-                            },
-                        ],
                     },
                     commands,
                 ))
@@ -825,15 +851,6 @@ impl Calendar {
                         Change::Schedule { id, event } => {
                             self.changed_event(&id, event, applied.revision)
                         }
-                        Change::Todo {
-                            id,
-                            todo: Some(todo),
-                        } => {
-                            self.todos.insert(id, todo);
-                        }
-                        Change::Todo { id, todo: None } => {
-                            self.todos.remove(&id);
-                        }
                         Change::Sticker { day, sticker } => self.changed_sticker(day, sticker),
                         Change::Theme(theme) => self.theme = theme,
                     }
@@ -847,10 +864,9 @@ impl Calendar {
 
 fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
     let (count, token_at) = match source {
-        "saveSchedule" | "savePlan" => (10, 9),
-        "deleteSchedule" | "deleteTodo" | "removeSticker" => (2, 1),
-        "moveSchedule" | "scheduleTodo" | "setSticker" => (3, 2),
-        "saveTodo" => (5, 4),
+        "saveSchedule" | "savePlan" | "saveTodo" => (10, 9),
+        "deleteSchedule" | "removeSticker" => (2, 1),
+        "moveSchedule" | "setSticker" => (3, 2),
         "setTodoCompleted" | "moveSticker" => (4, 3),
         "setTheme" => (2, 1),
         _ => return Err("Unknown calendar operation.".into()),
@@ -871,14 +887,14 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
         text(args, 0)?
     };
     let edit = match source {
-        "saveSchedule" | "savePlan" => {
+        "saveSchedule" | "savePlan" | "saveTodo" => {
             let create = id.is_empty();
-            let kind = if source == "savePlan" {
-                model::Kind::Plan
-            } else {
-                model::Kind::Event
+            let kind = match source {
+                "savePlan" => model::Kind::Plan,
+                "saveTodo" => model::Kind::Todo,
+                _ => model::Kind::Event,
             };
-            let event = Schedule {
+            let mut event = Schedule {
                 id: if create {
                     format!("{}-{token}", kind.name())
                 } else {
@@ -895,7 +911,11 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
                 start_time: dates::parse_time(text(args, 7)?)?,
                 end_time: dates::parse_time(text(args, 8)?)?,
                 kind,
+                completed: false,
             };
+            if kind == model::Kind::Todo {
+                event.end = event.start;
+            }
             event.validate()?;
             let notes = text(args, 2)?;
             if notes.chars().count() > 20_000 {
@@ -912,35 +932,16 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
             id: id.into(),
             day: whole(args, 1)?,
         },
-        "saveTodo" => {
-            let create = id.is_empty();
-            let todo = Todo {
-                id: if create {
-                    format!("todo-{token}")
-                } else {
-                    id.into()
+        "setTodoCompleted" => {
+            epoch(args, 2)?;
+            Edit::CompleteTodo {
+                id: id.into(),
+                completed: match args.get(1) {
+                    Some(Value::Bool(value)) => *value,
+                    _ => return Err("Choose whether this todo is completed.".into()),
                 },
-                title: text(args, 1)?.trim().into(),
-                color: text(args, 2)?.into(),
-                created_at: epoch(args, 3)?,
-                completed_at: 0,
-            };
-            todo.validate()?;
-            Edit::SaveTodo { todo, create }
+            }
         }
-        "setTodoCompleted" => Edit::CompleteTodo {
-            id: id.into(),
-            completed: match args.get(1) {
-                Some(Value::Bool(value)) => *value,
-                _ => return Err("Choose whether this todo is completed.".into()),
-            },
-            at: epoch(args, 2)?,
-        },
-        "deleteTodo" => Edit::DeleteTodo(id.into()),
-        "scheduleTodo" => Edit::ScheduleTodo {
-            id: id.into(),
-            day: whole(args, 1)?,
-        },
         "setSticker" | "removeSticker" => {
             let day = whole(args, 0)?;
             if !dates::in_range(day) {

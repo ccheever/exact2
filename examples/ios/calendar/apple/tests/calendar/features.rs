@@ -2,14 +2,6 @@
 
 use super::*;
 
-fn todo(app: &App, title: &str) -> Value {
-    items(app.runner.resource("todos").unwrap())
-        .iter()
-        .find(|item| fields(item)[1].as_str() == Some(title))
-        .unwrap_or_else(|| panic!("missing Todo {title}"))
-        .clone()
-}
-
 fn assert_no_success_notice(app: &App) {
     assert!(app
         .runner
@@ -86,7 +78,6 @@ fn the_four_picker_choices_expand_from_the_add_button_and_collapse_in_place() {
     app.press("add-schedule");
     assert_eq!(app.key("cancel-type-picker"), button);
     assert_eq!(app.key("picker-toggle-icon"), icon);
-    assert_eq!(app.frame("picker-toggle-icon"), icon_frame);
     let picker_content = app.key("picker-content");
     assert_eq!(
         app.runner
@@ -168,7 +159,11 @@ fn the_four_picker_choices_expand_from_the_add_button_and_collapse_in_place() {
 
 #[test]
 fn choosing_a_type_keeps_the_picker_in_place_until_the_form_morph_finishes() {
-    for (kind, form) in [("event", "schedule-editor"), ("sticker", "sticker-editor")] {
+    for (kind, form) in [
+        ("event", "schedule-editor"),
+        ("todo", "todo-editor"),
+        ("sticker", "sticker-editor"),
+    ] {
         let root = Root::new();
         let mut app = App::open(&root);
         app.press("add-schedule");
@@ -207,8 +202,8 @@ fn choosing_a_type_keeps_the_picker_in_place_until_the_form_morph_finishes() {
 fn the_pickup_keeps_one_contact_and_source_mounted_for_the_300_ms_morph() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     let source = app.key(&format!("agenda-item-{id}"));
     let input = app.key("calendar-input");
     let popup = app.key("date-popup");
@@ -287,46 +282,20 @@ fn cancelling_a_form_keeps_it_mounted_until_its_exit_finishes() {
             "cancel-editor"
         });
         assert_eq!(app.key(sheet), key);
-        if kind == "todo" {
-            assert_eq!(app.translation_y(sheet), 0.0);
-            assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
-        } else {
-            assert!(app.translation_y(sheet) > 0.0);
-        }
+        assert!(app.translation_y(sheet) > 0.0);
         app.presented_frame(100.0);
         assert_eq!(app.key(sheet), key);
         app.finish_motion();
         assert!(app.runner.kernel().find_by_test_id(sheet).is_empty());
         assert_eq!(app.state("popupOpen"), &Value::Bool(false));
-        assert_eq!(app.state("todoSheetOpen"), &Value::Bool(kind == "todo"));
         assert_eq!(app.derived("revision"), &Value::Number(1.0));
     }
 }
 
 #[test]
-fn closing_the_todo_list_keeps_it_mounted_until_the_slide_out_finishes() {
-    let root = Root::new();
-    let mut app = App::open(&root);
-    app.press("add-schedule");
-    app.press("picker-todo");
-    app.finish_motion();
-    app.finish_motion();
-    let key = app.key("todo-sheet");
-    app.press("close-todos");
-    assert_eq!(app.key("todo-sheet"), key);
-    assert!(app.translation_y("todo-sheet") > 0.0);
-    app.presented_frame(100.0);
-    assert_eq!(app.key("todo-sheet"), key);
-    app.finish_motion();
-    assert!(app.runner.kernel().find_by_test_id("todo-sheet").is_empty());
-    assert_eq!(app.derived("revision"), &Value::Number(1.0));
-}
-
-#[test]
-fn five_sheets_open_half_height_and_snap_full_compact_then_closed() {
+fn four_sheets_open_half_height_and_snap_full_compact_then_closed() {
     for (kind, sheet, handle, snap) in [
         ("date", "date-popup", "date-sheet-handle", "popupSnap"),
-        ("todo", "todo-sheet", "todo-sheet-handle", "todoSnap"),
         (
             "sticker",
             "sticker-editor",
@@ -344,12 +313,7 @@ fn five_sheets_open_half_height_and_snap_full_compact_then_closed() {
         let root = Root::new();
         let mut app = App::open(&root);
         match kind {
-            "date" => app.press("date-2026-09-2026-09-25"),
-            "todo" => {
-                app.press("add-schedule");
-                app.press("picker-todo");
-                app.finish_motion();
-            }
+            "date" => app.press("date-2026-09-2026-09-16"),
             "sticker" => app.create("sticker"),
             "editor" => app.create("event"),
             "theme" => app.press("theme-button"),
@@ -444,124 +408,96 @@ fn a_plan_created_from_global_plus_stays_a_plan_and_does_not_open_the_date_sheet
 }
 
 #[test]
-fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_drop() {
+fn dated_todo_can_be_created_completed_edited_moved_and_reopened() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.create("todo");
-    assert!(!app
-        .runner
-        .kernel()
-        .find_by_test_id("todo-editor")
-        .is_empty());
-    assert!(app.runner.kernel().find_by_test_id("start-date").is_empty());
-    assert!(app.runner.kernel().find_by_test_id("end-date").is_empty());
-    app.input("schedule-title", "Initial undated task");
+    assert_eq!(app.state("editorKind").as_str(), Some("todo"));
+    assert!(!app.runner.kernel().find_by_test_id("start-date").is_empty());
+    assert!(!app.runner.kernel().find_by_test_id("end-date").is_empty());
+    app.input("schedule-title", "Pack for Japan");
+    app.input("schedule-notes", "Passport and tickets");
+    app.input("start-date", "2026-09-22");
+    app.input("end-date", "2026-09-22");
     app.press("color-Blue");
     app.press("save-schedule");
     app.finish_motion();
-    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
-    assert_eq!(app.state("editorOpen"), &Value::Bool(false));
-    assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
-    let created = todo(&app, "Initial undated task");
-    let id = fields(&created)[0].as_str().unwrap().to_owned();
-    assert_eq!(fields(&created)[2].as_str(), Some("#747AFF"));
-    assert_eq!(fields(&created)[3], Value::Bool(false));
-    app.press(&format!("todo-item-{id}"));
-    assert!(!app
-        .runner
-        .kernel()
-        .find_by_test_id("todo-editor")
-        .is_empty());
-    assert!(app.runner.kernel().find_by_test_id("start-date").is_empty());
-    app.input("schedule-title", "Undated task");
+    app.assert_creation_closed();
+    assert_no_success_notice(&app);
+
+    app.press("date-2026-09-2026-09-22");
+    let id = app.agenda_id("Pack for Japan");
+    let agenda = app.runner.resource("agenda").unwrap();
+    let saved = items(&fields(agenda)[3])
+        .iter()
+        .find(|item| fields(item)[0].as_str() == Some(&id))
+        .unwrap();
+    assert_eq!(fields(saved)[12].as_str(), Some("todo"));
+    assert_eq!(fields(saved)[13], Value::Bool(false));
+    assert_eq!(fields(saved)[7].as_str(), Some("2026-09-22"));
+    assert_eq!(fields(saved)[8].as_str(), Some("2026-09-22"));
+    app.press(&format!("todo-check-{id}"));
+    let agenda = app.runner.resource("agenda").unwrap();
+    let completed = items(&fields(agenda)[3])
+        .iter()
+        .find(|item| fields(item)[0].as_str() == Some(&id))
+        .unwrap();
+    assert_eq!(fields(completed)[13], Value::Bool(true));
+    app.press(&format!("agenda-item-{id}"));
+    assert_eq!(app.state("editorKind").as_str(), Some("todo"));
+    assert_eq!(app.derived("notes").as_str(), Some("Passport and tickets"));
+    app.input("schedule-title", "Pack for the flight");
     app.press("save-schedule");
     app.finish_motion();
-    assert_eq!(
-        fields(&todo(&app, "Undated task"))[0].as_str(),
-        Some(id.as_str())
-    );
-    app.press(&format!("todo-check-{id}"));
-    let complete = todo(&app, "Undated task");
-    assert_eq!(fields(&complete)[3], Value::Bool(true));
-    assert!(fields(&complete)[5].as_number().unwrap() >= fields(&complete)[4].as_number().unwrap());
     drop(app);
 
     let mut app = App::open(&root);
-    assert_eq!(fields(&todo(&app, "Undated task"))[3], Value::Bool(true));
-    app.press("add-schedule");
-    app.press("picker-todo");
-    app.finish_motion();
-    app.press(&format!("todo-check-{id}"));
-    let wire_id = format!("todo:{id}");
-    let contact = Contact::from_source(&app, &wire_id, 1, &format!("todo-item-{id}"));
-    let revision = app.derived("revision").clone();
-    let original_sheet = app.key("todo-sheet");
+    app.press("date-2026-09-2026-09-22");
+    assert_eq!(app.agenda_id("Pack for the flight"), id);
+    let contact = Contact::new(&app, &id, 1);
     app.event(
         "calendar-input",
         contact.event(1, "begin", contact.origin(), ""),
     );
-    let cancel = app.center("cancel-zone");
-    app.event("calendar-input", contact.event(2, "end", cancel, ""));
-    assert_eq!(app.state("dragPhase").as_str(), Some("returning"));
-    assert_eq!(app.state("ghostX"), app.state("sourceX"));
-    assert_eq!(app.state("ghostY"), app.state("sourceY"));
-    assert_eq!(app.derived("ghostWidth"), app.state("sourceWidth"));
-    assert_eq!(app.derived("ghostHeight"), app.state("sourceHeight"));
-    assert_eq!(app.key("todo-sheet"), original_sheet);
-    app.presented_frame(17.0);
-    assert_eq!(app.state("returnPrepared"), &Value::Bool(true));
-    app.finish_motion();
-    assert_eq!(app.derived("revision"), &revision);
-    assert_eq!(app.key("todo-sheet"), original_sheet);
-    assert_eq!(app.translation_y("todo-sheet"), 0.0);
-    assert_eq!(fields(&todo(&app, "Undated task"))[3], Value::Bool(false));
-
-    let contact = Contact::from_source(&app, &wire_id, 2, &format!("todo-item-{id}"));
-    app.event(
-        "calendar-input",
-        contact.event(3, "begin", contact.origin(), ""),
-    );
     let destination = app.center("date-2026-09-2026-09-20");
-    app.event("calendar-input", contact.event(4, "end", destination, ""));
-    app.event("calendar-input", contact.event(4, "end", destination, ""));
+    app.event("calendar-input", contact.event(2, "end", destination, ""));
     app.finish_motion();
-    assert_eq!(
-        app.derived("revision").as_number().unwrap(),
-        revision.as_number().unwrap() + 1.0
-    );
-    assert!(app.runner.kernel().find_by_test_id("todo-sheet").is_empty());
     assert!(app.runner.kernel().find_by_test_id("date-popup").is_empty());
-    assert!(items(app.runner.resource("todos").unwrap())
+    app.press("date-2026-09-2026-09-20");
+    assert_eq!(app.agenda_id("Pack for the flight"), id);
+    let agenda = app.runner.resource("agenda").unwrap();
+    let moved = items(&fields(agenda)[3])
         .iter()
-        .all(|item| fields(item)[0].as_str() != Some(&id)));
-    assert_no_success_notice(&app);
+        .find(|item| fields(item)[0].as_str() == Some(&id))
+        .unwrap();
+    assert_eq!(fields(moved)[7].as_str(), Some("2026-09-20"));
+    assert_eq!(fields(moved)[8].as_str(), Some("2026-09-20"));
+    assert_eq!(fields(moved)[12].as_str(), Some("todo"));
+    assert_eq!(fields(moved)[13], Value::Bool(true));
     drop(app);
 
     let mut app = App::open(&root);
-    assert!(items(app.runner.resource("todos").unwrap())
-        .iter()
-        .all(|item| fields(item)[0].as_str() != Some(&id)));
     app.press("date-2026-09-2026-09-20");
-    let converted: Vec<_> = items(&fields(app.runner.resource("agenda").unwrap())[3])
+    assert_eq!(app.agenda_id("Pack for the flight"), id);
+    let agenda = app.runner.resource("agenda").unwrap();
+    let persisted = items(&fields(agenda)[3])
         .iter()
-        .filter(|item| fields(item)[1].as_str() == Some("Undated task"))
-        .collect();
-    assert_eq!(converted.len(), 1);
-    assert_eq!(fields(converted[0])[3].as_str(), Some("#747AFF"));
-    assert_eq!(fields(converted[0])[7].as_str(), Some("2026-09-20"));
-    assert_eq!(fields(converted[0])[8].as_str(), Some("2026-09-20"));
-    assert_eq!(fields(converted[0])[12].as_str(), Some("event"));
+        .find(|item| fields(item)[0].as_str() == Some(&id))
+        .unwrap();
+    assert_eq!(fields(persisted)[12].as_str(), Some("todo"));
+    assert_eq!(fields(persisted)[13], Value::Bool(true));
 }
 
 #[test]
-fn todo_recovery_and_failed_write_retry_keep_one_original_timestamp() {
+fn todo_recovery_and_failed_write_retry_create_one_dated_item() {
     for committed in [false, true] {
         let root = Root::new();
         let mut app = App::open(&root);
         app.create("todo");
         app.input("schedule-title", "Todo reply lost");
+        app.input("start-date", "2026-09-22");
+        app.input("end-date", "2026-09-22");
         app.press("color-Mint");
-        let original_epoch = app.derived("saveEpoch").clone();
         if committed {
             app.lose_write_reply_after = Some(2);
         } else {
@@ -574,30 +510,28 @@ fn todo_recovery_and_failed_write_retry_keep_one_original_timestamp() {
             assert_eq!(app.state("editorOpen"), &Value::Bool(true));
             assert!(!app.state("error").as_str().unwrap().is_empty());
             assert_eq!(app.derived("title").as_str(), Some("Todo reply lost"));
-            assert_eq!(app.state("retryEpoch"), &original_epoch);
+            assert!(!app.state("retryToken").as_str().unwrap().is_empty());
             app.presented_frame(1_000.0);
-
             app.press("save-schedule");
             app.finish_motion();
         }
         assert_eq!(app.state("editorOpen"), &Value::Bool(false));
-        assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
         assert_eq!(app.derived("revision"), &Value::Number(2.0));
         assert!(app.state("error").as_str().unwrap().is_empty());
-        let saved = todo(&app, "Todo reply lost");
-        let id = fields(&saved)[0].clone();
-        assert_eq!(fields(&saved)[4], original_epoch);
-        assert_eq!(fields(&saved)[2].as_str(), Some("#70B8A2"));
+        app.press("date-2026-09-2026-09-22");
+        let id = app.agenda_id("Todo reply lost");
+        let agenda = app.runner.resource("agenda").unwrap();
+        let saved = items(&fields(agenda)[3])
+            .iter()
+            .find(|item| fields(item)[0].as_str() == Some(&id))
+            .unwrap();
+        assert_eq!(fields(saved)[3].as_str(), Some("#70B8A2"));
+        assert_eq!(fields(saved)[12].as_str(), Some("todo"));
         drop(app);
 
-        let app = App::open(&root);
-        let matching: Vec<_> = items(app.runner.resource("todos").unwrap())
-            .iter()
-            .filter(|item| fields(item)[1].as_str() == Some("Todo reply lost"))
-            .collect();
-        assert_eq!(matching.len(), 1);
-        assert_eq!(fields(matching[0])[0], id);
-        assert_eq!(fields(matching[0])[4], original_epoch);
+        let mut app = App::open(&root);
+        app.press("date-2026-09-2026-09-22");
+        assert_eq!(app.agenda_id("Todo reply lost"), id);
     }
 }
 
@@ -871,12 +805,12 @@ fn tapping_a_date_over_a_placed_schedule_opens_its_sheet() {
     assert!(!app
         .runner
         .kernel()
-        .find_by_test_id("date-hit-2026-09-2026-09-25")
+        .find_by_test_id("date-hit-2026-09-2026-09-16")
         .is_empty());
-    app.press("date-hit-2026-09-2026-09-25");
+    app.press("date-hit-2026-09-2026-09-16");
     assert_eq!(app.state("popupOpen"), &Value::Bool(true));
-    assert_eq!(app.text("popup-date"), "Fri, Sep 25");
-    assert!(!app.agenda_id("Summer in Seoul").is_empty());
+    assert_eq!(app.text("popup-date"), "Wed, Sep 16");
+    assert!(!app.agenda_id("San Francisco").is_empty());
 }
 
 #[test]
@@ -1061,8 +995,8 @@ fn date_and_page_labels_only_include_a_different_year() {
     let mut app = App::open(&root);
     assert_eq!(app.text("month-label"), "Sep");
     assert!(app.runner.kernel().find_by_test_id("month-year").is_empty());
-    app.press("date-2026-09-2026-09-25");
-    assert_eq!(app.text("popup-date"), "Fri, Sep 25");
+    app.press("date-2026-09-2026-09-16");
+    assert_eq!(app.text("popup-date"), "Wed, Sep 16");
     app.press("close-popup");
     app.finish_motion();
     for offset in 0..13 {

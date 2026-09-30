@@ -2,7 +2,7 @@ use Weekday from "./parts.contract"
 use ColorChoice from "./parts.contract"
 use AgendaRow from "./parts.contract"
 use AgendaMark from "./parts.contract"
-use TodoRow from "./parts.contract"
+use TodoMark from "./parts.contract"
 use PickerChoice from "./parts.contract"
 use StickerChoice from "./parts.contract"
 use ThemeChoice from "./parts.contract"
@@ -58,6 +58,7 @@ shape Bar
   allDay: bool
   timeLabel: string
   kind: string
+  completed: bool
 shape Schedule
   id: string
   title: string
@@ -72,19 +73,13 @@ shape Schedule
   endTime: string
   rangeLabel: string
   kind: string
+  completed: bool
 shape Agenda
   day: number
   date: string
   label: string
   items: list<Schedule>
   stickerId: string
-shape Todo
-  id: string
-  title: string
-  color: string
-  completed: bool
-  createdAt: number
-  completedAt: number
 shape ParsedDate
   valid: bool
   day: number
@@ -155,8 +150,6 @@ fn sheetStop(height: number, velocity: number, compact: number, half: number, fu
 
 style QuietButton
   display="flex" align-items="center" justify-content="center" width=40 height=40 border-width=0 border-radius=20 background-color="#f5f5f6" press-scale=0.95
-style Field
-  box-sizing="border-box" width="100%" min-width=0 height=48 padding-left=14 padding-right=14 border-width=0 border-radius=12 background-color="#f5f5f7" color="#242428" font-size=16
 style FieldLabel
   font-size=13 font-weight=500 color="#74747c"
 style DateField
@@ -186,11 +179,14 @@ component Calendar
   derive month = match monthAnchor { case some(value) => value, case none => clock.month }
   derive headerLabel = floor(month / 12) == floor(clock.month / 12) ? monthName(month) : `${monthName(month)}, ${floor(month / 12)}`
   resource pages = calendarMonths(month, revision, (dragging and dragSource == "sticker-cell" ? dragSourceMonth : -1)) as shape list<Month>
-  resource todos = calendarTodos(revision) as shape list<Todo>
   resource theme = calendarTheme(revision) as shape number
   derive themeInk = theme == 1 ? "#49333b" : (theme == 2 ? "#294653" : (theme == 3 ? "#394c36" : (theme == 4 ? "#393551" : (theme == 5 ? "#4d3d31" : "#242428"))))
   derive themeAccent = theme == 1 ? "#d87f9a" : (theme == 2 ? "#6696ad" : (theme == 3 ? "#829c61" : (theme == 4 ? "#8e79bf" : (theme == 5 ? "#aa816a" : "#FA7070"))))
   derive themeBase = theme == 1 ? "#fae5ec" : (theme == 2 ? "#dceef3" : (theme == 3 ? "#f7f4e4" : (theme == 4 ? "#eae7ff" : (theme == 5 ? "#f4eadb" : "#ffffff"))))
+  derive themeSurface = theme == 1 ? "#fff7fa" : (theme == 2 ? "#f5fbfd" : (theme == 3 ? "#fcfbf2" : (theme == 4 ? "#f8f6ff" : (theme == 5 ? "#fcf8f0" : "#ffffff"))))
+  derive themeField = theme == 0 ? "#f5f5f7" : themeBase
+  derive themeMuted = theme == 1 ? "#92747f" : (theme == 2 ? "#6e8994" : (theme == 3 ? "#7c886e" : (theme == 4 ? "#847995" : (theme == 5 ? "#94806d" : "#85858d"))))
+  derive themeBorder = theme == 1 ? "#efdae3" : (theme == 2 ? "#dce9ed" : (theme == 3 ? "#e5e7d5" : (theme == 4 ? "#e4dff0" : (theme == 5 ? "#e9dfce" : "#eeeeef"))))
   derive themeWallpaper = theme == 1 ? "assets/themes/blush.png" : (theme == 2 ? "assets/themes/paris.png" : (theme == 3 ? "assets/themes/meadow.png" : (theme == 4 ? "assets/themes/lavender.png" : "assets/themes/linen.png")))
   derive pageWidth = max(1, viewport.width)
   state stageHeight = 0
@@ -204,7 +200,6 @@ component Calendar
   state pagerFrameTime = 0
   state popupOpen = false
   state popupSnap = 1
-  state todoSnap = 1
   state stickerSnap = 1
   state editorSnap = 1
   state themeSnap = 1
@@ -213,15 +208,13 @@ component Calendar
   derive sheetCompactHeight = max(176, min(260, viewport.height * 0.28))
   derive sheetHalfHeight = max(sheetCompactHeight, viewport.height * 0.5)
   derive sheetFullHeight = max(sheetHalfHeight, viewport.height * 0.92)
-  derive activeSheet = editorOpen ? "editor" : (stickerOpen ? "sticker" : (pickerOpen ? "" : (themeOpen ? "theme" : (todoSheetOpen ? "todo" : "date"))))
-  derive activeSheetSnap = activeSheet == "editor" ? editorSnap : (activeSheet == "sticker" ? stickerSnap : (activeSheet == "theme" ? themeSnap : (activeSheet == "todo" ? todoSnap : popupSnap)))
+  derive activeSheet = editorOpen ? "editor" : (stickerOpen ? "sticker" : (pickerOpen ? "" : (themeOpen ? "theme" : "date")))
+  derive activeSheetSnap = activeSheet == "editor" ? editorSnap : (activeSheet == "sticker" ? stickerSnap : (activeSheet == "theme" ? themeSnap : popupSnap))
   derive sheetBaseHeight = sheetSize(activeSheetSnap, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
   derive sheetOverdrag = max(0, sheetOffset - (sheetBaseHeight - sheetCompactHeight))
   derive popupPanning = sheetDragging == "date"
-  derive todoPanning = sheetDragging == "todo"
   derive stickerPanning = sheetDragging == "sticker"
   derive popupTranslation = popupPanning ? sheetOverdrag : 0
-  derive todoTranslation = todoPanning ? sheetOverdrag : 0
   derive stickerTranslation = stickerPanning ? sheetOverdrag : 0
   state popupClosing = false
   state popupUntil = 0
@@ -230,14 +223,10 @@ component Calendar
   resource agenda = calendarDay(day, revision, clock.today) as shape Agenda
   derive popupHeight = sheetHeight(popupSnap, "date", sheetDragging, sheetOffset, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
   derive popupCap = sheetFullHeight
-  state todoSheetOpen = false
-  state todoClosing = false
-  state todoUntil = 0
   state pickerOpen = false
   state pickerReadyAt = 0
   state pickerClosing = false
   state pickerUntil = 0
-  state pickerNext = ""
   state themeOpen = false
   state themeClosing = false
   state themeUntil = 0
@@ -260,14 +249,13 @@ component Calendar
   derive pickerContentVisible = pickerExpanded and (viewport.prefersReducedMotion or now() >= pickerReadyAt)
   derive themeHeight = sheetHeight(themeSnap, "theme", sheetDragging, sheetOffset, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
   derive pickerMorphing = formFromPicker and (editorOpen or stickerOpen)
-  derive todoHeight = sheetHeight(todoSnap, "todo", sheetDragging, sheetOffset, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
-  derive sharedEditor = editorOpen and (formFromPicker and not editorClosing or editorOrigin == "date" and popupOpen or editorOrigin == "todos" and todoSheetOpen)
+  derive sharedEditor = editorOpen and (formFromPicker and not editorClosing or editorOrigin == "date" and popupOpen)
   derive sharedSticker = stickerOpen and (formFromPicker and not stickerClosing or editorOrigin == "date" and popupOpen)
-  derive editorStartHeight = formFromPicker and not editorClosing and not stickerClosing ? pickerHeight : (editorOrigin == "date" ? min(popupCap, popupHeight) : min(popupCap, todoHeight))
+  derive editorStartHeight = formFromPicker and not editorClosing and not stickerClosing ? pickerHeight : (editorOrigin == "date" ? min(popupCap, popupHeight) : editorHeight)
   derive morphHeight = sharedEditor ? (editorClosing or not editorMorphReady ? editorStartHeight : editorHeight) : editorHeight
   derive stickerMorphHeight = sharedSticker ? (stickerClosing or not editorMorphReady ? editorStartHeight : stickerHeight) : stickerHeight
   state eventRetry = 0
-  resource opened = calendarEvent(editorKind == "todo" ? "" : editId, revision, eventRetry) as shape Event
+  resource opened = calendarEvent(editId, revision, eventRetry) as shape Event
   state titleDraft = none
   state notesDraft = none
   state colorDraft = none
@@ -284,12 +272,16 @@ component Calendar
   derive endDate = match endDateDraft { case some(value) => value, case none => editId == "" ? creationDate : opened.item.endDate }
   derive startTime = match startTimeDraft { case some(value) => value, case none => editId == "" ? "09:00" : opened.item.startTime }
   derive endTime = match endTimeDraft { case some(value) => value, case none => editId == "" ? "10:00" : opened.item.endTime }
-  derive editorReady = editorKind == "todo" or editId == "" or (opened.found and opened.item.id == editId and opened.message == "" and not pending(opened))
+  derive editorReady = editId == "" or (opened.found and opened.item.id == editId and opened.message == "" and not pending(opened))
   state stickerOpen = false
   state stickerClosing = false
   state stickerUntil = 0
   state stickerDateText = ""
   state stickerChoice = ""
+  state stickerCalendarOpen = false
+  state stickerMonth = none
+  derive stickerCalendarMonth = match stickerMonth { case some(value) => value, case none => editorOrigin == "date" ? month : clock.month }
+  resource stickerCalendar = calendarMonth(stickerCalendarMonth, revision) as shape Month
   resource stickerDate = calendarDate(stickerDateText) as shape ParsedDate
   resource stickerAgenda = calendarDay(stickerDate.day, revision, clock.today) as shape Agenda
   derive stickerSelection = stickerChoice != "" ? stickerChoice : stickerAgenda.stickerId
@@ -298,11 +290,9 @@ component Calendar
   state operation = ""
   state retryToken = ""
   state retryOperation = ""
-  state retryEpoch = 0
   derive freshToken = `${time.epochAtZero}-${time.seed}-${revision}-${operationSequence + 1}`
   derive saveToken = retryOperation == "save" and retryToken != "" ? retryToken : freshToken
   derive deleteToken = retryOperation == "delete" and retryToken != "" ? retryToken : freshToken
-  derive saveEpoch = retryOperation == "save" and retryToken != "" ? retryEpoch : time.epochAtZero + now()
   derive stickerSaveToken = retryOperation == "sticker-save" and retryToken != "" ? retryToken : freshToken
   derive stickerRemoveToken = retryOperation == "sticker-remove" and retryToken != "" ? retryToken : freshToken
   state error = ""
@@ -312,6 +302,7 @@ component Calendar
   state dragTitle = ""
   state dragRangeLabel = ""
   state dragKind = "event"
+  state dragCompleted = false
   state dragColor = "#FA7070"
   state dragSpan = 0
   state dragSerial = 0
@@ -341,7 +332,6 @@ component Calendar
   state dragSource = "date"
   state dragSourceDay = 0
   state dragSourceMonth = 0
-  state dragTodoId = ""
   state dragStickerId = ""
   state pendingMoveRevision = 0
   state pendingMoveDay = 0
@@ -375,11 +365,9 @@ component Calendar
   mutation contact as shape DragInput then didContact
   derive contactId = match contact { case some(value) => value.eventId, case none => "" }
   derive contactSchedule = first(filter(agenda.items, (item) => item.id == contactId))
-  derive contactTodo = first(filter(todos, (item) => `todo:${item.id}` == contactId))
   resource contactSticker = calendarStickerDrag(contactId, revision) as shape StickerDrag
   derive contactIsSticker = contactSticker.valid and not pending(contactSticker)
-  derive contactIsTodo = match contactTodo { case some(item) => true, case none => false }
-  derive contactAvailable = contactIsSticker ? (contactSticker.sourceDay == -1000000 ? stickerOpen : (not modalOpen or popupOpen)) : (contactIsTodo ? todoSheetOpen : (popupOpen and match contactSchedule { case some(item) => true, case none => false }))
+  derive contactAvailable = contactIsSticker ? (contactSticker.sourceDay == -1000000 ? stickerOpen : (not modalOpen or popupOpen)) : (popupOpen and match contactSchedule { case some(item) => true, case none => false })
   derive contactX = match contact { case some(value) => value.x, case none => 0 }
   derive contactY = match contact { case some(value) => value.y, case none => 0 }
   derive contactMonth = held ? boundedMonth(floor(pagerPosition + (contactX - portX) / pageWidth)) : month
@@ -408,7 +396,7 @@ component Calendar
   derive returning = dragPhase == "returning"
   derive returnOpacity = returning and not returnPrepared ? 0 : 1
   derive returnTransition = viewport.prefersReducedMotion or not returnPrepared ? "none" : "opacity 300ms ease-in-out"
-  derive modalOpen = popupOpen or todoSheetOpen or pickerOpen or editorOpen or stickerOpen or themeOpen
+  derive modalOpen = popupOpen or pickerOpen or editorOpen or stickerOpen or themeOpen
   derive landed = dragCommitted and not held and dragPhase != "returning"
   derive lifted = held and liftPrepared
   derive ghostWidth = landed ? landingWidth : (lifted ? (dragKind == "sticker" ? 48 : 220) : sourceWidth)
@@ -416,7 +404,6 @@ component Calendar
   derive ghostTransition = viewport.prefersReducedMotion ? "none" : (landed or returning ? "opacity 300ms ease-in-out, scale 300ms ease-in-out" : "opacity 300ms cubic-bezier(0.22, 1, 0.36, 1), scale 300ms cubic-bezier(0.22, 1, 0.36, 1)")
   derive edgeWanted = held and dragMoved and not hoverCancel and dragY >= portY and dragY <= portY + portHeight and dragX >= portX and dragX <= portX + portWidth ? (dragX < portX + 36 and month > 22800 ? -1 : (dragX > portX + portWidth - 36 and month < 25211 ? 1 : 0)) : 0
   derive popupLowered = (dragging and (held or dragCommitted)) or pickerOpen or (stickerOpen and not sharedSticker) or (editorOpen and editorOrigin != "date")
-  derive todoLowered = (dragging and (held or dragCommitted)) or pickerOpen or stickerOpen or (editorOpen and editorOrigin != "todos")
   derive hoverDay = held ? hoverTarget.day : -1000000
 
   action tick writes minute
@@ -429,26 +416,26 @@ component Calendar
 
   action dragInput(raw: string) writes contact
     send contact = calendarDragInput(raw)
-  action didContact writes contactAck, dragSerial, dragId, dragTitle, dragRangeLabel, dragKind, dragColor, dragSpan, dragStartDay, dragSource, dragSourceDay, dragSourceMonth, dragTodoId, dragStickerId, pendingMove, dragX, dragY, dragOriginX, dragOriginY, dragMoved, dragCommitted, ghostX, ghostY, sourceX, sourceY, sourceWidth, sourceHeight, liftPrepared, liftReadyAt, returnPrepared, returnReadyAt, landingWidth, landingHeight, landingBefore, landingAfter, dragPhase, dragUntil, dragFrameTime, portX, portY, portWidth, portHeight, calendarScrollRequest, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, changed, operation, operationSequence, error
+  action didContact writes contactAck, dragSerial, dragId, dragTitle, dragRangeLabel, dragKind, dragCompleted, dragColor, dragSpan, dragStartDay, dragSource, dragSourceDay, dragSourceMonth, dragStickerId, pendingMove, dragX, dragY, dragOriginX, dragOriginY, dragMoved, dragCommitted, ghostX, ghostY, sourceX, sourceY, sourceWidth, sourceHeight, liftPrepared, liftReadyAt, returnPrepared, returnReadyAt, landingWidth, landingHeight, landingBefore, landingAfter, dragPhase, dragUntil, dragFrameTime, portX, portY, portWidth, portHeight, calendarScrollRequest, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, changed, operation, operationSequence, error
     match contact
       case some(packet)
         if packet.valid and packet.sequence > contactAck
           contactAck = packet.sequence
-          if packet.phase == "begin" and packet.serial > dragSerial and not dragging and not busy and not editorOpen and not pickerOpen and (not stickerOpen or (contactIsSticker and contactSticker.sourceDay == -1000000)) and not stickerClosing and not popupClosing and sheetDragging == "" and not todoClosing
+          if packet.phase == "begin" and packet.serial > dragSerial and not dragging and not busy and not editorOpen and not pickerOpen and (not stickerOpen or (contactIsSticker and contactSticker.sourceDay == -1000000)) and not stickerClosing and not popupClosing and sheetDragging == ""
             if contactAvailable
               dragSerial = packet.serial
               dragId = packet.eventId
-              dragTitle = match contactTodo { case some(item) => item.title, case none => match contactSchedule { case some(item) => item.title, case none => "" } }
-              dragRangeLabel = match contactTodo { case some(item) => item.completed ? "Completed" : "Hold to add to your calendar", case none => match contactSchedule { case some(item) => item.rangeLabel, case none => "" } }
+              dragTitle = match contactSchedule { case some(item) => item.title, case none => "" }
+              dragRangeLabel = match contactSchedule { case some(item) => item.rangeLabel, case none => "" }
               dragKind = contactIsSticker ? "sticker" : match contactSchedule { case some(item) => item.kind, case none => "event" }
-              dragColor = match contactTodo { case some(item) => item.color, case none => match contactSchedule { case some(item) => item.color, case none => "#FA7070" } }
+              dragCompleted = match contactSchedule { case some(item) => item.completed, case none => false }
+              dragColor = match contactSchedule { case some(item) => item.color, case none => "#FA7070" }
               dragSpan = match contactSchedule { case some(item) => item.endDay - item.startDay, case none => 0 }
               dragStartDay = contactIsSticker ? contactSticker.sourceDay : match contactSchedule { case some(item) => item.startDay, case none => -1000000 }
-              dragSource = contactIsSticker ? (contactSticker.sourceDay == -1000000 ? "sticker-picker" : (popupOpen ? "sticker-date" : "sticker-cell")) : (contactIsTodo ? "todos" : "date")
+              dragSource = contactIsSticker ? (contactSticker.sourceDay == -1000000 ? "sticker-picker" : (popupOpen ? "sticker-date" : "sticker-cell")) : "date"
               dragSourceDay = contactIsSticker ? contactSticker.sourceDay : day
               dragSourceMonth = boundedMonth(floor(pagerPosition + (packet.x - portX) / pageWidth))
               dragStickerId = contactIsSticker ? contactSticker.stickerId : ""
-              dragTodoId = match contactTodo { case some(item) => item.id, case none => "" }
               pendingMove = false
               dragOriginX = packet.x
               dragOriginY = packet.y
@@ -519,10 +506,7 @@ component Calendar
                   else
                     send changed = moveSticker(dragSourceDay, contactTarget.day, dragStickerId, freshToken)
                 else
-                  if dragSource == "todos"
-                    send changed = scheduleTodo(dragTodoId, contactTarget.day, freshToken)
-                  else
-                    send changed = moveSchedule(dragId, contactTarget.day, freshToken)
+                  send changed = moveSchedule(dragId, contactTarget.day, freshToken)
               else
                 dragPhase = "returning"
                 returnPrepared = viewport.prefersReducedMotion
@@ -539,7 +523,7 @@ component Calendar
               ghostY = sourceY
       case none
         error = "The drag contact could not be read."
-  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, liftPrepared, returnPrepared, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, popupOpen, popupClosing, dataRevision, pendingMove, todoSheetOpen, todoClosing, pickerOpen, pickerClosing, pickerNext, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, stickerOpen, stickerClosing, themeOpen, themeClosing
+  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, liftPrepared, returnPrepared, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, popupOpen, popupClosing, dataRevision, pendingMove, pickerOpen, pickerClosing, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, stickerOpen, stickerClosing, themeOpen, themeClosing
     // Reuse this frame's geometry without caching it across frames or resizes.
     match some(frame("calendar-stage"))
       case some(stage)
@@ -592,11 +576,10 @@ component Calendar
       dataRevision = max(dataRevision, pendingMoveRevision)
       pendingMove = false
       popupOpen = false
-      todoSheetOpen = false
       stickerOpen = false
       pickerOpen = false
       dragPhase = "settling"
-    if dragPhase == "settling" and not pending(pages) and not pending(todos) and not pending(agenda)
+    if dragPhase == "settling" and not pending(pages) and not pending(agenda)
       dragPhase = "fading"
       dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 90)
     if returning and not returnPrepared and now() >= returnReadyAt
@@ -613,29 +596,9 @@ component Calendar
     if popupClosing and now() >= popupUntil
       popupOpen = false
       popupClosing = false
-    if todoClosing and now() >= todoUntil
-      todoSheetOpen = false
-      todoClosing = false
     if pickerClosing and now() >= pickerUntil
       pickerOpen = false
       pickerClosing = false
-      if pickerNext == "sticker"
-        stickerOpen = true
-        editorMorphReady = false
-        formContentReady = false
-        editorMorphAt = now() + 16
-      else
-        if pickerNext == "todos"
-          popupOpen = false
-          todoSheetOpen = true
-          todoClosing = false
-        else
-          if pickerNext != ""
-            editorOpen = true
-            editorMorphReady = false
-            formContentReady = false
-            editorMorphAt = now() + 16
-      pickerNext = ""
     if editorClosing and now() >= editorUntil
       editorOpen = false
       editorClosing = false
@@ -730,18 +693,15 @@ component Calendar
       popupClosing = true
       popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
   action sheetPan(kind: string, dx: number, dy: number) writes sheetDragging, sheetOffset
-    if kind == activeSheet and not dragging and not busy and not popupClosing and not todoClosing and not stickerClosing and not editorClosing and not pickerClosing and not themeClosing and (sheetDragging == kind or magnitude(dy) > magnitude(dx))
+    if kind == activeSheet and not dragging and not busy and not popupClosing and not stickerClosing and not editorClosing and not pickerClosing and not themeClosing and (sheetDragging == kind or magnitude(dy) > magnitude(dx))
       sheetDragging = kind
       sheetOffset = min(sheetBaseHeight - sheetCompactHeight / 2, max(sheetBaseHeight - sheetFullHeight, sheetOffset + dy))
-  action sheetRelease(kind: string, vx: number, vy: number) writes sheetDragging, sheetOffset, popupSnap, todoSnap, stickerSnap, editorSnap, themeSnap, popupClosing, popupUntil, todoClosing, todoUntil, stickerClosing, stickerUntil, editorClosing, editorUntil, themeClosing, themeUntil, pickerOpen, editorMorphReady, formContentReady, confirmDelete, error, retryToken, retryOperation
+  action sheetRelease(kind: string, vx: number, vy: number) writes sheetDragging, sheetOffset, popupSnap, stickerSnap, editorSnap, themeSnap, popupClosing, popupUntil, stickerClosing, stickerUntil, editorClosing, editorUntil, themeClosing, themeUntil, pickerOpen, editorMorphReady, formContentReady, confirmDelete, error, retryToken, retryOperation
     if sheetDragging == kind
       if sheetOverdrag >= 48 or (sheetOverdrag > 12 and vy > 700 and vy > magnitude(vx))
         if kind == "date"
           popupClosing = true
           popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
-        if kind == "todo"
-          todoClosing = true
-          todoUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
         if kind == "theme"
           themeClosing = true
           themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
@@ -763,8 +723,6 @@ component Calendar
           stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       if kind == "date"
         popupSnap = sheetStop(sheetBaseHeight - sheetOffset, vy, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
-      if kind == "todo"
-        todoSnap = sheetStop(sheetBaseHeight - sheetOffset, vy, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
       if kind == "sticker"
         stickerSnap = sheetStop(sheetBaseHeight - sheetOffset, vy, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
       if kind == "editor"
@@ -773,11 +731,10 @@ component Calendar
         themeSnap = sheetStop(sheetBaseHeight - sheetOffset, vy, sheetCompactHeight, sheetHalfHeight, sheetFullHeight)
       sheetDragging = ""
       sheetOffset = 0
-  action openPicker(origin: string) writes pickerReadyAt, pickerUntil, sheetDragging, sheetOffset, formFromPicker, pickerOpen, pickerClosing, pickerNext, editorOrigin, creationDate, error
+  action openPicker(origin: string) writes pickerReadyAt, pickerUntil, sheetDragging, sheetOffset, formFromPicker, pickerOpen, pickerClosing, editorOrigin, creationDate, error
     if not busy and not dragging
       if pickerOpen
         if not pickerClosing
-          pickerNext = ""
           pickerClosing = true
           pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
       else
@@ -787,7 +744,6 @@ component Calendar
         sheetOffset = 0
         formFromPicker = false
         pickerClosing = false
-        pickerNext = ""
         editorOrigin = origin
         creationDate = origin == "date" ? agenda.date : clock.date
         error = ""
@@ -810,45 +766,40 @@ component Calendar
         operation = "theme"
         error = ""
         send changed = setTheme(value, freshToken)
-  action closePicker writes pickerClosing, pickerUntil, pickerNext
+  action closePicker writes pickerClosing, pickerUntil
     if not pickerClosing
-      pickerNext = ""
       pickerClosing = true
       pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
-  action chooseType(kind: string) writes todoSnap, stickerSnap, editorSnap, pickerClosing, pickerUntil, pickerNext, editorOpen, stickerOpen, formFromPicker, editorMorphReady, formContentReady, editorMorphAt, editorKind, editId, editorClosing, stickerClosing, stickerDateText, stickerChoice, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
+  action chooseType(kind: string) writes stickerCalendarOpen, stickerMonth, stickerSnap, editorSnap, pickerClosing, pickerUntil, editorOpen, stickerOpen, formFromPicker, editorMorphReady, formContentReady, editorMorphAt, editorKind, editId, editorClosing, stickerClosing, stickerDateText, stickerChoice, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
     if not pickerClosing
-      if kind == "todo"
-        todoSnap = 1
-        pickerClosing = true
-        pickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
-        pickerNext = "todos"
-      else
-        editorSnap = 1
-        stickerSnap = 1
-        formFromPicker = true
-        editorMorphReady = false
-        formContentReady = false
-        editorMorphAt = now() + 16
-        editorOpen = kind != "sticker"
-        stickerOpen = kind == "sticker"
-        editorKind = kind
-        editId = ""
-        editorClosing = false
-        stickerClosing = false
-        stickerDateText = creationDate
-        stickerChoice = editorOrigin == "date" ? agenda.stickerId : ""
-        titleDraft = none
-        notesDraft = none
-        colorDraft = none
-        allDayDraft = none
-        startDateDraft = none
-        endDateDraft = none
-        startTimeDraft = none
-        endTimeDraft = none
-        confirmDelete = false
-        error = ""
-        retryToken = ""
-        retryOperation = ""
+      editorSnap = 1
+      stickerSnap = 1
+      formFromPicker = true
+      editorMorphReady = false
+      formContentReady = false
+      editorMorphAt = now() + 16
+      editorOpen = kind != "sticker"
+      stickerOpen = kind == "sticker"
+      editorKind = kind
+      editId = ""
+      editorClosing = false
+      stickerClosing = false
+      stickerDateText = creationDate
+      stickerChoice = editorOrigin == "date" ? agenda.stickerId : ""
+      stickerCalendarOpen = false
+      stickerMonth = none
+      titleDraft = none
+      notesDraft = none
+      colorDraft = none
+      allDayDraft = none
+      startDateDraft = none
+      endDateDraft = none
+      startTimeDraft = none
+      endTimeDraft = none
+      confirmDelete = false
+      error = ""
+      retryToken = ""
+      retryOperation = ""
   action editEvent(id: string, kind: string) writes editorSnap, formFromPicker, editId, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, editorKind, editorOrigin, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation
     if not busy and not dragging
       retryToken = ""
@@ -873,28 +824,6 @@ component Calendar
       endTimeDraft = none
       confirmDelete = false
       error = ""
-  action closeTodos writes todoClosing, todoUntil
-    if not dragging and not todoClosing
-      todoClosing = true
-      todoUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
-  action editTodo(id: string) writes editorSnap, formFromPicker, editId, editorOpen, editorClosing, editorMorphReady, formContentReady, editorMorphAt, editorKind, editorOrigin, titleDraft, colorDraft, confirmDelete, error, retryToken, retryOperation
-    if not busy and not dragging
-      editId = id
-      editorKind = "todo"
-      editorSnap = 1
-      editorOrigin = "todos"
-      editorOpen = true
-      editorClosing = false
-      formFromPicker = false
-      editorMorphReady = false
-      formContentReady = false
-      editorMorphAt = now() + 16
-      titleDraft = match first(filter(todos, (item) => item.id == id)) { case some(item) => some(item.title), case none => none }
-      colorDraft = match first(filter(todos, (item) => item.id == id)) { case some(item) => some(item.color), case none => none }
-      confirmDelete = false
-      error = ""
-      retryToken = ""
-      retryOperation = ""
   action closeEditor writes pickerOpen, editorClosing, editorUntil, editorMorphReady, formContentReady, confirmDelete, error, retryToken, retryOperation
     if not busy and not editorClosing
       retryToken = ""
@@ -908,13 +837,15 @@ component Calendar
       editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       confirmDelete = false
       error = ""
-  action editSticker writes stickerSnap, formFromPicker, stickerOpen, stickerClosing, stickerDateText, stickerChoice, editorOrigin, editorMorphReady, formContentReady, editorMorphAt, error
+  action editSticker writes stickerCalendarOpen, stickerMonth, stickerSnap, formFromPicker, stickerOpen, stickerClosing, stickerDateText, stickerChoice, editorOrigin, editorMorphReady, formContentReady, editorMorphAt, error
     if not busy and not dragging
       stickerOpen = true
       stickerClosing = false
       stickerSnap = 1
       stickerDateText = agenda.date
       stickerChoice = agenda.stickerId
+      stickerCalendarOpen = false
+      stickerMonth = none
       editorOrigin = "date"
       formFromPicker = false
       editorMorphReady = false
@@ -930,8 +861,15 @@ component Calendar
       formContentReady = false
       stickerUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
       error = ""
-  action writeStickerDate(value: string) writes stickerDateText, stickerChoice, retryToken, retryOperation
+  action toggleStickerCalendar writes stickerCalendarOpen
+    if not busy and not dragging and not stickerClosing
+      stickerCalendarOpen = not stickerCalendarOpen
+  action moveStickerMonth(delta: number) writes stickerMonth
+    if stickerCalendarOpen and not busy and not dragging
+      stickerMonth = some(boundedMonth(stickerCalendarMonth + delta))
+  action writeStickerDate(value: string) writes stickerCalendarOpen, stickerDateText, stickerChoice, retryToken, retryOperation
     stickerDateText = value
+    stickerCalendarOpen = false
     stickerChoice = ""
     retryToken = ""
     retryOperation = ""
@@ -994,16 +932,15 @@ component Calendar
     retryToken = ""
     retryOperation = ""
     endTimeDraft = some(value)
-  action save writes changed, operationSequence, operation, error, retryToken, retryOperation, retryEpoch
+  action save writes changed, operationSequence, operation, error, retryToken, retryOperation
     if not busy and not editorClosing and editorReady
       operationSequence = operationSequence + 1
       operation = "save"
       retryToken = saveToken
       retryOperation = "save"
-      retryEpoch = saveEpoch
       error = ""
       if editorKind == "todo"
-        send changed = saveTodo(editId, title, color, saveEpoch, saveToken)
+        send changed = saveTodo(editId, title, notes, color, true, startDate, startDate, "09:00", "10:00", saveToken)
       else
         if editorKind == "plan"
           send changed = savePlan(editId, title, notes, color, allDay, startDate, endDate, startTime, endTime, saveToken)
@@ -1020,11 +957,8 @@ component Calendar
       retryToken = deleteToken
       retryOperation = "delete"
       error = ""
-      if editorKind == "todo"
-        send changed = deleteTodo(editId, deleteToken)
-      else
-        send changed = deleteSchedule(editId, deleteToken)
-  action didChange writes pickerOpen, dataRevision, editorClosing, editorUntil, editorMorphReady, formContentReady, stickerClosing, stickerUntil, confirmDelete, popupOpen, todoSheetOpen, error, dragPhase, dragUntil, dragCommitted, returnPrepared, returnReadyAt, ghostX, ghostY, retryToken, retryOperation, pendingMove, pendingMoveRevision, pendingMoveDay
+      send changed = deleteSchedule(editId, deleteToken)
+  action didChange writes pickerOpen, dataRevision, editorClosing, editorUntil, editorMorphReady, formContentReady, stickerClosing, stickerUntil, confirmDelete, popupOpen, error, dragPhase, dragUntil, dragCommitted, returnPrepared, returnReadyAt, ghostX, ghostY, retryToken, retryOperation, pendingMove, pendingMoveRevision, pendingMoveDay
     match changed
       case some(result)
         if result.success
@@ -1047,7 +981,6 @@ component Calendar
               editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 180)
               if editorOrigin == "global"
                 popupOpen = false
-                todoSheetOpen = false
             if operation == "sticker"
               pickerOpen = false
               stickerClosing = true
@@ -1114,29 +1047,29 @@ component Calendar
             each page in pages key=page.id
               when magnitude(page.month - month) <= 1 or (dragging and page.month == dragSourceMonth)
                 MonthPage(page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, hasSelection=popupOpen, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, held=held, busy=busy, theme=theme, themeInk=themeInk, themeAccent=themeAccent, scrollPadding=(held ? dragPadding : 0), hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), scrolled=calendarScrolled, choose=chooseDate, pan=pagePan, release=pageRelease)
-      when error != "" and not editorOpen and not popupOpen and not todoSheetOpen and not stickerOpen and not pickerOpen and not themeOpen
+      when error != "" and not editorOpen and not popupOpen and not stickerOpen and not pickerOpen and not themeOpen
         box position="absolute" bottom="calc(env(safe-area-inset-bottom) + 102px)" left=18 right=18 pointer-events="none" display="flex" justify-content="center"
           text error testId="calendar-error" aria-live="assertive" padding=12 border-radius=14 background-color="#fff1ef" color="#b74238" font-size=13
       when themeOpen
         box testId="theme-backdrop" press=closeThemes position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(themeClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (themeClosing ? "opacity 180ms ease-in" : "opacity 200ms ease-out"))
-        column id="theme-popup" testId="theme-popup" role="dialog" aria-label="Calendar themes" position="absolute" left=0 right=0 bottom=0 height=themeHeight interpolate-size="allow-keywords" min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28,31,44,0.10)" z-index=11 translate=`0px ${themeClosing ? viewport.height + 40 : (sheetDragging == "theme" ? sheetOverdrag : 0)}px` transition=(viewport.prefersReducedMotion or sheetDragging != "" ? "none" : (themeClosing ? "height 180ms ease-in, translate 180ms ease-in" : "height 200ms ease-out, translate 200ms ease-out")) animation=(viewport.prefersReducedMotion or themeClosing ? "none" : "sheetIn 200ms ease-out")
-          box id="theme-sheet-handle" testId="theme-sheet-handle" aria-label="Drag to resize themes" pan=sheetPan("theme") panrelease=sheetRelease("theme") touch-action="none" width="100%" height=28 flex-shrink=0 display="flex" align-items="flex-start" justify-content="center"
-            box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
+        column id="theme-popup" testId="theme-popup" role="dialog" aria-label="Theme" position="absolute" left=0 right=0 bottom=0 height=themeHeight interpolate-size="allow-keywords" min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color=themeSurface box-shadow="0 -6px 32px rgba(28,31,44,0.10)" z-index=11 translate=`0px ${themeClosing ? viewport.height + 40 : (sheetDragging == "theme" ? sheetOverdrag : 0)}px` transition=(viewport.prefersReducedMotion or sheetDragging != "" ? "none" : (themeClosing ? "height 180ms ease-in, translate 180ms ease-in" : "height 200ms ease-out, translate 200ms ease-out")) animation=(viewport.prefersReducedMotion or themeClosing ? "none" : "sheetIn 200ms ease-out")
+          box id="theme-sheet-handle" testId="theme-sheet-handle" aria-label="Drag to resize theme picker" pan=sheetPan("theme") panrelease=sheetRelease("theme") touch-action="none" width="100%" height=28 flex-shrink=0 display="flex" align-items="flex-start" justify-content="center"
+            box width=32 height=4 margin-top=10 background-color=themeBorder border-radius=2
           row height=64 flex-shrink=0 padding-left=20 padding-right=16 align-items="center"
-            text "Themes" flex=1 font-size=19 font-weight=600 color="#242428"
+            text "Theme" flex=1 font-size=19 font-weight=600 color=themeInk
             button press=closeThemes testId="close-themes" class=QuietButton background-color="#ffffff00" border-radius=0 width=36 height=36
-              image "symbol:close" font-size=14 tint-color="#77777e"
+              image "symbol:close" font-size=14 tint-color=themeMuted
           scroll testId="theme-list" flex=1 min-height=0 overflow-x="hidden"
             column padding-left=16 padding-right=16 padding-bottom=20 gap=12
               row gap=12
-                ThemeChoice(value=0, title="Classic", wallpaper="", selected=theme, pick=chooseTheme)
-                ThemeChoice(value=1, title="Blush Notebook", wallpaper="assets/themes/blush.png", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=0, title="Classic", wallpaper="", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
+                ThemeChoice(value=1, title="Blush Notebook", wallpaper="assets/themes/blush.png", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
               row gap=12
-                ThemeChoice(value=2, title="Paris Haze", wallpaper="assets/themes/paris.png", selected=theme, pick=chooseTheme)
-                ThemeChoice(value=3, title="Meadow Morning", wallpaper="assets/themes/meadow.png", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=2, title="Paris Haze", wallpaper="assets/themes/paris.png", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
+                ThemeChoice(value=3, title="Meadow Morning", wallpaper="assets/themes/meadow.png", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
               row gap=12
-                ThemeChoice(value=4, title="Lavender Sky", wallpaper="assets/themes/lavender.png", selected=theme, pick=chooseTheme)
-                ThemeChoice(value=5, title="Linen Journal", wallpaper="assets/themes/linen.png", selected=theme, pick=chooseTheme)
+                ThemeChoice(value=4, title="Lavender Sky", wallpaper="assets/themes/lavender.png", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
+                ThemeChoice(value=5, title="Linen Journal", wallpaper="assets/themes/linen.png", selected=theme, surface=themeSurface, field=themeField, ink=themeInk, muted=themeMuted, border=themeBorder, accent=themeAccent, pick=chooseTheme)
       when popupOpen and (not dragging or returning) and not editorOpen and not pickerOpen and not stickerOpen
         box id="date-popup-backdrop" testId="date-popup-backdrop" press=closePopup aria-label="Close schedules" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(popupClosing ? 0 : returnOpacity * (1 - unit(popupTranslation / max(1, popupCap)))) transition=(returning ? returnTransition : (viewport.prefersReducedMotion or popupPanning ? "none" : `opacity ${popupClosing ? 180 : 200}ms ${popupClosing ? "ease-in" : "ease-out"}`))
       when popupOpen
@@ -1158,33 +1091,11 @@ component Calendar
                   text "No schedules yet" font-size=16 font-weight=500 color="#494950"
                   text "Tap + to add something to your day." font-size=13 color="#85858d"
               each item in agenda.items key=item.id
-                AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, hidden=(dragId == item.id), disabled=(busy or editorOpen or pickerOpen or stickerOpen or popupClosing or (dragging and (not held or dragId != item.id))), edit=editEvent)
+                AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, completed=item.completed, toggle=toggleTodo, hidden=(dragId == item.id), disabled=(busy or editorOpen or pickerOpen or stickerOpen or popupClosing or (dragging and (not held or dragId != item.id))), edit=editEvent)
               when agenda.stickerId != ""
                 StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or editorOpen or pickerOpen or stickerOpen or popupClosing or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), edit=editSticker)
           when error != "" or busy
             text (busy ? "Saving…" : error) testId="popup-status" aria-live="polite" padding-left=20 padding-right=20 padding-top=4 padding-bottom=12 font-size=13 color=(error != "" ? "#b74238" : "#85858d") flex-shrink=0 opacity=(popupLowered or (sharedEditor and editorOrigin == "date" and not editorClosing or sharedSticker and not stickerClosing) ? 0 : 1) transition="opacity 80ms ease-in"
-      when todoSheetOpen and (not dragging or returning) and not editorOpen and not pickerOpen and not stickerOpen
-        box testId="todo-backdrop" press=closeTodos position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(todoClosing ? 0 : returnOpacity) transition=(returning ? returnTransition : (viewport.prefersReducedMotion ? "none" : `opacity ${todoClosing ? 180 : 200}ms ${todoClosing ? "ease-in" : "ease-out"}`))
-      when todoSheetOpen
-        column id="todo-sheet" testId="todo-sheet" role="dialog" aria-label="Todos" position="absolute" bottom=0 left=0 right=0 height=(sharedEditor and editorOrigin == "todos" ? morphHeight : todoHeight) max-height=sheetFullHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" interpolate-size="allow-keywords" z-index=(sharedEditor and editorOrigin == "todos" ? 11 : 5) translate=`0px ${todoLowered or todoClosing ? viewport.height + 40 : todoTranslation}px` opacity=returnOpacity transition=(returning ? returnTransition : (viewport.prefersReducedMotion or sheetDragging != "" ? "none" : `height ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}, translate ${todoClosing ? 180 : 200}ms ${todoClosing ? "ease-in" : "ease-out"}`)) animation=(viewport.prefersReducedMotion or todoClosing ? "none" : "popupIn 200ms ease-out")
-          box id="todo-sheet-handle" testId="todo-sheet-handle" aria-label="Drag to resize todos" pan=sheetPan("todo") panrelease=sheetRelease("todo") touch-action="none" width="100%" height=36 flex-shrink=0 display="flex" align-items="flex-start" justify-content="center" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
-            box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
-          row height=64 flex-shrink=0 padding-left=20 padding-right=16 gap=8 align-items="center" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
-            column flex=1 min-width=0 gap=4
-              text "Todos" font-size=18 font-weight=600
-              text "Hold an item to add it to a date" font-size=13 color="#85858d"
-            button press=editTodo("") testId="todo-add" aria-label="New todo" class=QuietButton background-color="#ffffff00" border-radius=0 width=36 height=36 disabled=(busy or popupLowered or todoClosing)
-              image "symbol:add" font-size=18 tint-color="#d85358"
-            button press=closeTodos testId="close-todos" aria-label="Close todos" class=QuietButton background-color="#ffffff00" border-radius=0 width=36 height=36 disabled=(dragging or popupLowered or todoClosing)
-              image "symbol:close" font-size=14 tint-color="#77777e"
-          scroll testId="todo-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
-            column padding-bottom=12
-              when length(todos) == 0
-                text "A place for things you want to do." padding=20 font-size=15 color="#85858d"
-              each item in todos key=item.id
-                TodoRow(id=item.id, title=item.title, color=item.color, completed=item.completed, hidden=(dragId == `todo:${item.id}`), disabled=(busy or editorOpen or pickerOpen or stickerOpen or todoClosing or (dragging and (not held or dragId != `todo:${item.id}`))), edit=editTodo, toggle=toggleTodo)
-          when error != "" and not todoLowered
-            text error testId="todo-error" padding=16 font-size=13 color="#b74238" opacity=(sharedEditor and editorOrigin == "todos" and not editorClosing ? 0 : 1) transition="opacity 80ms ease-in"
       when held
         box id="cancel-zone" testId="cancel-zone" aria-label="Drop to cancel" position="absolute" left=0 right=0 bottom=0 height=112 pointer-events="none" z-index=20
           row position="absolute" left=20 right=20 bottom="calc(env(safe-area-inset-bottom) + 12px)" height=56 gap=10 border-radius=16 background-color=(hoverCancel ? themeInk : (theme == 0 ? "#fff1ef" : themeBase)) box-shadow="0 4px 16px rgba(40, 32, 42, 0.10)" align-items="center" justify-content="center" transition="background-color 120ms ease-out"
@@ -1197,9 +1108,9 @@ component Calendar
         box id="calendar-drag-image" testId="calendar-drag-image" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight translate=`${ghostX}px ${ghostY}px` overflow="visible" pointer-events="none" z-index=21 opacity=(dragPhase == "fading" ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : (held ? "opacity 90ms linear" : "translate 300ms ease-in-out, opacity 90ms linear"))
           box position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight overflow="visible" translate=`${lifted ? dragOriginX - sourceX - (dragKind == "sticker" ? 24 : 30) : 0}px ${lifted ? dragOriginY - sourceY - 24 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : (landed or returning ? "translate 300ms ease-in-out" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)"))
             when viewport.prefersReducedMotion
-              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind == "plan" ? "#ffffff00" : paletteColor(theme, dragColor)) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0))
+              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind != "event" ? "#ffffff00" : paletteColor(theme, dragColor)) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0))
             else
-              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind == "plan" ? "#ffffff00" : paletteColor(theme, dragColor)) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) transition="background-color 300ms ease-in-out" layout-transition="300ms ease-in-out"
+              box id="calendar-drag-background" testId="calendar-drag-background" position="absolute" left=0 top=0 width=ghostWidth height=ghostHeight background-color=(dragKind == "sticker" ? "#ffffff00" : (landed or lifted ? (dragKind != "event" ? "#ffffff00" : paletteColor(theme, dragColor)) : "#ffffff")) border-top-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-left-radius=(landed ? (landingBefore ? 0 : 4) : (lifted ? 6 : 0)) border-top-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) border-bottom-right-radius=(landed ? (landingAfter ? 0 : 4) : (lifted ? 6 : 0)) transition="background-color 300ms ease-in-out" layout-transition="300ms ease-in-out"
             when dragKind == "sticker"
               when dragSource == "sticker-date"
                 row id="calendar-drag-source-face" testId="calendar-drag-source-face" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight box-sizing="border-box" padding-left=20 padding-right=20 background-color="#ffffff" align-items="center" gap=12 opacity=(landed or lifted ? 0 : 1) scale=(landed ? landingWidth / sourceWidth : (lifted ? 48 / sourceWidth : 1)) transform-origin="0px 0px" transition=ghostTransition
@@ -1210,36 +1121,38 @@ component Calendar
                   image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
               image `assets/stickers/${dragStickerId}.png` id="calendar-drag-sticker" testId="calendar-drag-sticker" position="absolute" left=0 top=0 width=(dragSource == "sticker-date" ? 48 : sourceWidth) height=(dragSource == "sticker-date" ? 48 : sourceHeight) object-fit="contain" opacity=(dragSource == "sticker-date" and not landed and not lifted ? 0 : 1) scale=(dragSource == "sticker-date" ? (landed ? landingWidth / 48 : 1) : ghostWidth / sourceWidth) transform-origin="0px 0px" transition=ghostTransition aria-hidden=true
             else
-              row id="calendar-drag-source-face" testId="calendar-drag-source-face" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight box-sizing="border-box" padding-left=(dragSource == "todos" ? 0 : 20) padding-right=(dragSource == "todos" ? 0 : 20) align-items="center" gap=12 opacity=(landed or lifted ? 0 : 1) scale=(landed ? landingWidth / sourceWidth : (lifted ? 220 / sourceWidth : 1)) transform-origin="0px 0px" transition=ghostTransition
-                when dragSource != "todos"
-                  AgendaMark(kind=dragKind, color=dragColor)
+              row id="calendar-drag-source-face" testId="calendar-drag-source-face" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight box-sizing="border-box" padding-left=20 padding-right=20 align-items="center" gap=12 opacity=(landed or lifted ? 0 : 1) scale=(landed ? landingWidth / sourceWidth : (lifted ? 220 / sourceWidth : 1)) transform-origin="0px 0px" transition=ghostTransition
+                AgendaMark(kind=dragKind, color=dragColor, completed=dragCompleted)
                 column flex=1 min-width=0 gap=4 align-items="flex-start"
-                  text dragTitle font-size=16 font-weight=500 color=(dragSource == "todos" ? (dragRangeLabel == "Completed" ? "#929299" : "#242428") : themeInk) text-decoration-line=(dragSource == "todos" and dragRangeLabel == "Completed" ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+                  text dragTitle font-size=16 font-weight=500 color=(dragCompleted ? themeMuted : themeInk) text-decoration-line=(dragCompleted ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
                   text dragRangeLabel font-size=13 color="#85858d" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
-                when dragSource != "todos"
-                  image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
+                image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
               box id="calendar-drag-chip-face" testId="calendar-drag-chip-face" position="absolute" left=0 top=0 width=220 height=36 box-sizing="border-box" padding-left=10 padding-right=10 display="flex" align-items="center" justify-content=(dragKind == "plan" ? "center" : "flex-start") opacity=(lifted ? 1 : 0) scale=1 transform-origin="0px 0px" transition=ghostTransition
                 when dragKind == "plan"
-                  box position="absolute" left=0 right=0 top=7 height=2 background-color=dragColor
-                  box position="absolute" left=0 top=5 width=6 height=6 border-radius=3 background-color=dragColor
+                  box position="absolute" left=0 right=0 top=7 height=2 background-color=paletteColor(theme, dragColor)
+                  box position="absolute" left=0 top=5 width=6 height=6 border-radius=3 background-color=paletteColor(theme, dragColor)
                   svg position="absolute" right=0 top=5 width=8 height=6 viewBox="0 0 8 6"
-                    path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=dragColor stroke-width=2
-                text dragTitle position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 14 : "auto") text-align=(dragKind == "plan" ? "center" : "left") font-size=14 font-weight=500 color=(dragKind == "plan" ? dragColor : "#292934") background-color="#ffffff00" padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
-              box id="calendar-drag-landing-face" testId="calendar-drag-landing-face" position="absolute" left=0 top=0 width=landingWidth height=20 box-sizing="border-box" padding-left=6 padding-right=6 display="flex" align-items="center" justify-content=(dragKind == "plan" ? "center" : "flex-start") opacity=(landed ? 1 : 0) transition=ghostTransition
+                    path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=paletteColor(theme, dragColor) stroke-width=2
+                when dragKind == "todo"
+                  TodoMark(completed=dragCompleted, color=paletteColor(theme, dragColor), size=12)
+                text dragTitle margin-left=(dragKind == "todo" ? 4 : 0) text-decoration-line=(dragCompleted ? "line-through" : "none") opacity=(dragCompleted ? 0.5 : 1) position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 14 : "auto") text-align=(dragKind == "plan" ? "center" : "left") font-size=14 font-weight=500 color=(dragKind == "plan" ? paletteColor(theme, dragColor) : "#292934") background-color="#ffffff00" padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
+              box id="calendar-drag-landing-face" testId="calendar-drag-landing-face" position="absolute" left=0 top=0 width=landingWidth height=20 box-sizing="border-box" padding-left=(dragKind == "todo" ? 2 : 6) padding-right=(dragKind == "todo" ? 2 : 6) overflow="hidden" display="flex" align-items="center" justify-content=(dragKind == "plan" ? "center" : "flex-start") opacity=(landed ? 1 : 0) transition=ghostTransition
                 when dragKind == "plan"
-                  box position="absolute" left=0 right=0 top=2 height=2 background-color=dragColor
+                  box position="absolute" left=0 right=0 top=2 height=2 background-color=paletteColor(theme, dragColor)
                   when not landingBefore
-                    box position="absolute" left=0 top=0 width=6 height=6 border-radius=3 background-color=dragColor
+                    box position="absolute" left=0 top=0 width=6 height=6 border-radius=3 background-color=paletteColor(theme, dragColor)
                   when not landingAfter
                     svg position="absolute" right=0 top=0 width=8 height=6 viewBox="0 0 8 6"
-                      path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=dragColor stroke-width=2
-                text dragTitle position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 7 : "auto") text-align=(dragKind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(dragKind == "plan" ? dragColor : "#292934") background-color="#ffffff00" padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+                      path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=paletteColor(theme, dragColor) stroke-width=2
+                when dragKind == "todo"
+                  TodoMark(completed=dragCompleted, color=paletteColor(theme, dragColor), size=12)
+                text dragTitle margin-left=(dragKind == "todo" ? 4 : 0) text-decoration-line=(dragCompleted ? "line-through" : "none") opacity=(dragCompleted ? 0.5 : 1) position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 7 : "auto") text-align=(dragKind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(dragKind == "plan" ? paletteColor(theme, dragColor) : "#292934") background-color="#ffffff00" padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
       when pickerOpen and not pickerMorphing
         box testId="picker-backdrop" press=closePicker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(pickerClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${pickerClosing ? 180 : 200}ms ${pickerClosing ? "ease-in" : "ease-out"}`)
       box position="absolute" right=0 bottom=0 width=0 height=0 overflow="visible" z-index=11 pointer-events="none"
-        box id="add-surface" testId=(pickerOpen ? "type-picker" : "add-surface") position="absolute" right=(pickerOpen and pickerMorphing ? 0 : 20) bottom=(pickerOpen and pickerMorphing ? 0 : "calc(env(safe-area-inset-bottom) + 24px)") width=(pickerOpen and not pickerClosing ? (pickerMorphing ? viewport.width : min(360, viewport.width - 40)) : 56) height=(pickerOpen and not pickerClosing ? (pickerMorphing ? (stickerOpen ? stickerMorphHeight : morphHeight) : pickerHeight) : 56) min-height=0 box-sizing="border-box" border-radius=(pickerOpen and not pickerClosing ? 20 : 28) background-color=(pickerOpen and not pickerClosing ? "#ffffff" : themeAccent) box-shadow="0 8px 28px rgba(72, 58, 66, 0.18)" overflow="hidden" opacity=(dragging or modalOpen and not pickerOpen ? 0 : 1) pointer-events=(dragging or modalOpen and not pickerOpen ? "none" : "auto") layout-transition="240ms ease-in-out" transition=(viewport.prefersReducedMotion ? "none" : "background-color 240ms ease-in-out, opacity 160ms ease-out")
+        box id="add-surface" testId=(pickerOpen ? "type-picker" : "add-surface") position="absolute" right=(pickerOpen and pickerMorphing ? 0 : 20) bottom=(pickerOpen and pickerMorphing ? 0 : "calc(env(safe-area-inset-bottom) + 24px)") width=(pickerOpen and not pickerClosing ? (pickerMorphing ? viewport.width : min(360, viewport.width - 40)) : 56) height=(pickerOpen and not pickerClosing ? (pickerMorphing ? (stickerOpen ? stickerMorphHeight : morphHeight) : pickerHeight) : 56) min-height=0 box-sizing="border-box" border-radius=(pickerOpen and not pickerClosing ? 20 : 28) background-color=(pickerOpen and not pickerClosing ? themeSurface : themeAccent) box-shadow="0 8px 28px rgba(72, 58, 66, 0.18)" overflow="hidden" opacity=(dragging or modalOpen and not pickerOpen ? 0 : 1) pointer-events=(dragging or modalOpen and not pickerOpen ? "none" : "auto") layout-transition="240ms ease-in-out" transition=(viewport.prefersReducedMotion ? "none" : "background-color 240ms ease-in-out, opacity 160ms ease-out")
       when pickerOpen
-        scroll testId="picker-content" role="dialog" aria-label="Add to your calendar" position="absolute" right=20 bottom="calc(env(safe-area-inset-bottom) + 80px)" width=min(360, viewport.width - 40) height=(pickerHeight - 56) z-index=11 opacity=(pickerContentVisible ? 1 : 0) transition=(viewport.prefersReducedMotion ? "none" : "opacity 80ms ease-out") pointer-events=(pickerContentVisible ? "auto" : "none")
+        scroll testId="picker-content" role="dialog" aria-label="Add to your calendar" position="absolute" right=20 bottom="calc(env(safe-area-inset-bottom) + 24px)" width=min(360, viewport.width - 40) height=(pickerHeight - 56) z-index=11 opacity=(pickerContentVisible ? 1 : 0) transition=(viewport.prefersReducedMotion ? "none" : "opacity 80ms ease-out") pointer-events=(pickerContentVisible ? "auto" : "none")
           column padding=16 gap=12
             row gap=12
               PickerChoice(kind="event", title="Event", tone=(theme == 0 ? "#df666c" : themeAccent), surface=(theme == 0 ? "#fafafa" : themeBase), ink=themeInk, pick=chooseType)
@@ -1247,93 +1160,120 @@ component Calendar
             row gap=12
               PickerChoice(kind="todo", title="Todo", tone=(theme == 0 ? "#70B8A2" : themeAccent), surface=(theme == 0 ? "#fafafa" : themeBase), ink=themeInk, pick=chooseType)
               PickerChoice(kind="sticker", title="Sticker", tone=(theme == 0 ? "#F39B65" : themeAccent), surface=(theme == 0 ? "#fafafa" : themeBase), ink=themeInk, pick=chooseType)
-      button id="add-schedule" testId=(pickerOpen ? "cancel-type-picker" : "add-schedule") press=openPicker("global") aria-label=(pickerOpen ? "Close item picker" : "Add item") disabled=(not libraryReady or busy or dragging or pickerClosing or pickerMorphing and pickerOpen or modalOpen and not pickerOpen) position="absolute" right=20 bottom="calc(env(safe-area-inset-bottom) + 24px)" width=56 height=56 padding=0 border-width=0 border-radius=28 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" z-index=12 opacity=(dragging or modalOpen and not pickerOpen or pickerMorphing and pickerOpen ? 0 : 1) pointer-events=(dragging or modalOpen and not pickerOpen or pickerMorphing and pickerOpen ? "none" : "auto") transition="opacity 100ms ease-out"
-        svg id="picker-toggle-icon" testId="picker-toggle-icon" width=32 height=32 viewBox="0 0 32 32" rotate=(pickerExpanded ? 45 : 0) pointer-events="none" transition=(viewport.prefersReducedMotion ? "none" : "rotate 240ms ease-in-out")
+      button id="add-schedule" testId=(pickerOpen ? "cancel-type-picker" : "add-schedule") press=openPicker("global") aria-label=(pickerOpen ? "Close item picker" : "Add item") disabled=(not libraryReady or busy or dragging or pickerClosing or pickerMorphing and pickerOpen or modalOpen and not pickerOpen) position="absolute" right=(pickerExpanded ? 26 : 20) bottom=(pickerExpanded ? `calc(env(safe-area-inset-bottom) + ${24 + pickerHeight - 48}px)` : "calc(env(safe-area-inset-bottom) + 24px)") width=(pickerExpanded ? 44 : 56) height=(pickerExpanded ? 44 : 56) padding=0 border-width=0 border-radius=28 layout-transition="240ms ease-in-out" background-color="#ffffff00" display="flex" align-items="center" justify-content="center" z-index=12 opacity=(dragging or modalOpen and not pickerOpen or pickerMorphing and pickerOpen ? 0 : 1) pointer-events=(dragging or modalOpen and not pickerOpen or pickerMorphing and pickerOpen ? "none" : "auto") transition="opacity 100ms ease-out"
+        svg id="picker-toggle-icon" testId="picker-toggle-icon" width=(pickerExpanded ? 28 : 32) height=(pickerExpanded ? 28 : 32) viewBox="0 0 32 32" rotate=(pickerExpanded ? 45 : 0) pointer-events="none" transition=(viewport.prefersReducedMotion ? "none" : "rotate 240ms ease-in-out")
           path d="M 16 3 L 16 29 M 3 16 L 29 16" fill="none" stroke=(pickerExpanded ? themeInk : "#ffffff") stroke-width=2.5 stroke-linecap="round"
       when stickerOpen and (not dragging or returning)
         box testId="sticker-backdrop" press=closeSticker position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=10 opacity=(stickerClosing ? 0 : returnOpacity) transition=(returning ? returnTransition : (viewport.prefersReducedMotion ? "none" : `opacity ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`))
       when stickerOpen
-        column id="sticker-editor" testId="sticker-editor" role="dialog" aria-label="Choose a sticker" position="absolute" left=0 right=0 bottom=0 height=stickerMorphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" overflow="hidden" interpolate-size="allow-keywords" z-index=12 translate=`0px ${stickerClosing and not sharedSticker or (dragging and (held or dragCommitted)) ? viewport.height + 40 : stickerTranslation}px` opacity=(sharedSticker and (stickerClosing or not formContentReady) ? 0 : returnOpacity) transition=(returning ? returnTransition : (viewport.prefersReducedMotion or sheetDragging != "" ? "none" : `height ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}, opacity ${stickerClosing ? 180 : 120}ms ${stickerClosing ? "ease-in" : "ease-out"}, translate ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`)) animation=(viewport.prefersReducedMotion or stickerClosing or sharedSticker ? "none" : "sheetIn 200ms ease-out")
+        column id="sticker-editor" testId="sticker-editor" role="dialog" aria-label="Choose a sticker" position="absolute" left=0 right=0 bottom=0 height=stickerMorphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color=themeSurface overflow="hidden" interpolate-size="allow-keywords" z-index=12 translate=`0px ${stickerClosing and not sharedSticker or (dragging and (held or dragCommitted)) ? viewport.height + 40 : stickerTranslation}px` opacity=(sharedSticker and (stickerClosing or not formContentReady) ? 0 : returnOpacity) transition=(returning ? returnTransition : (viewport.prefersReducedMotion or sheetDragging != "" ? "none" : `height ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}, opacity ${stickerClosing ? 180 : 120}ms ${stickerClosing ? "ease-in" : "ease-out"}, translate ${stickerClosing ? 180 : 200}ms ${stickerClosing ? "ease-in" : "ease-out"}`)) animation=(viewport.prefersReducedMotion or stickerClosing or sharedSticker ? "none" : "sheetIn 200ms ease-out")
           box id="sticker-sheet-handle" testId="sticker-sheet-handle" aria-label="Drag to resize stickers" pan=sheetPan("sticker") panrelease=sheetRelease("sticker") touch-action="none" width="100%" height=28 flex-shrink=0 display="flex" align-items="flex-start" justify-content="center"
-            box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
-          row height=60 padding-left=20 padding-right=20 gap=4 align-items="center" flex-shrink=0
-            button press=closeSticker testId="cancel-sticker" disabled=(busy or dragging) width=68 height=44 padding=0 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
-              text "Cancel" font-size=16 color="#74747c"
-            text "Sticker" flex=1 text-align="center" font-size=18 font-weight=600
-            button press=saveSticker testId="save-sticker" disabled=(busy or dragging or stickerClosing or not stickerDate.valid or pending(stickerDate) or pending(stickerAgenda) or stickerSelection == "") width=68 height=44 padding=0 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" justify-content="flex-end"
-              text "Save" font-size=16 font-weight=600 color=(stickerDate.valid and stickerSelection != "" ? "#d85358" : "#d9b9bb")
-          scroll id="sticker-list" testId="sticker-list" flex=1 min-height=0
-            column padding=20 padding-top=4 gap=16
-              row gap=12 align-items="center" height=44
-                text "Date" flex=1 font-size=16
-                input type="date" id="sticker-date" testId="sticker-date" aria-label="Sticker date" value=stickerDateText input=writeStickerDate disabled=(busy or dragging) class=DateField width=180 min="1900-01-01" max="2100-12-31"
-              column gap=10
-                row gap=10
-                  StickerChoice(value="sunshine", title="Sunshine", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="coffee", title="Coffee", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="cake", title="Cake", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="heart", title="Heart", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="sparkle", title="Sparkle", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="flower", title="Flower", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="book", title="Book", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="workout", title="Workout", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="travel", title="Travel", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="rest", title="Rest", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="bunny", title="Bunny", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="paris", title="Paris", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="daisy", title="Daisy", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  StickerChoice(value="moon", title="Moon", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                row gap=10
-                  StickerChoice(value="picnic", title="Picnic", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, pick=pickSticker)
-                  box flex=1 min-width=0 height=88
-              when stickerDate.valid and stickerAgenda.stickerId != ""
-                button press=clearSticker testId="remove-sticker" disabled=(busy or dragging) height=48 border-width=0 border-radius=12 background-color="#fff1ef" display="flex" align-items="center" justify-content="center"
-                  text "Remove sticker" font-size=16 font-weight=500 color="#c85353"
-              when error != "" or not stickerDate.valid
-                text (error != "" ? error : stickerDate.message) testId="sticker-error" color="#b74238" font-size=13
+            box width=32 height=4 margin-top=10 background-color=themeBorder border-radius=2
+          row height=48 padding-left=20 padding-right=20 align-items="center" flex-shrink=0
+            button press=closeSticker testId="cancel-sticker" disabled=(busy or dragging) width=60 height=44 flex-shrink=0 padding=0 border-width=0 background-color="#ffffff00" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
+              text "Cancel" font-size=16 color=themeMuted
+            button press=toggleStickerCalendar id="sticker-date" testId="sticker-date" aria-label="Choose sticker date" aria-expanded=stickerCalendarOpen disabled=(busy or dragging or stickerClosing) flex=1 min-width=0 height=44 padding=0 border-width=0 background-color="#ffffff00" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              text stickerAgenda.label font-size=16 font-weight=600 color=themeInk max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+            button press=saveSticker testId="save-sticker" aria-label=(stickerAgenda.stickerId != "" ? "Save sticker" : "Add sticker") disabled=(busy or dragging or stickerClosing or not stickerDate.valid or pending(stickerDate) or pending(stickerAgenda) or stickerSelection == "") width=60 height=44 flex-shrink=0 padding=0 border-width=0 background-color="#ffffff00" display="flex" flex-direction="row" align-items="center" justify-content="flex-end"
+              text (busy ? "Saving…" : (stickerAgenda.stickerId != "" ? "Save" : "Add")) font-size=16 font-weight=600 color=(busy or not stickerDate.valid or stickerSelection == "" ? themeMuted : themeAccent)
+          when stickerCalendarOpen
+            scroll testId="sticker-calendar" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain"
+              column padding=16 padding-top=4 padding-bottom=20
+                row height=44 align-items="center" gap=8
+                  button press=moveStickerMonth(-1) testId="sticker-month-previous" aria-label="Previous month" disabled=(busy or stickerCalendarMonth <= 22800) width=44 height=44 padding=0 border-width=0 background-color="#ffffff00" display="flex" align-items="center" justify-content="center"
+                    svg width=18 height=18 viewBox="0 0 18 18" aria-hidden=true
+                      path d="M 11 3 L 5 9 L 11 15" fill="none" stroke=(stickerCalendarMonth <= 22800 ? themeBorder : themeInk) stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+                  text stickerCalendar.label testId="sticker-calendar-month" flex=1 min-width=0 text-align="center" font-size=16 font-weight=600 color=themeInk
+                  button press=moveStickerMonth(1) testId="sticker-month-next" aria-label="Next month" disabled=(busy or stickerCalendarMonth >= 25211) width=44 height=44 padding=0 border-width=0 background-color="#ffffff00" display="flex" align-items="center" justify-content="center"
+                    svg width=18 height=18 viewBox="0 0 18 18" aria-hidden=true
+                      path d="M 7 3 L 13 9 L 7 15" fill="none" stroke=(stickerCalendarMonth >= 25211 ? themeBorder : themeInk) stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+                row height=28 align-items="center"
+                  Weekday(label="S", tone=themeMuted)
+                  Weekday(label="M", tone=themeMuted)
+                  Weekday(label="T", tone=themeMuted)
+                  Weekday(label="W", tone=themeMuted)
+                  Weekday(label="T", tone=themeMuted)
+                  Weekday(label="F", tone=themeMuted)
+                  Weekday(label="S", tone=themeMuted)
+                each week in stickerCalendar.weeks key=week.id
+                  row height=44 flex-shrink=0
+                    each cell in week.cells key=cell.id
+                      button press=writeStickerDate(cell.date) testId=`sticker-day-${cell.date}` aria-label=cell.date aria-selected=(cell.date == stickerDateText) disabled=(busy or dragging or stickerClosing or (not cell.inMonth and (stickerCalendarMonth <= 22800 and cell.number > 15 or stickerCalendarMonth >= 25211 and cell.number < 15))) width="14.285714%" height=44 padding=0 border-width=0 background-color="#ffffff00" display="flex" align-items="center" justify-content="center"
+                        box width=36 height=36 box-sizing="border-box" border-radius=18 border-width=(cell.day == clock.today and cell.date != stickerDateText ? 1 : 0) border-style="solid" border-color=themeAccent background-color=(cell.date == stickerDateText ? themeAccent : "#ffffff00") display="flex" align-items="center" justify-content="center"
+                          text `${cell.number}` font-size=16 color=(cell.date == stickerDateText ? "#ffffff" : (cell.inMonth ? themeInk : themeMuted))
+          else
+            scroll id="sticker-list" testId="sticker-list" flex=1 min-height=0
+              column padding=20 padding-top=4 gap=16
+                column gap=10
+                  row gap=10
+                    StickerChoice(value="sunshine", title="Sunshine", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="coffee", title="Coffee", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="cake", title="Cake", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="heart", title="Heart", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="sparkle", title="Sparkle", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="flower", title="Flower", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="book", title="Book", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="workout", title="Workout", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="travel", title="Travel", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="rest", title="Rest", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="bunny", title="Bunny", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="paris", title="Paris", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="daisy", title="Daisy", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    StickerChoice(value="moon", title="Moon", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                  row gap=10
+                    StickerChoice(value="picnic", title="Picnic", selected=stickerSelection, disabled=(busy or stickerClosing or dragging), dragId=dragId, held=held, surface=themeField, selectedSurface=themeBase, ink=themeMuted, accent=themeAccent, pick=pickSticker)
+                    box flex=1 min-width=0 height=88
+                when stickerDate.valid and stickerAgenda.stickerId != ""
+                  button press=clearSticker testId="remove-sticker" disabled=(busy or dragging) height=48 border-width=0 border-radius=12 background-color=themeField display="flex" align-items="center" justify-content="center"
+                    text "Remove sticker" font-size=16 font-weight=500 color="#c85353"
+                when error != "" or not stickerDate.valid
+                  text (error != "" ? error : stickerDate.message) testId="sticker-error" color="#b74238" font-size=13
       when editorOpen
         box press=closeEditor testId="editor-backdrop" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.18)" z-index=10 opacity=(editorClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : `opacity ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}`)
-        column id="schedule-editor" testId=(editorKind == "todo" ? "todo-editor" : "schedule-editor") role="dialog" aria-label=editorLabel position="absolute" left=0 right=0 bottom=0 height=morphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" background-color="#ffffff" border-top-left-radius=24 border-top-right-radius=24 box-shadow=(sharedEditor ? "none" : "0 -8px 44px rgba(28, 31, 44, 0.08)") overflow="hidden" interpolate-size="allow-keywords" z-index=12 translate=`0px ${editorClosing and not sharedEditor ? viewport.height + 40 : (sheetDragging == "editor" ? sheetOverdrag : 0)}px` opacity=(sharedEditor and (editorClosing or not formContentReady) ? 0 : 1) transition=(viewport.prefersReducedMotion or sheetDragging != "" ? "none" : `height ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}, opacity ${editorClosing ? 180 : 120}ms ${editorClosing ? "ease-in" : "ease-out"}, translate ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or editorClosing or sharedEditor ? "none" : "sheetIn 200ms ease-out")
+        column id="schedule-editor" testId=(editorKind == "todo" ? "todo-editor" : "schedule-editor") role="dialog" aria-label=editorLabel position="absolute" left=0 right=0 bottom=0 height=morphHeight min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" background-color=themeSurface border-top-left-radius=24 border-top-right-radius=24 box-shadow=(sharedEditor ? "none" : "0 -8px 44px rgba(28, 31, 44, 0.08)") overflow="hidden" interpolate-size="allow-keywords" z-index=12 translate=`0px ${editorClosing and not sharedEditor ? viewport.height + 40 : (sheetDragging == "editor" ? sheetOverdrag : 0)}px` opacity=(sharedEditor and (editorClosing or not formContentReady) ? 0 : 1) transition=(viewport.prefersReducedMotion or sheetDragging != "" ? "none" : `height ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}, opacity ${editorClosing ? 180 : 120}ms ${editorClosing ? "ease-in" : "ease-out"}, translate ${editorClosing ? 180 : 200}ms ${editorClosing ? "ease-in" : "ease-out"}`) animation=(viewport.prefersReducedMotion or editorClosing or sharedEditor ? "none" : "sheetIn 200ms ease-out")
           box id="editor-sheet-handle" testId="editor-sheet-handle" aria-label="Drag to resize editor" pan=sheetPan("editor") panrelease=sheetRelease("editor") touch-action="none" width="100%" height=28 flex-shrink=0 display="flex" align-items="flex-start" justify-content="center"
-            box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
-          row height=48 padding-left=24 padding-right=16 gap=4 align-items="center" flex-shrink=0
-            text editorLabel flex=1 min-width=0 font-size=14 font-weight=500 color="#85858d"
-            button press=closeEditor testId="cancel-editor" aria-label="Cancel editing" width=40 height=40 padding=0 border-width=0 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" disabled=busy
-              image "symbol:close" font-size=16 tint-color="#929299"
+            box width=32 height=4 margin-top=10 background-color=themeBorder border-radius=2
+          row height=48 padding-left=20 padding-right=20 align-items="center" flex-shrink=0
+            button press=closeEditor testId="cancel-editor" aria-label="Cancel editing" disabled=busy width=60 height=44 flex-shrink=0 padding=0 border-width=0 background-color="#ffffff00" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
+              text "Cancel" font-size=16 color=themeMuted
+            text editorLabel flex=1 min-width=0 text-align="center" font-size=16 font-weight=600 color=themeInk white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+            button press=save testId="save-schedule" aria-label=(editId != "" ? "Save item" : "Add item") disabled=(busy or not libraryReady or not editorReady or title == "") width=60 height=44 flex-shrink=0 padding=0 border-width=0 background-color="#ffffff00" display="flex" flex-direction="row" align-items="center" justify-content="flex-end"
+              text (busy ? "Saving…" : (editId != "" ? "Save" : "Add")) font-size=16 font-weight=600 color=(busy or title == "" ? themeMuted : themeAccent)
           scroll testId="editor-fields" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain"
             column padding-left=24 padding-right=24 padding-top=2 padding-bottom=24 gap=20
               when not editorReady
                 text (pending(opened) ? "Opening schedule…" : opened.message) color="#b74238" font-size=13 testId="event-error"
                 when opened.message != "" and not pending(opened)
-                  button press=retryEvent disabled=busy testId="retry-event" padding=10 border-width=0 border-radius=10 background-color="#f5f5f7"
-                    text "Try again" font-size=13 color="#79797f"
-              input id="schedule-title" testId="schedule-title" aria-label="Schedule title" placeholder=(editorKind == "todo" ? "What needs doing?" : "What are you planning?") value=title input=writeTitle disabled=(busy or not editorReady) width="100%" height=52 box-sizing="border-box" padding=0 border-width=0 background-color="#ffffff00" font-size=24 font-weight=600 letter-spacing=-0.4 color="#242428"
-              when editorKind != "todo"
-                textarea id="schedule-notes" testId="schedule-notes" aria-label="Schedule notes" placeholder="Add a description…" value=notes input=writeNotes disabled=(busy or not editorReady) width="100%" height=48 min-height=48 box-sizing="border-box" padding=0 font-size=15 font-family="system-ui" line-height="21px" border-width=0 background-color="#ffffff00" color="#494950"
-                column gap=12
-                  row align-items="center" gap=12 height=32
-                    text "All day" flex=1 font-size=15 color="#494950"
-                    input type="checkbox" switch checked=allDay change=toggleAllDay disabled=(busy or not editorReady) testId="all-day" aria-label="All day" accent-color="#FA7070"
-                  row gap=12
-                    column flex=1 min-width=0 gap=8
-                      text "Starts" class=FieldLabel
-                      input type="date" id="start-date" testId="start-date" aria-label="Start date" value=startDate input=writeStartDate disabled=(busy or not editorReady) class=DateField width="100%" padding-left=(viewport.width < 360 ? 6 : 10) padding-right=(viewport.width < 360 ? 6 : 10) background-color="#f5f5f7" font-size=(viewport.width < 360 ? 13 : 14) min="1900-01-01" max="2100-12-31"
-                      when not allDay
-                        input type="time" id="start-time" testId="start-time" aria-label="Start time" value=startTime input=writeStartTime disabled=(busy or not editorReady) class=DateField width="100%" padding-left=10 padding-right=10 background-color="#f5f5f7" font-size=14
-                    column flex=1 min-width=0 gap=8
-                      text "Ends" class=FieldLabel
-                      input type="date" id="end-date" testId="end-date" aria-label="End date, included" value=endDate input=writeEndDate disabled=(busy or not editorReady) class=DateField width="100%" padding-left=(viewport.width < 360 ? 6 : 10) padding-right=(viewport.width < 360 ? 6 : 10) background-color="#f5f5f7" font-size=(viewport.width < 360 ? 13 : 14) min="1900-01-01" max="2100-12-31"
-                      when not allDay
-                        input type="time" id="end-time" testId="end-time" aria-label="End time" value=endTime input=writeEndTime disabled=(busy or not editorReady) class=DateField width="100%" padding-left=10 padding-right=10 background-color="#f5f5f7" font-size=14
-                  text "The end date is included." font-size=12 color="#929299"
+                  button press=retryEvent disabled=busy testId="retry-event" padding=10 border-width=0 border-radius=10 background-color=themeField
+                    text "Try again" font-size=13 color=themeMuted
+              input id="schedule-title" testId="schedule-title" aria-label="Schedule title" placeholder=(editorKind == "todo" ? "What needs doing?" : "What are you planning?") value=title input=writeTitle disabled=(busy or not editorReady) width="100%" height=52 box-sizing="border-box" padding=0 border-width=0 background-color="#ffffff00" font-size=24 font-weight=600 letter-spacing=-0.4 color=themeInk
+              textarea id="schedule-notes" testId="schedule-notes" aria-label="Schedule notes" placeholder="Add a description…" value=notes input=writeNotes disabled=(busy or not editorReady) width="100%" height=48 min-height=48 box-sizing="border-box" padding=0 font-size=15 font-family="system-ui" line-height="21px" border-width=0 background-color="#ffffff00" color=themeInk
+              column
+                when editorKind != "todo"
+                  row align-items="center" gap=8 height=48
+                    text "All day" flex=1 font-size=15 color=themeInk
+                    input type="checkbox" switch checked=allDay change=toggleAllDay disabled=(busy or not editorReady) testId="all-day" aria-label="All day" accent-color=themeAccent
+                  box height=1 background-color=themeBorder
+                row align-items="center" gap=8 height=48
+                  text (editorKind == "todo" ? "Date" : "Starts") flex=1 min-width=0 font-size=15 color=themeInk
+                  input type="date" id="start-date" testId="start-date" aria-label=(editorKind == "todo" ? "Todo date" : "Start date") value=startDate input=writeStartDate disabled=(busy or not editorReady) class=DateField width=(viewport.width < 360 ? 132 : 146) font-size=(viewport.width < 360 ? 13 : 14) color=themeInk min="1900-01-01" max="2100-12-31"
+                  when editorKind != "todo" and not allDay
+                    input type="time" id="start-time" testId="start-time" aria-label="Start time" value=startTime input=writeStartTime disabled=(busy or not editorReady) class=DateField width=86 font-size=(viewport.width < 360 ? 13 : 14) color=themeInk
+                when editorKind != "todo"
+                  box height=1 background-color=themeBorder
+                  row align-items="center" gap=8 height=48
+                    text "Ends" flex=1 min-width=0 font-size=15 color=themeInk
+                    input type="date" id="end-date" testId="end-date" aria-label="End date, included" value=endDate input=writeEndDate disabled=(busy or not editorReady) class=DateField width=(viewport.width < 360 ? 132 : 146) font-size=(viewport.width < 360 ? 13 : 14) color=themeInk min="1900-01-01" max="2100-12-31"
+                    when not allDay
+                      input type="time" id="end-time" testId="end-time" aria-label="End time" value=endTime input=writeEndTime disabled=(busy or not editorReady) class=DateField width=86 font-size=(viewport.width < 360 ? 13 : 14) color=themeInk
               column gap=10
-                text "Color" class=FieldLabel
+                text "Color" class=FieldLabel color=themeMuted
                 row gap=12 align-items="center"
                   ColorChoice(value="#FA7070", label="Coral", selected=color, disabled=(busy or not editorReady), pick=pickColor)
                   ColorChoice(value="#747AFF", label="Blue", selected=color, disabled=(busy or not editorReady), pick=pickColor)
@@ -1342,25 +1282,20 @@ component Calendar
                   ColorChoice(value="#D4BEF1", label="Lilac", selected=color, disabled=(busy or not editorReady), pick=pickColor)
                   ColorChoice(value="#EE8192", label="Rose", selected=color, disabled=(busy or not editorReady), pick=pickColor)
               when error != ""
-                text error testId="editor-error" aria-live="assertive" font-size=13 color="#b74238" padding=12 border-radius=10 background-color="#fff1ef"
+                text error testId="editor-error" aria-live="assertive" font-size=13 color="#b74238" padding=12 border-radius=10 background-color=themeField
               when editId != ""
                 when confirmDelete
-                  column gap=12 padding=16 background-color="#fff1ef" border-radius=14
+                  column gap=12 padding=16 background-color=themeField border-radius=14
                     text (editorKind == "todo" ? "Delete this todo?" : "Delete this item?") font-size=16 font-weight=600 color="#b74238"
-                    text (editorKind == "todo" ? "This removes it from your todos." : "This removes it from every date.") font-size=13 color="#b74238"
+                    text "This removes it from every date." font-size=13 color="#b74238"
                     row gap=12
-                      button press=keepEvent disabled=busy testId="keep-schedule" flex=1 height=44 padding=0 border-width=0 border-radius=10 background-color="#ffffff" display="flex" align-items="center" justify-content="center"
-                        text "Keep" font-size=16 color="#74747c"
+                      button press=keepEvent disabled=busy testId="keep-schedule" flex=1 height=44 padding=0 border-width=0 border-radius=10 background-color=themeSurface display="flex" align-items="center" justify-content="center"
+                        text "Keep" font-size=16 color=themeMuted
                       button press=remove disabled=busy testId="confirm-delete" flex=1 height=44 padding=0 border-width=0 border-radius=10 background-color="#df666c" display="flex" align-items="center" justify-content="center"
                         text "Delete" font-size=16 font-weight=600 color="#ffffff"
                 else
-                  button press=askDelete disabled=(busy or not editorReady) testId="delete-schedule" width="100%" height=48 border-width=0 border-radius=12 background-color="#fff1ef" display="flex" align-items="center" justify-content="center"
+                  button press=askDelete disabled=(busy or not editorReady) testId="delete-schedule" width="100%" height=48 border-width=0 border-radius=12 background-color=themeField display="flex" align-items="center" justify-content="center"
                     text (editorKind == "todo" ? "Delete todo" : "Delete item") font-size=16 font-weight=500 color="#c85353"
-          row height=72 flex-shrink=0 padding-left=24 padding-right=24 gap=12 border-top-width=1 border-top-style="solid" border-top-color="#ededf0" align-items="center"
-            image (editorKind == "plan" ? "symbol:forward" : (editorKind == "todo" ? "symbol:checkmark" : "symbol:calendar")) font-size=18 tint-color=color
-            text (editorKind == "plan" ? "Plan" : (editorKind == "todo" ? "Todo" : "Event")) flex=1 font-size=14 font-weight=500 color="#85858d"
-            button press=save testId="save-schedule" aria-label="Save item" disabled=(busy or not libraryReady or not editorReady or title == "") height=44 padding-left=18 padding-right=18 border-width=0 border-radius=10 background-color=(busy or title == "" ? "#f1e4e5" : "#d96069") display="flex" align-items="center" justify-content="center"
-              text (busy ? "Saving…" : (editId != "" ? "Save changes" : (editorKind == "plan" ? "Add plan" : (editorKind == "todo" ? "Add todo" : "Add event")))) font-size=15 font-weight=600 color=(busy or title == "" ? "#bb969a" : "#ffffff")
 
 component MonthPage
   props
@@ -1398,15 +1333,17 @@ component MonthPage
                 each cell in week.cells key=cell.id
                   DateCell(cell=cell, month=page.id, today=today, selected=selected, hasSelection=hasSelection, blocked=blocked, activeDragId=activeDragId, held=held, busy=busy, theme=theme, themeInk=themeInk, themeAccent=themeAccent, hoverDay=hoverDay, dragSpan=dragSpan, choose=choose, pan=pan, release=release)
               each bar in week.bars key=bar.id
-                box testId=`bar-${page.id}-${bar.id}` aria-hidden=true pointer-events="none" position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${bar.span * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=6 padding-right=6 background-color=(bar.kind == "plan" ? "#ffffff00" : paletteColor(theme, bar.color)) border-top-left-radius=(bar.continuesBefore ? 0 : 4) border-bottom-left-radius=(bar.continuesBefore ? 0 : 4) border-top-right-radius=(bar.continuesAfter ? 0 : 4) border-bottom-right-radius=(bar.continuesAfter ? 0 : 4) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
+                box testId=`bar-${page.id}-${bar.id}` aria-hidden=true pointer-events="none" position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${(bar.kind == "todo" ? 1 : bar.span) * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=(bar.kind == "todo" ? 2 : 6) padding-right=(bar.kind == "todo" ? 2 : 6) overflow="hidden" background-color=(bar.kind != "event" ? "#ffffff00" : paletteColor(theme, bar.color)) border-top-left-radius=(bar.continuesBefore ? 0 : 4) border-bottom-left-radius=(bar.continuesBefore ? 0 : 4) border-top-right-radius=(bar.continuesAfter ? 0 : 4) border-bottom-right-radius=(bar.continuesAfter ? 0 : 4) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
                   when bar.kind == "plan"
-                    box position="absolute" left=0 right=0 top=2 height=2 background-color=bar.color
+                    box position="absolute" left=0 right=0 top=2 height=2 background-color=paletteColor(theme, bar.color)
                     when not bar.continuesBefore
-                      box position="absolute" left=0 top=0 width=6 height=6 border-radius=3 background-color=bar.color
+                      box position="absolute" left=0 top=0 width=6 height=6 border-radius=3 background-color=paletteColor(theme, bar.color)
                     when not bar.continuesAfter
                       svg position="absolute" right=0 top=0 width=8 height=6 viewBox="0 0 8 6"
-                        path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=bar.color stroke-width=2
-                  text bar.title position=(bar.kind == "plan" ? "absolute" : "relative") left=(bar.kind == "plan" ? 0 : "auto") right=(bar.kind == "plan" ? 0 : "auto") top=(bar.kind == "plan" ? 7 : "auto") text-align=(bar.kind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(bar.kind == "plan" ? bar.color : (theme == 0 ? "#292934" : themeInk)) background-color="#ffffff00" padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+                        path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=paletteColor(theme, bar.color) stroke-width=2
+                  when bar.kind == "todo"
+                    TodoMark(completed=bar.completed, color=paletteColor(theme, bar.color), size=12)
+                  text bar.title margin-left=(bar.kind == "todo" ? 4 : 0) text-decoration-line=(bar.completed ? "line-through" : "none") opacity=(bar.completed ? 0.5 : 1) position=(bar.kind == "plan" ? "absolute" : "relative") left=(bar.kind == "plan" ? 0 : "auto") right=(bar.kind == "plan" ? 0 : "auto") top=(bar.kind == "plan" ? 7 : "auto") text-align=(bar.kind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(bar.kind == "plan" ? paletteColor(theme, bar.color) : (theme == 0 ? "#292934" : themeInk)) background-color="#ffffff00" padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
               each cell in week.cells key=`hit-${cell.id}`
                 button testId=`date-hit-${page.id}-${cell.date}` aria-hidden=true press=choose(cell.day) disabled=blocked touch-action="pan-y" pan=pan panrelease=release position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
 

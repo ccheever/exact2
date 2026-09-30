@@ -3,15 +3,14 @@
 An Exact calendar example with Contract views and a Rust data module. The
 theme-colored **+** button expands into an anchored rectangular picker for **Event**,
 **Plan**, **Todo**, and **Sticker**, shown with minimalist illustrations. Its
-close control collapses back into **+**. Event, Plan, and Sticker open their
-forms from the picker with a resize and content fade. Todo opens the Todo
-list; use its **+** button to add one. Saving from the global picker keeps the
+close control collapses back into **+**. Each choice opens its form from the
+picker with a resize and content fade. Saving from the global picker keeps the
 date sheet closed. The forms use a large borderless title, compact date rows,
-and a Save button pinned to the bottom.
+and an Add button pinned to the bottom for new items.
 
 Tap anywhere on a date, including a placed event or sticker, to open its
 full-width bottom sheet. Schedules and the sticker appear as rows there; tap a
-row to edit it, or hold it to drag it to another date. The date, Todo, form,
+row to edit it, or hold it to drag it to another date. The date, form,
 sticker, and theme sheets open at half height. Drag a sheet's handle to
 snap it to compact, half, or nearly full height; pull down past compact or tap
 the dimmed backdrop to dismiss it. Sheets slide out before being removed,
@@ -31,7 +30,7 @@ reach the last week above the Cancel zone.
 The landing preview uses the destination bar's size and lane. The calendar's
 row refresh waits until the 300 ms landing finishes, and the preview stays until
 the refreshed calendar is ready. Sheets open in 200 ms with ease-out and close
-in 180 ms with ease-in; tapping a date or Todo row morphs its sheet into the form
+in 180 ms with ease-in; tapping a date or agenda row morphs its sheet into the form
 and fades the content. Reduced motion skips these animations. Changes
 are saved in the app's local SQLite store.
 
@@ -69,10 +68,12 @@ The existing Apple build script handles signing and reports missing prerequisite
 
 - The initial month and today's marker use the device's local date. Sample
   schedules are created only after the device reports its clock.
+- The samples place a San Francisco trip in September and a Japan trip in
+  October of the launch year, with Events, Plans, and Todos in each month.
 - The header shows `Sep`, or `Sep, 2025` outside the current year. The date sheet
   shows `Mon, Aug 31`, appending the year only when it differs from the current one.
 - Swipe horizontally across the calendar to change months. The header keeps the
-  month, Today, and theme controls; the Todo list is under **+ → Todo**.
+  month, Today, and theme controls; **+ → Todo** opens a dated Todo form.
 - Events are filled calendar bars. Plans are colored lines with a starting dot,
   an ending arrow, and the title below the line; a segment continuing into
   another week omits that endpoint.
@@ -90,11 +91,10 @@ The existing Apple build script handles signing and reports missing prerequisite
 
 ## Todos and stickers
 
-- Todos have a title, color, and completion state, with no date. Open the Todo
-  list through **+ → Todo** to add, edit, or complete them. Unfinished items appear first;
-  completed items are muted and struck through.
-- Dragging a Todo onto the calendar creates a one-day, all-day Event and removes
-  the Todo in one transaction. Cancelling keeps the Todo in its original list.
+- Todos have dates, times, notes, colors, and a completion state. Create one through
+  **+ → Todo**, then open its date to edit or complete it from the agenda. A completed
+  Todo is muted and struck through. Dragging it to another date preserves its Todo
+  type and completion state; cancelling a drag leaves it on its original date.
 - Choose a Sticker and a date in its form. Each date holds one sticker at the
   cell's bottom right, with space reserved below its schedule bars. Tap the date
   again to change or remove its sticker. Choosing a replacement updates that
@@ -105,7 +105,7 @@ The existing Apple build script handles signing and reports missing prerequisite
   its sticker; moving a placed sticker clears its original date in the same
   transaction. The Cancel zone restores the source without saving.
 - Existing schedules and their saved-operation journal are retained when the
-  database adds Plans, Todos, and stickers.
+  database adds Plans, dated Todos, and stickers.
 
 ## Source
 
@@ -115,8 +115,8 @@ changes. `apple/` and `web/` use the repository's existing host build paths. The
 small modules under `modules/` recognize input and report it through the existing
 native-module API; all rendered UI remains Contract.
 
-The visual reference is `done-universal`; its Event and Plan styles, undated
-Todos, and Todo dragging inform the presentation. Forms, stickers, and local
+The visual reference is `done-universal`; its Event and Plan styles and Todo
+presentation inform the design. Forms, stickers, and local
 persistence are implemented in this example.
 
 `assets/stickers/` contains fifteen transparent PNGs: sunshine, coffee, cake,
@@ -140,7 +140,7 @@ cargo run -q -p contract -- build examples/ios/calendar/app.contract -o /tmp/cal
 Drive the running app through `bun scripts/agent.mjs ios` (or `web`). Useful IDs
 include `today`, `add-schedule`, `picker-event`,
 `picker-plan`, `picker-todo`, `picker-sticker`, `schedule-title`, `start-date`,
-`end-date`, `all-day`, `save-schedule`, `delete-schedule`, `todo-add`,
+`end-date`, `all-day`, `save-schedule`, `delete-schedule`, `todo-check-<id>`,
 `date-sheet-handle`, `date-popup-backdrop`, `agenda-list`, `theme-button`,
 `theme-0` through `theme-5`, and `cancel-zone`.
 

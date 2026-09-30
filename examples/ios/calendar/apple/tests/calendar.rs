@@ -216,10 +216,6 @@ impl App {
         });
         self.press(&format!("picker-{kind}"));
         self.finish_motion();
-        if kind == "todo" {
-            self.press("todo-add");
-            self.finish_motion();
-        }
     }
     fn finish_motion(&mut self) {
         for _ in 0..72 {
@@ -229,7 +225,6 @@ impl App {
     fn assert_creation_closed(&self) {
         for id in [
             "date-popup",
-            "todo-sheet",
             "type-picker",
             "schedule-editor",
             "todo-editor",
@@ -404,9 +399,9 @@ fn launch_uses_the_reported_month_and_opens_the_selected_dates_agenda() {
     assert_eq!(app.derived("month"), &Value::Number(2026.0 * 12.0 + 8.0));
     let last_week = app.frame("date-2026-09-2026-10-03");
     assert_eq!(last_week.y + last_week.height, HEIGHT);
-    app.press("date-2026-09-2026-09-25");
+    app.press("date-2026-09-2026-09-16");
     assert_eq!(app.state("popupOpen"), &Value::Bool(true));
-    assert_eq!(app.agenda_id("Summer in Seoul"), "sample-2026-09-6");
+    assert_eq!(app.agenda_id("San Francisco"), "sample-2026-09-6");
 }
 
 #[test]
@@ -722,8 +717,8 @@ fn create_and_delete_recover_lost_replies_and_retry_uncommitted_failures_once() 
 fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     app.press(&format!("agenda-item-{id}"));
     let metadata = ["title", "notes", "color", "allDay", "startTime", "endTime"]
         .map(|name| (name, app.derived(name).clone()));
@@ -755,7 +750,7 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.settle();
     assert_eq!(app.state("contactAck"), &Value::Number(1.0));
     assert_eq!(app.state("dragPhase").as_str(), Some("held"));
-    assert_eq!(app.state("dragSpan"), &Value::Number(5.0));
+    assert_eq!(app.state("dragSpan"), &Value::Number(12.0));
     assert_eq!(app.key("date-popup"), popup);
     assert_eq!(app.key("calendar-input"), input);
     assert!(app
@@ -830,7 +825,7 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.press("date-2026-09-2026-09-20");
     app.press(&format!("agenda-item-{id}"));
     assert_eq!(app.derived("startDate").as_str(), Some("2026-09-20"));
-    assert_eq!(app.derived("endDate").as_str(), Some("2026-09-25"));
+    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-02"));
     for (name, expected) in metadata {
         assert_eq!(app.derived(name), &expected, "{name} must survive the move");
     }
@@ -841,8 +836,8 @@ fn cancel_zone_outside_and_same_date_drops_restore_the_original_sheet_without_wr
     for ending in ["cancel", "cancel-zone", "outside", "same-date"] {
         let root = Root::new();
         let mut app = App::open(&root);
-        app.press("date-2026-09-2026-09-25");
-        let id = app.agenda_id("Summer in Seoul");
+        app.press("date-2026-09-2026-09-16");
+        let id = app.agenda_id("San Francisco");
         let contact = Contact::new(&app, &id, 1);
         let popup = app.key("date-popup");
         let source = app.key(&format!("agenda-item-{id}"));
@@ -854,7 +849,8 @@ fn cancel_zone_outside_and_same_date_drops_restore_the_original_sheet_without_wr
         let point = match ending {
             "cancel-zone" => app.center("cancel-zone"),
             "outside" => (-10.0, 180.0),
-            _ => app.center("date-2026-09-2026-09-25"),
+            "same-date" => app.center("date-2026-09-2026-09-08"),
+            _ => app.center("date-2026-09-2026-09-16"),
         };
         let (phase, reason) = if ending == "cancel" {
             ("cancel", "interrupted")
@@ -896,13 +892,13 @@ fn cancel_zone_outside_and_same_date_drops_restore_the_original_sheet_without_wr
                 .len(),
             1
         );
-        assert_eq!(app.agenda_id("Summer in Seoul"), id);
+        assert_eq!(app.agenda_id("San Francisco"), id);
         drop(app);
 
         let mut reopened = App::open(&root);
-        reopened.press("date-2026-09-2026-09-25");
+        reopened.press("date-2026-09-2026-09-16");
         assert_eq!(reopened.derived("revision"), &Value::Number(1.0));
-        assert_eq!(reopened.agenda_id("Summer in Seoul"), id);
+        assert_eq!(reopened.agenda_id("San Francisco"), id);
     }
 }
 
@@ -911,7 +907,7 @@ fn a_drag_from_each_date_sheet_height_restores_that_height_on_cancel() {
     for (snap, pan) in [(0.0, 210.0), (1.0, 0.0), (2.0, -300.0)] {
         let root = Root::new();
         let mut app = App::open(&root);
-        app.press("date-2026-09-2026-09-25");
+        app.press("date-2026-09-2026-09-16");
         if pan != 0.0 {
             app.event("date-sheet-handle", Event::Pan(0.0, pan));
             app.event("date-sheet-handle", Event::PanRelease(0.0, 0.0));
@@ -919,7 +915,7 @@ fn a_drag_from_each_date_sheet_height_restores_that_height_on_cancel() {
         assert_eq!(app.state("popupSnap"), &Value::Number(snap));
         let original_height = app.frame("date-popup").height;
         let popup = app.key("date-popup");
-        let id = app.agenda_id("Summer in Seoul");
+        let id = app.agenda_id("San Francisco");
         let contact = Contact::new(&app, &id, 1);
         app.event(
             "calendar-input",
@@ -937,7 +933,7 @@ fn a_drag_from_each_date_sheet_height_restores_that_height_on_cancel() {
         assert_eq!(app.state("dragId").as_str(), Some(""));
         assert_eq!(app.key("date-popup"), popup);
         assert_eq!(app.derived("revision"), &Value::Number(1.0));
-        assert_eq!(app.agenda_id("Summer in Seoul"), id);
+        assert_eq!(app.agenda_id("San Francisco"), id);
     }
 }
 
@@ -945,8 +941,8 @@ fn a_drag_from_each_date_sheet_height_restores_that_height_on_cancel() {
 fn the_sheet_stays_offscreen_until_a_pending_drop_finishes() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     let contact = Contact::new(&app, &id, 1);
     let input = app.key("calendar-input");
     let popup = app.key("date-popup");
@@ -990,15 +986,15 @@ fn the_sheet_stays_offscreen_until_a_pending_drop_finishes() {
     assert!(app.runner.kernel().find_by_test_id("date-popup").is_empty());
     assert_eq!(app.state("dragId").as_str(), Some(""));
     app.press("date-2026-09-2026-09-20");
-    assert_eq!(app.agenda_id("Summer in Seoul"), id);
+    assert_eq!(app.agenda_id("San Francisco"), id);
 }
 
 #[test]
 fn stale_contact_identity_is_acknowledged_without_affecting_the_live_drag() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     let contact = Contact::new(&app, &id, 2);
     app.event(
         "calendar-input",
@@ -1022,8 +1018,8 @@ fn stale_contact_identity_is_acknowledged_without_affecting_the_live_drag() {
 fn a_stationary_long_press_cannot_drop_onto_a_date_behind_the_popup() {
     let root = Root::new();
     let mut app = App::open(&root);
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     let contact = Contact::new(&app, &id, 1);
     app.event(
         "calendar-input",
@@ -1042,8 +1038,8 @@ fn releasing_over_a_partly_presented_month_uses_the_cell_under_the_finger() {
     let root = Root::new();
     let mut app = App::open(&root);
     let september = 2026.0 * 12.0 + 8.0;
-    app.press("date-2026-09-2026-09-25");
-    let id = app.agenda_id("Summer in Seoul");
+    app.press("date-2026-09-2026-09-16");
+    let id = app.agenda_id("San Francisco");
     let contact = Contact::new(&app, &id, 1);
     app.event(
         "calendar-input",
@@ -1095,7 +1091,7 @@ fn releasing_over_a_partly_presented_month_uses_the_cell_under_the_finger() {
     app.press("date-2026-10-2026-10-04");
     app.press(&format!("agenda-item-{id}"));
     assert_eq!(app.derived("startDate").as_str(), Some("2026-10-04"));
-    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-09"));
+    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-16"));
 }
 
 #[test]

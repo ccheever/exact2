@@ -81,6 +81,7 @@ pub(crate) fn month(month: i32, events: &[&Schedule], stickers: &BTreeMap<i32, S
                         Value::Bool(event.all_day),
                         Value::str(&event.time_label()),
                         Value::str(event.kind.name()),
+                        Value::Bool(event.completed),
                     ])
                 })
                 .collect();

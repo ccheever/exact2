@@ -11,7 +11,7 @@ mod storage;
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
-use model::{Schedule, Todo};
+use model::Schedule;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity shared by the Contract bake, browser store and Apple app.
@@ -24,9 +24,9 @@ pub const GRANTS: &str = "sqlite.open app:/data/calendar.db";
 #[derive(Default)]
 pub struct Calendar {
     events: BTreeMap<String, Schedule>,
-    todos: BTreeMap<String, Todo>,
     stickers: BTreeMap<i32, String>,
     theme: u8,
+    utc_offset: i32,
     index: BTreeMap<i32, Vec<String>>,
     pages: VecDeque<(i32, Value)>,
     revision: u64,
@@ -53,7 +53,6 @@ impl Calendar {
     fn replace_library(
         &mut self,
         events: BTreeMap<String, Schedule>,
-        todos: BTreeMap<String, Todo>,
         stickers: BTreeMap<i32, String>,
         theme: u8,
         revision: u64,
@@ -63,7 +62,6 @@ impl Calendar {
             self.index_event(event);
         }
         self.events = events;
-        self.todos = todos;
         self.stickers = stickers;
         self.theme = theme;
         self.pages.clear();
@@ -167,22 +165,6 @@ impl Calendar {
         ])
     }
 
-    fn todos(&self) -> Value {
-        let mut todos: Vec<_> = self.todos.values().collect();
-        todos.sort_by_key(|todo| {
-            (
-                todo.completed_at != 0,
-                if todo.completed_at == 0 {
-                    todo.created_at
-                } else {
-                    todo.completed_at
-                },
-                &todo.id,
-            )
-        });
-        Value::list(todos.into_iter().map(Todo::value).collect())
-    }
-
     fn opened(&self, id: &str, notes: &str, message: &str) -> Value {
         let event = self.events.get(id);
         Value::record(vec![
@@ -237,32 +219,11 @@ impl Calendar {
             let page = layout::month(month, &self.month_events(month), &stickers);
             return drag::sticker_landing(&page, day, id, width, minimum);
         }
-        let candidate = if let Some(id) = wire_id.strip_prefix("todo:") {
-            let Some(todo) = self.todos.get(id) else {
-                return drag::no_landing();
-            };
-            if self.events.contains_key(id) {
-                return drag::no_landing();
-            }
-            Schedule {
-                id: id.into(),
-                title: todo.title.clone(),
-                color: todo.color.clone(),
-                all_day: true,
-                start: day,
-                end: day,
-                start_time: 0,
-                end_time: 0,
-                kind: model::Kind::Event,
-            }
-        } else {
-            let Some(event) = self.events.get(wire_id) else {
-                return drag::no_landing();
-            };
-            let Ok(moved) = event.moved(day) else {
-                return drag::no_landing();
-            };
-            moved
+        let Some(event) = self.events.get(wire_id) else {
+            return drag::no_landing();
+        };
+        let Ok(candidate) = event.moved(day) else {
+            return drag::no_landing();
         };
         if candidate.validate().is_err() {
             return drag::no_landing();
@@ -322,6 +283,7 @@ impl Calendar {
                 if offset.abs() > 1080.0 {
                     return Err(invalid("Invalid UTC offset.".into()));
                 }
+                self.utc_offset = offset as i32;
                 let day = ((epoch + offset * 60_000.0) / dates::DAY_MS).floor().clamp(
                     dates::month_first(dates::FIRST_MONTH).into(),
                     (dates::month_first(dates::LAST_MONTH + 1) - 1).into(),
@@ -362,7 +324,6 @@ impl Calendar {
                 whole(args, 0).map_err(invalid)?,
                 whole(args, 2).map_err(invalid)?,
             )),
-            "calendarTodos" => Ok(self.todos()),
             "calendarTheme" => Ok(Value::Number(f64::from(self.theme))),
             "loadCalendar" => Ok(self.library("")),
             "calendarEvent" => Ok(self.opened(text(args, 0).map_err(invalid)?, "", "")),
@@ -429,8 +390,7 @@ impl DataSource for Calendar {
                 Ok(storage::notes(id))
             }
             "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
-            | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
-            | "removeSticker" | "moveSticker" | "setTheme" => {
+            | "setTodoCompleted" | "setSticker" | "removeSticker" | "moveSticker" | "setTheme" => {
                 store.observe_external_read();
                 Ok(self.begin_mutation(source, args))
             }
@@ -467,8 +427,9 @@ impl DataSource for Calendar {
                 }))
             }
             "saveSchedule" | "savePlan" | "deleteSchedule" | "moveSchedule" | "saveTodo"
-            | "setTodoCompleted" | "deleteTodo" | "scheduleTodo" | "setSticker"
-            | "removeSticker" | "moveSticker" | "setTheme" => Ok(self.parse_mutation(outcome)),
+            | "setTodoCompleted" | "setSticker" | "removeSticker" | "moveSticker" | "setTheme" => {
+                Ok(self.parse_mutation(outcome))
+            }
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
@@ -599,7 +560,6 @@ mod tests {
                 .into_iter()
                 .map(|(e, _)| (e.id.clone(), e))
                 .collect(),
-            BTreeMap::new(),
             BTreeMap::new(),
             0,
             1,

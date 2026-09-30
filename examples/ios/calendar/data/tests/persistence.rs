@@ -252,14 +252,11 @@ fn legacy_database(root: &Root) -> String {
     fingerprint
 }
 
-fn todo_args(id: &str, title: &str, color: &str, at: i64, token: &str) -> Vec<Value> {
-    vec![
-        Value::str(id),
-        Value::str(title),
-        Value::str(color),
-        Value::Number(at as f64),
-        Value::str(token),
-    ]
+fn todo_args(id: &str, title: &str, token: &str) -> Vec<Value> {
+    let mut args = save_args(id, title, token);
+    args[4] = Value::Bool(true);
+    args[6] = args[5].clone();
+    args
 }
 
 fn date_cell(page: &Value, day: i32) -> (&[Value], &[Value]) {
@@ -274,7 +271,7 @@ fn date_cell(page: &Value, day: i32) -> (&[Value], &[Value]) {
 }
 
 #[test]
-fn unknown_boot_clock_creates_no_storage_and_real_clock_seeds_the_current_month() {
+fn unknown_boot_clock_creates_no_storage_and_real_clock_seeds_the_trip_months() {
     let root = Root::new();
     let mut app = App::open(&root);
     let clock = app.call("calendarClock", vec![num(0), num(0)]);
@@ -516,20 +513,28 @@ fn deleting_every_sample_does_not_reseed_a_reopened_calendar() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.load();
-    for i in 0..7 {
+    let rows = sql(
+        &root,
+        false,
+        json!([{"kind":"query","sql":"SELECT id FROM schedules ORDER BY id","params":[]}]),
+    );
+    let ids = rows[0]["rows"].as_array().unwrap();
+    assert!(ids.len() > 7, "both sample months must be populated");
+    for (i, row) in ids.iter().enumerate() {
         success(&app.call(
             "deleteSchedule",
             vec![
-                Value::str(&format!("sample-2026-09-{i}")),
+                Value::str(row[0].as_str().unwrap()),
                 Value::str(&format!("delete-sample-{i}")),
             ],
         ));
     }
     drop(app);
     let mut app = App::open(&root);
-    assert_eq!(app.load(), 8);
-    for day in TODAY..TODAY + 31 {
-        let agenda = app.call("calendarDay", vec![num(day), num(8), num(TODAY)]);
+    let revision = ids.len() as i32 + 1;
+    assert_eq!(app.load(), revision as u64);
+    for day in TODAY..TODAY + 61 {
+        let agenda = app.call("calendarDay", vec![num(day), num(revision), num(TODAY)]);
         assert!(list(&fields(&agenda)[3]).is_empty());
     }
 }
@@ -539,6 +544,8 @@ fn paginated_summary_reload_keeps_large_notes_out_of_month_scrolls() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.load();
+    let seeded = app.call("calendarDay", vec![num(TODAY + 24), num(1), num(TODAY)]);
+    let seeded_count = list(&fields(&seeded)[3]).len();
     for i in 0..260 {
         let mut args = save_args("", &format!("Schedule {i}"), &format!("bulk-{i:03}"));
         args[2] = Value::str(&"Long notes. ".repeat(1000));
@@ -548,8 +555,8 @@ fn paginated_summary_reload_keeps_large_notes_out_of_month_scrolls() {
     let mut app = App::open(&root);
     assert_eq!(app.load(), 261);
     assert_eq!(
-        app.requests, 6,
-        "schema check, two schedule pages, todos, stickers, snapshot verification"
+        app.requests, 5,
+        "schema check, two schedule pages, stickers, snapshot verification"
     );
     let before = app.requests;
     for month in (2026 * 12 - 48)..(2026 * 12 + 48) {
@@ -564,7 +571,7 @@ fn paginated_summary_reload_keeps_large_notes_out_of_month_scrolls() {
         app.requests, before,
         "paging and agenda summaries perform no storage work"
     );
-    assert_eq!(list(&fields(&day)[3]).len(), 261);
+    assert_eq!(list(&fields(&day)[3]).len(), 260 + seeded_count);
     assert!(list(&fields(&day)[3])
         .iter()
         .all(|event| fields(event)[2].as_str() == Some("")));
@@ -642,8 +649,234 @@ fn original_database_upgrades_without_reseeding_or_changing_saved_operation_resu
     );
     assert_eq!(inspection[0]["rows"][0][0]["integer"], "1");
     assert_eq!(inspection[1]["rows"][0][0], fingerprint);
-    assert_eq!(inspection[2]["rows"].as_array().unwrap().len(), 5);
-    assert!(list(&app.call("calendarTodos", vec![num(12)])).is_empty());
+    assert_eq!(inspection[2]["rows"].as_array().unwrap().len(), 4);
+    assert_eq!(fields(&event)[13], Value::Bool(false));
+}
+
+#[test]
+fn legacy_undated_todos_become_dated_items_once_without_losing_completion_or_journal() {
+    let root = Root::new();
+    let fingerprint = legacy_database(&root);
+    sql(
+        &root,
+        true,
+        json!([
+            {"kind":"execute","sql":"ALTER TABLE schedules ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'","params":[]},
+            {"kind":"execute","sql":"CREATE TABLE todos (id TEXT PRIMARY KEY NOT NULL,title TEXT NOT NULL,color TEXT NOT NULL,created_at INTEGER NOT NULL,completed_at INTEGER NOT NULL)","params":[]},
+            {"kind":"execute","sql":"CREATE TABLE stickers (day INTEGER PRIMARY KEY NOT NULL,sticker_id TEXT NOT NULL)","params":[]},
+            {"kind":"execute","sql":"INSERT INTO todos VALUES(?,?,?,?,?),(?,?,?,?,?)","params":["todo-legacy-open","Buy a travel adapter","#747AFF",i64::from(TODAY)*86_400_000+1_800_000,0,"todo-legacy-done","Reserve a room","#70B8A2",0,1_790_737_200_000_i64]},
+            {"kind":"execute","sql":"INSERT INTO stickers VALUES(?,?)","params":[TODAY,"coffee"]}
+        ]),
+    );
+    let mut app = App::open(&root);
+    app.call(
+        "calendarClock",
+        vec![Value::Number(f64::from(TODAY) * 86_400_000.0), num(-60)],
+    );
+    assert_eq!(app.load(), 13);
+    let open = app.event("todo-legacy-open");
+    let done = app.event("todo-legacy-done");
+    for item in [&open, &done] {
+        assert_eq!(fields(item)[12].as_str(), Some("todo"));
+        assert_eq!(fields(item)[4], Value::Bool(true));
+        assert_eq!(fields(item)[5], fields(item)[6]);
+        assert_eq!(fields(item)[2].as_str(), Some(""));
+    }
+    assert_eq!(
+        fields(&open)[5],
+        num(TODAY - 1),
+        "legacy timestamp uses the known local UTC offset"
+    );
+    assert_eq!(fields(&open)[13], Value::Bool(false));
+    assert_eq!(
+        fields(&done)[5],
+        num(TODAY),
+        "unknown creation timestamp falls back to load date"
+    );
+    assert_eq!(fields(&done)[13], Value::Bool(true));
+    let inspection = sql(
+        &root,
+        false,
+        json!([
+            {"kind":"query","sql":"SELECT name FROM sqlite_schema WHERE name='todos'","params":[]},
+            {"kind":"query","sql":"SELECT fingerprint,revision FROM calendar_operations WHERE token='legacy-create'","params":[]},
+            {"kind":"query","sql":"SELECT day,sticker_id FROM stickers","params":[]}
+        ]),
+    );
+    assert!(inspection[0]["rows"].as_array().unwrap().is_empty());
+    assert_eq!(inspection[1]["rows"][0][0], fingerprint);
+    assert_eq!(inspection[1]["rows"][0][1]["integer"], "12");
+    assert_eq!(inspection[2]["rows"][0][1], "coffee");
+    drop(app);
+    let mut reopened = App::open(&root);
+    assert_eq!(reopened.load(), 13);
+    assert_eq!(reopened.event("todo-legacy-open"), open);
+    assert_eq!(reopened.event("todo-legacy-done"), done);
+    assert_eq!(
+        success(&reopened.save("", "Legacy schedule", "legacy-create")),
+        "event-legacy-create"
+    );
+}
+
+fn original_samples() -> Vec<Json> {
+    [
+        ("Design review","#747AFF",0,2,2,600,660,"Review the new calendar flow with the team."),
+        ("Coffee with Alex","#F39B65",0,5,5,540,585,"Meet at the neighborhood café."),
+        ("Focus time","#70B8A2",0,8,8,840,960,"An afternoon for uninterrupted work."),
+        ("Weekend getaway","#EE8192",1,11,13,0,0,"A few days away. Long-press this item to move the whole trip."),
+        ("Product workshop","#747AFF",1,16,18,0,0,"Planning, ideas, and a working prototype."),
+        ("Dinner reservation","#F39B65",0,20,20,1140,1230,"A table for two."),
+        ("Summer in Seoul","#70B8A2",1,24,29,0,0,"The 25th through the 30th, inclusive. Move it to the 20th to keep the full range through the 25th.")
+    ].into_iter().enumerate().map(|(i,(title,color,all_day,start,end,start_time,end_time,notes))| json!({"kind":"execute","sql":"INSERT INTO schedules VALUES(?,?,?,?,?,?,?,?,?)","params":[format!("sample-2026-09-{i}"),title,notes,color,all_day,TODAY+start,TODAY+end,start_time,end_time]})).collect()
+}
+
+#[test]
+fn sample_refresh_preserves_modified_deleted_and_user_rows_and_runs_only_once() {
+    let root = Root::new();
+    let fingerprint = legacy_database(&root);
+    let mut commands = original_samples();
+    commands.extend([
+        json!({"kind":"execute","sql":"UPDATE schedules SET title='My custom review' WHERE id='sample-2026-09-0'","params":[]}),
+        json!({"kind":"execute","sql":"UPDATE schedules SET notes='My private notes' WHERE id='sample-2026-09-1'","params":[]}),
+        json!({"kind":"execute","sql":"DELETE FROM schedules WHERE id='sample-2026-09-3'","params":[]})
+    ]);
+    sql(&root, true, Json::Array(commands));
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 13);
+    assert_eq!(
+        fields(&app.event("sample-2026-09-0"))[1].as_str(),
+        Some("My custom review")
+    );
+    assert_eq!(
+        fields(&app.event("sample-2026-09-1"))[2].as_str(),
+        Some("My private notes")
+    );
+    assert_eq!(
+        fields(&app.call(
+            "calendarEvent",
+            vec![Value::str("sample-2026-09-3"), num(13)]
+        ))[0],
+        Value::Bool(false)
+    );
+    assert_eq!(
+        fields(&app.event("event-legacy-create"))[1].as_str(),
+        Some("Legacy schedule")
+    );
+    let refreshed = app.event("sample-2026-09-6");
+    assert_eq!(fields(&refreshed)[1].as_str(), Some("San Francisco"));
+    assert_eq!(fields(&refreshed)[12].as_str(), Some("plan"));
+    assert_eq!(fields(&refreshed)[7].as_str(), Some("2026-09-08"));
+    assert_eq!(fields(&refreshed)[8].as_str(), Some("2026-09-19"));
+    let before = sql(
+        &root,
+        false,
+        json!([
+            {"kind":"query","sql":"SELECT * FROM schedules ORDER BY id","params":[]},
+            {"kind":"query","sql":"SELECT fingerprint FROM calendar_operations WHERE token='legacy-create'","params":[]}
+        ]),
+    );
+    assert_eq!(before[1]["rows"][0][0], fingerprint);
+    drop(app);
+    let mut reopened = App::open(&root);
+    assert_eq!(reopened.load(), 13);
+    let after = sql(
+        &root,
+        false,
+        json!([{"kind":"query","sql":"SELECT * FROM schedules ORDER BY id","params":[]} ]),
+    );
+    assert_eq!(after[0], before[0]);
+    assert_eq!(reopened.event("sample-2026-09-6"), refreshed);
+}
+
+#[test]
+fn fresh_samples_keep_todos_on_one_date_and_events_and_plans_across_multiple_days() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 1);
+    let rows = sql(
+        &root,
+        false,
+        json!([{"kind":"query","sql":"SELECT id,kind,completed,start_day,end_day FROM schedules ORDER BY id","params":[]} ]),
+    );
+    let rows = rows[0]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 48);
+    for row in rows {
+        let start = row[3]["integer"].as_str().unwrap().parse::<i32>().unwrap();
+        let end = row[4]["integer"].as_str().unwrap().parse::<i32>().unwrap();
+        if row[1] == "todo" {
+            assert_eq!(end, start, "starter Todo uses one date: {}", row[0]);
+        } else {
+            assert!(
+                end > start,
+                "Event/Plan starter spans multiple days: {}",
+                row[0]
+            );
+        }
+        if end == start + 1 {
+            assert_ne!(
+                (start + 4).rem_euclid(7),
+                6,
+                "two-day starter bar must not start on Saturday: {}",
+                row[0]
+            );
+        }
+    }
+    for month in ["2026-09", "2026-10"] {
+        let month_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| {
+                row[0]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("sample-{month}-"))
+            })
+            .collect();
+        assert_eq!(month_rows.len(), 24);
+        for kind in ["event", "plan", "todo"] {
+            assert!(month_rows.iter().any(|row| row[1] == kind));
+        }
+        for complete in ["0", "1"] {
+            assert!(month_rows
+                .iter()
+                .any(|row| row[1] == "todo" && row[2]["integer"] == complete));
+        }
+    }
+    let trip = app.event("sample-2026-09-6");
+    assert_eq!(fields(&trip)[12].as_str(), Some("plan"));
+    assert_eq!(
+        fields(&trip)[6].as_number().unwrap() - fields(&trip)[5].as_number().unwrap() + 1.0,
+        12.0
+    );
+    let japan = app.event("sample-2026-10-0");
+    assert_eq!(fields(&japan)[7].as_str(), Some("2026-10-09"));
+    assert_eq!(fields(&japan)[8].as_str(), Some("2026-10-22"));
+    let marks = sql(
+        &root,
+        false,
+        json!([{"kind":"query","sql":"SELECT day,sticker_id FROM stickers ORDER BY day","params":[]} ]),
+    );
+    let marks = marks[0]["rows"].as_array().unwrap();
+    assert_eq!(marks.len(), 12);
+    assert_eq!(
+        marks
+            .iter()
+            .filter(|row| row[0]["integer"].as_str().unwrap().parse::<i32>().unwrap() < TODAY + 30)
+            .count(),
+        6
+    );
+    success(&app.call(
+        "removeSticker",
+        vec![num(TODAY + 1), Value::str("remove-starter-art")],
+    ));
+    drop(app);
+    let mut reopened = App::open(&root);
+    assert_eq!(reopened.load(), 2);
+    let day = reopened.call("calendarDay", vec![num(TODAY + 1), num(2), num(TODAY)]);
+    assert_eq!(
+        fields(&day)[4].as_str(),
+        Some(""),
+        "removed starter art must not return on restart"
+    );
 }
 
 #[test]
@@ -736,105 +969,157 @@ fn plans_keep_their_type_notes_and_time_range_through_edits_moves_and_restarts()
 }
 
 #[test]
-fn undated_todos_keep_creation_and_completion_order_when_edited_and_reopened() {
+fn dated_todos_preserve_dates_notes_and_completion_through_edits_moves_and_restarts() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.load();
-    let at = 1_790_737_200_000_i64;
-    let mut first_args = todo_args("", "First", "#747AFF", at, "todo-first");
-    first_args[3] = Value::Number(at as f64 + 0.75);
-    let first = success(&app.call("saveTodo", first_args)).to_owned();
-    let second = success(&app.call(
-        "saveTodo",
-        todo_args("", "Second", "#70B8A2", at + 1, "todo-second"),
-    ))
-    .to_owned();
+    let id =
+        success(&app.call("saveTodo", save_args("", "Book the ferry", "dated-todo"))).to_owned();
+    let created = app.event(&id);
+    assert_eq!(fields(&created)[12].as_str(), Some("todo"));
+    assert_eq!(fields(&created)[13], Value::Bool(false));
+    assert_eq!(fields(&created)[7].as_str(), Some("2026-09-25"));
+    assert_eq!(
+        fields(&created)[8].as_str(),
+        Some("2026-09-25"),
+        "saveTodo normalizes a different end date to its start date"
+    );
+    let complete = vec![
+        Value::str(&id),
+        Value::Bool(true),
+        Value::Number(1_790_737_200_000.875),
+        Value::str("complete-todo"),
+    ];
+    success(&app.call("setTodoCompleted", complete.clone()));
+    assert_eq!(fields(&app.call("setTodoCompleted", complete))[0], num(3));
     success(&app.call(
-        "setTodoCompleted",
-        vec![
-            Value::str(&first),
-            Value::Bool(true),
-            Value::Number((at + 10) as f64 + 0.875),
-            Value::str("complete-first"),
-        ],
-    ));
-    success(&app.call(
         "saveTodo",
-        todo_args(&first, "First, edited", "#F39B65", at + 20, "edit-first"),
+        save_args(&id, "Book the morning ferry", "edit-todo"),
     ));
     drop(app);
+
     let mut app = App::open(&root);
-    assert_eq!(app.load(), 5);
-    let todos = app.call("calendarTodos", vec![num(5)]);
-    assert_eq!(fields(&list(&todos)[0])[0].as_str(), Some(second.as_str()));
-    let completed = fields(&list(&todos)[1]);
-    assert_eq!(completed[0].as_str(), Some(first.as_str()));
-    assert_eq!(completed[1].as_str(), Some("First, edited"));
-    assert_eq!(completed[3], Value::Bool(true));
-    assert_eq!(completed[4], Value::Number(at as f64));
-    assert_eq!(completed[5], Value::Number((at + 10) as f64));
+    assert_eq!(app.load(), 4);
+    let edited = app.event(&id);
+    assert_eq!(fields(&edited)[1].as_str(), Some("Book the morning ferry"));
+    assert_eq!(fields(&edited)[2], fields(&created)[2]);
+    assert_eq!(&fields(&edited)[4..11], &fields(&created)[4..11]);
+    assert_eq!(fields(&edited)[13], Value::Bool(true));
+    let agenda = app.call("calendarDay", vec![num(TODAY + 24), num(4), num(TODAY)]);
+    let summary = list(&fields(&agenda)[3])
+        .iter()
+        .find(|item| fields(item)[0].as_str() == Some(&id))
+        .unwrap();
+    assert_eq!(fields(summary)[12].as_str(), Some("todo"));
+    assert_eq!(fields(summary)[13], Value::Bool(true));
+    let page = app.call("calendarMonth", vec![num(24320), num(4)]);
+    let bars: Vec<_> = list(&fields(&page)[3])
+        .iter()
+        .flat_map(|week| list(&fields(week)[2]))
+        .filter(|bar| fields(bar)[1].as_str() == Some(&id))
+        .collect();
+    assert!(!bars.is_empty());
+    assert!(bars
+        .iter()
+        .all(|bar| fields(bar)[11].as_str() == Some("todo")
+            && fields(bar)[12] == Value::Bool(true)
+            && fields(bar)[5] == num(1)));
+    let next_day = app.call("calendarDay", vec![num(TODAY + 25), num(4), num(TODAY)]);
+    assert!(!list(&fields(&next_day)[3])
+        .iter()
+        .any(|item| fields(item)[0].as_str() == Some(&id)));
+    success(&app.call(
+        "moveSchedule",
+        vec![Value::str(&id), num(TODAY + 60), Value::str("move-todo")],
+    ));
+    let moved = app.event(&id);
+    assert_eq!(fields(&moved)[7].as_str(), Some("2026-10-31"));
+    assert_eq!(fields(&moved)[8].as_str(), Some("2026-10-31"));
+    assert_eq!(fields(&moved)[13], Value::Bool(true));
+    assert_eq!(fields(&moved)[2], fields(&created)[2]);
     success(&app.call(
         "setTodoCompleted",
         vec![
-            Value::str(&first),
+            Value::str(&id),
             Value::Bool(false),
-            Value::Number((at + 30) as f64),
-            Value::str("reopen-first"),
+            Value::Number(1_790_737_200_030.0),
+            Value::str("reopen-todo"),
         ],
     ));
-    let todos = app.call("calendarTodos", vec![num(6)]);
-    assert_eq!(fields(&list(&todos)[0])[0].as_str(), Some(first.as_str()));
-    assert_eq!(fields(&list(&todos)[0])[5], num(0));
+    assert_eq!(fields(&app.event(&id))[13], Value::Bool(false));
+    drop(app);
+
+    let mut app = App::open(&root);
+    assert_eq!(app.load(), 6);
+    assert_eq!(fields(&app.event(&id))[13], Value::Bool(false));
+    let rejected = app.call(
+        "setTodoCompleted",
+        vec![
+            Value::str("sample-2026-09-6"),
+            Value::Bool(true),
+            Value::Number(1_790_737_200_040.0),
+            Value::str("complete-event"),
+        ],
+    );
+    assert_eq!(fields(&rejected)[1], Value::Bool(false));
+    assert_eq!(fields(&rejected)[0], num(6));
     success(&app.call(
-        "deleteTodo",
-        vec![Value::str(&first), Value::str("delete-first")],
+        "deleteSchedule",
+        vec![Value::str(&id), Value::str("delete-todo")],
     ));
     drop(app);
     let mut app = App::open(&root);
-    app.load();
-    assert_eq!(list(&app.call("calendarTodos", vec![num(7)])).len(), 1);
+    assert_eq!(app.load(), 7);
+    assert_eq!(
+        fields(&app.call("calendarEvent", vec![Value::str(&id), num(7)]))[0],
+        Value::Bool(false)
+    );
+    for source in ["calendarTodos", "deleteTodo", "scheduleTodo"] {
+        assert!(
+            matches!(
+                app.data.answer(&mut app.store, source, &[]),
+                Err(DataError::UnknownSource(_))
+            ),
+            "{source} must be removed"
+        );
+    }
 }
 
 #[test]
-fn todo_conversion_replays_a_committed_lost_reply_without_duplicate_events() {
+fn dated_todo_moves_recover_lost_replies_without_changing_kind_or_duplicating_rows() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.load();
-    let id = success(&app.call(
-        "saveTodo",
-        todo_args("", "Take a walk", "#70B8A2", 1_790_737_200_000, "walk"),
-    ))
-    .to_owned();
+    let id = success(&app.call("saveTodo", todo_args("", "Take a walk", "walk"))).to_owned();
     let args = vec![Value::str(&id), num(TODAY + 6), Value::str("schedule-walk")];
     let lookup = app
         .data
-        .answer(&mut app.store, "scheduleTodo", &args)
+        .answer(&mut app.store, "moveSchedule", &args)
         .unwrap();
     let lookup = run(app.work(lookup));
     let write = app
         .data
-        .parse(&mut app.store, "scheduleTodo", &args, lookup)
+        .parse(&mut app.store, "moveSchedule", &args, lookup)
         .unwrap();
     assert!(exact_data::storage::response(run(app.work(write))).is_ok());
     let failed = app
         .data
-        .parse(&mut app.store, "scheduleTodo", &args, storage_error())
+        .parse(&mut app.store, "moveSchedule", &args, storage_error())
         .unwrap();
-    let recovered = app.finish("scheduleTodo", &args, failed);
+    let recovered = app.finish("moveSchedule", &args, failed);
     assert_eq!(success(&recovered), id);
     assert_eq!(fields(&recovered)[0], num(3));
-    let result = app.call("scheduleTodo", args.clone());
+    let result = app.call("moveSchedule", args.clone());
     assert_eq!(success(&result), id);
     assert_eq!(fields(&result)[0], num(3));
-    assert_eq!(success(&app.call("scheduleTodo", args)), id);
-    assert!(list(&app.call("calendarTodos", vec![num(3)])).is_empty());
+    assert_eq!(success(&app.call("moveSchedule", args)), id);
     let event = app.event(&id);
     assert_eq!(fields(&event)[1].as_str(), Some("Take a walk"));
-    assert_eq!(fields(&event)[3].as_str(), Some("#70B8A2"));
+    assert_eq!(fields(&event)[3].as_str(), Some("#747AFF"));
     assert_eq!(fields(&event)[4], Value::Bool(true));
     assert_eq!(fields(&event)[5], num(TODAY + 6));
     assert_eq!(fields(&event)[6], num(TODAY + 6));
-    assert_eq!(fields(&event)[12].as_str(), Some("event"));
+    assert_eq!(fields(&event)[12].as_str(), Some("todo"));
     drop(app);
     let mut app = App::open(&root);
     assert_eq!(app.load(), 3);
@@ -849,24 +1134,20 @@ fn todo_conversion_replays_a_committed_lost_reply_without_duplicate_events() {
 }
 
 #[test]
-fn todo_conversion_rolls_back_both_tables_if_the_final_journal_insert_conflicts() {
+fn dated_todo_moves_roll_back_if_the_final_journal_insert_conflicts() {
     let root = Root::new();
     let mut first = App::open(&root);
     first.load();
-    let id = success(&first.call(
-        "saveTodo",
-        todo_args("", "Keep me", "#747AFF", 1_790_737_200_000, "keep"),
-    ))
-    .to_owned();
+    let id = success(&first.call("saveTodo", todo_args("", "Keep me", "keep"))).to_owned();
     let args = vec![Value::str(&id), num(TODAY), Value::str("claimed-token")];
     let lookup = first
         .data
-        .answer(&mut first.store, "scheduleTodo", &args)
+        .answer(&mut first.store, "moveSchedule", &args)
         .unwrap();
     let outcome = run(first.work(lookup));
     let write = first
         .data
-        .parse(&mut first.store, "scheduleTodo", &args, outcome)
+        .parse(&mut first.store, "moveSchedule", &args, outcome)
         .unwrap();
     let mut second = App::open(&root);
     second.load();
@@ -879,24 +1160,24 @@ fn todo_conversion_rolls_back_both_tables_if_the_final_journal_insert_conflicts(
     let outcome = run(first.work(write));
     let failed = first
         .data
-        .parse(&mut first.store, "scheduleTodo", &args, outcome)
+        .parse(&mut first.store, "moveSchedule", &args, outcome)
         .unwrap();
     assert_eq!(
-        fields(&first.finish("scheduleTodo", &args, failed))[1],
+        fields(&first.finish("moveSchedule", &args, failed))[1],
         Value::Bool(false)
     );
     drop(first);
     drop(second);
     let mut app = App::open(&root);
     assert_eq!(app.load(), 2);
-    assert_eq!(list(&app.call("calendarTodos", vec![num(2)])).len(), 1);
     assert_eq!(
         fields(&app.call("calendarEvent", vec![Value::str(&id), num(2)]))[0],
-        Value::Bool(false)
+        Value::Bool(true)
     );
+    assert_eq!(fields(&app.event(&id))[5], num(TODAY + 24));
     assert_eq!(
         success(&app.call(
-            "scheduleTodo",
+            "moveSchedule",
             vec![Value::str(&id), num(TODAY), Value::str("fresh-conversion")]
         )),
         id
@@ -906,8 +1187,7 @@ fn todo_conversion_rolls_back_both_tables_if_the_final_journal_insert_conflicts(
 #[test]
 fn stickers_replace_remove_and_invalidate_spill_cells_without_changing_event_lanes() {
     let root = Root::new();
-    let mut app = App::open(&root);
-    app.load();
+    let mut app = stickers::without_starter_stickers(&root);
     let day = TODAY + 29;
     let september = app.call("calendarMonth", vec![num(24320), num(1)]);
     let october = app.call("calendarMonth", vec![num(24321), num(1)]);
@@ -966,15 +1246,11 @@ fn stickers_replace_remove_and_invalidate_spill_cells_without_changing_event_lan
 }
 
 #[test]
-fn snapshot_retry_clears_todos_and_stickers_loaded_before_another_window_changed_them() {
+fn snapshot_retry_clears_dated_todos_and_stickers_changed_by_another_window() {
     let root = Root::new();
     let mut writer = App::open(&root);
     writer.load();
-    let id = success(&writer.call(
-        "saveTodo",
-        todo_args("", "Transient", "#747AFF", 1_790_737_200_000, "transient"),
-    ))
-    .to_owned();
+    let id = success(&writer.call("saveTodo", todo_args("", "Transient", "transient"))).to_owned();
     success(&writer.call(
         "setSticker",
         vec![
@@ -997,7 +1273,7 @@ fn snapshot_retry_clears_todos_and_stickers_loaded_before_another_window_changed
             .unwrap();
     }
     success(&writer.call(
-        "deleteTodo",
+        "deleteSchedule",
         vec![Value::str(&id), Value::str("remove-transient")],
     ));
     success(&writer.call(
@@ -1007,7 +1283,10 @@ fn snapshot_retry_clears_todos_and_stickers_loaded_before_another_window_changed
     let loaded = reader.finish("loadCalendar", &args, pending);
     assert_eq!(fields(&loaded)[0], Value::Bool(true));
     assert_eq!(fields(&loaded)[1], num(5));
-    assert!(list(&reader.call("calendarTodos", vec![num(5)])).is_empty());
+    assert_eq!(
+        fields(&reader.call("calendarEvent", vec![Value::str(&id), num(5)]))[0],
+        Value::Bool(false)
+    );
     let agenda = reader.call("calendarDay", vec![num(TODAY), num(5), num(TODAY)]);
     assert_eq!(fields(&agenda)[4].as_str(), Some(""));
 }
@@ -1071,17 +1350,8 @@ fn dense_landing_previews_match_committed_todo_and_plan_bars_without_changing_th
     args[5] = Value::str("2026-09-01");
     args[6] = Value::str("2026-09-07");
     let plan = success(&app.call("savePlan", args)).to_owned();
-    let todo = success(&app.call(
-        "saveTodo",
-        todo_args(
-            "",
-            "One more tie",
-            "#747AFF",
-            1_790_737_200_000,
-            "dense-todo",
-        ),
-    ))
-    .to_owned();
+    let todo =
+        success(&app.call("saveTodo", todo_args("", "One more tie", "dense-todo"))).to_owned();
     success(&app.call(
         "setSticker",
         vec![
@@ -1095,7 +1365,7 @@ fn dense_landing_previews_match_committed_todo_and_plan_bars_without_changing_th
     let preview = app.call(
         "calendarLanding",
         vec![
-            Value::str(&format!("todo:{todo}")),
+            Value::str(&todo),
             num(TODAY + 6),
             num(24320),
             num(14),
@@ -1108,9 +1378,9 @@ fn dense_landing_previews_match_committed_todo_and_plan_bars_without_changing_th
         "prospective layout performs no storage work"
     );
     assert_eq!(app.call("calendarMonth", vec![num(24320), num(14)]), before);
-    assert_eq!(list(&app.call("calendarTodos", vec![num(14)])).len(), 1);
+    assert_eq!(fields(&app.event(&todo))[5], num(TODAY + 24));
     let conversion = app.call(
-        "scheduleTodo",
+        "moveSchedule",
         vec![
             Value::str(&todo),
             num(TODAY + 6),
@@ -1124,8 +1394,8 @@ fn dense_landing_previews_match_committed_todo_and_plan_bars_without_changing_th
     let items = list(&fields(&agenda)[3]);
     assert_eq!(
         fields(items.last().unwrap())[12].as_str(),
-        Some("plan"),
-        "Events are listed before an earlier-starting Plan"
+        Some("todo"),
+        "Todos remain distinct dated items after Events and Plans"
     );
 
     let preview = app.call(
