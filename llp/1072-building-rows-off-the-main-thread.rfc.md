@@ -1,7 +1,7 @@
 # LLP 1072: Building list rows off the main thread
 
 **Type:** RFC
-**Status:** Draft r5 (r4: stages 1+2 as built; r5: the revert and the text split, §0.4). Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
+**Status:** Draft r7 (r4: stages 1+2 as built; r5: the revert and the text split, §0.4; r6: canvas draws, §8.5; r7: travel inside the built window, built and parked, §8.6). Direction accepted: Charlie ruled 2026-09-28 to move the mount off the main thread, and a directional review (Astra, max) said "go with named changes". r2 folded every P1 and P2 of that review (§0) and recorded the rulings on r1's questions (§0.1). r3 answers a focused second review of r2's retirement handshake by replacing it: asynchronous fills only create, and every destruction stays synchronous (§0.2, §5). r4 records what was built on `perf/owner-thread` and where it departs from r3 (§0.3): Charlie's 2026-09-29 direction merged stages 1 and 2.
 **Systems:**
 - Apple host: `Bridge.swift`'s `Runtime`, `Session.swift` (`wire`, `apply`, `Frames`, boot, pressure), `Collection.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/CollectionIOS.swift`, `Mac/PresenterMac.swift`, `Mac/RegionReaderMac.swift`, `Agent.swift`, `Text.swift`, `NodeText.swift`, `Canvas2D*.swift`, `NativeModule.swift`.
 - Apple Rust library: `abi.rs`'s registry and `with_runtime`, `abi/exports.rs`, `abi_collections.rs`, `app_module.rs`, `markup.rs`, `textflow.rs`.
@@ -949,6 +949,60 @@ owner as before; the frame's tick was already a hop, and a draw turn adds one
 only when something other than a frame request is owed); 120 fps unchanged.
 The 19-kind Extra Heavy fling: its canvas rows' first draws leave the retire
 and measure reports main waits on, a few ms/s of main.
+
+### 8.6 Travel inside the built window (r7, 2026-09-30: built, measured, parked)
+
+**What the report log showed.** With slices on the owner, a list moving inside
+its built window made about one report a frame that the runner answered with
+nothing: the pump's build-only slice (`travel_within` recognizes it), the
+retire-only report every landing forced, and the moved offset any batch's
+flush reported again. On the M1 iPad Pro's 19-kind fling: 190 reports/s, 92
+of them empty (110/s at 1k pt/s, 80/s at 24k). The empties were cheap where
+the log could time them: 4.2 ms/s of owner time and 3.8 of main's wait over
+the run (8.7 and 6.5 at 1k); the other 98 reports/s cost 90 ms/s of owner
+time and 102 of main's apply. Row work at 1k costs more than twice per row
+what it costs at 24k (a non-empty report 1.6 ms of owner time against 0.7):
+the cores run slower when the app is nearly idle, so "machinery" that looks
+fixed per frame is mostly rows at low clock.
+
+**What was built** (`parked/travel-quiet`, 256f0b694 on eb898ad64). The
+runner exports its own rule as a pure function, `travel_stays(offset, port,
+velocity, total, first row, last row)`: the led window's two ends fall inside
+the mounted run's first and last rows, a point from their edges. The snapshot
+says `steady` (exactly `travel_within`'s state: no restored or sought
+position, nothing pending, no preview, no correction) and Swift reads each
+row's `start`, `size`, `measured`. `CollectionHost.flush` reports nothing for
+a moving list that is steady, whose rows are one measured run touching
+neither end, whose boxes are what the index holds (gathered once per batch,
+not per report), whose port, width and pins are as last reported, when
+`exact_collection_stays` says the window it leads to is the rows mounted.
+Instead it leaves the offset and its scroll sequence in the runtime façade
+and the owner takes them (`exact_collection_travel`, the effect
+`travel_within` would have had) at the start of every job for that runtime,
+so a data change's anchor, a kept inner position, an into-view step and the
+agent's reads see where the list is; at rest nothing is owed and no timer
+runs. A landed slice owes a retire-only report only when its snapshot says
+`pending`. The iOS pump skips such a list before its `rowsToCover` walks.
+`EXACT_TRAVEL_REPORTS=1` reports every frame. Tests: the runner's
+differential (two harnesses over 1,200 frames with reversals, an item
+arriving at the front of the data and a row growing above the port
+mid-travel: rows, extent and corrections equal every frame; dropping the note
+or widening the rule fails it), the host fixtures, and a real runtime with
+slices on the owner where a press gives every row a paragraph mid-travel and
+the row at the port's top stays put.
+
+**Measured** (iPad, 3 interleaved rounds each, `results/cpu/ipad/ab3-travel*`):
+reports 190 → 124/s, empties 92 → 26/s. The 19-kind fling: process CPU 636.7 →
+623.8 ms/s, main 277.3 → 274.5, fps 117.5 → 117.6, late 1.1 → 1.0/s, blanks
+0; by speed −19/−32 at ±1k, −32/−11 at ±3k, 0 ± 5 from 6k up (the skip takes
+there too, reports 169 → 110/s at 6k, but those empties cost nothing to
+speak of). The live fling: 660.3 → 649.6, main 293.3 → 289.5. The inbox
+innerfling: 567 → 564. **Parked** under the program's threshold (−15 ms/s
+of CPU or −8 of main): the empties were never the fixed cost; rows are.
+What stands from it: the log (a diagnostic build, never landed) and the
+finding that `CollectionHost`'s per-report cost is the rows' boxes gathered
+again for each report, which the parked branch fixes and a later change can
+take on its own.
 
 ## 9. Amending LLP 1050.000 D3 (ruled, Q5)
 
