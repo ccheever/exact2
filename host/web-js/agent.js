@@ -132,8 +132,8 @@ export function install(exact) {
   // each from the clock time it began, author-paused ones keeping their own
   // (the web host's own `animationClock`), and `clock settle` runs the clock
   // to where the last one ends, as the wasm host's does.
-  // (navigation.js's `animationClock`, restated: importing it would pull it
-  // into every app's module, since rt.js imports navigation.js.)
+  // (navigation.js's `animationClock`, restated; the build gives this module
+  // its own copy of navigation.js, so it could now be imported.)
   const starts = new WeakMap(), held = new WeakSet();
   const anim = {
     register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },

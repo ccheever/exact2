@@ -118,6 +118,12 @@ cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-gl
 // Animated images on the agent's clock, the web host's own (agent.js only).
 cpSync(resolve(root, 'host/web/image-glue.js'), resolve(gen, 'image-glue.js'));
 cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
+// The agent adapter reads its own copies of the modules it shares with the
+// entry: a module lives in one chunk, so what only the agent reads from
+// navigation.js (the guest outline and taps, the environment) or names.js
+// (every slot's type) would otherwise ride in every page's entry module.
+for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
+writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
 // A TypeScript app whose web build script does more than bake it (Messages
 // compiles its schema and copies its device into files its TypeScript
 // imports, gitignored) has that script run first, as the wasm build does:
