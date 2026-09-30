@@ -1,7 +1,7 @@
 # LLP 1056: Canvas 2D — Core Graphics everywhere, by the web's name
 
 **Type:** RFC
-**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1 and folded into D4, D6, §9 and §10. r2 folded two blind reviews of r1; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Canvas 2D is admitted in `rules/DEFERRED.md` §Components with Caltrain's line map as the take.
+**Status:** Accepted (r4, 2026-09-29: a canvas that animates is drawn on the GPU by vello on Apple, §8.5, after a bake-off against Skia. r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1 and folded into D4, D6, §9 and §10. r2 folded two blind reviews of r1; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Canvas 2D is admitted in `rules/DEFERRED.md` §Components with Caltrain's line map as the take.
 **Systems:**
 - Data modules: a `draw` export and a `surfaces` roster in TypeScript and Rust, and a module ABI 2 that returns bytes (LLP 1027, 1027.002).
 - A new crate, `exact-canvas`: the recorder, the list format, the canvas colour and `font` parsers, and arc geometry.
@@ -331,7 +331,7 @@ Context attributes are fixed: `alpha: true`, `colorSpace: "srgb"`, `willReadFreq
 | | Web | Apple (iOS, macOS) | Linux |
 |---|---|---|---|
 | Executor of `draw` | the page's module realm, or its Worker | Hermes or the Rust data crate on the runner's thread, or the module worker | the same |
-| Replayer | `canvas2d-glue.js` into the element's `CanvasRenderingContext2D` | `Canvas2D.swift` into a `CGContext` bitmap, then the view layer's `contents`; while it animates, into a layer Core Animation records and rasterises (§8.4) | Rust into a tiny-skia `Pixmap` |
+| Replayer | `canvas2d-glue.js` into the element's `CanvasRenderingContext2D` | `Canvas2D.swift` into a `CGContext` bitmap, then the view layer's `contents`; a canvas that animates, vello on the GPU into an IOSurface (§8.5), or where that module is missing a layer Core Animation records (§8.4) | Rust into a tiny-skia `Pixmap` |
 | Text | the browser | Core Text `CTLineDraw` (colour glyphs included), fonts by LLP 1019 | the host's paragraph painter into the pixmap |
 | Oracle | Chrome, directly and through the list (§4) | Chrome, within §4's bands | Chrome, within §4's bands |
 
@@ -729,11 +729,58 @@ The canvas rows do not animate, so they keep the bitmap and still beat SwiftUI i
 
 **Parity** (`smoke.mjs canvas`, macOS, 94 crops at 1× and 2× and Caltrain's map): all pass with the policy as built, and all pass with `EXACT_CANVAS_RECORD=always` (every canvas the policy allows recorded).
 
+## 8.5 A canvas that animates is drawn on the GPU by vello, as built (2026-09-29, `land/canvas-gpu`)
+
+**Charlie (2026-09-29): "we're going to want the GPU version of this."** Two GPU renderers were built to the same level, each on its own branch, behind one host ABI, and measured the same way: Skia (`bake/canvas-skia`: `skia-safe` 0.153's prebuilt Skia, Ganesh on Metal) and vello (`bake/canvas-vello`: the first prototype's failures fixed). vello won; it is what landed.
+
+**The host (both candidates).** A canvas's replay goes to a module the Apple host opens on demand, `libexact_canvas_gpu.dylib` (`Canvas2DGpu.swift`, a C ABI: `ecg_canvas_new`, `ecg_canvas_replay`, `ecg_canvas_free`, `ecg_memory`, `ecg_trim`). The module holds one GPU context per process behind a lock; every presenter's replay queue calls it. The host owns the pixels: each canvas has at most three IOSurfaces (BGRA, premultiplied, sRGB), and a replay draws the new lists over the surface shown now into another one Core Animation is not reading, which then becomes the layer's `contents` on the main thread exactly as the bitmap's image does (§8.3), so the batch, sequence and settle rules are unchanged. A second surface is waited for for up to a frame before a third is made. Text reaches the module as the Core Text line's glyph outlines (or runs); images as premultiplied RGBA.
+- **The policy.** A canvas is given to the GPU at its fresh bitmap's first lists when that draw asked for the next frame (`animating`), and stays there until its next fresh bitmap. A canvas that does not animate keeps the Core Graphics bitmap: the feed's rows on the GPU cost 65–85 MB more at their peak on both devices and gained no frames (the table). `EXACT_CANVAS_GPU=off|animated|always` (`always` is the parity smoke's; `canvasparity.mjs` passes `EXACT_CANVAS_*` to the Apple hosts, a simulator included). Where the module is missing, Core Animation's recording (§8.4) still draws an animating canvas.
+- **Found on the way, in the host:** a replay still running when its view was retired showed on the view that reused the id and outranked all of its draws (sequence numbers now run across canvases, and each view remembers its first); and a retirement's cleanup on the replay queue deleted the next lifetime's canvas when a replay queued before it had already made it. Both hit the bitmap path too. A stress test (`Canvas2DGpuStressTests`: four presenters, 32 canvases retired and remade under load) found them; it passes under Thread Sanitizer on the iOS simulator with no report.
+
+**vello, as built** (`canvas/vello`, `exact-canvas-vello`; `vendor/vello` is vello 0.10 renamed `exact-vello`, patches listed in its `EXACT-PATCHES.md`; the Linux host keeps crates.io vello):
+- **No runtime shader compilation.** `build.rs` translates vello's WGSL (and the module's own blur) to MSL with naga and compiles each kernel with `xcrun metal` into a Metal library embedded in the dylib; wgpu loads them through its passthrough shaders. At run time Metal only builds pipeline states from that AIR (0.7–2 ms warm). The module has no WGSL front end. It needs Xcode's Metal toolchain to build: without it `build.mjs` builds the app without the module and says how to install it, and the crate builds as a stub (`ecg_abi` 0), so `cargo build --workspace` works anywhere; off Apple the crate is empty.
+- **Memory.** One renderer per process; vello's bump buffers start small and grow when a render overflows (vello reports the size, the render runs again), and pooled buffers are dropped when unused and on `ecg_trim` (memory warning, background). The fine stage starts each pixel from the canvas's previous pixels and writes premultiplied BGRA straight into the IOSurface: no extra texture, and no copy when the lists cover the canvas.
+- **Parity.** Shadows are a separable Gaussian (σ = `shadowBlur`/2 device pixels) in the module's own precompiled kernels; the five clip-extent operators and clip layers start from the canvas's pixels; images, patterns and `putImageData` (a clear, then the pixels source-over) are drawn. Text is filled glyph outlines (no colour glyphs; declared).
+- **The iOS Simulator** reports only the Apple2 GPU family, so wgpu disables indirect dispatch there; the two stages vello sizes on the GPU then run over their buffers' whole capacity. Devices keep indirect dispatch.
+
+**Skia, as built and not landed** (`bake/canvas-skia`): Ganesh (skia-safe's Graphite bindings have no precompile or budget options), one `DirectContext` with a 16 MB resource budget, text as Skia glyph masks from each run's `CTFont`, shadows and the clip-extent operators through device-space layers as Chrome draws them, canvas paths volatile (a cached path sent a 3 px stroke to Ganesh's CPU triangulator on iOS: 11 redraws a second until that was found). It lost on:
+- **Shader compilation:** Ganesh writes SkSL per draw, compiles it to MSL and Metal compiles the MSL on the device (7 programs for F2, 81 for the gallery). A bake-time program set warmed on three threads at load moves the compile off the first draw but not off the device's first launch; skia-safe ships no headers, so the persistent cache took a hand-laid C++ vtable and an AArch64 thunk, and Ganesh's Metal backend has no binary archive. `rules/DEFERRED.md` refuses this.
+- **Memory on the iPad:** 1.1–1.2 GB during F2 and still growing (the iPhone held at 100–106 MB).
+- **Size and build:** 5.2 MB in the bundle, and a 4.8 MB prebuilt download from GitHub per target at build.
+- It won the main thread on both devices (118–148 ms/s against vello's 172–191), cause not found.
+
+**Measured** (`~/bench/canvasbake`: `dev.sh`, `round.sh`; one lock take per device, every app built from a logged commit, SwiftUI's from the benchmarks' own builds, the same session). F2 is `~/bench/features` F2 (a full-screen canvas redrawn every frame); rows are `~/bench/xheavy` with `BENCH_KINDS=canvas`, fling at the top (t) and at speed 4 with layer rendering (b). CPU and main are ms/s; memory is the footprint in MB; F2 ran twice (both shown).
+
+| iPhone 13 Pro Max (3×) | F2 redraws/s | F2 fps, late/s | F2 CPU | F2 main | F2 peak / end | rows fps t / b | rows main t / b | rows peak t / b |
+|---|---|---|---|---|---|---|---|---|
+| vello (landed) | 60 | 119.6–119.8, 0.2–0.4 | 391–393 | 175–176 | 95 / 92 | 120.0 / 119.2 | 163 / 311 | 76 / 96 |
+| Skia | 60 | 119.2, 0.8 | 411–414 | 118–119 | 106–113 / 100–106 | 119.0 / 118.8 | 202 / 312 | 77 / 95 |
+| CA recording (§8.4) | 60 | 120.0, 0 | 729–734 | 327–329 | 93–95 / 92–93 | 119.5 / 119.7 | 203 / 311 | 77 / 96 |
+| CG bitmap (§8.3) | 17–18 | 120.0, 0 | 1,036 | 33 | 58–60 / 48–51 | 119.6 / 118.8 | 202 / 313 | 77 / 96 |
+| SwiftUI | 60 | 120.0, 0 | 422 | 300 | 69 / 68 | 113.6 / 117.9 | 321 / 379 | 162 / 165 |
+| vello, every canvas on the GPU | 60 | 119.7, 0.3 | 392–394 | 174 | 95 / 92 | 118.7 / 119.8 | 240 / 324 | 160 / 162 |
+
+| iPad Pro M1 (2×, 120 Hz) | F2 redraws/s | F2 fps, late/s | F2 CPU | F2 main | F2 peak / end | rows fps t / b | rows main t / b | rows peak t / b |
+|---|---|---|---|---|---|---|---|---|
+| vello (landed) | 62 | 119.9, 0 | 415–416 | 190–191 | 154–162 / 137–138 | 120.0 / 120.0 | 209 / 342 | 88 / 100 |
+| Skia | 60 | 119.9–120.0, 0 | 531–533 | 146 | 1,133–1,188 / same | 120.0 / 120.0 | 223 / 344 | 89 / 100 |
+| CA recording (§8.4) | 62 | 119.9, 0 | 851–852 | 390 | 150–151 / 150–151 | 120.0 / 120.0 | 208 / 343 | 87 / 101 |
+| CG bitmap (§8.3) | 17.5–17.7 | 119.9, 0 | 1,048 | 41–42 | 91–93 / 75 | 120.0 / 120.0 | 209 / 342 | 88 / 101 |
+| SwiftUI | 60 | 119.9, 0 | 509 | 344 | 105 / 105 | 116.2 / 119.2 | 355 / 398 | 165 / 163 |
+| vello, every canvas on the GPU | 62 | 119.9, 0 | 411 | 188 | 153 / 136 | 120.0 / 120.0 | 222 / 335 | 162 / 164 |
+
+- **Against SwiftUI's F2:** vello redraws as often at 93% (iPhone) and 82% (iPad) of its CPU and 58% and 55% of its main thread, in 24 MB (iPhone) and 32 MB (iPad) more memory, about one full-screen surface (14 and 22 MB): the second surface a canvas drawn off the main thread needs while Core Animation shows the first.
+- **Cold first draw** (process start to the first GPU pixels, and that replay): vello 117–166 ms, first replay 29–37 ms (the pipelines built from the embedded AIR); Skia 107–228 ms, first replay 26–96 ms (its MSL compiled on the device).
+- **Size:** the module is 3.89 MB in the bundle (vello; the prototype's was 4.1 MB), in every Apple app as the SVG island module is, opened only by a canvas that animates. Web: unchanged (the browser draws canvases); the web core does not grow.
+- **Parity** (`EXACT_CANVAS_GPU=always`, every canvas on the GPU): vello 94 of 94 crops and Caltrain's map on macOS (worst 5.52/255 at 1×, 4.21 at 2×) and on the iOS simulator (worst 5.34; 3.26 at 3×); Skia the same (macOS worst 5.29 and 3.88, simulator 5.17 and 3.13). Core Graphics for comparison: macOS worst 5.31. Every fixture passes the default bands except the declared Apple text band (§8.2), as before.
+- **Build:** the module builds in 18 s clean (its 22 kernels in parallel), about 1 s incrementally; it is not in the blocking gate's `default-members`.
+- **Linux** replays Canvas 2D into tiny-skia (D7). The vello module could serve it too: the IOSurface wrapper becomes the painter's own wgpu device and texture, and the kernels compile to SPIR-V at build time with the same patches. Apple and Linux would then match each other and not only Chrome. Not done here.
+
 ## 9. `rules/DEFERRED.md`: the admission
 
 Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:
 
-> **Expanded (Charlie, 2026-09-27: "Core Graphics everywhere", by the web's name):** the HTML Canvas 2D context on the `canvas` tag (LLP 1056). A surface in the app's data module, TypeScript or Rust, draws with `CanvasRenderingContext2D`'s own names and rules. Its recorded calls are replayed in order by the browser, Core Graphics or tiny-skia into the canvas's kept bitmap. Unblocks computed 2D drawing (charts, sparklines, maps, custom controls) on every host without a GPU module, with Chrome as the oracle. Take: Caltrain's line map leaves wgpu. Its `map` surface and shader are deleted, and it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU path exists after than before. Still refused: a drawing language in Contract (SVG is the declarative one), readback (`getImageData`, `toDataURL`, `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
+> **Expanded (Charlie, 2026-09-27: "Core Graphics everywhere", by the web's name):** the HTML Canvas 2D context on the `canvas` tag (LLP 1056). A surface in the app's data module, TypeScript or Rust, draws with `CanvasRenderingContext2D`'s own names and rules. Its recorded calls are replayed in order by the browser, Core Graphics or tiny-skia into the canvas's kept bitmap; on Apple a canvas that animates is replayed on the GPU by a module loaded on demand (vello, its shaders compiled at build time; LLP 1056 §8.5; Charlie, 2026-09-29: "we're going to want the GPU version of this"). Unblocks computed 2D drawing (charts, sparklines, maps, custom controls) on every host without a GPU module, with Chrome as the oracle. Take: Caltrain's line map leaves wgpu. Its `map` surface and shader are deleted, and it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU path exists after than before. Still refused: a drawing language in Contract (SVG is the declarative one), readback (`getImageData`, `toDataURL`, `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
 
 **The take:**
 - **Proposed.** Caltrain defines v1, so the admission has a consumer inside the v1 bar. The GPU module stays for the aurora, glass and deck, which are shaders. Stage 1 delivers the migration (§8).
@@ -742,7 +789,7 @@ Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, af
 ## 10. Questions for Charlie, as ruled (r3)
 
 1. **Admit Canvas 2D with the Caltrain map as the take?** Ruled yes: "seems reasonable". §9's text is in `rules/DEFERRED.md`.
-2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. Reopened by Charlie on 2026-09-29 ("you can use GPU instead core graphics if it is the correct choice") and confirmed by measurement: GPU replay (vello) lost on memory, shader compilation and parity, and a canvas that animates is Core Graphics recorded by Core Animation instead (§8.4). The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
+2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. Reopened by Charlie on 2026-09-29 ("you can use GPU instead core graphics if it is the correct choice") and first answered by measurement with Core Graphics recorded by Core Animation for a canvas that animates (§8.4), the first vello prototype having lost on memory, shader compilation and parity. Charlie then asked for the GPU version ("we're going to want the GPU version of this", 2026-09-29): Skia and vello were built and measured side by side, and a canvas that animates is drawn by vello on the GPU (§8.5), with precompiled shaders; a canvas that does not animate keeps Core Graphics. The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
 3. **Approve the fixture apparatus** (`apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator)? Ruled yes. It adds no blocking check, and it generalises rather than copies.
 4. **Accept the declared deviations?** Ruled "ok" to these revisions:
    - CSS-pixel coordinates over a device backing store stay the default, and an explicit bitmap size is the web's canvas exactly (D6);

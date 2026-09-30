@@ -428,7 +428,9 @@ admitted with "seems reasonable"):** the HTML Canvas 2D context on the `canvas`
 tag (LLP 1056). A surface in the app's data module, TypeScript or Rust, draws
 with `CanvasRenderingContext2D`'s own names and rules. Its recorded calls are
 replayed in order by the browser, Core Graphics or tiny-skia into the canvas's
-kept bitmap. Unblocks computed 2D drawing (charts, sparklines, maps, custom
+kept bitmap; on Apple a canvas that animates is replayed on the GPU by a module
+loaded on demand (vello, its shaders compiled at build time; LLP 1056 §8.5;
+Charlie, 2026-09-29: "we're going to want the GPU version of this"). Unblocks computed 2D drawing (charts, sparklines, maps, custom
 controls) on every host without a GPU module, with Chrome as the oracle. Take:
 Caltrain's line map leaves wgpu. Its `map` surface and shader are deleted, and
 it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU
