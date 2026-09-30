@@ -14,3 +14,19 @@ Fixed alongside: `clock settle` has one bound per call, driver errors name the o
 Still missing is the reply's real latency in the journal. Each host's executor knows when it started a request and when its outcome came back. Add the wall milliseconds to the `fulfil` line the runner already writes (which now also carries the outcome summary), e.g. `fulfil 7 (state) [HTTP 200, 190785 bytes] after 212 ms`. Measure in the executor (`host/apple/src/executor_core.rs` and its Linux and render users; the web glue's fetch) and carry it on the outcome, never from the agent clock.
 
 Done when a drive that advances the agent clock while a request is in flight shows the request's true wall latency beside its fulfil line on the web, macOS and iOS.
+
+## Implementation and verification, 2026-09-30
+
+The native executor captures elapsed wall milliseconds when a completion arrives,
+before the UI drains it; Apple, Linux and render pass that duration to the runner's
+fulfil journal. Direct host replies without an executor measurement omit it. Both
+web targets measure requests with `performance.now()`; the wasm adapter emits an
+adjacent reply line without changing its ABI, and the JS target logs the ticket.
+
+Runner regression: a reply at agent time 1200 records wall time 212 ms. The shared
+native executor regression deliberately delays draining and verifies that this
+delay is excluded. Apple, Linux and render Rust suites pass. A production-generated
+JS fixture fetched a real local HTTP response delayed by 350 ms, while its agent
+clock advanced to 900000; the journal read `t=900000 reply 1; wall 353 ms` and the
+reply rendered successfully. The macOS and iOS delayed-request app drives required
+above remain to be recorded, so this ticket stays open pending that verification.

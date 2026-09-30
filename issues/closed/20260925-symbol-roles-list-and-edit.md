@@ -6,7 +6,7 @@
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
-**Related:** LLP 1035.004 D1 (symbol roles); issues/20260924-clip-path-subset-of-css.md (the same gap drove app artwork into `clip-path`)
+**Related:** LLP 1035.004 D1 (symbol roles); issues/closed/20260924-clip-path-subset-of-css.md (the same gap drove app artwork into `clip-path`)
 
 Porting the Expo PR 49975 list demo (SwiftUI `List` + SF Symbols) to exact2 found no role for seven glyphs a list and its edit mode use. The port drew each one as a `clip-path` shape, so Apple showed hand-drawn icons where SwiftUI shows system ones:
 - `bookmark` and its filled state (`bookmark`, `bookmark.fill`)

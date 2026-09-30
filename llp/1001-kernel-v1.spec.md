@@ -320,7 +320,7 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own
-  background, border and shadow (open: `issues/20260927-web-tint-masks-the-box.md`),
+  background, border and shadow (declared limitation: `issues/closed/20260927-web-tint-masks-the-box.md`),
   and a remote source needs CORS or paints nothing, which is the browser's mask
   security policy. Apple and both Linux painters apply a source-alpha tint to
   the picture alone.
@@ -330,13 +330,10 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   bypasses the transform because hosts expand the source themselves and
   transforming that source would rewrite URLs; web CSS transforms rendered
   Markdown. This is a native coverage gap, not CSS's behavior.
-- **Projected iOS tab-bar height** ([LLP 1059 D2, D2a](1059-tab-bar-projection.rfc.md)):
-  `UITabBar` uses at least `sizeThatFits` height, bottom-aligned in the kernel
-  box, so it can grow upward outside it. The reason is to avoid clipping the
-  selected title inside iOS's selection glass. Ruled 2026-09-27: the
-  projection stays automatic, and the bar's height is reported to layout
-  instead (`issues/20260927-tab-bar-height-to-layout.md`); until that lands,
-  this overflow is the deviation.
+- **Projected iOS tab-bar height** ([LLP 1059 D2](1059-tab-bar-projection.rfc.md)):
+  `UITabBar` reports its intrinsic height through the kernel measurement seam
+  and fills the resulting box. The former overflow deviation is removed
+  (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
 D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a

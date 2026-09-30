@@ -19,7 +19,7 @@ CLAUDE.md requires each deviation from the web to be declared in `llp/1001-kerne
 
 **Fix:** add one deviation block to 1001 that lists each item with its RFC and reason. Where the reason is only implementation convenience (Linux tint, web tint masking the box), fix the host instead.
 
-Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed, except the web half of raster tint: LLP 1001 declares every deviation (with Charlie's 2026-09-27 rulings), and both Linux painters apply raster tint (pixel regressions and Chrome parity fixtures, worst mean difference 0.79/255). Astra's web fix made every image a `span` around an `<img>` with JavaScript re-creating replaced-element sizing; it was not merged, and the web tint moved to `issues/20260927-web-tint-masks-the-box.md`.
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed, except the web half of raster tint: LLP 1001 declares every deviation (with Charlie's 2026-09-27 rulings), and both Linux painters apply raster tint (pixel regressions and Chrome parity fixtures, worst mean difference 0.79/255). Astra's web fix made every image a `span` around an `<img>` with JavaScript re-creating replaced-element sizing; it was not merged, and the web tint moved to `issues/closed/20260927-web-tint-masks-the-box.md`.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max (design), Astra max (code and design). Verification: confirmed by reading.
 

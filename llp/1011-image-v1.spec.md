@@ -167,7 +167,7 @@ An author can put background, border, padding and shadow on a surrounding
 `view` and tint its child image. The reference pixels in
 `scripts/fixtures/tint.web.png` and `tint.web-dark.png` remain the target for
 paint on the image itself, not passing web-host snapshots. Investigation and
-verification: `issues/20260927-web-tint-masks-the-box.md`.
+verification: `issues/closed/20260927-web-tint-masks-the-box.md`.
 
 **Linux raster tint (2026-09-27).** The ordinary tree walk and the retained
 content-region picture carry an optional, appearance-resolved tint to both

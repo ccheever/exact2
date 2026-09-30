@@ -6,7 +6,7 @@
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
-**Related:** LLP 1011 §3, LLP 1001 (declared deviation), `issues/20260927-undeclared-deviations.md`
+**Related:** LLP 1011 §3, LLP 1001 (declared deviation), `issues/closed/20260927-undeclared-deviations.md`
 
 `tint-color` on a raster is `background-color: var(--exact-tint)` masked by `mask-image: url(<src>)` on the `<img>` itself (`host/web/src/element.rs:61`). A mask covers the whole element, so a tinted image's background, border and shadow are masked to the picture. Apple and Linux tint the picture alone.
 

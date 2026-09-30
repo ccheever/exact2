@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
-**Related:** LLP 1067 D3/D6, LLP 1067.000 Q5; `issues/20260927-swift-native-later-done-twice.md` (the fix that added the lock)
+**Related:** LLP 1067 D3/D6, LLP 1067.000 Q5; `issues/closed/20260927-swift-native-later-done-twice.md` (the fix that added the lock)
 
 Each Swift instance serializes every entry through one lock, `Instance.enter`
 (`js/native/ExactNative.swift:54-61`):

@@ -223,4 +223,4 @@ the same commit. The in-repo apps have no copied lookup to remove as of
   also misses edits to `use`d files. The TypeScript dev loop watches every
   captured source, JSON included.
 - Host verification for the 2026-09-27 ruling is recorded in
-  `issues/20260927-strings-messageformat-and-lang.md`.
+  `issues/closed/20260927-strings-messageformat-and-lang.md`.

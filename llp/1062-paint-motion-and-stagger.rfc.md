@@ -233,7 +233,7 @@ of 1/60 s: **Rust + Swift + IPC virtual-frame round trips, not display-link FPS*
 The optimized `apple-dev` Rust probe boots the same plan with MonospaceMeasurer,
 counts `Engine::target`s and times 59 `Host::tick`s, excluding Swift/raster/IPC.
 Full method, all individual loads and runs are in the
-[ticket](../issues/20260927-transition-all-list-cost.md#measurement-and-change);
+[ticket](../issues/closed/20260927-transition-all-list-cost.md#measurement-and-change);
 private artifacts are in the worktree's ignored `target/transition-all/`.
 
 | Pass | Host | Rows | RSS at rest / after changes (MiB) | Indicator p50 / p95 (ms) | All-row change p50 / p95 (ms) |

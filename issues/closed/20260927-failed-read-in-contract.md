@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
-**Related:** LLP 1054.000.002 (the 2026-09-27 ruling), `issues/20260927-failed-request-relabels-answer.md` (the design-neutral half, built)
+**Related:** LLP 1054.000.002 (the 2026-09-27 ruling), `issues/closed/20260927-failed-request-relabels-answer.md` (the design-neutral half, built)
 
 Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: `failed(resource)` tracks request failure through Contract and incremental evaluation; failed placeholders retain provenance and stay out of checkpoint answers, verified by 14 placeholder/runner regressions and all required root checks.
 

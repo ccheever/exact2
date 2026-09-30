@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
-**Related:** LLP 1063 D6 (a resize takes new boxes with no animation, on every host), `issues/20260927-presence-cross-host-timeline.md` (the recorder that found it)
+**Related:** LLP 1063 D6 (a resize takes new boxes with no animation, on every host), `issues/closed/20260927-presence-cross-host-timeline.md` (the recorder that found it)
 
 `bun host/web/parity.mjs --presence` records one 17-step timeline on each host. When the viewport is resized while a `layout-transition` move is running:
 - **Web:** snaps at once (the 2026-09-27 fix). This is D6.
