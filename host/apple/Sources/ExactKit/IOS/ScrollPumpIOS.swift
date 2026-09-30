@@ -69,6 +69,21 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         guard !ExactEnv.agentFreezes, let t = travel[id], CACurrentMediaTime() - t.time < 0.15 else { return 0 }
         return t.velocity
     }
+    /// Ports a frame at or past which a list outruns its slices.
+    static let outrun = 1.0
+    /// Whether `id` travels a port or more each frame (LLP 1050.000 D2 as
+    /// built): every frame then shows rows none before it showed, and a
+    /// slice, which lands a frame or more after it is posted and reaches
+    /// three ports ahead at most, builds rows the list has passed by the
+    /// time they could show. Such a list posts none: the rescue in its
+    /// scroll callback, what shows and nothing more, is its fill, and the
+    /// fill it is owed waits until it slows.
+    func outruns(_ id: UInt32) -> Bool {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return false }
+        let horizontal = presenter?.collections.entries[id]?.snapshot.horizontal == true
+        let port = Double(horizontal ? scroll.bounds.width : scroll.bounds.height)
+        return port > 0 && abs(velocity(id)) * refreshInterval >= port * Self.outrun
+    }
     private func sample(_ node: NodeView, now: TimeInterval) {
         guard let scroll = node.scroll else { return }
         // Along the list's own axis (LLP 1070 H3): a row list travels on x.
@@ -137,7 +152,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         var rows = 0
         let spent = !fillDeferred && CACurrentMediaTime() - turnStarted > refreshInterval * 0.5
         fillDeferred = false
-        for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) {
+        for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) && !outruns(id) {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
             // A slice built off main lands a measured latency later: lead by it.
