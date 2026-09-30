@@ -515,6 +515,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A static flex or grid item's z-index depends on its parent, which a
         // view styled before it was mounted did not have.
         if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
     }
 
     override func didMoveToWindow() {
@@ -1047,11 +1048,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
         f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.screen.scale ?? traitCollection.displayScale)
-    }
-
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
     }
 
     func updateKeyboardDismissal() {
