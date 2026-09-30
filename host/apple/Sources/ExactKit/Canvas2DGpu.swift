@@ -57,9 +57,18 @@ final class Canvas2DGpuModule {
         #endif
         let path = env["EXACT_CANVAS_GPU_DYLIB"] ?? dir + "/libexact_canvas_gpu.dylib"
         let t0 = CFAbsoluteTimeGetCurrent()
-        guard FileManager.default.fileExists(atPath: path), let lib = dlopen(path, RTLD_NOW | RTLD_LOCAL),
-              let abi = dlsym(lib, "ecg_abi"), unsafeBitCast(abi, to: (@convention(c) () -> UInt32).self)() == 2,
-              let n = dlsym(lib, "ecg_name") else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        // A module that is there but does not load is said, never silently
+        // replaced by Core Graphics (a stripped build dyld refused, 2026-09-30).
+        guard let lib = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+            Canvas2DGpuModule.log("canvas gpu: \(path) did not load: \(dlerror().map { String(cString: $0) } ?? "?")")
+            return nil
+        }
+        guard let abi = dlsym(lib, "ecg_abi"), unsafeBitCast(abi, to: (@convention(c) () -> UInt32).self)() == 2,
+              let n = dlsym(lib, "ecg_name") else {
+            Canvas2DGpuModule.log("canvas gpu: \(path) is not an ABI 2 module (built without the Metal toolchain?)")
+            return nil
+        }
         func sym<T>(_ s: String, _: T.Type) -> T? { dlsym(lib, s).map { unsafeBitCast($0, to: T.self) } }
         guard let new = sym("ecg_canvas_new", New.self), let free = sym("ecg_canvas_free", Free.self),
               let replay = sym("ecg_canvas_replay", Replay.self), let stats = sym("ecg_canvas_stats", Stats.self),
