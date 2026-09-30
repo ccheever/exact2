@@ -87,9 +87,14 @@ export function depInfoInputs(bin, info = `${bin}.d`) {
 // render pass) without its sources changing; those sources are in the dep-info
 // themselves, so they, not the output, decide.
 const GENERATED = /\/build\/[^/]+\/out\//;
-/** Dep-info's inputs modified after `since`, or gone, generated outputs aside. */
+// A build script watches directories an app may not have (`../assets`, `../data`,
+// `../gpu/shaders`: apps/svg-gallery has no assets); Cargo's dep-info names the
+// watch whether or not the directory exists, and a directory that never existed
+// is not a change. A file that is gone is: it was read when the build ran.
+const DIRECTORY_WATCH = /\/[^./]+$/;
+/** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info) {
-  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return true; } }).map(shown);
+  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return !DIRECTORY_WATCH.test(p); } }).map(shown);
 }
 
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
