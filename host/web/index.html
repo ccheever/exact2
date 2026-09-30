@@ -50,7 +50,7 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. */
-  [navigationPresentation="modal"] { isolation: isolate; }
+  [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [navigationPresentation="modal"]::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #00000033; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
   input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
@@ -74,9 +74,6 @@
     & [data-scrolldocument="true"] { overflow: visible !important; height: auto !important; max-height: none !important; }
   }
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
-  /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
-     (an absolute node's inline style wins). */
-  #exact-root * { position: relative; }
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
   img, video, svg { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA

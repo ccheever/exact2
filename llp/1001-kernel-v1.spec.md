@@ -381,8 +381,20 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
 
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
-so `relative` without insets is the closest box; a web host emits `position:
-relative` on every node to match). `text_align` is CSS's (`start` initially;
+so `relative` without insets is the closest box; a web host makes a node
+`position: relative` where that shows — over an absolute child, with an
+inset or a `z-index`, or after something in tree order that paints with the
+positioned (a positioned box or a stacking context in an earlier sibling's
+subtree), which a static box would paint under while the kernel paints in
+tree order — and leaves the rest `static`, which paints, hit-tests and
+composites without a layer of its own; `host/web/src/layers.rs`). This
+paint-order rule replaced the page's blanket `#exact-root * { position:
+relative }` (2026-09-29): a positioned box is a paint layer, and with every
+node one, a 10k-row grid spent 50–70 ms per interaction in hit-testing and
+compositor commit (select a row: 150 ms input→paint, 63 ms after). A narrower
+rule that kept only containing blocks, insets and `z-index` changed pixels —
+text after an absolute photo painted under it — which is why whatever follows
+something positioned stays `relative`. `text_align` is CSS's (`start` initially;
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
 1053). CSS `direction` orders flex rows and places blocks in the kernel, and

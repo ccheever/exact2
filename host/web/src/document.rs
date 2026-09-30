@@ -23,7 +23,7 @@
 //! repaired: the page a reader gets without JavaScript is the page the live
 //! host builds, or it is no page.
 
-use super::{font_names, host_css, props_for, tag_for, Host};
+use super::{font_names, host_css, layers, props_for, tag_for, Host};
 
 #[path = "page.rs"]
 mod page;
@@ -123,8 +123,9 @@ fn walk<D: DataSource>(
         scroll_document: false,
     };
     let roots = runner.roots();
+    let mut after = false;
     for root in &roots {
-        walk.element(*root)?;
+        after |= walk.element(*root, after)?;
     }
     let first = roots.first().and_then(|id| kernel.node(*id));
     let prop = |id| {
@@ -178,13 +179,16 @@ struct Walk<'r, D: DataSource> {
 }
 
 impl<D: DataSource> Walk<'_, D> {
-    fn element(&mut self, id: ViewId) -> Result<(), DocumentError> {
+    /// The element and its subtree; whether it paints with the positioned
+    /// (`layers::layered`), for the siblings after it. `after`: one before
+    /// it does.
+    fn element(&mut self, id: ViewId, after: bool) -> Result<bool, DocumentError> {
         let runner = self.runner;
         let kernel = runner.kernel();
         let node = kernel.node(id).expect("the runner's tree names live views");
         if node.node_type.is_metadata() {
             // The page's `<head>`, never an element (as the live host).
-            return Ok(());
+            return Ok(false);
         }
         let refuse = |reason: &str| DocumentError {
             view: id,
@@ -220,7 +224,9 @@ impl<D: DataSource> Walk<'_, D> {
                 }
             }
         }
-        let mut style = host_css(&node, text, tag);
+        let paint = layers::paint(&node);
+        let relative = layers::relative(paint, layers::holds_absolute(kernel, &node), after);
+        let mut style = layers::with_relative(host_css(&node, text, tag), relative);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
@@ -334,7 +340,7 @@ impl<D: DataSource> Walk<'_, D> {
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input") {
             // Void: no content, no end tag.
-            return Ok(());
+            return Ok(layers::layered(paint, relative, false));
         }
         if tag == "canvas" {
             self.out.push_str(SURFACE);
@@ -353,8 +359,9 @@ impl<D: DataSource> Walk<'_, D> {
         self.links += u32::from(link);
         self.buttons += u32::from(button);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
+        let mut under = false;
         for child in children {
-            self.element(child)?;
+            under |= self.element(child, under)?;
         }
         if let Some(outer) = outer {
             self.select = outer;
@@ -364,7 +371,7 @@ impl<D: DataSource> Walk<'_, D> {
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');
-        Ok(())
+        Ok(layers::layered(paint, relative, under))
     }
 
     fn open(

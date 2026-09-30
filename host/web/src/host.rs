@@ -39,6 +39,8 @@ mod height_drag;
 pub use height_drag::HeightDragBinding;
 #[path = "flow_host.rs"]
 mod flow_host;
+#[path = "layers.rs"]
+pub mod layers;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
@@ -341,6 +343,8 @@ pub struct Host<D: DataSource> {
     keyframes: SortedSet<String>,
     /// The 2D canvases the page watches (LLP 1056 D4).
     canvas2d: canvas2d::Watch,
+    /// Which views the page makes `relative` (LLP 1001 §1).
+    layers: layers::Layers,
 }
 
 impl<D: DataSource> Host<D> {
@@ -499,6 +503,7 @@ impl<D: DataSource> Host<D> {
             computed,
             keyframes: Default::default(),
             canvas2d: Default::default(),
+            layers: Default::default(),
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -511,6 +516,7 @@ impl<D: DataSource> Host<D> {
             children.reverse();
             stack.extend(children);
         }
+        host.relayer(&order, &mut batch);
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, &mut batch, handlers.get(id).map_or(&[], Vec::as_slice));
@@ -904,6 +910,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
+        // Which views are `relative` in the tree the receipts end at (layers.rs).
+        let changed: Vec<ViewId> = (receipts.iter())
+            .flat_map(|t| t.receipt.created.iter().chain(&t.receipt.touched))
+            .filter_map(|key| self.runner.kernel().node_by_key(*key).map(|n| n.id))
+            .collect();
+        self.relayer(&changed, batch);
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
@@ -927,6 +939,7 @@ impl<D: DataSource> Host<D> {
                         continue;
                     }
                     self.mirror.remove(&id);
+                    self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
                         (drag.destroyed)(self, id);
@@ -1356,7 +1369,8 @@ impl<D: DataSource> Host<D> {
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                (props, host_css(&node, css, tag))
+                let css = host_css(&node, css, tag);
+                (props, layers::with_relative(css, self.layers.relative(id)))
             }
         };
         let handlers: Vec<&str> = kinds
@@ -1414,6 +1428,7 @@ impl<D: DataSource> Host<D> {
             css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
         let css = host_css(&node, css, tag_for(&node, in_button));
+        let css = layers::with_relative(css, self.layers.relative(id));
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props

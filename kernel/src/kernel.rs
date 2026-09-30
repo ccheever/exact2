@@ -181,6 +181,15 @@ impl<'a> NodeRef<'a> {
             .map(|c| self.arena.local_id(*c))
             .collect()
     }
+
+    /// Whether a child is absolutely positioned: the node is its containing
+    /// block (LLP 1001 §1), which a web host makes it with `position: relative`.
+    pub fn has_absolute_child(&self) -> bool {
+        self.arena
+            .children(self.slot)
+            .iter()
+            .any(|c| self.arena.style(*c).position_type == crate::generated::PositionType::Absolute)
+    }
 }
 
 /// The kernel.

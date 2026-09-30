@@ -87,9 +87,10 @@ attribute is keyed by node type (`scrolls_by_default`), unlike the macOS
 presenter — and the page's stylesheet says `[data-scroll="true"] {
 overflow: auto; }`, both axes, which is what the kernel's pairing gives
 the default case; an explicit `overflow_x`/`overflow_y` row lowers by name
-as an inline declaration and wins over the stylesheet. Every node is
-`position: relative` by a page rule (LLP 1001 §1's declared baseline; an
-absolute node's inline style wins). The browser lays out, clips, scrolls,
+as an inline declaration and wins over the stylesheet. A node is
+`position: relative` where the kernel's missing `static` shows (LLP 1001
+§1): over an absolute child, with an inset or a `z-index`, or after
+something positioned in tree order. The browser lays out, clips, scrolls,
 chains at edges, restores nothing across a reload, and the window scrolls
 the document as for any page. Ordinary scroll containers remain platform-owned. The explicit windowed `list` also reports its actual geometry to the runner (§6.2); this does not dispatch an application action.
 

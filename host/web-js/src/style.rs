@@ -14,6 +14,7 @@ use exact_kernel::{
 use exact_plan::{BindingKind, Opcode, Plan};
 use exact_runner::bridge;
 use exact_runner::vm::instructions;
+use exact_web::host::layers;
 use exact_web::host::template::{self, Parts};
 
 /// A canvas's explicit bitmap size (LLP 1056 D6 r3) as the attributes
@@ -204,7 +205,78 @@ pub fn project(
         }
         out.push(Some(parts));
     }
+    // `position: relative` where the live host would make it (layers.rs), for
+    // any tree the template builds.
+    let mut rows = Vec::new();
+    for region in plan
+        .regions
+        .iter()
+        .filter(|r| r.kind == exact_plan::RegionKind::Each)
+    {
+        for arm in region.arms.iter() {
+            roots_of(plan, sites, sites.of_arm(arm.0), &mut rows);
+        }
+    }
+    let relative = layers::relatives(&kernel, &[view(sites.root as usize)], &|id| {
+        let i = id as usize - 1;
+        layers::Dynamic {
+            repeated: rows.contains(&(i as u32)),
+            ..dynamic(plan, i)
+        }
+    });
+    for id in relative {
+        if let Some(parts) = out[id as usize - 1].as_mut() {
+            parts.css.push_str("position:relative;");
+        }
+    }
     Ok(out)
+}
+
+/// What node `i`'s dynamic rows and props may bring to the page's painting
+/// order, which the template kernel doesn't hold.
+fn dynamic(plan: &Plan, i: usize) -> layers::Dynamic {
+    let mut d = layers::Dynamic::default();
+    for row in plan.nodes[i].bindings.iter().map(|b| plan.binding(b)) {
+        if literal(plan, plan.code(row.expr)).is_some() {
+            continue;
+        }
+        let has = |ids: &[StyleId]| ids.iter().any(|s| row.id == *s as u16);
+        match row.kind {
+            BindingKind::Style if has(&[StyleId::PositionType]) => {
+                d.paint.positioned = true;
+                d.absolute = true;
+            }
+            BindingKind::Style if has(&layers::STACKS) => d.paint.stacks = true,
+            BindingKind::Style if has(&layers::INSETS) => d.paint.insets = true,
+            BindingKind::Prop => match PropId::from_wire(row.id) {
+                Some(PropId::BackgroundMaterial | PropId::NavigationKey)
+                | Some(PropId::NavigationPresentation) => d.paint.stacks = true,
+                Some(PropId::Markup) => d.paint.positioned = true,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    d
+}
+
+/// The nodes a site list puts at its level: nodes, and a region's arms' own.
+fn roots_of(
+    plan: &Plan,
+    sites: &crate::emit::Sites,
+    list: &[crate::emit::Site],
+    into: &mut Vec<u32>,
+) {
+    for s in list {
+        match s {
+            crate::emit::Site::Node(n) => into.push(*n),
+            crate::emit::Site::Region(r) => {
+                for arm in plan.regions[*r as usize].arms.iter() {
+                    roots_of(plan, sites, sites.of_arm(arm.0), into);
+                }
+            }
+        }
+    }
 }
 
 /// The DOM prop name the live host gives `prop` on a node of `node_type`,
