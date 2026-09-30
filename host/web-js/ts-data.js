@@ -9,39 +9,65 @@ import * as source from '__APP_TS__';
 import { sourceTypes } from './names.js';
 import { clock, commit, journal, R, Resources } from './rt.js';
 __AUTH_IMPORT__
-// A record type's field names, once per type.
-const fields = new WeakMap(), keys = t => { let k = fields.get(t); if (!k) { fields.set(t, k = Object.keys(t)); k.proto = k.includes('__proto__'); } return k; };
-export const named = (v, t) => {
-  if (v == null) return null;
-  if (!t || typeof t === 'string') return v;
-  if (Array.isArray(t)) return t[0] === '?' ? named(v, t[1]) : v.map(x => named(x, t[1]));
-  const k = keys(t);
-  if (k.proto) return Object.fromEntries(k.map((f, i) => [f, named(v[i], t[f])]));
-  const o = {};
-  for (let i = 0; i < k.length; i++) o[k[i]] = named(v[i], t[k[i]]);
-  return o;
-};
-// The module's answer as the runtime's arrays, against the last answer this
-// target was given: a record or list that converts to what it did is that
-// array itself, so the runtime compares and shape-checks an unchanged row as
-// an identity (the Rust runner keeps an equal answer's old object and
-// re-checks only the list items that are new, runner/src/conform.rs).
+// Values cross by the plan's types (`named` into the module's objects,
+// `arrays` back into the runtime's arrays), with each type's converters made
+// once. `arrays` converts against the last answer its target was given: a
+// record or list that converts to what it did is that array itself, so the
+// runtime compares and shape-checks an unchanged row as an identity (the Rust
+// runner keeps an equal answer's old object and re-checks only the list items
+// that are new, runner/src/conform.rs).
 const same = (a, b) => a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
-const arrays = (v, t, o) => {
-  if (v == null) return null;
-  if (typeof t === 'string') return v;
-  if (Array.isArray(t) && t[0] === '?') return arrays(v, t[1], o);
-  const list = Array.isArray(t);
-  if (list && !Array.isArray(v)) return v.map(x => arrays(x, t[1]));
-  // An item is matched by its index even when the list grew or shrank.
-  const k = list ? null : keys(t), n = list ? v.length : k.length, was = Array.isArray(o) ? o : null;
-  let out = was && was.length === n ? null : [];
-  for (let i = 0; i < n; i++) {
-    const x = list ? arrays(v[i], t[1], was?.[i]) : arrays(v[k[i]], t[k[i]], was?.[i]);
-    if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
+const LEAF = [v => v == null ? null : v, v => v == null ? null : v, true];
+const made = new WeakMap();
+function converters(t) {
+  if (!t || typeof t === 'string') return LEAF;
+  let c = made.get(t);
+  if (c) return c;
+  c = [];
+  made.set(t, c);
+  if (Array.isArray(t)) {
+    // A type may name itself: its converters are read when called.
+    const sub = converters(t[1]), leaf = sub[2] === true, named = v => sub[0](v), arrays = (v, o) => sub[1](v, o);
+    if (t[0] === '?') { c[0] = named; c[1] = arrays; return c; }
+    c[0] = v => v == null ? null : v.map(x => named(x));
+    // An item is matched by its index even when the list grew or shrank.
+    c[1] = (v, o) => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) return v.map(x => arrays(x));
+      const n = v.length, was = Array.isArray(o) ? o : null;
+      let out = was && was.length === n ? null : [];
+      for (let i = 0; i < n; i++) {
+        const x = leaf ? (v[i] == null ? null : v[i]) : arrays(v[i], was?.[i]);
+        if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
+      }
+      return out ?? o;
+    };
+    return c;
   }
-  return out ?? o;
-};
+  const k = Object.keys(t), n = k.length, subs = k.map(f => converters(t[f]));
+  const leaves = subs.map(s => s[2] === true);
+  c[0] = k.includes('__proto__')
+    ? v => v == null ? null : Object.fromEntries(k.map((f, i) => [f, subs[i][0](v[i])]))
+    : v => {
+      if (v == null) return null;
+      const out = {};
+      for (let i = 0; i < n; i++) out[k[i]] = leaves[i] ? (v[i] == null ? null : v[i]) : subs[i][0](v[i]);
+      return out;
+    };
+  c[1] = (v, o) => {
+    if (v == null) return null;
+    const was = Array.isArray(o) ? o : null;
+    let out = was && was.length === n ? null : [];
+    for (let i = 0; i < n; i++) {
+      const y = v[k[i]], x = leaves[i] ? (y == null ? null : y) : subs[i][1](y, was?.[i]);
+      if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
+    }
+    return out ?? o;
+  };
+  return c;
+}
+export const named = (v, t) => converters(t)[0](v);
+const arrays = (v, t, o) => converters(t)[1](v, o);
 const answered = new Map(); // target -> the arrays last made for it
 const conv = (v, t, target) => { const a = arrays(v, t, answered.get(target)); answered.set(target, a); return a; };
 // The app's page module as a source sees it (`native`, LLP 1067 D5), where

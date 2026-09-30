@@ -42,7 +42,7 @@ function fresh(n) {
   n.s = CLEAN;
 }
 function drop(n) {
-  for (const s of n.src) s.obs.delete(n);
+  for (const s of n.src) if (!s.dead) s.obs.delete(n);
   n.src = [];
   if (n.kids) { for (const k of n.kids) dispose(k); n.kids = null; }
 }
@@ -102,6 +102,13 @@ function scope(f, parent = Owner) {
   return n;
 }
 function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
+/** Every leaving row's scope ended, its owner's kids filtered once (a splice
+ * each was quadratic); nothing unsubscribes from the rows' own signals. */
+function endAll(rows) {
+  let up = null;
+  for (const r of rows.values()) if (r.s) { r.item.n.dead = r.index.n.dead = 1; dispose(r.s); up = r.s.up; }
+  if (up?.kids) up.kids = up.kids.filter(k => !k.gone);
+}
 // For loaded pieces (list.js): scopes, untracked reads, writes, the owner in
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
@@ -456,7 +463,8 @@ export function mut(name, slot, refreshes, type) {
     if (m.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
     const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(t.source, t.args, outcome, Store);
     if (p.req) { t.req = p.req; send(t, land(t)); return; }
-    if (type && !conforms(p.v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    m.checked = p.v;
     m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
@@ -468,7 +476,8 @@ export function mut(name, slot, refreshes, type) {
     send(source, args, undo) {
       const a = ask(source, args, name);
       if (a && "v" in a) {
-        if (type && !conforms(a.v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+        if (type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+        m.checked = a.v;
         landWrite(a.v, undo);
       } else if (a && (a.req || a.promise)) {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
@@ -1040,15 +1049,14 @@ export function each(p, list, key, row) {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
       if (b && LazyAt < Lazy.length) adoptAll();
-      const next = new Map(), seen = new Map(), old = new Map();
-      if (b) { let o = 0; for (const k of rows.keys()) old.set(k, o++); }
+      // A row's place in the last pass is its `at`; repeats count once a key repeats.
+      const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
         let k = key(() => item, () => i);
         k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
-        const n = seen.get(k) ?? 0; seen.set(k, n + 1);
-        if (n) { k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
+        if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
-        if (r) { rows.delete(k); r.old = old.get(k); write(r.item.n, item); write(r.index.n, i); }
+        if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) write(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
           r = { item: sig(item), index: sig(i) };
@@ -1085,13 +1093,14 @@ export function each(p, list, key, row) {
         next.set(k, r);
       });
       const list = [...next.values()];
+      for (let i = 0; i < list.length; i++) list[i].at = i;
       // Every row goes and the region is all its parent holds: emptied at once.
       if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
-        for (const r of rows.values()) if (r.s) end(r.s);
+        endAll(rows);
         p.textContent = "";
         p.append(a, b);
       }
-      else for (const r of rows.values()) { if (r.s) end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
+      else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } } }
       // Order, from the last row back: kept rows on the longest run already in
       // order stay; any other moves before the row after it; new rows go in
       // one fragment per run.
