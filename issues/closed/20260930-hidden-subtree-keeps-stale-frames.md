@@ -1,6 +1,7 @@
 # A box re-parented under a hidden subtree keeps its last frame where a fresh layout has none
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Clear frames and scroll extents throughout inherited hidden subtrees during publication; restored display:none differential draws reproduce three failures before the fix and all 14 layout equality tests pass afterward.
 **Systems:** kernel, vendored Taffy
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

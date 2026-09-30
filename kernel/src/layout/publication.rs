@@ -63,19 +63,26 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             tree.publication_visits += 1;
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
-        if own_hidden {
+        let hidden = hidden || own_hidden;
+        if hidden {
             arena.flags_mut(slot).insert(NodeFlags::HIDDEN);
         } else {
             arena.flags_mut(slot).remove(NodeFlags::HIDDEN);
         }
-        let hidden = hidden || own_hidden;
         if !hidden && crate::flow::is_exclusion(arena, slot) {
             exclusions.push(slot);
         }
         let inline = arena.is_inline_run(slot);
         let old = arena.frame(slot);
         let old_content = arena.content(slot);
-        let frame = if inline {
+        let frame = if hidden {
+            arena.set_content(slot, (0.0, 0.0));
+            Frame {
+                x: ox,
+                y: oy,
+                ..Frame::default()
+            }
+        } else if inline {
             Frame::default()
         } else {
             let Some(node) = arena.taffy(slot) else {
@@ -102,7 +109,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         let origin_moved =
             old.x.to_bits() != frame.x.to_bits() || old.y.to_bits() != frame.y.to_bits();
         // Topology changes can switch a Text subtree into/out of inline runs.
-        let full = full || flags.has(NodeFlags::CHILDREN_DIRTY);
+        let full = full || hidden || flags.has(NodeFlags::CHILDREN_DIRTY);
         let descend_all = full || origin_moved;
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);

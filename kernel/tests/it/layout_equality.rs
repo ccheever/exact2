@@ -152,10 +152,10 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
         s.position_type = PositionType::Static;
         s.mask.set(StyleId::PositionType);
     }
-    // Not drawn here: `display: none`. A box re-parented under a hidden
-    // subtree keeps its last frame where a fresh layout has none
-    // (issues/20260930-hidden-subtree-keeps-stale-frames.md); a draw of
-    // `rng.side(12) == 0` here shows it on seeds 5, 10, 405, 1412, 2423214.
+    if rng.side(12) == 0 {
+        s.display = Display::None;
+        s.mask.set(StyleId::Display);
+    }
     if rng.chance(4) {
         s.row_gap = rng.below(8) as f32;
         s.mask.set(StyleId::RowGap);
