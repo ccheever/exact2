@@ -68,7 +68,6 @@ use exact_runner::{
     Store, Target, Work,
 };
 use serde_json::{json, Value as Json};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::Arc;
@@ -1334,8 +1333,10 @@ impl DataSource for Module {
     }
 
     fn revision(&self) -> Option<&str> {
-        let hash = || format!("{:x}", Sha256::digest(&self.bytecode));
-        Some(self.revision.get_or_init(hash))
+        Some(
+            self.revision
+                .get_or_init(|| paired::revision_of(&self.bytecode)),
+        )
     }
 
     /// Calls whose requests the runner let go are dropped, here and in the
