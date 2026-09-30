@@ -319,14 +319,22 @@ final class Canvas2DGpuCanvas {
 enum Canvas2DStats {
     static let on = ProcessInfo.processInfo.environment["EXACT_CANVAS_STATS"] == "1"
     private static var gpu = 0, bitmap = 0, recorded = 0, gpuMs = 0.0, t0 = CACurrentMediaTime()
+    /// Lists that arrived (one a draw) and those that joined a replay already waiting.
+    private static var arrived = 0, joined = 0
+    static func arrival(joined j: Bool) {
+        guard on else { return }
+        arrived += 1
+        if j { joined += 1 }
+    }
     static func shown(gpu g: Bool, recorded r: Bool, ms: Double) {
         guard on else { return }
         if g { gpu += 1; gpuMs += ms } else if r { recorded += 1 } else { bitmap += 1 }
         let dt = CACurrentMediaTime() - t0
         guard dt >= 1 else { return }
         let mem = Canvas2DGpuModule.shared.map { Double($0.memory()) / 1_048_576 } ?? 0
-        NSLog("canvas stats: %.1f gpu/s (%.2f ms each), %.1f recorded/s, %.1f bitmap/s, module %.1f MB",
-              Double(gpu) / dt, gpu > 0 ? gpuMs / Double(gpu) : 0, Double(recorded) / dt, Double(bitmap) / dt, mem)
-        gpu = 0; bitmap = 0; recorded = 0; gpuMs = 0; t0 = CACurrentMediaTime()
+        NSLog("canvas stats: %.1f gpu/s (%.2f ms each), %.1f recorded/s, %.1f bitmap/s, module %.1f MB; draws %.1f/s, %.1f/s joined a waiting replay",
+              Double(gpu) / dt, gpu > 0 ? gpuMs / Double(gpu) : 0, Double(recorded) / dt, Double(bitmap) / dt, mem,
+              Double(arrived) / dt, Double(joined) / dt)
+        gpu = 0; bitmap = 0; recorded = 0; gpuMs = 0; arrived = 0; joined = 0; t0 = CACurrentMediaTime()
     }
 }

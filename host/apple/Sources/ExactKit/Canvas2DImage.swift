@@ -238,6 +238,7 @@ final class Canvas2DHost: Canvas2DEnv {
         let joined = waiting[id]?.absorb(job) ?? false
         if !joined { waiting[id] = job }
         lock.unlock()
+        Canvas2DStats.arrival(joined: joined)
         if joined { return }
         pending += 1
         onHeld?(id, true)
