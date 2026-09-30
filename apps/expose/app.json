@@ -1,0 +1,18 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Expose",
+  "short_name": "Expose",
+  "id": "com.exact.expose",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0b0b0c",
+  "background_color": "#0b0b0c",
+  "app": { "id": "com.exact.expose", "name": "Expose" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0", "window": { "width": 440, "height": 956, "minWidth": 320, "minHeight": 560 } },
+    "web": {},
+    "linux": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

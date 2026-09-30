@@ -1,0 +1,21 @@
+# Expose's pages as documents (LLP 1048.000 D9): its TypeScript module, baked
+# for native, run by the render host. The web build finds the entry here, as
+# `expose-render` in `expose-linux`.
+[package]
+name = "expose-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "expose-render"
+path = "src/bin/expose-render.rs"
+
+[dependencies]
+exact-js = { path = "../../../js" }
+exact-render = { path = "../../../host/render" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

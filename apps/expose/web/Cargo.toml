@@ -1,0 +1,20 @@
+[package]
+name = "expose-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Expose, the phone-OS demo, on the web: the Contract UI and its TypeScript sources"
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+exact-js-web = { path = "../../../js/web" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

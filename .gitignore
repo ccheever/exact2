@@ -35,3 +35,6 @@ game/bench/results/*.json.gz
 !game/bench/results/feel-2026-09-18T11-56-12-978Z-*.json.gz
 !game/bench/results/feel-2026-09-18T12-27-35-105Z-*.json.gz
 !game/bench/results/feel-2026-09-18T20-36-09-882Z-*.json.gz
+
+# Expose: the OpenRouter key a developer bakes into their own build (build.rs writes it).
+apps/expose/local.ts
