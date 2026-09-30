@@ -19,6 +19,34 @@ type Author = Profile;
 // Every mutation's answer carries a fresh stamp, so the app notices each
 // reply; what a mutation changes is refetched by its `refreshes` declaration.
 let stamp = 0;
+
+// Favorites and follows: `favs` and `follows` are the one store of what the
+// reader pressed, by article and by author, and every view reads its state
+// through them (the `favs` and `follows` resources). A press writes its entry
+// before the request goes (the optimistic flip, read by the declared refresh
+// at the send), the answer replaces it, a failure puts back what was there.
+// The newest press per key wins; a change of reader forgets them all.
+type Fav = { slug: string; favorited: boolean; favoritesCount: number };
+type Follow = { username: string; following: boolean };
+const favs = new Map<string, Fav>(), follows = new Map<string, Follow>();
+const presses = new Map<string, number>();
+let press = 0;
+function flip<T>(store: Map<string, T>, key: string, now: T, work: () => Promise<T>, kind: string): Promise<Change> {
+  const before = store.get(key), n = ++press, id = `${kind}:${key}`;
+  presses.set(id, n);
+  store.set(key, now);
+  return change(kind, async () => {
+    try {
+      const after = await work();
+      if (presses.get(id) === n) store.set(key, after);
+    } catch (e) {
+      if (presses.get(id) === n) { if (before === undefined) store.delete(key); else store.set(key, before); }
+      throw e;
+    }
+    return key;
+  });
+}
+const forget = () => { favs.clear(); follows.clear(); };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function date(iso: unknown): string {
   const d = new Date(String(iso));
@@ -130,6 +158,7 @@ async function signIn(store: Store, path: string, body: Json, method = 'POST'): 
   try {
     const u = (await api(store, path, method, { user: body })).user;
     if (u?.token) store.set('realworld.jwt', String(u.token));
+    forget();
     return { stamp: ++stamp, ok: true, errors: [] };
   } catch (e) { return { stamp: ++stamp, ok: false, errors: failed(e) }; }
 }
@@ -155,13 +184,17 @@ const sources: Sources = {
   register: ([username, email, password], store) => signIn(store, '/users', { username, email, password }),
   saveSettings: ([image, username, bio, email, password], store) =>
     signIn(store, '/user', { image, username, bio, email, ...(password ? { password } : {}) }, 'PUT'),
-  logout: (_, store) => { store.forget('realworld.jwt'); return { stamp: ++stamp, ok: true, errors: [] }; },
-  favorite: ([slug, on], store) => change('favorite', async () => {
-    await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE'); return slug;
-  }),
-  follow: ([name, on], store) => change('follow', async () => {
-    await api(store, `/profiles/${encodeURIComponent(name)}/follow`, on ? 'POST' : 'DELETE'); return name;
-  }),
+  logout: (_, store) => { store.forget('realworld.jwt'); forget(); return { stamp: ++stamp, ok: true, errors: [] }; },
+  favorites: () => [...favs.values()],
+  followings: () => [...follows.values()],
+  favorite: ([slug, on, count], store) => flip(favs, slug, { slug, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) }, async () => {
+    const a = (await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE')).article;
+    return { slug, favorited: !!a?.favorited, favoritesCount: Number(a?.favoritesCount) || 0 };
+  }, 'favorite'),
+  follow: ([name, on], store) => flip(follows, name, { username: name, following: on }, async () => {
+    const p = (await api(store, `/profiles/${encodeURIComponent(name)}/follow`, on ? 'POST' : 'DELETE')).profile;
+    return { username: name, following: !!p?.following };
+  }, 'follow'),
   publish: ([slug, title, description, body, tagList], store) => change('publish', async () => {
     const a = { title, description, body, tagList };
     const saved = await api(store, slug ? slugPath(slug) : '/articles', slug ? 'PUT' : 'POST', { article: a });

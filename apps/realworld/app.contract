@@ -77,6 +77,16 @@ shape Change
 shape Tags
   session: number
   items: list<string>
+// What the reader pressed, by article and by author (app.ts `favs`,
+// `follows`): every view of one reads its state through these, so a press
+// shows at once and asks only this (LLP 1058 P5).
+shape Fav
+  slug: string
+  favorited: bool
+  favoritesCount: number
+shape Follow
+  username: string
+  following: bool
 
 style Container
   width="100%" max-width=1140 margin-left="auto" margin-right="auto" padding-left=15 padding-right=15 box-sizing="border-box"
@@ -118,8 +128,14 @@ component RealWorld
   state editorSession = 0
   state tagInput = ""
   state commentDraft = ""
-  mutation auth as shape Auth refreshes me
-  mutation change as shape Change refreshes feed, post, thread, person
+  mutation auth as shape Auth refreshes me, favs, follows
+  // A mutation per kind of write, each refreshing what that write changes
+  // (LLP 1058 P5): a favorite or a follow its presses, a comment the
+  // thread, a publish or a delete the lists and the article.
+  mutation change as shape Change refreshes feed, post
+  mutation faved as shape Change refreshes favs
+  mutation followed as shape Change refreshes follows
+  mutation commented as shape Change refreshes thread
   mutation tagEdit as shape Tags
   derive authStamp = match auth { case some(a) => a.stamp, case none => 0 }
   derive authOk = match auth { case some(a) => a.ok, case none => false }
@@ -134,6 +150,8 @@ component RealWorld
   resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
   resource thread = comments(slug, me.username) as shape list<Comment>
   resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
+  resource favs = favorites() as shape list<Fav>
+  resource follows = followings() as shape list<Follow>
 
   action go(url: string) writes nav, page, editorSession, tagInput, commentDraft
     page = 1
@@ -157,14 +175,14 @@ component RealWorld
     send auth = saveSettings(image, username, bio, email, password)
   action logout writes auth
     send auth = logout()
-  action favorite(target: string, on: bool) writes change, nav
+  action favorite(target: string, on: bool, count: number) writes faved, nav
     if me.signedIn
-      send change = favorite(target, on)
+      send faved = favorite(target, on, count)
     else
       nav = push(nav, "/register")
-  action follow(name: string, on: bool) writes change, nav
+  action follow(name: string, on: bool) writes followed, nav
     if me.signedIn
-      send change = follow(name, on)
+      send followed = follow(name, on)
     else
       nav = push(nav, "/register")
   action publish(target: string, title: string, description: string, body: string, tagList: list<string>) writes change
@@ -173,9 +191,9 @@ component RealWorld
     send change = deleteArticle(target)
   action setComment(v: string) writes commentDraft
     commentDraft = v
-  action postComment(target: string) writes change, commentDraft
+  action postComment(target: string) writes commented, commentDraft
     if commentDraft != ""
-      send change = addComment(target, commentDraft)
+      send commented = addComment(target, commentDraft)
       commentDraft = ""
   action setTagInput(v: string) writes tagInput
     tagInput = v
@@ -183,8 +201,8 @@ component RealWorld
     if k == "Enter"
       send tagEdit = addTag(editorSession, editorTags, tagInput)
       tagInput = ""
-  action uncomment(target: string, id: string) writes change
-    send change = deleteComment(target, id)
+  action uncomment(target: string, id: string) writes commented
+    send commented = deleteComment(target, id)
   action removeTag(tag: string) writes tagEdit
     send tagEdit = removeTag(editorSession, editorTags, tag)
   // A mutation's answer arrives after the action that sent it, and nothing
@@ -252,6 +270,7 @@ component RealWorld
             page=page,
             go=go,
             showPage=showPage,
+            favs=favs,
             favorite=favorite
           )
       each e in stack(nav) key = e.id
@@ -287,6 +306,8 @@ component RealWorld
                 loading=pending(post),
                 thread=thread,
                 go=go,
+                favs=favs,
+                follows=follows,
                 favorite=favorite,
                 follow=follow,
                 remove=deleteArticle,
@@ -306,6 +327,8 @@ component RealWorld
                 page=page,
                 go=go,
                 showPage=showPage,
+                favs=favs,
+                follows=follows,
                 favorite=favorite,
                 follow=follow
               )
@@ -401,6 +424,26 @@ component Meta
           text author.username
         text date font-size=12.8 color="#bbbbbb" margin-top=2
 
+// A preview's ♥: its state as the reader last pressed it, else the feed's.
+component Heart
+  props
+    slug: string
+    favorited: bool
+    count: number
+    favs: list<Fav>
+    favorite: action
+  derive fav = first(filter(favs, f => f.slug == slug))
+  derive on = match fav { case some(f) => f.favorited, case none => favorited }
+  derive n = match fav { case some(f) => f.favoritesCount, case none => count }
+  view
+    button press=favorite(slug, not on, n)
+      class=BtnSm
+      margin-left="auto"
+      border-color="#33aa44"
+      color=(on ? "#ffffff": "#33aa44")
+      background-color=(on ? "#33aa44": "#ffffff")
+      testId=`favorite-${slug}`
+      text `♥ ${n}`
 component Previews
   props
     me: User
@@ -409,6 +452,7 @@ component Previews
     page: number
     go: action
     showPage: action
+    favs: list<Fav>
     favorite: action
   view
     column
@@ -439,14 +483,7 @@ component Previews
             // Signed out, the ♥ goes to sign up: a link, so it works
             // before the runtime loads.
             when me.signedIn
-              button press=favorite(a.slug, not a.favorited)
-                class=BtnSm
-                margin-left="auto"
-                border-color="#33aa44"
-                color=(a.favorited ? "#ffffff": "#33aa44")
-                background-color=(a.favorited ? "#33aa44": "#ffffff")
-                testId=`favorite-${a.slug}`
-                text `♥ ${a.favoritesCount}`
+              Heart(slug=a.slug, favorited=a.favorited, count=a.favoritesCount, favs=favs, favorite=favorite)
             else
               link href="/register" press=go("/register")
                 class=BtnSm
@@ -504,6 +541,7 @@ component HomePage
     page: number
     go: action
     showPage: action
+    favs: list<Fav>
     favorite: action
   view
     column
@@ -565,6 +603,7 @@ component HomePage
             page=page,
             go=go,
             showPage=showPage,
+            favs=favs,
             favorite=favorite
           )
         column flex=1 min-width=200
@@ -844,10 +883,17 @@ component ArticleActions
     me: User
     post: Article
     go: action
+    favs: list<Fav>
+    follows: list<Follow>
     favorite: action
     follow: action
     remove: action
     light: bool
+  derive fav = first(filter(favs, f => f.slug == post.slug))
+  derive favorited = match fav { case some(f) => f.favorited, case none => post.favorited }
+  derive count = match fav { case some(f) => f.favoritesCount, case none => post.favoritesCount }
+  derive pressed = first(filter(follows, f => f.username == post.author.username))
+  derive following = match pressed { case some(f) => f.following, case none => post.author.following }
   view
     row align-items="center" flex-wrap="wrap" gap=8
       Meta(author=post.author, date=post.date, go=go)
@@ -870,20 +916,20 @@ component ArticleActions
         // Signed out, both go to sign up: links, so they work before the
         // runtime loads.
         when me.signedIn
-          button press=follow(post.author.username, not post.author.following)
+          button press=follow(post.author.username, not following)
             class=BtnSm
             border-color="#cccccc"
-            color=(post.author.following ? "#ffffff": "#cccccc")
-            background-color=(post.author.following ? "#cccccc": "#ffffff")
+            color=(following ? "#ffffff": "#cccccc")
+            background-color=(following ? "#cccccc": "#ffffff")
             testId="follow"
-            text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
-          button press=favorite(post.slug, not post.favorited)
+            text(following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
+          button press=favorite(post.slug, not favorited, count)
             class=BtnSm
             border-color="#33aa44"
-            color=(post.favorited ? "#ffffff": "#33aa44")
-            background-color=(post.favorited ? "#33aa44": "#ffffff")
+            color=(favorited ? "#ffffff": "#33aa44")
+            background-color=(favorited ? "#33aa44": "#ffffff")
             testId="favorite"
-            text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+            text `♥ ${favorited ? "Unfavorite" : "Favorite"} Article (${count})`
         else
           link href="/register" press=go("/register")
             class=BtnSm
@@ -907,6 +953,8 @@ component ArticlePage
     loading: bool
     thread: list<Comment>
     go: action
+    favs: list<Fav>
+    follows: list<Follow>
     favorite: action
     follow: action
     remove: action
@@ -932,6 +980,8 @@ component ArticlePage
               me=me,
               post=post,
               go=go,
+              favs=favs,
+              follows=follows,
               favorite=favorite,
               follow=follow,
               remove=remove,
@@ -962,6 +1012,8 @@ component ArticlePage
                 me=me,
                 post=post,
                 go=go,
+                favs=favs,
+                follows=follows,
                 favorite=favorite,
                 follow=follow,
                 remove=remove,
@@ -1064,8 +1116,12 @@ component ProfilePage
     page: number
     go: action
     showPage: action
+    favs: list<Fav>
+    follows: list<Follow>
     favorite: action
     follow: action
+  derive pressed = first(filter(follows, f => f.username == person.username))
+  derive following = match pressed { case some(f) => f.following, case none => person.following }
   view
     column
       column padding-top=32
@@ -1104,14 +1160,14 @@ component ProfilePage
                 text "⚙ Edit Profile Settings"
             else
               when me.signedIn
-                button press=follow(person.username, not person.following)
+                button press=follow(person.username, not following)
                   class=BtnSm
                   align-self="flex-end"
                   border-color="#999999"
-                  color=(person.following ? "#ffffff": "#999999")
-                  background-color=(person.following ? "#999999": "#ffffff")
+                  color=(following ? "#ffffff": "#999999")
+                  background-color=(following ? "#999999": "#ffffff")
                   testId="follow-profile"
-                  text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+                  text(following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
               else
                 link href="/register" press=go("/register")
                   class=BtnSm
@@ -1154,5 +1210,6 @@ component ProfilePage
           page=page,
           go=go,
           showPage=showPage,
+          favs=favs,
           favorite=favorite
         )
