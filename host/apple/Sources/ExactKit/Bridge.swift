@@ -148,9 +148,15 @@ final class Runtime {
     func boot(width: CGFloat, height: CGFloat) -> Batch { islands(on { read(exact_boot(rt, Float(width), Float(height))) }) }
     /// A plan that can show an SVG island opens the island module off the
     /// main thread now, before its first mask or filter needs it (LLP
-    /// 1055.000 §8 ruling 4); a plan without one never loads it.
+    /// 1055.000 §8 ruling 4); a plan without one never loads it. One that
+    /// can show a filter makes the GPU filter pipelines now too: a first
+    /// picture is drawn in the commit that shows it.
     private func islands(_ batch: Batch) -> Batch {
-        if on(busy: false, { exact_svg_islands(rt) != 0 }) { SvgRasterModule.prewarm() }
+        let svg = on(busy: UInt8(0)) { exact_svg_islands(rt) }
+        if svg & 1 != 0 { SvgRasterModule.prewarm() }
+        #if os(iOS)
+        if svg & 2 != 0 { SvgFilterMetal.prewarm() }
+        #endif
         return batch
     }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state

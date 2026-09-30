@@ -60,4 +60,25 @@ class SvgFilterMetalTests: XCTestCase {
         let mean = sum / Double(w * h * 4)
         XCTAssertLessThan(mean, 1.5, "mean |Δ| \(mean)/255")
     }
+
+    /// The boot's prewarm (its tiny chain on a background queue) racing a
+    /// first picture's chain on the main thread: the working textures and
+    /// blur kernels are shared, one encode at a time (run under the Thread
+    /// Sanitizer too).
+    func testThePrewarmRacesAFirstChain() throws {
+        SvgFilterMetal.prewarm()
+        guard let fm = SvgFilterMetal.shared, let queue = SvgFilterGPU.metal?.queue else { throw XCTSkip("no Metal") }
+        let (w, h) = (96, 64)
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+        d.usage = [.shaderRead, .shaderWrite]
+        let src = try XCTUnwrap(fm.device.makeTexture(descriptor: d))
+        for _ in 0..<8 {
+            let surface = try XCTUnwrap(IOSurface(properties: [.width: w, .height: h, .bytesPerElement: 4, .pixelFormat: 0x4247_5241]))
+            let cb = try XCTUnwrap(queue.makeCommandBuffer())
+            XCTAssertTrue(fm.encode([.blur(2), .offset(0, 3), .shadow(sigma: 3, dx: 0, dy: 4, color: SIMD4(0, 0, 0, 0.5))],
+                                    source: src, into: surface, on: cb))
+            cb.commit(); cb.waitUntilCompleted()
+            XCTAssertEqual(cb.status, .completed)
+        }
+    }
 }

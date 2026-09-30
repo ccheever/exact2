@@ -449,9 +449,10 @@ uint32_t exact_log(ExactRuntime rt, size_t len);
  * {"ticket":N} (held for the agent) / {"present":true,…}. */
 uint32_t exact_command(ExactRuntime rt, size_t len);
 
-/* Whether the live plan can show an SVG island, a `mask` or a `filter`
- * (LLP 1055.000 §8 ruling 4): 1 when the host should open its island module
- * off the main thread now, 0 otherwise or before a boot. */
+/* What SVG pixel work the live plan can need, as bits (0 before a boot):
+ * 1 an island, a `mask` or a `filter` (LLP 1055.000 §8 ruling 4), when the
+ * host should open its island module off the main thread now; 2 a filter,
+ * when it should make its GPU filter pipelines now. */
 uint8_t exact_svg_islands(ExactRuntime rt);
 
 /* An auth session's word (LLP 1069.006), JSON in the input buffer:

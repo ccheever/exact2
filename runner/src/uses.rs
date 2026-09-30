@@ -309,10 +309,24 @@ pub fn uses(plan: &Plan) -> Uses {
 /// main thread at boot when this holds, and never for a plan without one.
 pub fn svg_islands(plan: &Plan) -> bool {
     use exact_kernel::NodeType;
+    svg_filters(plan)
+        || plan
+            .nodes
+            .iter()
+            .any(|node| NodeType::from_wire(node.node_type) == Some(NodeType::SvgMask))
+}
+
+/// Whether `plan` can show an SVG filter: a `filter` element, or `filter`
+/// bound on an SVG element. A host that draws a filtered picture on the GPU
+/// (Apple's `SvgFilterMetal`) makes its pipelines off the main thread at
+/// boot when this holds: they compile on first use, and the first picture
+/// is drawn in the commit that shows it.
+pub fn svg_filters(plan: &Plan) -> bool {
+    use exact_kernel::NodeType;
     plan.nodes
         .iter()
         .any(|node| match NodeType::from_wire(node.node_type) {
-            Some(NodeType::SvgMask | NodeType::SvgFilter) => true,
+            Some(NodeType::SvgFilter) => true,
             Some(t) if t == NodeType::Svg || t.is_svg_element() => node.bindings.iter().any(|b| {
                 let b = plan.binding(b);
                 b.kind == BindingKind::Style

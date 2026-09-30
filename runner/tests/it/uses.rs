@@ -247,7 +247,15 @@ fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
         "a box's filter is not an island"
     );
     assert!(islands("component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      rect width=10 height=10 filter=\"blur(1px)\"\n"));
-    assert!(islands(
-        "component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      defs\n        mask id=\"m\"\n          rect width=5 height=5 fill=\"#fff\"\n      rect width=10 height=10 mask=\"url(#m)\"\n"
+    let mask = "component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      defs\n        mask id=\"m\"\n          rect width=5 height=5 fill=\"#fff\"\n      rect width=10 height=10 mask=\"url(#m)\"\n";
+    assert!(islands(mask));
+    // A mask alone is an island and no filter (no GPU filter pipelines).
+    let filters = |s: &str| {
+        exact_runner::svg_filters(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")))
+    };
+    assert!(!filters(mask));
+    assert!(filters("component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      g filter=\"blur(1px)\"\n        rect width=10 height=10\n"));
+    assert!(!filters(
+        "component A\n  view\n    box filter=\"blur(2px)\"\n"
     ));
 }

@@ -23,6 +23,36 @@ final class SvgFilterMetal {
 
     static let shared: SvgFilterMetal? = SvgFilterMetal()
 
+    /// Make the device, the library and the pipelines on a background
+    /// queue, once, before the first picture needs them (`shared` waits for
+    /// a make still running), and run every step once on a tiny picture, so
+    /// Metal Performance Shaders has made its blur's too. The first picture
+    /// is drawn in the commit that shows it: on an iPhone 13 Pro Max, F3's
+    /// waited 1–2 ms for the library from the compiler's cache, and 113–264
+    /// ms on the first launch after an install, more than the ~25 ms between
+    /// boot and the commit can hide (LLP 1055.000, first ink).
+    static func prewarm() {
+        guard !prewarming else { return }
+        prewarming = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let fm = shared, let queue = SvgFilterGPU.metal?.queue else { return }
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 8, height: 8, mipmapped: false)
+            d.usage = [.shaderRead, .shaderWrite]
+            d.storageMode = .private
+            let identity: [Float] = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]
+            guard let source = fm.device.makeTexture(descriptor: d),
+                  let surface = IOSurface(properties: [.width: 8, .height: 8, .bytesPerElement: 4, .pixelFormat: 0x4247_5241 /* 'BGRA' */]),
+                  let cb = queue.makeCommandBuffer(),
+                  fm.encode([.blur(1), .offset(1, 1), .matrix(identity), .shadow(sigma: 1, dx: 1, dy: 1, color: SIMD4(0, 0, 0, 1))],
+                            source: source, into: surface, on: cb) else { return }
+            cb.commit()
+            cb.waitUntilCompleted()
+        }
+    }
+
+    /// Main thread only: whether `prewarm` ran.
+    private static var prewarming = false
+
     let device: MTLDevice
     private let matrixPipe: MTLComputePipelineState
     private let offsetPipe: MTLComputePipelineState

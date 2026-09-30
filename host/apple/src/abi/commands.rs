@@ -15,11 +15,14 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// Whether the live plan can show an SVG island (`exact_svg_islands`).
-    pub fn svg_islands(&self) -> bool {
-        self.host
-            .as_ref()
-            .is_some_and(|h| exact_runner::svg_islands(h.runner().plan()))
+    /// What SVG pixel work the live plan can need (`exact_svg_islands`):
+    /// 1 an island, 2 a filter.
+    pub fn svg_islands(&self) -> u8 {
+        self.host.as_ref().map_or(0, |h| {
+            let plan = h.runner().plan();
+            u8::from(exact_runner::svg_islands(plan))
+                | u8::from(exact_runner::svg_filters(plan)) << 1
+        })
     }
 
     /// A command the session is about to run (`exact_command`).
