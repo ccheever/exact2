@@ -77,7 +77,7 @@ fn defaults_are_the_css_defaults() {
     assert_eq!(s.justify_content, None);
     assert_eq!(s.align_content, None);
     assert_eq!(s.justify_items, None);
-    assert_eq!(s.position, taffy::style::Position::Relative);
+    assert_eq!(s.position, taffy::style::Position::Static);
     assert_eq!(s.overflow.y, taffy::style::Overflow::Visible);
 }
 

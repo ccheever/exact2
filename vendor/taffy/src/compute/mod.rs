@@ -64,93 +64,117 @@ use crate::{CacheTree, MaybeMath, MaybeResolve};
 
 /// Compute layout for the root node in the tree
 pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, available_space: Size<AvailableSpace>) {
-    let mut known_dimensions = Size::NONE;
+    // EXACT PATCH 19 (LLP 1074): a root is a block-level box in the space it is offered, whatever
+    // it lays its children out as (CSS 2.1 §10.3.3).
+    // - Its size styles go through the ratio (`compute::ratio`).
+    // - An automatic width fills the offer less its margins, where auto margins are zero.
+    // - Its margins place it: auto margins take the space a given width leaves (equal shares;
+    //   a negative share goes to the end margin alone), and an over-constrained box ignores its
+    //   end margin.
+    // An absolutely positioned root is out of flow: it keeps its content size and the origin.
+    use crate::compute::ratio::sizes_through_ratio;
+    use crate::{BoxSizing, Position};
 
-    #[cfg(feature = "block_layout")]
-    {
-        use crate::BoxSizing;
+    let parent_size = available_space.into_options();
+    let style = tree.get_core_container_style(root);
+    let in_flow = style.position() != Position::Absolute;
+    let is_rtl = style.direction().is_rtl();
+    let margin = style.margin().map(|margin| margin.resolve_to_option(parent_size.width.unwrap_or(0.0), |val, basis| tree.calc(val, basis)));
+    let non_auto_margin = margin.map(|m| m.unwrap_or(0.0));
+    let padding = style.padding().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
+    let border = style.border().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
+    let padding_border_size = (padding + border).sum_axes();
+    let box_sizing_adjustment =
+        if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
+    let scrollbar_size = Size {
+        width: if style.overflow().y == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
+        height: if style.overflow().x == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
+    };
 
-        let parent_size = available_space.into_options();
-        let style = tree.get_core_container_style(root);
+    let (style_size, min_size, max_size) = sizes_through_ratio(
+        &style,
+        padding_border_size,
+        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+    );
+    // An automatic width fills, within the limits the ratio transferred; the ratio then gives the
+    // height from it.
+    let fills = in_flow && style_size.width.is_none() && !style.size().width.is_sizing_keyword();
+    let fill_width = if fills && style_size.height.is_none() {
+        parent_size.width.maybe_sub(non_auto_margin.horizontal_axis_sum()).maybe_clamp(min_size.width, max_size.width)
+    } else {
+        None
+    };
+    let (style_size, min_size, max_size) = sizes_through_ratio(
+        &style,
+        padding_border_size,
+        Size { width: style_size.width.or(fill_width), height: style_size.height },
+        min_size,
+        max_size,
+    );
+    let fill_width = if fills {
+        parent_size.width.maybe_sub(non_auto_margin.horizontal_axis_sum()).maybe_clamp(min_size.width, max_size.width)
+    } else {
+        None
+    };
+    drop(style);
 
-        if style.is_block() {
-            // Pull these out earlier to avoid borrowing issues
-            let aspect_ratio = style.aspect_ratio();
-            let margin = style.margin().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
-            let padding = style.padding().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
-            let border = style.border().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
-            let padding_border_size = (padding + border).sum_axes();
-            let box_sizing_adjustment =
-                if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
-
-            let min_size = style
-                .min_size()
-                .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-                .maybe_apply_aspect_ratio(aspect_ratio)
-                .maybe_add(box_sizing_adjustment);
-            let max_size = style
-                .max_size()
-                .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-                .maybe_apply_aspect_ratio(aspect_ratio)
-                .maybe_add(box_sizing_adjustment);
-            let clamped_style_size = style
-                .size()
-                .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-                .maybe_apply_aspect_ratio(aspect_ratio)
-                .maybe_add(box_sizing_adjustment)
-                .maybe_clamp(min_size, max_size);
-
-            // If both min and max in a given axis are set and max <= min then this determines the size in that axis
-            let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
-                (Some(min), Some(max)) if max <= min => Some(min),
-                _ => None,
-            });
-
-            // Block nodes automatically stretch fit their width to fit available space if available space is definite
-            let available_space_based_size = Size {
-                width: available_space.width.into_option().maybe_sub(margin.horizontal_axis_sum()),
-                height: None,
-            };
-
-            let styled_based_known_dimensions = known_dimensions
-                .or(min_max_definite_size)
-                .or(clamped_style_size)
-                .or(available_space_based_size)
-                .maybe_max(padding_border_size);
-
-            known_dimensions = styled_based_known_dimensions;
-        }
-    }
+    // If both min and max in a given axis are set and max <= min then this determines the size in that axis
+    let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
+        (Some(min), Some(max)) if max <= min => Some(min),
+        _ => None,
+    });
+    let known_dimensions = if in_flow {
+        min_max_definite_size
+            .or(style_size.maybe_clamp(min_size, max_size))
+            .or(Size { width: fill_width, height: None })
+            .maybe_max(padding_border_size)
+    } else {
+        Size::NONE
+    };
 
     // Recursively compute node layout
     let output = tree.perform_child_layout(
         root,
         known_dimensions,
-        available_space.into_options(),
+        parent_size,
         available_space,
         SizingMode::InherentSize,
         Line::FALSE,
     );
-    let style = tree.get_core_container_style(root);
-    let padding =
-        style.padding().resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis));
-    let border =
-        style.border().resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis));
-    let margin =
-        style.margin().resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis));
-    let scrollbar_size = Size {
-        width: if style.overflow().y == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
-        height: if style.overflow().x == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
+
+    let margin = match parent_size.width {
+        Some(available_width) if in_flow => {
+            let free_space = available_width - output.size.width - non_auto_margin.horizontal_axis_sum();
+            let (left, right) = match (margin.left, margin.right) {
+                (None, None) if free_space < 0.0 => {
+                    if is_rtl {
+                        (free_space, 0.0)
+                    } else {
+                        (0.0, free_space)
+                    }
+                }
+                (None, None) => (free_space / 2.0, free_space / 2.0),
+                (None, Some(right)) => (free_space, right),
+                (Some(left), None) => (left, free_space),
+                (Some(left), Some(right)) => (left, right),
+            };
+            crate::geometry::Rect { left, right, ..non_auto_margin }
+        }
+        _ => non_auto_margin,
     };
-    let location = Point {
-        x: if style.direction().is_rtl() {
-            available_space.width.into_option().map_or(0.0, |available_width| available_width - output.size.width)
-        } else {
-            0.0
-        },
-        y: 0.0,
+    let location = if in_flow {
+        Point {
+            x: match parent_size.width {
+                Some(available_width) if is_rtl => available_width - output.size.width - margin.right,
+                _ => margin.left,
+            },
+            y: margin.top,
+        }
+    } else {
+        Point::ZERO
     };
-    drop(style);
 
     tree.set_unrounded_layout(
         root,
@@ -163,7 +187,6 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
             scrollbar_size,
             padding,
             border,
-            // TODO: support auto margins for root node?
             margin,
         },
     );

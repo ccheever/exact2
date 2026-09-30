@@ -733,6 +733,16 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     {
         return Err(bad());
     }
+    // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
+    // where it contains an absolutely positioned member; the ordinary tree
+    // agrees only if the owner is that member's containing block there too.
+    let absolute =
+        |key: NodeKey| arena.style(key.index).position_type == crate::PositionType::Absolute;
+    if s.position_type == crate::PositionType::Static
+        && (absolute(b.content) || absolute(b.pending))
+    {
+        return Err(bad());
+    }
     // Deliberately narrow certificate: percentages only under a direct root.
     // No inference through auto/intrinsic ancestors or generalized containment.
     // Width:auto is allowed only for the ordinary nonabsolute root repair;
@@ -789,7 +799,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         && definite(root.height)
         && s.height == Dimension::Auto
         && definite(s.width)
-        && s.position_type == crate::PositionType::Relative
+        && s.position_type != crate::PositionType::Absolute
         && s.flex_grow == 1.
         && s.flex_shrink == 1.
         && zero(s.flex_basis)

@@ -52,7 +52,7 @@ component NewMessageSheet
         border-radius=40
         background-color="light-dark(#ffffff, #1c1c1e)"
         overflow="hidden"
-        row testId="compose-header"
+        row position="relative" testId="compose-header"
           retainFocus=true
           height=80
           flex-shrink=0
@@ -133,7 +133,7 @@ component NewMessageSheet
             display="flex" flex-direction="row"
             align-items="center"
             justify-content="center"
-            box width=14 height=14
+            box position="relative" width=14 height=14
               box position="absolute"
                 left=6
                 top=0

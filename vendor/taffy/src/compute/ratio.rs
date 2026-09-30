@@ -41,6 +41,14 @@ impl Ratio {
         Some(Self { ratio, inset })
     }
 
+    /// A ratio from a style's parts, for an algorithm that keeps the parts and
+    /// not the style: `content_box` is whether the ratio relates content-box
+    /// sizes (see `of`).
+    pub(crate) fn from_parts(ratio: Option<f32>, content_box: bool, pb_sum: Size<f32>) -> Option<Self> {
+        let ratio = ratio.filter(|r| r.is_finite() && *r > 0.0)?;
+        Some(Self { ratio, inset: if content_box { pb_sum } else { Size::ZERO } })
+    }
+
     /// The border-box height for a border-box width.
     pub(crate) fn height(self, width: f32) -> f32 {
         f32_max(width - self.inset.width, 0.0) / self.ratio + self.inset.height
@@ -49,15 +57,6 @@ impl Ratio {
     /// The border-box width for a border-box height.
     pub(crate) fn width(self, height: f32) -> f32 {
         f32_max(height - self.inset.height, 0.0) * self.ratio + self.inset.width
-    }
-
-    /// One dimension given, the other through the ratio.
-    pub(crate) fn through(self, size: Size<Option<f32>>) -> Size<Option<f32>> {
-        match (size.width, size.height) {
-            (Some(w), None) => Size { width: Some(w), height: Some(self.height(w)) },
-            (None, Some(h)) => Size { width: Some(self.width(h)), height: Some(h) },
-            _ => size,
-        }
     }
 
     /// The border-box size, min and max of a box with these given sizes and
@@ -143,5 +142,19 @@ pub(crate) fn transfer_into_unsized(
     Size {
         width: if sized.width { limits.width } else { transferred.width },
         height: if sized.height { limits.height } else { transferred.height },
+    }
+}
+
+/// [`Ratio::resolve`] for a ratio that may be absent.
+pub(crate) fn resolve_through(
+    ratio: Option<Ratio>,
+    size: Size<Option<f32>>,
+    min: Size<Option<f32>>,
+    max: Size<Option<f32>>,
+    floor_height: bool,
+) -> (Size<Option<f32>>, Size<Option<f32>>, Size<Option<f32>>) {
+    match ratio {
+        Some(ratio) => ratio.resolve(size, min, max, floor_height),
+        None => (size, min, max),
     }
 }

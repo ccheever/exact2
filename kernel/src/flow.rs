@@ -53,7 +53,7 @@ impl FlowRefusal {
     /// What the author can change, for the journal line.
     pub fn message(self) -> &'static str {
         match self {
-            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, or sets align-content; make that parent display: block, or give the text a height",
+            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height",
             FlowRefusal::Placement => "an exclusion's top or height depends on its context's height; give every exclusion there a top and a height in points (not %, not bottom), or give the text a height",
             FlowRefusal::Chain => "the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height",
             FlowRefusal::Region => "text inside a content region flows only with a definite height",
@@ -102,7 +102,9 @@ fn orders(arena: &NodeArena, slot: u32) -> bool {
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
     let offset = |d: Dimension| d == Dimension::Auto || own_length(d);
-    s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom)
+    // A static box's insets do nothing; a relative one's must not depend on the context's height.
+    s.position_type == PositionType::Static
+        || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))
 }
 
 /// Each visible context under the root and whether it refuses auto height.
@@ -114,9 +116,13 @@ pub(crate) fn contexts(arena: &NodeArena, exclusions: &[u32]) -> Contexts {
         let Some(context) = arena.parent(exclusion) else {
             continue;
         };
-        let refusal = out
-            .entry(context)
-            .or_insert_with(|| (!orders(arena, context)).then_some(FlowRefusal::Context));
+        // @ref LLP 1074 T1 — the exclusion is placed against its containing
+        // block. Auto-height flow is proven only where that is the context.
+        let contains =
+            arena.is_root(context) || arena.style(context).position_type != PositionType::Static;
+        let refusal = out.entry(context).or_insert_with(|| {
+            (!orders(arena, context) || !contains).then_some(FlowRefusal::Context)
+        });
         if refusal.is_none() && !placed(arena, exclusion) {
             *refusal = Some(FlowRefusal::Placement);
         }

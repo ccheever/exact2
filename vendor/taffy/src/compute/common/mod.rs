@@ -1,4 +1,5 @@
 //! Generic code that is shared between multiple layout algorithms
+pub(crate) mod absolute;
 pub(crate) mod alignment;
 pub(crate) mod sizing_keyword;
 

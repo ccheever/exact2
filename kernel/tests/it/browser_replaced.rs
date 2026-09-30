@@ -6,9 +6,9 @@
 //! Chrome 154, 2026-09-27, by the method of `browser_cases.rs`: each case is
 //! a 400px-wide `display: flow-root` box (the kernel root, id 1) with these
 //! rows, holding elements `display: block` with these rows (ids 2, 3).
-use crate::browser_cases::{lay_out_as, mismatches, props, Rows};
-use crate::support::reader::{number as n, text as t};
-use exact_kernel::StyleId::{self, *};
+use crate::browser_cases::{css_rows as rows, lay_out_as, mismatches, props};
+use crate::support::reader::number as n;
+use exact_kernel::StyleId::*;
 use exact_kernel::{GridTrack, GridTracks, NodeType, Op, PropId};
 
 type Frames = &'static [[f32; 4]];
@@ -401,41 +401,6 @@ const CASES: &[(&str, &str, &str, u32, [Frames; 4])] = &[
         ],
     ),
 ];
-
-/// CSS declarations as kernel rows: px and bare numbers are numbers, the
-/// rest (percentages, ratios, keywords) text.
-fn rows(css: &str) -> Rows {
-    let mut out = Vec::new();
-    for decl in css.split(';').filter(|d| !d.is_empty()) {
-        let (name, value) = decl.split_once(':').unwrap();
-        let v = match value.strip_suffix("px").unwrap_or(value).parse::<f64>() {
-            Ok(x) => n(x),
-            Err(_) => t(value),
-        };
-        let ids: &[StyleId] = match name {
-            "width" => &[Width],
-            "height" => &[Height],
-            "min-width" => &[MinWidth],
-            "max-width" => &[MaxWidth],
-            "min-height" => &[MinHeight],
-            "max-height" => &[MaxHeight],
-            "aspect-ratio" => &[AspectRatio],
-            "display" => &[Display],
-            "flex-direction" => &[FlexDirection],
-            "align-items" => &[AlignItems],
-            "flex-grow" => &[FlexGrow],
-            "padding" => &[PaddingTop, PaddingRight, PaddingBottom, PaddingLeft],
-            "position" => &[PositionType],
-            "left" => &[Left],
-            "right" => &[Right],
-            "top" => &[Top],
-            "bottom" => &[Bottom],
-            _ => panic!("no row for {name}"),
-        };
-        out.extend(ids.iter().map(|id| (*id, v.clone())));
-    }
-    out
-}
 
 #[test]
 fn replaced_elements_size_from_their_natural_or_default_size() {

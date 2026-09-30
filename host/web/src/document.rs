@@ -415,14 +415,8 @@ impl<S: Source> Walk<'_, '_, S> {
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
         let paint = layers::paint_of(&node);
-        let holds = children.iter().any(|c| {
-            src.facts(*c).is_some_and(|c| {
-                c.style.position_type == exact_kernel::PositionType::Absolute
-                    && !layers::paint_of(&c).outside
-            })
-        });
-        let relative = layers::relative(paint, holds, after);
-        let mut style = layers::with_relative(host_css_of(&node, text, tag), relative);
+        let isolated = layers::isolated(paint, after);
+        let mut style = layers::with_isolation(host_css_of(&node, text, tag), isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
@@ -535,7 +529,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input") {
             // Void: no content, no end tag.
-            return Ok(layers::layered(paint, relative, false));
+            return Ok(layers::layered(paint, isolated, false));
         }
         if tag == "canvas" {
             if self.style.is_some() {
@@ -579,7 +573,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.out.push_str(element);
         self.out.push('>');
         self.stream();
-        Ok(layers::layered(paint, relative, under))
+        Ok(layers::layered(paint, isolated, under))
     }
 
     /// Hand the sink what has been written since, once it is a chunk.

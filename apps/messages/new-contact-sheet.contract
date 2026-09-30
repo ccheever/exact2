@@ -50,7 +50,7 @@ component NewContactSheet
         right=0
         bottom=0
         overflow="hidden"
-        row height=70 flex-shrink=0 align-items="center" justify-content="center" retainFocus=true
+        row position="relative" height=70 flex-shrink=0 align-items="center" justify-content="center" retainFocus=true
           text "New Contact" font-size=17 font-weight=600 margin-top=6
           button popovertarget="discard-contact-confirmation"
             retainFocus=true

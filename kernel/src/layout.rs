@@ -12,6 +12,7 @@
 
 #[cfg(test)]
 mod containment_tests;
+mod hoist;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
@@ -123,6 +124,19 @@ pub struct LayoutTree {
     pub(crate) unsettled: IdSet<u32>,
     // Equal engine styles are one allocation (`shared_style`).
     shared: Interner<taffy::Style, ()>,
+    // @ref LLP 1074 T1 — the absolutely positioned boxes, and whether the
+    // engine's record of which containing block holds each one that is not its
+    // parent's is stale: a position or a child list changed since it was made.
+    absolutes: IdSet<NodeId>,
+    hoists_stale: bool,
+    // The static boxes between such a box and its containing block. None is
+    // a replay boundary: laying its subtree out alone would not place a box
+    // that something above it contains. `hoist_paths_prior` holds the record
+    // the last layout ran under, until this one has chosen its boundaries: a
+    // box that was on a path is no boundary for the change that took it off
+    // (its old containing block still counts the box that left).
+    hoist_paths: IdSet<NodeId>,
+    hoist_paths_prior: IdSet<NodeId>,
 }
 
 // A non-visible overflow on both axes establishes a formatting context and
@@ -130,7 +144,7 @@ pub struct LayoutTree {
 // Whether its size depends on its content is the engine's record to prove.
 fn boundary_style(s: &taffy::Style) -> bool {
     s.display != taffy::Display::None
-        && s.position == taffy::Position::Relative
+        && s.position != taffy::Position::Absolute
         && matches!(
             s.overflow.x,
             taffy::Overflow::Hidden | taffy::Overflow::Scroll
@@ -324,6 +338,10 @@ impl LayoutTree {
             flowing: IdSet::default(),
             unsettled: IdSet::default(),
             shared: Interner::default(),
+            absolutes: IdSet::default(),
+            hoists_stale: false,
+            hoist_paths: IdSet::default(),
+            hoist_paths_prior: IdSet::default(),
         }
     }
 
@@ -371,6 +389,7 @@ impl LayoutTree {
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
     pub fn new_leaf(&mut self, style: taffy::style::Style, slot: u32, measured: bool) -> NodeId {
         let boundary = boundary_style(&style);
+        let absolute = style.position == taffy::Position::Absolute;
         let style = self.share(style);
         let result = if measured {
             self.taffy.new_leaf_with_context(
@@ -387,6 +406,10 @@ impl LayoutTree {
             Ok(node) => {
                 self.slots.insert(node, slot);
                 self.taffy.track_layout_input(node, boundary);
+                if absolute {
+                    self.absolutes.insert(node);
+                    self.hoists_stale = true;
+                }
                 node
             }
             Err(e) => {
@@ -407,6 +430,7 @@ impl LayoutTree {
         self.offers.remove(&node);
         self.presented_heights
             .retain(|(_, active, _)| *active != node);
+        self.hoists_stale |= self.absolutes.remove(&node) || !self.absolutes.is_empty();
         let r = self.taffy.remove(node);
         self.note("remove", r);
     }
@@ -433,6 +457,19 @@ impl LayoutTree {
     fn write_style(&mut self, node: NodeId, style: taffy::style::Style) {
         if self.taffy.style(node).is_ok_and(|old| *old == style) {
             return;
+        }
+        // A changed position changes which box contains which absolute one.
+        if self
+            .taffy
+            .style(node)
+            .map_or(true, |old| old.position != style.position)
+        {
+            if style.position == taffy::Position::Absolute {
+                self.absolutes.insert(node);
+            } else {
+                self.absolutes.remove(&node);
+            }
+            self.hoists_stale = true;
         }
         self.clear_measurements(node);
         self.taffy.track_layout_input(node, boundary_style(&style));
@@ -513,6 +550,7 @@ impl LayoutTree {
     /// Replace a node's ordered children. A child taken from another parent
     /// invalidates both at once; otherwise this is the parent's content.
     pub fn set_children(&mut self, parent: NodeId, children: &[NodeId]) {
+        self.hoists_stale |= !self.absolutes.is_empty();
         self.clear_measurements(parent);
         if self.taffy.set_children_unmarked(parent, children) {
             self.deferred.entry(parent).or_insert(false);
@@ -582,6 +620,8 @@ impl LayoutTree {
         for n in path.into_iter().rev() {
             if above.is_some()
                 && boundary_style(self.taffy.style(n).expect("walked"))
+                && !self.hoist_paths.contains(&n)
+                && !self.hoist_paths_prior.contains(&n)
                 && !restyled(n)
                 && !self.taffy.dirty(n).unwrap_or(true)
                 && self.taffy.last_layout_input(n).is_some()
@@ -800,7 +840,9 @@ impl LayoutTree {
                 stack.extend(arena.children(slot));
             }
         }
+        self.refresh_hoists();
         let boundaries = self.prepare_boundaries(root, offer, arena);
+        self.hoist_paths_prior.clear();
         let available = Size {
             width: to_available(offer.width),
             height: to_available(offer.height),

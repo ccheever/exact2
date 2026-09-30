@@ -505,7 +505,7 @@ component Messages
         when e.name == "inbox"
           column navigationKey=`${e.id}` testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
             when inboxMode == "messages"
-              column flex=1 min-height=0
+              column position="relative" flex=1 min-height=0
                 row testId="inbox-title-bar" position="absolute" top=0 left=0 right=0 z-index=1 padding-left=20 padding-right=20 height=44 align-items="center" justify-content="space-between" backgroundMaterial="ultra-thin" opacity=inboxTitleOpacity
                   text "Messages" testId="inbox-title-compact" font-size=17 font-weight=600 flex=1 text-align="center"
                 scroll scroll=inboxListScrolled scrollTop=(0 - inboxShift) testId="conversation-list" flex=1 min-height=0
@@ -520,7 +520,7 @@ component Messages
                         row width="100%" height=86.6667
                           row testId=`thread-read-action-${person.id}` width=70 height=86.6667 flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=10 padding-right=10 align-items="center"
                             button press=readThread(person.id, not person.unread) id=`read-thread-${person.id}` testId=`read-thread-${person.id}` aria-label=(person.unread ? "Mark as Read" : "Mark as Unread") width=50 height=50 border-radius=25 background-color="#0088ff" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                              box width=24 height=22
+                              box position="relative" width=24 height=22
                                 box width=24 height=22 background-color="#ffffff" clip-path="path('M 12 2 C 5.5 2 0 5.8 0 11 C 0 13.4 1.3 15.6 3.3 17.2 L 1.8 21 L 7.3 19.4 C 8.7 19.8 10.3 20 12 20 C 18.6 20 24 16 24 11 C 24 5.8 18.6 2 12 2 Z')"
                                 when not person.unread
                                   box position="absolute" right=-1 top=0 width=9 height=9 border-radius=5 background-color="#0088ff" display="flex" align-items="center" justify-content="center"
@@ -536,7 +536,7 @@ component Messages
                               row justify-content="space-between" gap=8 align-items="center" height=20.3333 flex-shrink=0
                                 text person.name testId=`conversation-name-${person.id}` line-height="20.3333px" font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
                                 when person.muted
-                                  box testId=`muted-${person.id}` width=12 height=14 flex-shrink=0
+                                  box position="relative" testId=`muted-${person.id}` width=12 height=14 flex-shrink=0
                                     box width=24 height=28 scale=0.5 position="absolute" left=-6 top=-7 clip-path=bellPath background-color="#8e8e93"
                                     box position="absolute" left=5 top=-1 width=1.5 height=16 rotate=-45 background-color="#8e8e93"
                                 text person.time font-size=14 color="#8e8e93"
@@ -621,7 +621,7 @@ component Messages
                 text "Cancel" font-size=17
         when e.name == "thread"
           column navigationKey=`${e.id}` testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            row testId="conversation-header" height=95.333333 flex-shrink=0 align-items="flex-start" justify-content="center" padding-left=16 padding-right=16
+            row position="relative" testId="conversation-header" height=95.333333 flex-shrink=0 align-items="flex-start" justify-content="center" padding-left=16 padding-right=16
               button press=back disabled=composing id="back" testId="back" aria-label="Back to Messages" position="absolute" left=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display=(replying == "" and not selecting ? "flex" : "none") flex-direction="row" align-items="center" justify-content="center"
                 image "symbol:back" font-size=20 font-weight=600 class=PrimaryIcon
               when replying != "" and not selecting
@@ -639,24 +639,24 @@ component Messages
                 row max-width="100%" box-sizing="border-box" padding-left=14 padding-right=12 height=32 margin-top=-5 border-radius=16 backgroundMaterial="glass" align-items="center" gap=6
                   text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 class=PrimaryText
                   text "›" font-size=22 font-weight=600 color="light-dark(#b4b4b7, #8e8e93)"
-            column testId="conversation-body" flex=1 min-height=0
+            column position="relative" testId="conversation-body" flex=1 min-height=0
               scroll testId="transcript" scrollFollowEnd=(cursor == "") keyboardDismissMode="interactive" scrollTop=(cursor == "" ? 1000000 + chat.scrollRevision : 0 - windowShift) flex=1 min-height=0 overflow-x="hidden"
                 scroll scroll=timestampsScrolled testId="timestamp-reveal" width="100%" overflow-x=(selecting ? "hidden" : "scroll") overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                   row width="200%"
                     column scroll-snap-align="start" width="50%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=14 padding-bottom=14 gap=4
                       when chat.hasEarlier
-                        button press=shiftWindow(chat.earlier) testId="show-earlier-messages" left=timestampOffset padding=12
+                        button position="relative" press=shiftWindow(chat.earlier) testId="show-earlier-messages" left=timestampOffset padding=12
                           text "Show earlier messages" font-size=14 class=AccentText
                       when length(chat.messages) > 0 and not chat.hasEarlier
-                        column testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
+                        column position="relative" testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
                           text "iMessage" font-size=11 line-height="13.333333px" color="#8e8e93"
                           row testId="conversation-encryption" align-items="center" gap=4.333333 height=13.333333
                             box width=6 height=8.333333 background-color="#8e8e93" clip-path="path('M 1 3.333 L 1 2.167 C 1 0.972 1.895 0 3 0 C 4.105 0 5 0.972 5 2.167 L 5 3.333 L 5.333 3.333 Q 6 3.333 6 4 L 6 7.667 Q 6 8.333 5.333 8.333 L 0.667 8.333 Q 0 8.333 0 7.667 L 0 4 Q 0 3.333 0.667 3.333 Z M 2 3.333 L 4 3.333 L 4 2.167 C 4 1.522 3.552 1 3 1 C 2.448 1 2 1.522 2 2.167 Z')"
                             text "Encrypted" font-size=11 line-height="13.333333px" color="#8e8e93"
                       each message in chat.messages key=message.id
                         when message.timeLabel != ""
-                          text message.timeLabel testId=`time-label-${message.id}` left=timestampOffset font-size=11 line-height="13.333333px" color="#8e8e93" text-align="center" margin-bottom=2.666667
-                        column testId=`message-row-${message.id}` left=(timestampCompensation + (selecting and not message.outgoing ? 40.666667 : 0)) align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box" margin-top=(message.reactionCount > 0 ? 13 : 0) margin-bottom=(message.tail ? 6 : 0)
+                          text position="relative" message.timeLabel testId=`time-label-${message.id}` left=timestampOffset font-size=11 line-height="13.333333px" color="#8e8e93" text-align="center" margin-bottom=2.666667
+                        column position="relative" testId=`message-row-${message.id}` left=(timestampCompensation + (selecting and not message.outgoing ? 40.666667 : 0)) align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box" margin-top=(message.reactionCount > 0 ? 13 : 0) margin-bottom=(message.tail ? 6 : 0)
                           when message.showSender
                             text message.senderName testId=`sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
                           when message.senderName != "" and message.tail
@@ -667,7 +667,7 @@ component Messages
                                 box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
                           when message.reply != ""
                             text message.reply font-size=13 color="#8e8e93" max-width="75%" border-left-style="solid" border-left-width=2 border-color="light-dark(#c7c7cc, #48484a)" padding-left=8 margin-bottom=5 line-clamp=2
-                          row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
+                          row position="relative" width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
                             MessageBubble(
                               message=message,
                               bubbleId=`bubble-${message.id}`,
@@ -699,13 +699,13 @@ component Messages
                           when selecting
                             button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" justify-content="center" z-index=3
                       when chat.hasLater
-                        button press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
+                        button position="relative" press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
                           text "Show later messages" font-size=14 class=AccentText
                       when cursor != "" and (chat.hasEarlier or chat.hasLater)
-                        button press=shiftWindow("") testId="show-latest-messages" left=timestampOffset padding=12
+                        button position="relative" press=shiftWindow("") testId="show-latest-messages" left=timestampOffset padding=12
                           text "Show latest messages" font-size=14 class=AccentText
                       when chat.typingName != ""
-                        row testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
+                        row position="relative" testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
                           TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="typing")
                     box width="50%"
               when replying != "" and not selecting
@@ -717,7 +717,7 @@ component Messages
                         column
                           when message.timeLabel != ""
                             text message.timeLabel testId=`reply-time-label-${message.id}` font-size=11 color="#8e8e93" align-self="center" margin-bottom=8
-                          column align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box"
+                          column position="relative" align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box"
                             when message.showSender
                               text message.senderName testId=`reply-sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
                             when message.senderName != "" and message.tail
@@ -793,11 +793,11 @@ component Messages
                           scroll width="100%" height="100%" display="flex" flex-direction="row" justify-content="center" align-items="center" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none"
                             each group in message.reactionGroups key=group.value
                               column width=98 height=104 flex-shrink=0 align-items="center"
-                                column width=50 height=50 border-radius=25 background-color="light-dark(#ffffff, #3a3a3c)" align-items="center" justify-content="center"
+                                column position="relative" width=50 height=50 border-radius=25 background-color="light-dark(#ffffff, #3a3a3c)" align-items="center" justify-content="center"
                                   ReactionArtwork(value=group.value, extent=44, emojiSize=27)
                                   box position="absolute" left=19 top=45 width=12 height=12 border-radius=6 background-color="light-dark(#ffffff, #3a3a3c)"
                                   box position="absolute" left=22.5 top=60 width=5 height=5 border-radius=2.5 background-color="light-dark(#ffffff, #3a3a3c)"
-                                row width=group.width height=32 margin-top=20
+                                row position="relative" width=group.width height=32 margin-top=20
                                   each person in group.people key=person.id
                                     column testId=`reaction-person-${person.id}` aria-label=person.name position="absolute" left=person.offset top=0 width=32 height=32 box-sizing="border-box" border-radius=16 border-style="solid" border-width=1 border-color="light-dark(#ffffff, #000000)" background-color=person.color align-items="center" justify-content="center"
                                       text person.initials font-size=14 color="#ffffff" font-weight=600
@@ -816,19 +816,19 @@ component Messages
                         column width="100%" box-sizing="border-box" padding-left=(selectedGroup ? 49 : 5) align-items=(selectedOutgoing ? "flex-end" : "flex-start")
                           row width="100%" justify-content=(selectedOutgoing ? "flex-end" : "flex-start")
                             when selectedOutgoing
-                              box width=50 height=0 flex-shrink=0 z-index=2
+                              box position="relative" width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=22 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
                                     input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box width=14 height=14
+                                    box position="relative" width=14 height=14
                                       box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
                                       box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
                                 else
                                   button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=0 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
                                     box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
-                            column contextTarget=(replying == "" ? `bubble-${selected}` : `reply-bubble-${selected}`) contextMagnify=selectedActions testId="tapback-preview" max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(selectedOutgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#ffffff, #38383a)")
+                            column position="relative" contextTarget=(replying == "" ? `bubble-${selected}` : `reply-bubble-${selected}`) contextMagnify=selectedActions testId="tapback-preview" max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(selectedOutgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#ffffff, #38383a)")
                               when selectedTail
                                 when selectedOutgoing
                                   box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
@@ -836,13 +836,13 @@ component Messages
                                   box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#ffffff, #38383a)"
                               text selectedBody white-space="pre-wrap" font-size=17 line-height="20px" color=(selectedOutgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left"
                             when not selectedOutgoing
-                              box width=50 height=0 flex-shrink=0 z-index=2
+                              box position="relative" width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=-46 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
                                     input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box width=14 height=14
+                                    box position="relative" width=14 height=14
                                       box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
                                       box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
                                 else

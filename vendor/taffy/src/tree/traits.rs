@@ -126,10 +126,10 @@
 //! }
 //! ```
 //!
-use super::{Layout, LayoutInput, LayoutOutput, NodeId, RequestedAxis, RunMode, SizingMode};
+use super::{Layout, LayoutInput, LayoutOutput, NodeId, RequestedAxis, RunMode, SizingMode, StaticPosition};
 #[cfg(feature = "detailed_layout_info")]
 use crate::debug::debug_log;
-use crate::geometry::{AbsoluteAxis, Line, Size};
+use crate::geometry::{AbsoluteAxis, Line, Point, Size};
 use crate::style::{AvailableSpace, CoreStyle};
 #[cfg(feature = "flexbox")]
 use crate::style::{FlexboxContainerStyle, FlexboxItemStyle};
@@ -198,6 +198,32 @@ pub trait LayoutPartialTree: TraversePartialTree {
 
     /// Compute the specified node's size or full layout given the specified constraints
     fn compute_child_layout(&mut self, node_id: NodeId, inputs: LayoutInput) -> LayoutOutput;
+
+    /// EXACT PATCH 20 (LLP 1074 T1): keep the static position of an absolutely positioned
+    /// child whose parent is [`Position::Static`](crate::Position::Static). The parent does
+    /// not lay the child out; its containing block does, through [`Self::hoisted_absolute`].
+    /// A tree that never uses `Static` needs none of the three methods.
+    #[inline(always)]
+    fn set_static_position(&mut self, node_id: NodeId, position: StaticPosition) {
+        let _ = (node_id, position);
+    }
+
+    /// How many absolutely positioned descendants `node_id` is the containing block of that
+    /// are not its children: each one's parent, and every box between, is `Static`.
+    #[inline(always)]
+    fn hoisted_absolute_count(&self, node_id: NodeId) -> usize {
+        let _ = node_id;
+        0
+    }
+
+    /// One such descendant: the node, the static position its parent kept, and the origin of
+    /// its parent's border box in `node_id`'s border-box coordinates. It is asked for after
+    /// `node_id` has laid its in-flow children out, so those origins are final.
+    #[inline(always)]
+    fn hoisted_absolute(&self, node_id: NodeId, index: usize) -> Option<(NodeId, StaticPosition, Point<f32>)> {
+        let _ = (node_id, index);
+        None
+    }
 }
 
 /// Trait used by the `compute_cached_layout` method which allows cached layout results to be stored and retrieved.

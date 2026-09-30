@@ -204,7 +204,7 @@ pub(super) fn validate_row(plan: &Plan, roots: &[Child]) -> Result<(), InstanceE
             continue;
         };
         let allowed = match style.name() {
-            "position_type" => value == &Value::str("relative"),
+            "position_type" => value == &Value::str("relative") || value == &Value::str("static"),
             "top" | "bottom" | "left" | "right" | "rotate" => value.as_number() == Some(0.0),
             "scale" => value.as_number() == Some(1.0),
             "translate" => value == &Value::str("0 0"),

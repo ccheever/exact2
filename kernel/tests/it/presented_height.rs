@@ -819,7 +819,7 @@ fn auto_width_root() -> Kernel {
 }
 
 #[test]
-fn auto_width_root_retains_ordinary_lowerings_border_box_exception() {
+fn auto_width_root_keeps_its_authored_box_sizing() {
     let mut projected = auto_width_root();
     let mut authored = auto_width_root();
     let original_style = projected.node(1).unwrap().style.clone();
@@ -828,7 +828,8 @@ fn auto_width_root_retains_ordinary_lowerings_border_box_exception() {
         original_style.box_sizing,
         exact_kernel::BoxSizing::ContentBox
     );
-    for (px, expected) in [(100.5, 100.5), (420.0, 240.0)] {
+    // Content-box heights under 18 px of padding; `max-height: 240px` clamps the second.
+    for (px, expected) in [(100.5, 118.5), (420.0, 258.0)] {
         authored.apply(0, 2, &[height(1, px as f64)]).unwrap();
         authored.compute_layout(1, offer()).unwrap();
         project(&mut projected, 1, px);
@@ -837,7 +838,7 @@ fn auto_width_root_retains_ordinary_lowerings_border_box_exception() {
         assert_eq!(projected.node(1).unwrap().style, &original_style);
     }
     projected.compute_layout(1, offer()).unwrap();
-    assert_eq!(h(&projected, 1), 180.0);
+    assert_eq!(h(&projected, 1), 198.0);
 }
 
 #[test]

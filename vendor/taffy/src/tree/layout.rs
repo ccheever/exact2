@@ -162,6 +162,67 @@ impl LayoutInput {
     };
 }
 
+/// EXACT PATCH 20 (LLP 1074 T1): where an absolutely positioned box sits on an axis with
+/// neither inset (CSS 2.1 §10.3.7's static position), as its parent's algorithm gives it: a
+/// rectangle in the parent's border-box coordinates and an alignment inside it.
+///
+/// Block layout gives a point (where the box would be in flow). Flex and grid give the box
+/// the box would be aligned in as the container's only item, and that alignment.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct StaticPosition {
+    /// The rectangle's edges.
+    pub rect: Rect<f32>,
+    /// Alignment along x and along y.
+    pub align: Point<StaticAlignment>,
+    /// A `safe` alignment's fallback: the alignment to use when the box overflows the rectangle.
+    pub safe: Point<Option<StaticAlignment>>,
+    /// The box's index among its parent's children, its [`Layout::order`].
+    pub order: u32,
+}
+
+/// An alignment inside a [`StaticPosition`]'s rectangle, by physical edge.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum StaticAlignment {
+    /// The left or top edge.
+    Start,
+    /// Centred.
+    Center,
+    /// The right or bottom edge.
+    End,
+}
+
+impl StaticPosition {
+    /// A point: the box's start corner sits on it (its end corner along x, for `rtl`).
+    pub fn point(at: Point<f32>, rtl: bool, order: u32) -> Self {
+        Self {
+            rect: Rect { left: at.x, right: at.x, top: at.y, bottom: at.y },
+            align: Point { x: if rtl { StaticAlignment::End } else { StaticAlignment::Start }, y: StaticAlignment::Start },
+            safe: Point { x: None, y: None },
+            order,
+        }
+    }
+
+    /// The border box's origin for a box of `size` with these used margins, in the
+    /// coordinates of `rect`.
+    pub fn resolve(&self, size: Size<f32>, margin: Rect<f32>) -> Point<f32> {
+        let axis = |start: f32, end: f32, align, safe: Option<StaticAlignment>, size: f32, margin_start: f32, margin_end: f32| {
+            let align = match safe {
+                Some(fallback) if size + margin_start + margin_end > end - start => fallback,
+                _ => align,
+            };
+            match align {
+                StaticAlignment::Start => start + margin_start,
+                StaticAlignment::End => end - size - margin_end,
+                StaticAlignment::Center => (start + end - size + margin_start - margin_end) / 2.0,
+            }
+        };
+        Point {
+            x: axis(self.rect.left, self.rect.right, self.align.x, self.safe.x, size.width, margin.left, margin.right),
+            y: axis(self.rect.top, self.rect.bottom, self.align.y, self.safe.y, size.height, margin.top, margin.bottom),
+        }
+    }
+}
+
 /// The first and last baselines of a node in the horizontal axis (i.e. baselines for horizontal text,
 /// measured as an offset from the top edge of the node's border box).
 ///

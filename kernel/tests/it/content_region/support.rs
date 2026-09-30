@@ -30,7 +30,10 @@ pub fn fixture_with(measurer: Box<dyn TextMeasurer>) -> Kernel {
         StyleId::Height,
         StyleId::OverflowX,
         StyleId::OverflowY,
+        StyleId::PositionType,
     ]);
+    // The owner contains its absolutely positioned placeholder.
+    owner.position_type = PositionType::Relative;
     owner.width = Dimension::Percent(100.);
     owner.height = Dimension::Points(180.);
     owner.overflow_x = Overflow::Hidden;

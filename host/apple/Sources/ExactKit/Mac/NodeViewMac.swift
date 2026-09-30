@@ -772,6 +772,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         applyStyle(style)
         needsDisplay = true
     }
+    /// CSS's used `z-index` (LLP 1074 T1): the row applies to a positioned
+    /// box and to a flex or grid item; a static box elsewhere paints in order.
+    var usedZIndex: CGFloat {
+        let position = style["position_type"]?.string
+        if position == "relative" || position == "absolute" { return number("z_index") }
+        var parent = superview
+        while let view = parent, !(view is NodeView) { parent = view.superview }
+        let display = (parent as? NodeView)?.style["display"]?.string
+        return display == "flex" || display == "grid" ? number("z_index") : 0
+    }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1094,7 +1104,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         // CSS z-index: a WKWebView's remote layer otherwise paints over later
         // siblings (the account mark on the deck).
-        layer?.zPosition = number("z_index")
+        layer?.zPosition = usedZIndex
         updateMaterial()
         needsDisplay = true
     }
@@ -1157,7 +1167,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         wantsLayer = true
         applyShadow()
         layer?.mask = boxFilter?.hide ?? ClipPath.mask(clipPath, clipRule)
-        layer?.zPosition = number("z_index")
+        layer?.zPosition = usedZIndex
         applyTransform()
     }
 

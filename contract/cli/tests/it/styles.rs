@@ -171,7 +171,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ("overflow", StyleId::OverflowX, "clip"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
-        ("position", StyleId::PositionType, "static"),
+        ("position", StyleId::PositionType, "sticky"),
         ("border-style", StyleId::BorderStyleTop, "dashed"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
@@ -560,4 +560,68 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
             .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
         "{error}"
     );
+}
+
+/// LLP 1074 T1: `position` is `static` unless authored, except on a box that
+/// contains its absolutely positioned descendants on every host, which is
+/// lowered `relative`; an authored `static` there is refused.
+#[test]
+fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
+    use exact_kernel::PositionType::{Absolute, Relative, Static};
+    let plan = contract::compile(
+        r#"component App
+  view
+    column testId="plain"
+      box testId="clips" overflow="hidden"
+      box testId="moves" translate="4px 0px"
+      box testId="presses" press-scale=0.96
+      box testId="fades" transition="opacity 100ms"
+      box testId="glass" backgroundMaterial="glass"
+      box testId="dim" opacity=0.5
+      box testId="raised" z-index=2 top=4
+      scroll testId="scrolls" height=40
+      canvas testId="draws"
+      box testId="pinned" position="absolute" overflow="hidden"
+      box testId="named" position="relative"
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    for (id, position) in [
+        ("plain", Static),
+        ("clips", Relative),
+        ("moves", Relative),
+        ("presses", Relative),
+        ("fades", Relative),
+        ("glass", Relative),
+        ("dim", Static),
+        ("raised", Static),
+        ("scrolls", Relative),
+        ("draws", Relative),
+        ("pinned", Absolute),
+        ("named", Relative),
+    ] {
+        let key = k.find_by_test_id(id)[0];
+        assert_eq!(
+            k.node_by_key(key).unwrap().style.position_type,
+            position,
+            "{id}"
+        );
+    }
+    let error = contract::compile(
+        "component App\n  view\n    box position=\"static\" overflow=\"hidden\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-attr-value");
+    assert!(error.message.contains("remove `position`"), "{error:?}");
+    contract::compile("component App\n  view\n    box position=\"static\"\n").unwrap();
 }

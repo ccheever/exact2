@@ -1305,9 +1305,10 @@
     "PositionType": {
       "values": [
         "relative",
-        "absolute"
+        "absolute",
+        "static"
       ],
-      "default": "relative"
+      "default": "static"
     },
     "Overflow": {
       "values": [

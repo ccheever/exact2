@@ -189,7 +189,7 @@ final class ReorderHold {
     /// The lifted row paints above its later siblings while it is held.
     private func raise(_ on: Bool) {
         guard let view = presenter?.views[state.wrapper] else { return }
-        let z = on ? 1000 : CGFloat(view.style["z_index"]?.number ?? 0)
+        let z = on ? 1000 : view.usedZIndex
         #if os(iOS)
         view.layer.zPosition = z
         #else

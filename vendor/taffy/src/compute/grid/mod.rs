@@ -12,7 +12,9 @@ use crate::{
     style_helpers::*, AlignContent, BoxGenerationMode, BoxSizing, CoreStyle, Direction, GridContainerStyle,
     GridItemStyle, JustifyContent, LayoutGridContainer, RequestedAxis,
 };
-use alignment::{align_and_position_item, align_tracks};
+use crate::compute::ratio::sizes_through_ratio;
+use crate::compute::common::absolute::AbsolutePass;
+use alignment::{align_and_position_item, align_tracks, static_position};
 use explicit_grid::{compute_explicit_grid_size_in_axis, initialize_grid_tracks, AutoRepeatStrategy};
 use implicit_grid::compute_grid_size_estimate;
 use placement::place_grid_items;
@@ -60,7 +62,6 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
 
     // 1. Compute "available grid space"
     // https://www.w3.org/TR/css-grid-1/#available-grid-space
-    let aspect_ratio = style.aspect_ratio();
     let padding = style.padding().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let border = style.border().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let padding_border = padding + border;
@@ -68,25 +69,15 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     let box_sizing_adjustment =
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
-    let min_size = style
-        .min_size()
-        .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-        .maybe_apply_aspect_ratio(aspect_ratio)
-        .maybe_add(box_sizing_adjustment);
-    let max_size = style
-        .max_size()
-        .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-        .maybe_apply_aspect_ratio(aspect_ratio)
-        .maybe_add(box_sizing_adjustment);
-    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize {
-        style
-            .size()
-            .maybe_resolve(parent_size, |val, basis| tree.calc(val, basis))
-            .maybe_apply_aspect_ratio(style.aspect_ratio())
-            .maybe_add(box_sizing_adjustment)
-    } else {
-        Size::NONE
-    };
+    // EXACT PATCH 12: the container's own size styles through the ratio (`compute::ratio`).
+    let (style_size, min_size, max_size) = sizes_through_ratio(
+        &style,
+        padding_border_size,
+        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+    );
+    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize { style_size } else { Size::NONE };
 
     // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
     // However, the axis are switched (transposed) because a node that scrolls vertically needs
@@ -658,6 +649,18 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     }
 
     // Position hidden and absolutely positioned children
+    let contains_absolutes = tree.get_core_container_style(node).position() != Position::Static;
+    let absolute_pass = AbsolutePass {
+        area_size: Size {
+            width: f32_max(container_border_box.width - border.horizontal_axis_sum() - scrollbar_gutter.x, 0.0),
+            height: f32_max(container_border_box.height - border.vertical_axis_sum() - scrollbar_gutter.y, 0.0),
+        },
+        area_offset: Point { x: border.left + if direction.is_rtl() { scrollbar_gutter.x } else { 0.0 }, y: border.top },
+        direction,
+        sizing_mode: SizingMode::InherentSize,
+        #[cfg(feature = "content_size")]
+        is_scroll_container,
+    };
     let mut order = items.len() as u32;
     (0..tree.child_count(node)).for_each(|index| {
         let child = tree.get_child_id(node, index);
@@ -777,31 +780,52 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
                 left: grid_area_left,
                 right: grid_area_right,
             };
+            // EXACT PATCH 18, 20: sized and placed by the shared solver (`common::absolute`). The
+            // static position is aligned in the area when the grid is the containing block, and
+            // in the grid's content box when it is not (CSS Grid 1 §9.2, as Chrome places them): a
+            // `Static` grid keeps it for the box that contains the child.
+            let static_rect = if contains_absolutes {
+                grid_area
+            } else {
+                Rect {
+                    left: content_box_inset.left,
+                    right: container_border_box.width - content_box_inset.right,
+                    top: content_box_inset.top,
+                    bottom: container_border_box.height - content_box_inset.bottom,
+                }
+            };
+            let position = static_position(&child_style, container_alignment_styles, direction, static_rect, order);
             drop(child_style);
 
-            // TODO: Baseline alignment support for absolutely positioned items (should check if is actually specified)
-            #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
-            let (overflow_contribution, _, _) = align_and_position_item(
-                tree,
-                child,
-                order,
-                grid_area,
-                container_alignment_styles,
-                0.0,
-                direction,
-                container_border_box.width,
-                border,
+            if contains_absolutes {
+                let area = (
+                    Size {
+                        width: f32_max(grid_area.right - grid_area.left, 0.0),
+                        height: f32_max(grid_area.bottom - grid_area.top, 0.0),
+                    },
+                    Point { x: grid_area.left, y: grid_area.top },
+                );
+                #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
+                let overflow_contribution = absolute_pass.place(tree, child, position, Some(area), Point::ZERO);
                 #[cfg(feature = "content_size")]
-                is_scroll_container,
-            );
-            #[cfg(feature = "content_size")]
-            {
-                absolute_overflow_rect = absolute_overflow_rect.union(overflow_contribution);
+                {
+                    absolute_overflow_rect = absolute_overflow_rect.union(overflow_contribution);
+                }
+            } else {
+                tree.set_static_position(child, position);
             }
 
             order += 1;
         }
     });
+    {
+        #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
+        let hoisted_overflow = absolute_pass.place_hoisted(tree, node);
+        #[cfg(feature = "content_size")]
+        {
+            absolute_overflow_rect = absolute_overflow_rect.union(hoisted_overflow);
+        }
+    }
 
     #[cfg(feature = "detailed_layout_info")]
     name_resolver.populate_detailed_line_resolvers(&mut detailed_row_line_names, &mut detailed_column_line_names);

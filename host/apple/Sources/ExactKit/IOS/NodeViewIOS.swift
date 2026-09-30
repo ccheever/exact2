@@ -745,6 +745,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard let c = channels(key) else { return fallback }
         return TextEngine.color(c)
     }
+    /// CSS's used `z-index` (LLP 1074 T1): the row applies to a positioned
+    /// box and to a flex or grid item; a static box elsewhere paints in order.
+    var usedZIndex: CGFloat {
+        let position = style["position_type"]?.string
+        if position == "relative" || position == "absolute" { return number("z_index") }
+        var parent = superview
+        while let view = parent, !(view is NodeView) { parent = view.superview }
+        let display = (parent as? NodeView)?.style["display"]?.string
+        return display == "flex" || display == "grid" ? number("z_index") : 0
+    }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1061,7 +1071,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             applyPlaceholder(f)
             f.frame = contentBox()
         }
-        layer.zPosition = number("z_index")
+        layer.zPosition = usedZIndex
         if s["transform_origin"] != origin { applyTransform() }
         setNeedsDisplay()
     }

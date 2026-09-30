@@ -133,7 +133,13 @@ fn fractional_frames_and_updates_survive_publication_and_rehydration() {
             Op::SetStyle { id: 1, patch: root },
             Op::SetStyle {
                 id: 2,
-                patch: size(120.5, 86.625),
+                patch: {
+                    // The absolute box's containing block.
+                    let mut holder = size(120.5, 86.625);
+                    holder.position_type = exact_kernel::PositionType::Relative;
+                    holder.mask.set(StyleId::PositionType);
+                    holder
+                },
             },
             Op::SetStyle {
                 id: 3,

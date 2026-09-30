@@ -1205,6 +1205,7 @@ impl StyleProps {
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,
         };
         s.position = match self.position_type {
+            PositionType::Static => taffy::style::Position::Static,
             PositionType::Relative => taffy::style::Position::Relative,
             PositionType::Absolute => taffy::style::Position::Absolute,
         };
@@ -1364,16 +1365,6 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         if let Some((_, height)) = arena.intrinsic(slot) {
             s.min_size.height = length(height);
         }
-    }
-    if arena.is_root(slot)
-        && s.size.width.is_auto()
-        && s.position != taffy::style::Position::Absolute
-    {
-        // CSS block `width: auto`: the border box fills the containing block
-        // (padding and border inside it), which is `100%` under border-box
-        // sizing. Margins on a root are not subtracted (LLP 1010 §1).
-        s.size.width = taffy::style::Dimension::percent(1.0);
-        s.box_sizing = taffy::style::BoxSizing::BorderBox;
     }
     s
 }

@@ -205,7 +205,7 @@ pub fn project(
         }
         out.push(Some(parts));
     }
-    // `position: relative` where the live host would make it (layers.rs), for
+    // `isolation: isolate` where the live host would make it (layers.rs), for
     // any tree the template builds.
     let mut rows = Vec::new();
     for region in plan
@@ -217,16 +217,16 @@ pub fn project(
             roots_of(plan, sites, sites.of_arm(arm.0), &mut rows);
         }
     }
-    let relative = layers::relatives(&kernel, &[view(sites.root as usize)], &|id| {
+    let isolated = layers::isolates(&kernel, &[view(sites.root as usize)], &|id| {
         let i = id as usize - 1;
         layers::Dynamic {
             repeated: rows.contains(&(i as u32)),
             ..dynamic(plan, i)
         }
     });
-    for id in relative {
+    for id in isolated {
         if let Some(parts) = out[id as usize - 1].as_mut() {
-            parts.css.push_str("position:relative;");
+            parts.css.push_str("isolation:isolate;");
         }
     }
     Ok(out)
@@ -242,12 +242,8 @@ fn dynamic(plan: &Plan, i: usize) -> layers::Dynamic {
         }
         let has = |ids: &[StyleId]| ids.iter().any(|s| row.id == *s as u16);
         match row.kind {
-            BindingKind::Style if has(&[StyleId::PositionType]) => {
-                d.paint.positioned = true;
-                d.absolute = true;
-            }
+            BindingKind::Style if has(&[StyleId::PositionType]) => d.paint.positioned = true,
             BindingKind::Style if has(&layers::STACKS) => d.paint.stacks = true,
-            BindingKind::Style if has(&layers::INSETS) => d.paint.insets = true,
             BindingKind::Prop => match PropId::from_wire(row.id) {
                 Some(PropId::BackgroundMaterial | PropId::NavigationKey)
                 | Some(PropId::NavigationPresentation) => d.paint.stacks = true,

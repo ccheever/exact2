@@ -21,6 +21,78 @@ pub(crate) fn props(rows: &Rows) -> StyleProps {
     p
 }
 
+/// CSS declarations as kernel rows: px and bare numbers are numbers, the
+/// rest (percentages, ratios, keywords) text.
+pub(crate) fn css_rows(css: &str) -> Rows {
+    let mut out = Vec::new();
+    for decl in css.split(';').filter(|d| !d.is_empty()) {
+        let (name, value) = decl.split_once(':').unwrap();
+        let px = value.strip_suffix("px").unwrap_or(value).parse::<f64>();
+        let percent = value.strip_suffix('%').map(str::parse::<f64>);
+        let v = match (px, percent, value) {
+            (Ok(x), _, _) => n(x),
+            (_, _, "auto") if name != "aspect-ratio" => StyleValue::Auto,
+            (_, Some(Ok(x)), _) if name != "width" && name != "height" => StyleValue::Percent(x),
+            _ => t(value),
+        };
+        let ids: &[StyleId] = match name {
+            "width" => &[Width],
+            "height" => &[Height],
+            "min-width" => &[MinWidth],
+            "max-width" => &[MaxWidth],
+            "min-height" => &[MinHeight],
+            "max-height" => &[MaxHeight],
+            "aspect-ratio" => &[AspectRatio],
+            "display" => &[Display],
+            "box-sizing" => &[BoxSizing],
+            "direction" => &[Direction],
+            "flex-direction" => &[FlexDirection],
+            "align-items" => &[AlignItems],
+            "justify-items" => &[JustifyItems],
+            "justify-content" => &[JustifyContent],
+            "align-self" => &[AlignSelf],
+            "flex-grow" => &[FlexGrow],
+            "overflow" => &[OverflowX, OverflowY],
+            "padding" => &[PaddingTop, PaddingRight, PaddingBottom, PaddingLeft],
+            "padding-left" => &[PaddingLeft],
+            "padding-top" => &[PaddingTop],
+            "margin-left" => &[MarginLeft],
+            "margin-right" => &[MarginRight],
+            "margin-top" => &[MarginTop],
+            "margin-bottom" => &[MarginBottom],
+            "border-width" => &[
+                BorderWidthTop,
+                BorderWidthRight,
+                BorderWidthBottom,
+                BorderWidthLeft,
+            ],
+            "border-style" => &[
+                BorderStyleTop,
+                BorderStyleRight,
+                BorderStyleBottom,
+                BorderStyleLeft,
+            ],
+            "padding-right" => &[PaddingRight],
+            "padding-bottom" => &[PaddingBottom],
+            "opacity" => &[Opacity],
+            "z-index" => &[ZIndex],
+            // What makes a containing block in a browser and is not a row these
+            // cases give the kernel (LLP 1074 T1: the compiler lowers `position:
+            // relative` onto such a box).
+            "translate" | "scale" | "rotate" | "transform" | "filter" | "backdrop-filter"
+            | "isolation" => &[],
+            "position" => &[PositionType],
+            "left" => &[Left],
+            "right" => &[Right],
+            "top" => &[Top],
+            "bottom" => &[Bottom],
+            _ => panic!("no row for {name}"),
+        };
+        out.extend(ids.iter().map(|id| (*id, v.clone())));
+    }
+    out
+}
+
 /// Lays out one case: the outer box and its descendants, each
 /// `(id, parent, rows)`; a node given text is a text node.
 fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]) -> Kernel {

@@ -36,8 +36,6 @@ pub const RECEIPT_RING: usize = 64;
 /// One sampled CSS height for a live numeric-height box or border-box auto height.
 /// This replaces only derived layout height, respecting current box sizing,
 /// min/max constraints and aspect ratio. It never authors a style or a commit.
-/// Existing root lowering is retained: an auto-width, nonabsolute root uses
-/// derived border-box sizing even when its authored box sizing is content-box.
 /// Runtime/engine identity remains the caller's responsibility, as with NodeKey.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PresentedHeight {
@@ -180,15 +178,6 @@ impl<'a> NodeRef<'a> {
             .iter()
             .map(|c| self.arena.local_id(*c))
             .collect()
-    }
-
-    /// Whether a child is absolutely positioned: the node is its containing
-    /// block (LLP 1001 §1), which a web host makes it with `position: relative`.
-    pub fn has_absolute_child(&self) -> bool {
-        self.arena
-            .children(self.slot)
-            .iter()
-            .any(|c| self.arena.style(*c).position_type == crate::generated::PositionType::Absolute)
     }
 }
 
@@ -460,9 +449,7 @@ impl Kernel {
     /// root: clearing a projection in another root dirties that root for its next
     /// layout but does not publish it in this receipt.
     ///
-    /// Matches ordinary authored lowering, including its auto-width,
-    /// nonabsolute root exception: derived box sizing there is border-box even
-    /// when authored as content-box. No root sizing repair is made by projection.
+    /// Matches ordinary authored lowering: a root keeps its authored box sizing.
     ///
     /// Auto height requires border-box sizing; percent, env, negative, hidden
     /// and inline heights are unsupported. Sampling auto is explicit host intent,

@@ -119,7 +119,7 @@ component ContactDetails
                       padding-right=3
                   text chat.contactAddress font-size=17 line-clamp=1
                 when chat.contactKind == "phone"
-                  box width=12 height=14
+                  box position="relative" width=12 height=14
                     box position="absolute"
                       left=- 5
                       top=- 5

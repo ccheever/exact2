@@ -345,7 +345,13 @@ fn refusals_keep_ordinary_layout_and_say_what_to_change() {
         FlowRefusal::Chain
     );
     assert_eq!(
-        refused(&[patch(3, &[(StyleId::Top, StyleValue::Percent(5.))])]),
+        refused(&[patch(
+            3,
+            &[
+                (StyleId::PositionType, t("relative")),
+                (StyleId::Top, StyleValue::Percent(5.))
+            ]
+        )]),
         FlowRefusal::Chain
     );
     assert_eq!(

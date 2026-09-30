@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16 and 17 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 and 20 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -481,10 +481,25 @@ carries the box. The call sites are:
   does not size (`transfer_into_unsized`); the base-size and automatic-minimum
   measurements drop a provisional stretched cross size for ratio items.
 
-Unchanged and not claimed: absolutely positioned boxes, grid items, a flex or
-grid container's own ratio and the root path in `compute/mod.rs` keep
-upstream's `maybe_apply_aspect_ratio`; the automatic minimum of a width
-derived from a height (the inline axis) is not applied.
+**Extended 2026-09-30 (Claude, Fable 5.1, for LLP 1074 T2)** to the paths the
+first tranche left on upstream's `maybe_apply_aspect_ratio`:
+- a flex and a grid container's own size, min and max (`flexbox.rs`
+  `compute_flexbox_layout` and `compute_constants`; `grid/mod.rs`);
+- grid items, in `grid/alignment.rs::align_and_position_item`, in
+  `GridItem::known_dimensions` and in `GridItem::minimum_contribution`, where a
+  minimum only the ratio gives (a transferred one, or the floor a derived
+  height is) holds beside the automatic minimum, never in its place. The item
+  keeps the ratio's box and whether its height floors
+  (`aspect_ratio_content_box`, `ratio_floors_height`), and `Ratio::from_parts`
+  and `resolve_through` serve an algorithm that holds the parts, not the style;
+- absolutely positioned boxes (patch 18) and the root (patch 19).
+
+Not claimed:
+- the automatic minimum of a width derived from a height (the inline axis);
+- a height the ratio derives is a floor, so under a block or grid parent it is
+  not a definite height, and a child's `height: 100%` is `auto` where Chrome
+  resolves it against the ratio's height (`min-height: 0` on the box makes it
+  definite). Five cases in `browser_position.rs` (`OWED`) hold this.
 
 **Held by** `kernel/tests/it/browser_ratio.rs`: 60 literal-Chrome cases.
 `image.rs` and `video.rs` each change one expectation to Chrome's: a set width
@@ -579,9 +594,128 @@ placing it (CSS 2.1 §10.3.8, §10.6.5). With `item_is_replaced`:
 `compute/grid/alignment.rs::align_and_position_item` defaults both axes to
 `start` and ignores insets for size; `compute/grid/mod.rs` gives track sizing
 the same default after placement, so an auto column is not sized for a
-stretched item; the absolute passes of `compute/block.rs` and
-`compute/flexbox.rs` skip the inset-derived width and height. Held by
+stretched item; the absolute pass skips the inset-derived width and height
+(`compute/common/absolute.rs` since patch 18). Held by
 `kernel/tests/it/browser_replaced.rs`
 (`replaced_elements_do_not_stretch_in_a_grid_area_or_between_insets`, 66
 literal-Chrome cases: canvas, iframe, video, `svg` with and without a view
 box, and a loaded image).
+
+## Patch 18: one solver for an absolutely positioned box — to upstream
+
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T2 and T4.
+
+Upstream sizes and places an absolutely positioned box three times, in
+`compute/block.rs`, `compute/flexbox.rs` and `compute/grid/alignment.rs`, and
+the three disagree with each other and with Chrome 154:
+- **Auto margins in a grid.** `left: 0; right: 0; width: 100px; margin: 0
+  auto` stays at x = 0: the branch for an inset box read the margins with
+  `auto` as zero.
+- **Auto margins in a flex container** take the container's free space, not
+  the space the insets leave: with `left: 20px; right: 60px` the box is 40 px
+  off.
+- **A block container** centres a box that has only a `right` inset.
+- **The block axis.** No container centres a box taller than the space its
+  insets leave; CSS gives the two margins equal negative shares there (§10.6.4
+  has no exception, as §10.3.7 has for the inline axis).
+- **The ratio.** Patch 12's five differences, in all three.
+- **Shrink-to-fit.** A box without a width is measured in the whole
+  containing block, not in the space its insets and margins leave.
+
+`compute/common/absolute.rs` is the one solver (its module note states the
+rules). Each algorithm gives it the containing block and, for an axis with
+neither inset, where the box sits by that algorithm's own rule (patch 20's
+`StaticPosition`). Patch 17's rule for a replaced element lives there now.
+
+**Held by** `kernel/tests/it/browser_position.rs`
+(`positioned_boxes_roots_and_ratios_match_chrome`): 279 literal-Chrome cases
+in `fixtures/browser_position.tsv`, 93 of them absolutely positioned boxes in
+block, flex and grid containers, LTR and RTL.
+
+## Patch 19: a root is a block-level box in its offer — Exact's
+
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T2 and T4.
+
+`compute/mod.rs::compute_root_layout` resolved a root's size only for
+`display: block`, through upstream's ratio transfer, stretched an auto width
+less its margins, and then placed the root at the origin whatever its margins
+said. The kernel worked around the first part by rewriting every root's `width:
+auto` to `100%` under border-box sizing (LLP 1010 §1), which left a root's
+margins unsubtracted and made its `min-width`, `max-width` and authored height
+border-box under `box-sizing: content-box`.
+
+Now, for any root that is not absolutely positioned, whatever it lays its
+children out as (CSS 2.1 §10.3.3):
+- its size styles go through the ratio (patch 12);
+- an automatic width fills the offer less its margins, within the limits the
+  ratio transfers;
+- its margins place it: auto margins take the space a given width leaves
+  (equal shares; a negative share goes to the end margin alone), and an
+  over-constrained box ignores its end margin. An RTL root is placed from the
+  offer's right edge, as before.
+
+The kernel's rewrite and its re-derivation on `AttachRoot` are gone
+(`kernel/src/style.rs`, `kernel/src/txn.rs`). Upstream keeps a flex or grid
+root content-sized, so this stays Exact's.
+
+**Held by** the 39 root cases of `fixtures/browser_position.tsv` (block, flex
+and grid roots: ratios, margins, auto margins, a root wider than its offer).
+`presented_height.rs` changes one expectation: a content-box root's authored
+height is its content height.
+
+## Patch 20: `Position::Static` and the CSS containing block — to upstream
+
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T1.
+
+Upstream has `Relative` and `Absolute`, and every container lays its own
+absolutely positioned children out against its own padding box. CSS places
+such a box against its nearest positioned ancestor. This patch adds the value
+and the containing block; a tree that never says `Static` behaves as before.
+
+- **`Position::Static`** (`style/mod.rs`): in flow, insets do nothing (block
+  and flex item insets, grid's were already `Relative`-only), and the box
+  contains no absolutely positioned descendant. Block layout's in-flow and
+  margin-collapse predicates test `!= Absolute`.
+- **`StaticPosition`** (`tree/layout.rs`): where a box sits on an axis with
+  neither inset, as its parent's algorithm gives it — a rectangle in the
+  parent's coordinates and an alignment. Block gives the point the box would
+  be at in flow. Flex gives its content box and the box's alignment as the
+  container's only item. Grid gives the area when the grid is the containing
+  block and its content box when it is not, as Chrome does.
+- **The seam** (`tree/traits.rs`, three defaulted methods on
+  `LayoutPartialTree`): a `Static` parent does not lay an absolute child out.
+  It keeps the child's static position (`set_static_position`). The box that
+  contains the child asks the tree for the boxes it holds that are not its
+  children (`hoisted_absolute_count`, `hoisted_absolute`), after its in-flow
+  children are placed, and lays each out through the solver (patch 18) against
+  its own padding box, writing the location relative to the child's parent.
+  A `Static` box at the top of a tree holds what nothing else does.
+- **`AbsolutePass`** (`compute/common/absolute.rs`) is that pass, shared by the
+  three algorithms.
+- **`TaffyTree`** keeps the static positions and the caller's record of which
+  box holds which (`set_hoisted_absolutes`), and computes a parent's origin in
+  the holder's coordinates from the unrounded layouts between them.
+
+The record is the caller's to keep current, because only the caller knows when
+a position or a child list changed, and a walk of the tree per layout would
+undo patch 9. The kernel rebuilds it when one did (`LayoutTree::refresh_hoists`,
+proportional to the absolute boxes and their depth). The dirty marks need no
+help: a box moves between containing blocks only when a box on the path
+between them is restyled or re-parented, which marks both dirty.
+
+Patch 9's replay needs one rule more. A static box between an absolute box
+and its containing block is no replay boundary, now or for the change that
+takes it off that path: laying its subtree out alone would not place the box,
+and its old containing block still counts the box that left
+(`hoist_paths`, `hoist_paths_prior`). The 1,500-seed differential found the
+second half.
+
+**Held by** `kernel/tests/it/browser_position.rs`
+(`containing_blocks_and_static_positions_match_chrome`): 79 literal-Chrome
+cases in `fixtures/browser_containing_block.tsv`, of which seven are what else
+makes a containing block in a browser (a transform, a filter) and are declared
+not the kernel's (the Contract compiler lowers `position: relative` onto such
+a box). `layout_equality.rs` draws positions, missing insets and end insets on
+a second random stream, so its trees' seeds are unchanged: both differentials
+(incremental against rehydrated and replayed, 40 rounds) pass over 1,500 seeds.
+

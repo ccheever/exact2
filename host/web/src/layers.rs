@@ -1,18 +1,18 @@
-//! Which nodes the page makes `position: relative` (LLP 1001 §1).
+//! Which nodes the page makes `isolation: isolate` (LLP 1001 §1, LLP 1074 T1).
 //!
-//! The kernel has no `static`: every node is a containing block for an
-//! absolute child, its insets move it, and nodes paint in tree order. A page
-//! box is `static` unless said otherwise, which costs it no layer to paint,
-//! hit-test and composite, so the page makes a node `relative` only where
-//! that shows: over an absolute child, with insets or a `z-index`, or after
-//! something in tree order that paints with the positioned — a positioned box
-//! or a stacking context anywhere in an earlier sibling's subtree — which a
-//! static box would otherwise paint under (CSS 2 Appendix E paints the
-//! positioned and the stacking contexts after the in-flow boxes).
+//! The kernel paints in tree order: a box paints over everything before it
+//! in the tree. A page paints its positioned boxes and its stacking contexts
+//! after its in-flow boxes (CSS 2 Appendix E), so a static box that follows
+//! one of those in tree order — a positioned box or a stacking context
+//! anywhere in an earlier sibling's subtree — would paint under it. The page
+//! makes such a box a stacking context, which paints in tree order with them
+//! and, unlike `position: relative`, is no containing block: `position` is
+//! the plan's own, and an absolutely positioned box is placed against its
+//! nearest positioned ancestor on the page as in the kernel.
 //!
 //! The live host keeps each node's facts and re-decides a sibling list only
 //! when a node in it changed ([`Host::relayer`]); the document writer and an
-//! ahead-of-time build decide the same with [`relative`] and [`layered`].
+//! ahead-of-time build decide the same with [`isolated`] and [`layered`].
 
 use exact_kernel::id::IdMap;
 use exact_kernel::{Kernel, NodeRef, NodeType, PositionType, PropId, StyleId, ViewId};
@@ -26,16 +26,15 @@ use crate::css;
 /// What a node's own rows and props bring to the page's painting order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Paint {
-    /// Names its `position`, or the host positions it (a canvas, whose
-    /// surface it holds; a Markdown editor, whose lines' markers it holds).
+    /// Its `position` is not `static`, or the host positions it (a canvas,
+    /// whose surface it holds; a Markdown editor, whose lines' markers it
+    /// holds).
     pub positioned: bool,
     /// May make a stacking context, which paints with the positioned: an
     /// opacity, a transform, a filter, a clip or mask, a blend, an
     /// isolation, a transition or animation (which may move them), a press's
     /// scale, a material's backdrop, a navigation screen or a modal.
     pub stacks: bool,
-    /// Insets or a `z-index`, which only a positioned box honours.
-    pub insets: bool,
     /// Outside the page's box painting: an element inside an `svg`, a head.
     pub outside: bool,
 }
@@ -61,15 +60,6 @@ pub const STACKS: [StyleId; 18] = [
     StyleId::AnimationTimeline,
     StyleId::ExitAnimation,
 ];
-/// Insets and `z-index` ([`Paint::insets`]).
-pub const INSETS: [StyleId; 5] = [
-    StyleId::Top,
-    StyleId::Right,
-    StyleId::Bottom,
-    StyleId::Left,
-    StyleId::ZIndex,
-];
-
 /// A node's [`Paint`].
 pub fn paint(node: &NodeRef<'_>) -> Paint {
     paint_of(&node.facts())
@@ -82,39 +72,28 @@ pub fn paint_of(node: &exact_kernel::NodeFacts<'_>) -> Paint {
     let editor =
         node.node_type == NodeType::TextInput && props.str(PropId::Markup) == Some("markdown");
     Paint {
-        positioned: m.has(StyleId::PositionType) || node.node_type == NodeType::Canvas || editor,
+        positioned: node.style.position_type != PositionType::Static
+            || node.node_type == NodeType::Canvas
+            || editor,
         stacks: STACKS.iter().any(|s| m.has(*s))
             || props.str(PropId::BackgroundMaterial).is_some()
             || props.str(PropId::NavigationKey).is_some()
             || props.str(PropId::NavigationPresentation) == Some("modal"),
-        insets: INSETS.iter().any(|s| m.has(*s)),
         outside: node.node_type.is_svg_element() || node.node_type.is_metadata(),
     }
 }
 
-/// Whether an absolute child's containing block is `node`.
-pub fn holds_absolute(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
-    node.has_absolute_child()
-        && node.children().into_iter().any(|c| {
-            kernel.node(c).is_some_and(|c| {
-                c.style.position_type == PositionType::Absolute && !paint(&c).outside
-            })
-        })
-}
-
-/// Whether the page makes a node `relative`: it doesn't name its position,
-/// and a positioned box shows (it holds an absolute child, or has insets or
-/// a `z-index`), or something before it paints with the positioned
-/// (`after`), which it would paint under as a static box — unless it is a
-/// stacking context, which paints with them already.
-pub fn relative(p: Paint, holds: bool, after: bool) -> bool {
-    !p.outside && !p.positioned && (p.insets || holds || (after && !p.stacks))
+/// Whether the page isolates a node: it is static and no stacking context,
+/// and something before it paints with the positioned (`after`), which it
+/// would otherwise paint under.
+pub fn isolated(p: Paint, after: bool) -> bool {
+    !p.outside && !p.positioned && !p.stacks && after
 }
 
 /// Whether a subtree paints with the positioned: its root does, or a node
 /// under it does (`children`).
-pub fn layered(p: Paint, relative: bool, children: bool) -> bool {
-    !p.outside && (p.positioned || p.stacks || relative || children)
+pub fn layered(p: Paint, isolated: bool, children: bool) -> bool {
+    !p.outside && (p.positioned || p.stacks || isolated || children)
 }
 
 /// What an ahead-of-time build knows of a node beyond its template rows.
@@ -122,16 +101,14 @@ pub fn layered(p: Paint, relative: bool, children: bool) -> bool {
 pub struct Dynamic {
     /// Its dynamic rows' and props' paint, joined with its literal ones'.
     pub paint: Paint,
-    /// A dynamic `position` may make it absolute: its parent holds it.
-    pub absolute: bool,
     /// An `each` row's root, which follows its own earlier copies.
     pub repeated: bool,
 }
 
-/// The views the page makes `relative` in a template tree (every arm of a
-/// region a sibling), with each node's [`Dynamic`] facts: the decisions
-/// the live host makes for any tree the template can build.
-pub fn relatives(
+/// The views the page isolates in a template tree (every arm of a region a
+/// sibling), with each node's [`Dynamic`] facts: the decisions the live host
+/// makes for any tree the template can build.
+pub fn isolates(
     kernel: &Kernel,
     roots: &[ViewId],
     dynamic: &dyn Fn(ViewId) -> Dynamic,
@@ -150,20 +127,18 @@ pub fn relatives(
         let p = Paint {
             positioned: own.positioned || d.paint.positioned,
             stacks: own.stacks || d.paint.stacks,
-            insets: own.insets || d.paint.insets,
             outside: own.outside,
         };
         let children = node.children();
-        let holds = holds_absolute(kernel, &node) || children.iter().any(|c| dynamic(*c).absolute);
         let mut under = false;
         for child in &children {
             under |= walk(kernel, *child, under, dynamic, out);
         }
-        let rel = relative(p, holds, after || (d.repeated && layered(p, false, under)));
-        if rel {
+        let own = isolated(p, after || (d.repeated && layered(p, false, under)));
+        if own {
             out.insert(id);
         }
-        layered(p, rel, under)
+        layered(p, own, under)
     }
     let mut out = std::collections::BTreeSet::new();
     let mut after = false;
@@ -173,10 +148,10 @@ pub fn relatives(
     out
 }
 
-/// `css` with the page's `relative` when the node takes it.
-pub fn with_relative(mut css: String, relative: bool) -> String {
-    if relative {
-        css.push_str("position:relative;");
+/// `css` with the page's `isolation` when the node takes it.
+pub fn with_isolation(mut css: String, isolated: bool) -> String {
+    if isolated {
+        css.push_str("isolation:isolate;");
     }
     css
 }
@@ -185,12 +160,10 @@ pub fn with_relative(mut css: String, relative: bool) -> String {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Facts {
     paint: Paint,
-    /// An absolute child's containing block.
-    holds: bool,
     /// A node under it paints with the positioned.
     children: bool,
-    /// The page makes it `relative`.
-    relative: bool,
+    /// The page isolates it.
+    isolated: bool,
 }
 
 /// Every live node's [`Facts`], by view.
@@ -198,9 +171,9 @@ pub(crate) struct Facts {
 pub(crate) struct Layers(IdMap<ViewId, Facts>);
 
 impl Layers {
-    /// Whether the page makes `id` relative.
-    pub(crate) fn relative(&self, id: ViewId) -> bool {
-        self.0.get(&id).is_some_and(|f| f.relative)
+    /// Whether the page isolates `id`.
+    pub(crate) fn isolated(&self, id: ViewId) -> bool {
+        self.0.get(&id).is_some_and(|f| f.isolated)
     }
 
     pub(crate) fn forget(&mut self, id: ViewId) {
@@ -213,7 +186,7 @@ impl<D: DataSource> Host<D> {
     /// creates or updates (`changed`, the final tree's views), then each
     /// sibling list one of them may move, deepest first, so a parent reads
     /// its children's final facts. A node the batch neither creates nor
-    /// updates whose `relative` moved is restyled here; the rest take theirs
+    /// updates whose isolation moved is restyled here; the rest take theirs
     /// in `create` and `update`.
     pub(super) fn relayer(&mut self, changed: &[ViewId], batch: &mut Batch) {
         let kernel = self.runner.kernel();
@@ -250,8 +223,7 @@ impl<D: DataSource> Host<D> {
             );
             if let Some(was) = was {
                 let facts = self.layers.0.get_mut(id).expect("inserted");
-                (facts.holds, facts.children, facts.relative) =
-                    (was.holds, was.children, was.relative);
+                (facts.children, facts.isolated) = (was.children, was.isolated);
             }
             if was.is_none_or(|w| w.paint != p) {
                 queue(node.parent, &mut lists);
@@ -264,7 +236,7 @@ impl<D: DataSource> Host<D> {
                 Some(id) => kernel.node(id).map(|n| n.children()).unwrap_or_default(),
                 None => self.page_roots(),
             };
-            let (mut after, mut holds) = (false, false);
+            let mut after = false;
             for child in children {
                 let Some(node) = kernel.node(child) else {
                     continue;
@@ -276,19 +248,18 @@ impl<D: DataSource> Host<D> {
                 if facts.paint.outside {
                     continue;
                 }
-                holds |= node.style.position_type == PositionType::Absolute;
-                let rel = relative(facts.paint, facts.holds, after);
-                if std::mem::replace(&mut facts.relative, rel) != rel && !changed.contains(&child) {
+                let own = isolated(facts.paint, after);
+                if std::mem::replace(&mut facts.isolated, own) != own && !changed.contains(&child) {
                     restyle.push(child);
                 }
-                after |= layered(facts.paint, rel, facts.children);
+                after |= layered(facts.paint, own, facts.children);
             }
             let Some(id) = list else { continue };
             let Some(facts) = self.layers.0.get_mut(&id) else {
                 continue;
             };
-            if (facts.holds, facts.children) != (holds, after) {
-                (facts.holds, facts.children) = (holds, after);
+            if facts.children != after {
+                facts.children = after;
                 queue(kernel.node(id).and_then(|n| n.parent), &mut lists);
             }
         }
@@ -297,9 +268,9 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let (text, _) = css::css_text(&css_style(kernel, &node), &self.font_names);
-            let css = with_relative(
+            let css = with_isolation(
                 host_css(&node, text, tag_for(&node, m.in_button)),
-                self.layers.relative(id),
+                self.layers.isolated(id),
             );
             if css != m.css {
                 batch.style(id, &css);

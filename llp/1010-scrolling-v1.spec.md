@@ -58,17 +58,16 @@ tests are the authority.
   `ScrollView` is therefore a scroll container on both axes in the kernel
   and `overflow: auto` on the web; `overflow_x: hidden` alone makes y
   scrollable, not hidden.
-- **A root fills the width it is offered** and is as tall as its content:
-  `taffy_style` makes a root's `width: auto` into `100%` under border-box
-  sizing, so the border box — padding and border inside it — is the offer,
-  CSS's block rule, which Taffy does not apply to a root; re-derived on
-  `AttachRoot`, since a node is styled before it is a root. It is what makes
-  the page a document a viewport scrolls over rather than a box shrunk to
-  its content (the first bare-root fixture laid out 89 pt wide, then 444
-  under `100%` alone). Declared: a root's margins are not subtracted; an
-  absolutely positioned root is exempt; and because the rule switches the
-  root to border-box, a root's `min_width`/`max_width` constrain its border
-  box rather than CSS's content box.
+- **A root fills the width it is offered** and is as tall as its content: it
+  is a block-level box in its offer, whatever it lays its children out as
+  (CSS 2.1 §10.3.3; vendored Taffy patch 19, LLP 1074). An automatic width is
+  the offer less the root's margins, its margins place it, and auto margins
+  centre a root narrower than its offer. It is what makes the page a document
+  a viewport scrolls over rather than a box shrunk to its content (the first
+  bare-root fixture laid out 89 pt wide). An absolutely positioned root keeps
+  its content size. This replaced a kernel rewrite of `width: auto` to `100%`
+  under border-box sizing (2026-09-30), which left margins unsubtracted and
+  made a content-box root's limits and height border-box.
 - **The kernel publishes scrollable overflow**: Taffy's `content_size` per
   node, on `NodeRef.content` — the content's extent in the node's own
   space, every descendant's overflow included. It is not quite CSS's

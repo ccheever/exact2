@@ -1282,12 +1282,11 @@ fn a_blur_command_reaches_the_batch_by_name() {
     );
 }
 
-/// A node is `relative` only where the kernel's missing `static` shows (LLP
-/// 1001 §1): over an absolute child, with an inset, or with a `z-index`. The
-/// parent follows its children: one that arrives absolute makes it `relative`,
-/// and its leaving takes that back.
+/// `position` is the plan's own (LLP 1074 T1): the page adds none for an
+/// inset, a `z-index` or an absolute child, which a static box ignores or
+/// does not contain in the kernel either.
 #[test]
-fn a_node_is_relative_only_where_it_positions_something() {
+fn a_node_takes_no_position_the_plan_did_not_give_it() {
     let plan = contract::compile(
         r##"component App
   state pinned = false
@@ -1300,6 +1299,7 @@ fn a_node_is_relative_only_where_it_positions_something() {
         text "a" testId="plain"
         text "b" top=4 testId="inset"
         text "c" z-index=2 testId="raised"
+        text "d" position="relative" top=4 testId="moved"
         when pinned
           box position="absolute" width=4 height=4 testId="badge"
 "##,
@@ -1322,36 +1322,31 @@ fn a_node_is_relative_only_where_it_positions_something() {
             .nth(1)
             .map(|c| c[..c.find('"').unwrap()].to_owned())
     };
-    assert!(
-        !css(&first, "plain", &host).unwrap().contains("position"),
-        "{first}"
-    );
-    assert!(
-        !css(&first, "frame", &host).unwrap().contains("position"),
-        "{first}"
-    );
-    assert!(css(&first, "inset", &host)
-        .unwrap()
-        .contains("position:relative;"));
-    assert!(css(&first, "raised", &host)
+    for test_id in ["plain", "frame", "inset", "raised"] {
+        assert!(
+            !css(&first, test_id, &host).unwrap().contains("position"),
+            "{test_id}: {first}"
+        );
+    }
+    assert!(css(&first, "moved", &host)
         .unwrap()
         .contains("position:relative;"));
     let pinned = host.dispatch(view_with_test_id(&host, "pin"), Event::Press);
-    let frame = css(&pinned, "frame", &host).expect("the frame restyled");
-    assert!(frame.contains("position:relative;"), "{pinned}");
+    assert!(
+        css(&pinned, "frame", &host).is_none_or(|frame| !frame.contains("position")),
+        "{pinned}"
+    );
     let badge = css(&pinned, "badge", &host).unwrap();
-    assert_eq!(badge.matches("position:").count(), 1, "{badge}");
-    let unpinned = host.dispatch(view_with_test_id(&host, "pin"), Event::Press);
-    let frame = css(&unpinned, "frame", &host).expect("the frame restyled");
-    assert!(!frame.contains("position"), "{unpinned}");
+    assert_eq!(badge.matches("position:absolute;").count(), 1, "{badge}");
 }
 
 /// The kernel paints in tree order; the page paints the positioned after the
-/// static. So whatever follows something positioned (in an earlier
-/// sibling's subtree) is `relative` too, and paints over it as it does
-/// natively: the text after an absolute photo, the section after the card.
+/// static. So a static box that follows something positioned (in an earlier
+/// sibling's subtree) is isolated, and paints over it as it does natively:
+/// the text after an absolute photo, the section after the card. Isolation
+/// is no containing block, so the photo stays where the plan put it.
 #[test]
-fn what_follows_a_positioned_node_is_relative() {
+fn what_follows_a_positioned_node_is_isolated() {
     let plan = contract::compile(
         r##"component App
   view
@@ -1381,8 +1376,8 @@ fn what_follows_a_positioned_node_is_relative() {
         let css = &at[at.find("\"css\":\"").unwrap() + 7..];
         css[..css.find('"').unwrap()].to_owned()
     };
-    for (test_id, relative) in [
-        ("card", true),
+    for (test_id, isolated) in [
+        ("card", false),
         ("info", true),
         ("after", true),
         ("later", true),
@@ -1391,18 +1386,19 @@ fn what_follows_a_positioned_node_is_relative() {
         ("faded", false),
     ] {
         assert_eq!(
-            css(test_id).contains("position:relative;"),
-            relative,
+            css(test_id).contains("isolation:isolate;"),
+            isolated,
             "{test_id}: {first}"
         );
+        assert!(!css(test_id).contains("position"), "{test_id}: {first}");
     }
     assert!(css("photo").contains("position:absolute;"));
     // The document says the same, for the page a server sends.
     let doc = host.document().unwrap().root;
-    for test_id in ["card", "info", "after", "later"] {
+    for test_id in ["info", "after", "later"] {
         let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
         let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert!(open.contains("position:relative;"), "{test_id}: {open}");
+        assert!(open.contains("isolation:isolate;"), "{test_id}: {open}");
     }
 }
 

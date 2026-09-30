@@ -1370,7 +1370,7 @@ impl<D: DataSource> Host<D> {
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
                 let css = host_css(&node, css, tag);
-                (props, layers::with_relative(css, self.layers.relative(id)))
+                (props, layers::with_isolation(css, self.layers.isolated(id)))
             }
         };
         let handlers: Vec<&str> = kinds
@@ -1428,7 +1428,7 @@ impl<D: DataSource> Host<D> {
             css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
         let css = host_css(&node, css, tag_for(&node, in_button));
-        let css = layers::with_relative(css, self.layers.relative(id));
+        let css = layers::with_isolation(css, self.layers.isolated(id));
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props

@@ -738,6 +738,11 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                // @ref LLP 1074 T1 — a box that contains its absolutely positioned
+                // descendants on every host is lowered `position: relative`.
+                let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
+                let relative = tags::positioned(&t, expanded, in_svg, *span)?;
+                let expanded = relative.as_deref().unwrap_or(expanded);
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));

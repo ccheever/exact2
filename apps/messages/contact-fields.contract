@@ -6,7 +6,7 @@ component ContactNameField
     write: action
     separated: bool
   view
-    row height=53 box-sizing="border-box" padding-left=16 padding-right=16 align-items="center"
+    row position="relative" height=53 box-sizing="border-box" padding-left=16 padding-right=16 align-items="center"
       input id=fieldId
         testId=fieldId
         aria-label=label

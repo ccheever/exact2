@@ -218,7 +218,9 @@ impl Lowerer<'_> {
                 return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put {axis} spacing inside measured rows until a collection inset policy is supported ({cross} remain allowed)", a.name), a.span);
             }
             let allowed = match a.name.as_str() {
-                "position" => matches!(&a.value, Expr::Str(s, _) if s == "relative"),
+                "position" => {
+                    matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")
+                }
                 "top" | "bottom" | "left" | "right" | "rotate" => {
                     numeric_literal(&a.value) == Some(0.0)
                 }

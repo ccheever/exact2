@@ -9,13 +9,13 @@ use std::rc::Rc;
 
 #[cfg(feature = "block_layout")]
 use crate::block::BlockContext;
-use crate::geometry::Size;
+use crate::geometry::{Point, Size};
 use crate::style::{AvailableSpace, Display, Style};
 use crate::sys::DefaultCheapStr;
 use crate::tree::{
     Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
     RunMode,
-    TraversePartialTree, TraverseTree,
+    TraversePartialTree, TraverseTree, StaticPosition,
 };
 use crate::util::debug::{debug_log, debug_log_node};
 use crate::util::sys::{new_vec_with_capacity, ChildrenVec, Vec};
@@ -178,6 +178,11 @@ pub struct TaffyTree<NodeContext = ()> {
 
     // EXACT PATCH 13: `calc()` handles resolve through a caller-supplied function.
     calc_resolver: fn(*const (), f32) -> f32,
+
+    // EXACT PATCH 20: the absolutely positioned boxes each containing block holds that are
+    // not its children (the caller's record), and the static position each one's parent kept.
+    hoisted_absolutes: SecondaryMap<DefaultKey, Vec<NodeId>>,
+    static_positions: SecondaryMap<DefaultKey, StaticPosition>,
 
     /// Layout mode configuration
     config: TaffyConfig,
@@ -493,6 +498,32 @@ where
             None,
         )
     }
+
+    #[inline(always)]
+    fn set_static_position(&mut self, node_id: NodeId, position: StaticPosition) {
+        self.taffy.static_positions.insert(node_id.into(), position);
+    }
+
+    #[inline(always)]
+    fn hoisted_absolute_count(&self, node_id: NodeId) -> usize {
+        self.taffy.hoisted_absolutes.get(node_id.into()).map_or(0, Vec::len)
+    }
+
+    fn hoisted_absolute(&self, node_id: NodeId, index: usize) -> Option<(NodeId, StaticPosition, Point<f32>)> {
+        let taffy = &*self.taffy;
+        let child = *taffy.hoisted_absolutes.get(node_id.into())?.get(index)?;
+        let position = *taffy.static_positions.get(child.into())?;
+        // The origin of the child's parent in `node_id`'s coordinates: the locations of the
+        // boxes from that parent up to, not including, `node_id`.
+        let mut origin = Point::ZERO;
+        let mut at = (*taffy.parents.get(child.into())?)?;
+        while at != node_id {
+            let location = taffy.nodes.get(at.into())?.unrounded_layout.location;
+            origin = Point { x: origin.x + location.x, y: origin.y + location.y };
+            at = (*taffy.parents.get(at.into())?)?;
+        }
+        Some((child, position, origin))
+    }
 }
 
 impl<NodeContext, MeasureFunction> CacheTree for TaffyView<'_, NodeContext, MeasureFunction>
@@ -644,6 +675,22 @@ impl<NodeContext> TaffyTree<NodeContext> {
             changed_layout_indices: SecondaryMap::new(),
             layout_inputs: SecondaryMap::new(),
             calc_resolver: |_, _| 0.0,
+            hoisted_absolutes: SecondaryMap::new(),
+            static_positions: SecondaryMap::new(),
+        }
+    }
+
+    /// EXACT PATCH 20 (LLP 1074 T1): say which absolutely positioned boxes each containing
+    /// block holds that are not its children: every box from such a box's parent up to, not
+    /// including, its owner is [`Position::Static`](crate::Position::Static). This replaces
+    /// the whole record. The caller keeps it current before each layout and marks dirty what
+    /// changed, as for any style or child change; a box missing from it is never laid out.
+    pub fn set_hoisted_absolutes(&mut self, owners: impl IntoIterator<Item = (NodeId, Vec<NodeId>)>) {
+        self.hoisted_absolutes.clear();
+        for (owner, nodes) in owners {
+            if self.nodes.contains_key(owner.into()) {
+                self.hoisted_absolutes.insert(owner.into(), nodes);
+            }
         }
     }
 
@@ -716,6 +763,8 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.changed_layouts.clear();
         self.changed_layout_indices.clear();
         self.layout_inputs.clear();
+        self.hoisted_absolutes.clear();
+        self.static_positions.clear();
     }
 
     /// Remove a specific node from the tree and drop it
@@ -741,6 +790,8 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let _ = self.parents.remove(key);
         let _ = self.nodes.remove(key);
         self.layout_inputs.remove(key);
+        self.hoisted_absolutes.remove(key);
+        self.static_positions.remove(key);
         if let Some(index) = self.changed_layout_indices.remove(key) {
             self.changed_layouts.swap_remove(index);
             if let Some(&moved) = self.changed_layouts.get(index) {

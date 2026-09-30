@@ -5,15 +5,16 @@ use crate::compute::common::alignment::{
 };
 use crate::geometry::{InBothAbsAxis, Line, Point, Rect, Size};
 use crate::style::{
-    AlignContent, AlignItems, AlignItemsKeyword, AlignSelf, AvailableSpace, CoreStyle, GridItemStyle, Overflow,
-    Position,
+    AlignContent, AlignItems, AlignItemsKeyword, AlignSelf, AlignmentSafety, AvailableSpace, CoreStyle,
+    GridItemStyle, Overflow, Position,
 };
-use crate::tree::{Layout, LayoutPartialTreeExt, NodeId, SizingMode};
+use crate::tree::{Layout, LayoutPartialTreeExt, NodeId, SizingMode, StaticAlignment, StaticPosition};
 use crate::util::sys::f32_max;
 use crate::util::{MaybeMath, MaybeResolve, ResolveOrZero};
 
 #[cfg(feature = "content_size")]
 use crate::compute::common::scrollable_overflow::compute_scrollable_overflow_contribution;
+use crate::compute::ratio::{floors_height, resolve_through, Ratio};
 use crate::compute::common::sizing_keyword::{resolve_sizing_keyword, SizingKeywordResolution};
 use crate::{AbsoluteAxis, BoxSizing, Direction, LayoutGridContainer};
 
@@ -142,23 +143,21 @@ pub(super) fn align_and_position_item(
     let box_sizing_adjustment =
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
+    // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`).
     let size_style = style.size();
-    let inherent_size = size_style
-        .maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
-        .maybe_apply_aspect_ratio(aspect_ratio)
-        .maybe_add(box_sizing_adjustment);
-    let min_size = style
+    let ratio = Ratio::of(&style, padding_border_size);
+    let raw_min_size = style
         .min_size()
         .maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
-        .maybe_add(box_sizing_adjustment)
-        .or(padding_border_size.map(Some))
-        .maybe_max(padding_border_size)
-        .maybe_apply_aspect_ratio(aspect_ratio);
-    let max_size = style
-        .max_size()
-        .maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
-        .maybe_apply_aspect_ratio(aspect_ratio)
         .maybe_add(box_sizing_adjustment);
+    let floors = floors_height(&style, raw_min_size.height);
+    let (inherent_size, min_size, max_size) = resolve_through(
+        ratio,
+        size_style.maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        raw_min_size,
+        style.max_size().maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        floors,
+    );
 
     // Resolve default alignment styles if they are set on neither the parent or the node itself
     // Note: if the child has a preferred aspect ratio but neither width or height are set, then the width is stretched
@@ -280,7 +279,8 @@ pub(super) fn align_and_position_item(
     });
 
     // Reapply aspect ratio after stretch and absolute position width adjustments
-    let Size { width, height } = Size { width, height: inherent_size.height }.maybe_apply_aspect_ratio(aspect_ratio);
+    let (Size { width, height }, min_size, max_size) =
+        resolve_through(ratio, Size { width, height: inherent_size.height }, min_size, max_size, floors);
 
     let height = height.or_else(|| {
         if position == Position::Absolute && !is_replaced {
@@ -328,7 +328,9 @@ pub(super) fn align_and_position_item(
         None
     });
     // Reapply aspect ratio after stretch and absolute position height adjustments
-    let Size { width, height } = Size { width, height }.maybe_apply_aspect_ratio(aspect_ratio);
+    let (Size { width, height }, min_size, max_size) =
+        resolve_through(ratio, Size { width, height }, min_size, max_size, floors);
+    let min_size = min_size.or(padding_border_size.map(Some)).maybe_max(padding_border_size);
 
     // Clamp size by min and max width/height
     let Size { width, height } = Size { width, height }.maybe_clamp(min_size, max_size);
@@ -511,4 +513,40 @@ pub(super) fn align_item_within_area(
     }
 
     (start, resolved_margin)
+}
+
+/// EXACT PATCH 20: where an absolutely positioned child sits on an axis with
+/// neither inset: aligned in `rect` by its `justify-self` and `align-self`, as
+/// an item is in its area (CSS Grid 1 §9.2).
+pub(super) fn static_position(
+    style: &impl GridItemStyle,
+    container_alignment_styles: InBothAbsAxis<Option<AlignItems>>,
+    direction: Direction,
+    rect: Rect<f32>,
+    order: u32,
+) -> StaticPosition {
+    let item_direction = style.direction();
+    let axis = |own: Option<AlignSelf>, container: Option<AlignItems>, horizontal: bool| {
+        let alignment = own
+            .or(container)
+            .map(|align| align.resolve_self_relative(item_direction, direction, horizontal))
+            .unwrap_or(AlignSelf::START);
+        let rtl = horizontal && direction.is_rtl();
+        let edge = |at_start: bool| if at_start { StaticAlignment::Start } else { StaticAlignment::End };
+        let of = |keyword: AlignItemsKeyword| match keyword {
+            AlignItemsKeyword::Start
+            | AlignItemsKeyword::FlexStart
+            | AlignItemsKeyword::Baseline
+            | AlignItemsKeyword::Stretch => edge(!rtl),
+            AlignItemsKeyword::End | AlignItemsKeyword::FlexEnd => edge(rtl),
+            AlignItemsKeyword::Center => StaticAlignment::Center,
+            // Resolved to Start/End against the item's own direction above.
+            AlignItemsKeyword::SelfStart | AlignItemsKeyword::SelfEnd => unreachable!(),
+        };
+        let safe = matches!(alignment.safety, AlignmentSafety::Safe).then(|| of(AlignItemsKeyword::Start));
+        (of(alignment.keyword), safe)
+    };
+    let (x, safe_x) = axis(style.justify_self(), container_alignment_styles.horizontal, true);
+    let (y, safe_y) = axis(style.align_self(), container_alignment_styles.vertical, false);
+    StaticPosition { rect, align: Point { x, y }, safe: Point { x: safe_x, y: safe_y }, order }
 }

@@ -10,9 +10,24 @@ use exact_kernel::{
     MonospaceMeasurer, NodeType, Offer, Op, Overflow, PositionType, PropId, StyleId, StyleProps,
 };
 
-struct Rng(u64);
+/// The second state is a stream of its own (`side`): draws from it leave the
+/// trees the first stream builds, and so the seeds named below, as they were.
+struct Rng(u64, u64);
 
 impl Rng {
+    fn new(seed: u64) -> Self {
+        Rng(seed, seed ^ 0x9e37_79b9_7f4a_7c15 | 1)
+    }
+
+    fn side(&mut self, n: u64) -> u64 {
+        let mut x = self.1;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.1 = x;
+        x % n
+    }
+
     fn next(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;
@@ -111,6 +126,27 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
         s.mask.set(StyleId::Left);
         s.top = Dimension::Points(rng.below(30) as f32);
         s.mask.set(StyleId::Top);
+        // LLP 1074 T1: an axis without an inset sits at its static position,
+        // and an end inset measures from the containing block's far edge.
+        match rng.side(6) {
+            0 => s.left = Dimension::Auto,
+            1 => s.top = Dimension::Auto,
+            2 => (s.left, s.top) = (Dimension::Auto, Dimension::Auto),
+            3 => {
+                (s.right, s.left) = (s.left, Dimension::Auto);
+                s.mask.set(StyleId::Right);
+            }
+            4 => {
+                (s.bottom, s.top) = (s.top, Dimension::Auto);
+                s.mask.set(StyleId::Bottom);
+            }
+            _ => {}
+        }
+    } else if rng.side(3) == 0 {
+        // A positioned box is the containing block of the absolute boxes
+        // under it; the rest are static and hand theirs up.
+        s.position_type = PositionType::Relative;
+        s.mask.set(StyleId::PositionType);
     }
     if rng.chance(4) {
         s.row_gap = rng.below(8) as f32;
@@ -406,7 +442,7 @@ fn frames(k: &Kernel) -> Vec<(u32, [u32; 6])> {
 
 fn run(seed: u64, rounds: usize) {
     let mut world = World {
-        rng: Rng(seed),
+        rng: Rng::new(seed),
         next_id: 1,
         live: Vec::new(),
         children: Vec::new(),
@@ -422,7 +458,7 @@ fn run(seed: u64, rounds: usize) {
 /// mutations inside the panes, where a relayout boundary replays them.
 fn run_panes(seed: u64, rounds: usize) {
     let mut world = World {
-        rng: Rng(seed),
+        rng: Rng::new(seed),
         next_id: 1,
         live: Vec::new(),
         children: Vec::new(),

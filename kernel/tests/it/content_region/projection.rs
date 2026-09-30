@@ -255,10 +255,18 @@ fn pending_placeholder_nested_offsets_use_the_same_parent_first_projection() {
     nested.mask = mask(&[StyleId::PaddingTop, StyleId::PaddingLeft]);
     nested.padding_top = Dimension::Points(0.1);
     nested.padding_left = Dimension::Points(0.1);
+    // The owner contains its absolutely positioned placeholder.
+    let mut owner = StyleProps::default();
+    owner.mask = mask(&[StyleId::PositionType]);
+    owner.position_type = PositionType::Relative;
     k.apply(
         0,
         0,
         &[
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(owner),
+            },
             Op::CreateView {
                 id: 8,
                 node_type: NodeType::View,

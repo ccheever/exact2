@@ -1,0 +1,279 @@
+block: absolute, both insets, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+block: absolute, non-zero insets, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=130,0,100,10
+block: absolute, one auto margin	display:block;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:10px>	2=230,0,100,10
+block: absolute, the other auto margin	display:block;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:10px;margin-right:auto>	2=30,0,100,10
+block: absolute, block axis margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:auto;>	2=0,35,100,10
+block: absolute, block axis one auto margin	display:block;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:5px>	2=0,55,100,10
+block: absolute, margin auto, wider than the space	display:block;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,500,10
+block: absolute, block margin auto, taller than the space	display:block;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;width:100px;height:150px;margin-top:auto;margin-bottom:auto;>	2=0,-25,100,150
+block: absolute, over-constrained	display:block;width:400px;height:100px	2>1>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=15,0,100,10
+block: absolute, one inset, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,100,10
+block: absolute, right inset only, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;right:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=290,0,100,10
+block: absolute, auto width between insets, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:10px;right:30px;top:0;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,360,10
+block rtl: absolute, both insets, margin auto	width:400px	2>1>display:block;height:100px;direction:rtl> & 3>2>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=130,0,100,10
+block rtl: absolute, margin auto, wider than the space	width:400px	2>1>display:block;height:100px;direction:rtl> & 3>2>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=-100,0,500,10
+block rtl: absolute, over-constrained	width:400px	2>1>display:block;height:100px;direction:rtl> & 3>2>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=0,0,400,100 3=285,0,100,10
+block: absolute, percentage insets, margin auto	display:block;width:400px;height:100px	2>1>position:absolute;left:10%;right:10%;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+block: padded container, absolute margin auto	display:block;width:400px;height:100px;padding-left:20px;padding-top:10px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=160,0,100,10
+block: absolute, width + ratio	display:block;width:400px;height:100px	2>1>position:absolute;width:100px;aspect-ratio:2>	2=0,0,100,50
+block: absolute, height + ratio	display:block;width:400px;height:100px	2>1>position:absolute;height:50px;aspect-ratio:2>	2=0,0,100,50
+block: absolute, insets give the width, ratio the height	display:block;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;aspect-ratio:2>	2=0,0,400,200
+block: absolute, insets give the height, ratio the width	display:block;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;aspect-ratio:2>	2=0,0,200,100
+block: absolute, width, ratio, max-height	display:block;width:400px;height:100px	2>1>position:absolute;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+block: absolute, height, ratio, max-width	display:block;width:400px;height:100px	2>1>position:absolute;height:80px;max-width:50px;aspect-ratio:1>	2=0,0,50,80
+block: absolute, ratio, max-height, inset width	display:block;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+block: absolute, ratio, min-height, width	display:block;width:400px;height:100px	2>1>position:absolute;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+block: absolute, ratio only	display:block;width:400px;height:100px	2>1>position:absolute;aspect-ratio:2> & 3>2>width:30px;height:10px>	2=0,0,30,15 3=0,0,30,10
+block: absolute, ratio, content taller than the ratio	display:block;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1>a b c d e	2=0,0,20,90
+block: absolute, ratio, content taller, min-height 0	display:block;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1;min-height:0>a b c d e	2=0,0,20,20
+block: absolute, ratio, padding, content-box	display:block;width:400px;height:100px	2>1>position:absolute;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+block: absolute, ratio, padding, border-box	display:block;width:400px;height:100px	2>1>position:absolute;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+block: absolute, width, height and ratio	display:block;width:400px;height:100px	2>1>position:absolute;width:100px;height:30px;aspect-ratio:1>	2=0,0,100,30
+flex: absolute, both insets, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+flex: absolute, non-zero insets, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=130,0,100,10
+flex: absolute, one auto margin	display:flex;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:10px>	2=230,0,100,10
+flex: absolute, the other auto margin	display:flex;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:10px;margin-right:auto>	2=30,0,100,10
+flex: absolute, block axis margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:auto;>	2=0,35,100,10
+flex: absolute, block axis one auto margin	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:5px>	2=0,55,100,10
+flex: absolute, margin auto, wider than the space	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,500,10
+flex: absolute, block margin auto, taller than the space	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;width:100px;height:150px;margin-top:auto;margin-bottom:auto;>	2=0,-25,100,150
+flex: absolute, over-constrained	display:flex;width:400px;height:100px	2>1>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=15,0,100,10
+flex: absolute, one inset, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,100,10
+flex: absolute, right inset only, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;right:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=290,0,100,10
+flex: absolute, auto width between insets, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:10px;right:30px;top:0;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,360,10
+flex rtl: absolute, both insets, margin auto	width:400px	2>1>display:flex;height:100px;direction:rtl> & 3>2>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=130,0,100,10
+flex rtl: absolute, margin auto, wider than the space	width:400px	2>1>display:flex;height:100px;direction:rtl> & 3>2>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=-100,0,500,10
+flex rtl: absolute, over-constrained	width:400px	2>1>display:flex;height:100px;direction:rtl> & 3>2>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=0,0,400,100 3=285,0,100,10
+flex: absolute, percentage insets, margin auto	display:flex;width:400px;height:100px	2>1>position:absolute;left:10%;right:10%;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+flex: padded container, absolute margin auto	display:flex;width:400px;height:100px;padding-left:20px;padding-top:10px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=160,0,100,10
+flex: absolute, width + ratio	display:flex;width:400px;height:100px	2>1>position:absolute;width:100px;aspect-ratio:2>	2=0,0,100,50
+flex: absolute, height + ratio	display:flex;width:400px;height:100px	2>1>position:absolute;height:50px;aspect-ratio:2>	2=0,0,100,50
+flex: absolute, insets give the width, ratio the height	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;aspect-ratio:2>	2=0,0,400,200
+flex: absolute, insets give the height, ratio the width	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;aspect-ratio:2>	2=0,0,200,100
+flex: absolute, width, ratio, max-height	display:flex;width:400px;height:100px	2>1>position:absolute;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+flex: absolute, height, ratio, max-width	display:flex;width:400px;height:100px	2>1>position:absolute;height:80px;max-width:50px;aspect-ratio:1>	2=0,0,50,80
+flex: absolute, ratio, max-height, inset width	display:flex;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+flex: absolute, ratio, min-height, width	display:flex;width:400px;height:100px	2>1>position:absolute;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+flex: absolute, ratio only	display:flex;width:400px;height:100px	2>1>position:absolute;aspect-ratio:2> & 3>2>width:30px;height:10px>	2=0,0,30,15 3=0,0,30,10
+flex: absolute, ratio, content taller than the ratio	display:flex;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1>a b c d e	2=0,0,20,90
+flex: absolute, ratio, content taller, min-height 0	display:flex;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1;min-height:0>a b c d e	2=0,0,20,20
+flex: absolute, ratio, padding, content-box	display:flex;width:400px;height:100px	2>1>position:absolute;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+flex: absolute, ratio, padding, border-box	display:flex;width:400px;height:100px	2>1>position:absolute;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+flex: absolute, width, height and ratio	display:flex;width:400px;height:100px	2>1>position:absolute;width:100px;height:30px;aspect-ratio:1>	2=0,0,100,30
+grid: absolute, both insets, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+grid: absolute, non-zero insets, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=130,0,100,10
+grid: absolute, one auto margin	display:grid;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:10px>	2=230,0,100,10
+grid: absolute, the other auto margin	display:grid;width:400px;height:100px	2>1>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:10px;margin-right:auto>	2=30,0,100,10
+grid: absolute, block axis margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:auto;>	2=0,35,100,10
+grid: absolute, block axis one auto margin	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;top:10px;bottom:30px;width:100px;height:10px;margin-top:auto;margin-bottom:5px>	2=0,55,100,10
+grid: absolute, margin auto, wider than the space	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,500,10
+grid: absolute, block margin auto, taller than the space	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;width:100px;height:150px;margin-top:auto;margin-bottom:auto;>	2=0,-25,100,150
+grid: absolute, over-constrained	display:grid;width:400px;height:100px	2>1>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=15,0,100,10
+grid: absolute, one inset, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,100,10
+grid: absolute, right inset only, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;right:10px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=290,0,100,10
+grid: absolute, auto width between insets, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:10px;right:30px;top:0;height:10px;margin-left:auto;margin-right:auto;>	2=10,0,360,10
+grid rtl: absolute, both insets, margin auto	width:400px	2>1>display:grid;height:100px;direction:rtl> & 3>2>position:absolute;left:20px;right:60px;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=130,0,100,10
+grid rtl: absolute, margin auto, wider than the space	width:400px	2>1>display:grid;height:100px;direction:rtl> & 3>2>position:absolute;left:0;right:0;top:0;width:500px;height:10px;margin-left:auto;margin-right:auto;>	2=0,0,400,100 3=-100,0,500,10
+grid rtl: absolute, over-constrained	width:400px	2>1>display:grid;height:100px;direction:rtl> & 3>2>position:absolute;left:10px;right:10px;top:0;width:100px;height:10px;margin-left:5px;margin-right:5px>	2=0,0,400,100 3=285,0,100,10
+grid: absolute, percentage insets, margin auto	display:grid;width:400px;height:100px	2>1>position:absolute;left:10%;right:10%;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=150,0,100,10
+grid: padded container, absolute margin auto	display:grid;width:400px;height:100px;padding-left:20px;padding-top:10px	2>1>position:absolute;left:0;right:0;top:0;width:100px;height:10px;margin-left:auto;margin-right:auto;>	2=160,0,100,10
+grid: absolute, width + ratio	display:grid;width:400px;height:100px	2>1>position:absolute;width:100px;aspect-ratio:2>	2=0,0,100,50
+grid: absolute, height + ratio	display:grid;width:400px;height:100px	2>1>position:absolute;height:50px;aspect-ratio:2>	2=0,0,100,50
+grid: absolute, insets give the width, ratio the height	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;aspect-ratio:2>	2=0,0,400,200
+grid: absolute, insets give the height, ratio the width	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;top:0;bottom:0;aspect-ratio:2>	2=0,0,200,100
+grid: absolute, width, ratio, max-height	display:grid;width:400px;height:100px	2>1>position:absolute;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid: absolute, height, ratio, max-width	display:grid;width:400px;height:100px	2>1>position:absolute;height:80px;max-width:50px;aspect-ratio:1>	2=0,0,50,80
+grid: absolute, ratio, max-height, inset width	display:grid;width:400px;height:100px	2>1>position:absolute;left:0;right:0;top:0;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+grid: absolute, ratio, min-height, width	display:grid;width:400px;height:100px	2>1>position:absolute;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid: absolute, ratio only	display:grid;width:400px;height:100px	2>1>position:absolute;aspect-ratio:2> & 3>2>width:30px;height:10px>	2=0,0,30,15 3=0,0,30,10
+grid: absolute, ratio, content taller than the ratio	display:grid;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1>a b c d e	2=0,0,20,90
+grid: absolute, ratio, content taller, min-height 0	display:grid;width:400px;height:100px	2>1>position:absolute;width:20px;aspect-ratio:1;min-height:0>a b c d e	2=0,0,20,20
+grid: absolute, ratio, padding, content-box	display:grid;width:400px;height:100px	2>1>position:absolute;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid: absolute, ratio, padding, border-box	display:grid;width:400px;height:100px	2>1>position:absolute;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid: absolute, width, height and ratio	display:grid;width:400px;height:100px	2>1>position:absolute;width:100px;height:30px;aspect-ratio:1>	2=0,0,100,30
+block in block: width + ratio	width:400px	2>1>display:block;width:200px;aspect-ratio:2>	2=0,0,200,100
+block in block: ratio only	width:400px	2>1>display:block;aspect-ratio:2>	2=0,0,400,200
+block in block: height + ratio	width:400px	2>1>display:block;height:50px;aspect-ratio:2>	2=0,0,100,50
+block in block: width, ratio, max-height	width:400px	2>1>display:block;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+block in block: ratio, max-height	width:400px	2>1>display:block;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+block in block: ratio, min-height	width:400px	2>1>display:block;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+block in block: width + ratio, taller content	width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+block in block: width + ratio, taller content, min-height 0	width:400px	2>1>display:block;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+block in block: width + ratio, a child that fills	width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+block in block: width + ratio, padding, border-box	width:400px	2>1>display:block;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+block in block: width + ratio, padding, content-box	width:400px	2>1>display:block;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+block in flex row: width + ratio	display:flex;width:400px	2>1>display:block;width:200px;aspect-ratio:2>	2=0,0,200,100
+block in flex row: ratio only	display:flex;width:400px	2>1>display:block;aspect-ratio:2>	2=0,0,0,0
+block in flex row: height + ratio	display:flex;width:400px	2>1>display:block;height:50px;aspect-ratio:2>	2=0,0,100,50
+block in flex row: width, ratio, max-height	display:flex;width:400px	2>1>display:block;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+block in flex row: ratio, max-height	display:flex;width:400px	2>1>display:block;max-height:100px;aspect-ratio:1>	2=0,0,0,0
+block in flex row: ratio, min-height	display:flex;width:400px	2>1>display:block;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+block in flex row: width + ratio, taller content	display:flex;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+block in flex row: width + ratio, taller content, min-height 0	display:flex;width:400px	2>1>display:block;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+block in flex row: width + ratio, a child that fills	display:flex;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+block in flex row: width + ratio, padding, border-box	display:flex;width:400px	2>1>display:block;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+block in flex row: width + ratio, padding, content-box	display:flex;width:400px	2>1>display:block;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+block in flex column: width + ratio	display:flex;flex-direction:column;width:400px	2>1>display:block;width:200px;aspect-ratio:2>	2=0,0,200,100
+block in flex column: ratio only	display:flex;flex-direction:column;width:400px	2>1>display:block;aspect-ratio:2>	2=0,0,400,200
+block in flex column: height + ratio	display:flex;flex-direction:column;width:400px	2>1>display:block;height:50px;aspect-ratio:2>	2=0,0,400,50
+block in flex column: width, ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:block;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+block in flex column: ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:block;max-height:100px;aspect-ratio:1>	2=0,0,400,100
+block in flex column: ratio, min-height	display:flex;flex-direction:column;width:400px	2>1>display:block;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+block in flex column: width + ratio, taller content	display:flex;flex-direction:column;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+block in flex column: width + ratio, taller content, min-height 0	display:flex;flex-direction:column;width:400px	2>1>display:block;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+block in flex column: width + ratio, a child that fills	display:flex;flex-direction:column;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+block in flex column: width + ratio, padding, border-box	display:flex;flex-direction:column;width:400px	2>1>display:block;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+block in flex column: width + ratio, padding, content-box	display:flex;flex-direction:column;width:400px	2>1>display:block;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+block in grid: width + ratio	display:grid;width:400px	2>1>display:block;width:200px;aspect-ratio:2>	2=0,0,200,100
+block in grid: ratio only	display:grid;width:400px	2>1>display:block;aspect-ratio:2>	2=0,0,400,200
+block in grid: height + ratio	display:grid;width:400px	2>1>display:block;height:50px;aspect-ratio:2>	2=0,0,100,50
+block in grid: width, ratio, max-height	display:grid;width:400px	2>1>display:block;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+block in grid: ratio, max-height	display:grid;width:400px	2>1>display:block;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+block in grid: ratio, min-height	display:grid;width:400px	2>1>display:block;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+block in grid: width + ratio, taller content	display:grid;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+block in grid: width + ratio, taller content, min-height 0	display:grid;width:400px	2>1>display:block;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+block in grid: width + ratio, a child that fills	display:grid;width:400px	2>1>display:block;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+block in grid: width + ratio, padding, border-box	display:grid;width:400px	2>1>display:block;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+block in grid: width + ratio, padding, content-box	display:grid;width:400px	2>1>display:block;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+flex in block: width + ratio	width:400px	2>1>display:flex;width:200px;aspect-ratio:2>	2=0,0,200,100
+flex in block: ratio only	width:400px	2>1>display:flex;aspect-ratio:2>	2=0,0,400,200
+flex in block: height + ratio	width:400px	2>1>display:flex;height:50px;aspect-ratio:2>	2=0,0,100,50
+flex in block: width, ratio, max-height	width:400px	2>1>display:flex;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+flex in block: ratio, max-height	width:400px	2>1>display:flex;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+flex in block: ratio, min-height	width:400px	2>1>display:flex;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+flex in block: width + ratio, taller content	width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+flex in block: width + ratio, taller content, min-height 0	width:400px	2>1>display:flex;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+flex in block: width + ratio, a child that fills	width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+flex in block: width + ratio, padding, border-box	width:400px	2>1>display:flex;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+flex in block: width + ratio, padding, content-box	width:400px	2>1>display:flex;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+flex in flex row: width + ratio	display:flex;width:400px	2>1>display:flex;width:200px;aspect-ratio:2>	2=0,0,200,100
+flex in flex row: ratio only	display:flex;width:400px	2>1>display:flex;aspect-ratio:2>	2=0,0,0,0
+flex in flex row: height + ratio	display:flex;width:400px	2>1>display:flex;height:50px;aspect-ratio:2>	2=0,0,100,50
+flex in flex row: width, ratio, max-height	display:flex;width:400px	2>1>display:flex;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+flex in flex row: ratio, max-height	display:flex;width:400px	2>1>display:flex;max-height:100px;aspect-ratio:1>	2=0,0,0,0
+flex in flex row: ratio, min-height	display:flex;width:400px	2>1>display:flex;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+flex in flex row: width + ratio, taller content	display:flex;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+flex in flex row: width + ratio, taller content, min-height 0	display:flex;width:400px	2>1>display:flex;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+flex in flex row: width + ratio, a child that fills	display:flex;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+flex in flex row: width + ratio, padding, border-box	display:flex;width:400px	2>1>display:flex;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+flex in flex row: width + ratio, padding, content-box	display:flex;width:400px	2>1>display:flex;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+flex in flex column: width + ratio	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:200px;aspect-ratio:2>	2=0,0,200,100
+flex in flex column: ratio only	display:flex;flex-direction:column;width:400px	2>1>display:flex;aspect-ratio:2>	2=0,0,400,200
+flex in flex column: height + ratio	display:flex;flex-direction:column;width:400px	2>1>display:flex;height:50px;aspect-ratio:2>	2=0,0,400,50
+flex in flex column: width, ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+flex in flex column: ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:flex;max-height:100px;aspect-ratio:1>	2=0,0,400,100
+flex in flex column: ratio, min-height	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+flex in flex column: width + ratio, taller content	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+flex in flex column: width + ratio, taller content, min-height 0	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+flex in flex column: width + ratio, a child that fills	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+flex in flex column: width + ratio, padding, border-box	display:flex;flex-direction:column;width:400px	2>1>display:flex;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+flex in flex column: width + ratio, padding, content-box	display:flex;flex-direction:column;width:400px	2>1>display:flex;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+flex in grid: width + ratio	display:grid;width:400px	2>1>display:flex;width:200px;aspect-ratio:2>	2=0,0,200,100
+flex in grid: ratio only	display:grid;width:400px	2>1>display:flex;aspect-ratio:2>	2=0,0,400,200
+flex in grid: height + ratio	display:grid;width:400px	2>1>display:flex;height:50px;aspect-ratio:2>	2=0,0,100,50
+flex in grid: width, ratio, max-height	display:grid;width:400px	2>1>display:flex;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+flex in grid: ratio, max-height	display:grid;width:400px	2>1>display:flex;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+flex in grid: ratio, min-height	display:grid;width:400px	2>1>display:flex;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+flex in grid: width + ratio, taller content	display:grid;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+flex in grid: width + ratio, taller content, min-height 0	display:grid;width:400px	2>1>display:flex;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+flex in grid: width + ratio, a child that fills	display:grid;width:400px	2>1>display:flex;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+flex in grid: width + ratio, padding, border-box	display:grid;width:400px	2>1>display:flex;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+flex in grid: width + ratio, padding, content-box	display:grid;width:400px	2>1>display:flex;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid in block: width + ratio	width:400px	2>1>display:grid;width:200px;aspect-ratio:2>	2=0,0,200,100
+grid in block: ratio only	width:400px	2>1>display:grid;aspect-ratio:2>	2=0,0,400,200
+grid in block: height + ratio	width:400px	2>1>display:grid;height:50px;aspect-ratio:2>	2=0,0,100,50
+grid in block: width, ratio, max-height	width:400px	2>1>display:grid;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid in block: ratio, max-height	width:400px	2>1>display:grid;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+grid in block: ratio, min-height	width:400px	2>1>display:grid;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid in block: width + ratio, taller content	width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+grid in block: width + ratio, taller content, min-height 0	width:400px	2>1>display:grid;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+grid in block: width + ratio, a child that fills	width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+grid in block: width + ratio, padding, border-box	width:400px	2>1>display:grid;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid in block: width + ratio, padding, content-box	width:400px	2>1>display:grid;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid in flex row: width + ratio	display:flex;width:400px	2>1>display:grid;width:200px;aspect-ratio:2>	2=0,0,200,100
+grid in flex row: ratio only	display:flex;width:400px	2>1>display:grid;aspect-ratio:2>	2=0,0,0,0
+grid in flex row: height + ratio	display:flex;width:400px	2>1>display:grid;height:50px;aspect-ratio:2>	2=0,0,100,50
+grid in flex row: width, ratio, max-height	display:flex;width:400px	2>1>display:grid;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid in flex row: ratio, max-height	display:flex;width:400px	2>1>display:grid;max-height:100px;aspect-ratio:1>	2=0,0,0,0
+grid in flex row: ratio, min-height	display:flex;width:400px	2>1>display:grid;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid in flex row: width + ratio, taller content	display:flex;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+grid in flex row: width + ratio, taller content, min-height 0	display:flex;width:400px	2>1>display:grid;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+grid in flex row: width + ratio, a child that fills	display:flex;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+grid in flex row: width + ratio, padding, border-box	display:flex;width:400px	2>1>display:grid;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid in flex row: width + ratio, padding, content-box	display:flex;width:400px	2>1>display:grid;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid in flex column: width + ratio	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:200px;aspect-ratio:2>	2=0,0,200,100
+grid in flex column: ratio only	display:flex;flex-direction:column;width:400px	2>1>display:grid;aspect-ratio:2>	2=0,0,400,200
+grid in flex column: height + ratio	display:flex;flex-direction:column;width:400px	2>1>display:grid;height:50px;aspect-ratio:2>	2=0,0,400,50
+grid in flex column: width, ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid in flex column: ratio, max-height	display:flex;flex-direction:column;width:400px	2>1>display:grid;max-height:100px;aspect-ratio:1>	2=0,0,400,100
+grid in flex column: ratio, min-height	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid in flex column: width + ratio, taller content	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+grid in flex column: width + ratio, taller content, min-height 0	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+grid in flex column: width + ratio, a child that fills	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+grid in flex column: width + ratio, padding, border-box	display:flex;flex-direction:column;width:400px	2>1>display:grid;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid in flex column: width + ratio, padding, content-box	display:flex;flex-direction:column;width:400px	2>1>display:grid;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid in grid: width + ratio	display:grid;width:400px	2>1>display:grid;width:200px;aspect-ratio:2>	2=0,0,200,100
+grid in grid: ratio only	display:grid;width:400px	2>1>display:grid;aspect-ratio:2>	2=0,0,400,200
+grid in grid: height + ratio	display:grid;width:400px	2>1>display:grid;height:50px;aspect-ratio:2>	2=0,0,100,50
+grid in grid: width, ratio, max-height	display:grid;width:400px	2>1>display:grid;width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid in grid: ratio, max-height	display:grid;width:400px	2>1>display:grid;max-height:100px;aspect-ratio:1>	2=0,0,100,100
+grid in grid: ratio, min-height	display:grid;width:400px	2>1>display:grid;width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid in grid: width + ratio, taller content	display:grid;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:150px;width:10px>	2=0,0,100,150 3=0,0,10,150
+grid in grid: width + ratio, taller content, min-height 0	display:grid;width:400px	2>1>display:grid;width:100px;aspect-ratio:2;min-height:0> & 3>2>height:150px;width:10px>	2=0,0,100,50 3=0,0,10,150
+grid in grid: width + ratio, a child that fills	display:grid;width:400px	2>1>display:grid;width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+grid in grid: width + ratio, padding, border-box	display:grid;width:400px	2>1>display:grid;box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid in grid: width + ratio, padding, content-box	display:grid;width:400px	2>1>display:grid;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+block root: width + ratio	display:block;width:400px;aspect-ratio:2	2>1>height:10px>	2=0,0,400,10
+block root: ratio only	display:block;aspect-ratio:2	2>1>height:10px>	2=0,0,800,10
+block root: height + ratio	display:block;height:100px;aspect-ratio:2	2>1>height:10px>	2=0,0,200,10
+block root: width, ratio, max-height	display:block;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	2=0,0,200,10
+block root: ratio, max-height	display:block;max-height:100px;aspect-ratio:1	2>1>height:10px>	2=0,0,100,10
+block root: width + ratio, taller content	display:block;width:100px;aspect-ratio:2	2>1>height:150px;width:10px>	2=0,0,10,150
+block root: width, margin auto	display:block;width:100px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=350,0,100,10 2=350,0,100,10
+block root: width, margin-left auto	display:block;width:100px;margin-left:auto	2>1>height:10px>	1=700,0,100,10 2=700,0,100,10
+block root: width, margin-left auto, margin-right 30	display:block;width:100px;margin-left:auto;margin-right:30px	2>1>height:10px>	1=670,0,100,10 2=670,0,100,10
+block root: auto width, margin auto	display:block;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,800,10 2=0,0,800,10
+block root: auto width, margins	display:block;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,720,10
+block root: width, margins	display:block;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,100,10
+block root: wider than the offer, margin auto	display:block;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+flex root: width + ratio	display:flex;width:400px;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
+flex root: ratio only	display:flex;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
+flex root: height + ratio	display:flex;height:100px;aspect-ratio:2	2>1>height:10px>	2=0,0,0,10
+flex root: width, ratio, max-height	display:flex;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	2=0,0,0,10
+flex root: ratio, max-height	display:flex;max-height:100px;aspect-ratio:1	2>1>height:10px>	2=0,0,0,10
+flex root: width + ratio, taller content	display:flex;width:100px;aspect-ratio:2	2>1>height:150px;width:10px>	2=0,0,10,150
+flex root: width, margin auto	display:flex;width:100px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=350,0,100,10 2=350,0,0,10
+flex root: width, margin-left auto	display:flex;width:100px;margin-left:auto	2>1>height:10px>	1=700,0,100,10 2=700,0,0,10
+flex root: width, margin-left auto, margin-right 30	display:flex;width:100px;margin-left:auto;margin-right:30px	2>1>height:10px>	1=670,0,100,10 2=670,0,0,10
+flex root: auto width, margin auto	display:flex;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,800,10 2=0,0,0,10
+flex root: auto width, margins	display:flex;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,0,10
+flex root: width, margins	display:flex;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,0,10
+flex root: wider than the offer, margin auto	display:flex;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,0,10
+grid root: width + ratio	display:grid;width:400px;aspect-ratio:2	2>1>height:10px>	2=0,0,400,10
+grid root: ratio only	display:grid;aspect-ratio:2	2>1>height:10px>	2=0,0,800,10
+grid root: height + ratio	display:grid;height:100px;aspect-ratio:2	2>1>height:10px>	2=0,0,200,10
+grid root: width, ratio, max-height	display:grid;width:200px;max-height:50px;aspect-ratio:1	2>1>height:10px>	2=0,0,200,10
+grid root: ratio, max-height	display:grid;max-height:100px;aspect-ratio:1	2>1>height:10px>	2=0,0,100,10
+grid root: width + ratio, taller content	display:grid;width:100px;aspect-ratio:2	2>1>height:150px;width:10px>	2=0,0,10,150
+grid root: width, margin auto	display:grid;width:100px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=350,0,100,10 2=350,0,100,10
+grid root: width, margin-left auto	display:grid;width:100px;margin-left:auto	2>1>height:10px>	1=700,0,100,10 2=700,0,100,10
+grid root: width, margin-left auto, margin-right 30	display:grid;width:100px;margin-left:auto;margin-right:30px	2>1>height:10px>	1=670,0,100,10 2=670,0,100,10
+grid root: auto width, margin auto	display:grid;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,800,10 2=0,0,800,10
+grid root: auto width, margins	display:grid;margin-left:30px;margin-right:50px	2>1>height:10px>	1=30,0,720,10 2=30,0,720,10
+grid root: width, margins	display:grid;width:100px;margin-left:30px;margin-top:20px	2>1>height:10px>	1=30,20,100,10 2=30,20,100,10
+grid root: wider than the offer, margin auto	display:grid;width:900px;margin-left:auto;margin-right:auto;	2>1>height:10px>	1=0,0,900,10 2=0,0,900,10
+grid item: ratio only	display:grid;width:400px	2>1>aspect-ratio:2>	2=0,0,400,200
+grid item: width + ratio	display:grid;width:400px	2>1>width:100px;aspect-ratio:2>	2=0,0,100,50
+grid item: height + ratio	display:grid;width:400px	2>1>height:50px;aspect-ratio:2>	2=0,0,100,50
+grid item: width, ratio, max-height	display:grid;width:400px	2>1>width:200px;max-height:50px;aspect-ratio:1>	2=0,0,200,50
+grid item: ratio, max-height	display:grid;width:400px	2>1>max-height:100px;aspect-ratio:1>	2=0,0,100,100
+grid item: ratio, min-height, width	display:grid;width:400px	2>1>width:50px;min-height:80px;aspect-ratio:1>	2=0,0,50,80
+grid item: ratio, content taller	display:grid;width:400px	2>1>width:20px;aspect-ratio:1>a b c d e & 3>1>height:10px>	1=0,0,400,100 2=0,0,20,90 3=0,90,400,10
+grid item: ratio, a child that fills	display:grid;width:400px	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%;width:100%>	2=0,0,100,50 3=0,0,100,50
+grid item: ratio, content taller, min-height 0	display:grid;width:400px	2>1>width:20px;aspect-ratio:1;min-height:0>a b c d e	2=0,0,20,20
+grid item: ratio, padding, border-box	display:grid;width:400px	2>1>box-sizing:border-box;width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,100,100
+grid item: ratio, padding, content-box	display:grid;width:400px	2>1>width:100px;padding-left:10px;padding-top:10px;aspect-ratio:1>	2=0,0,110,110
+grid item: two items, ratio only	display:grid;width:400px	2>1>aspect-ratio:4> & 3>1>height:10px>	2=0,0,400,100 3=0,100,400,10
+grid item: definite row height, ratio	display:grid;width:400px;height:100px	2>1>aspect-ratio:2>	2=0,0,400,200
+grid item: align-items flex-start, ratio only	display:grid;width:400px;align-items:flex-start	2>1>aspect-ratio:2> & 3>2>width:30px;height:10px>	2=0,0,400,200 3=0,0,30,10
+grid item: justify-items flex-start, ratio, height	display:grid;width:400px;justify-items:flex-start	2>1>height:40px;aspect-ratio:2>	2=0,0,80,40

@@ -379,22 +379,37 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
   `timeline-scope` is emitted as CSS too, for the timelines the browser
   will resolve (D5), and as `--exact-timeline-scope` for the glue's lookup.
 
-Declared deviations, each because the engine cannot express the CSS value:
-`position` has no `static` (Taffy positions an absolute child against its parent,
-so `relative` without insets is the closest box; a web host makes a node
-`position: relative` where that shows — over an absolute child, with an
-inset or a `z-index`, or after something in tree order that paints with the
-positioned (a positioned box or a stacking context in an earlier sibling's
-subtree), which a static box would paint under while the kernel paints in
-tree order — and leaves the rest `static`, which paints, hit-tests and
-composites without a layer of its own; `host/web/src/layers.rs`). This
-paint-order rule replaced the page's blanket `#exact-root * { position:
-relative }` (2026-09-29): a positioned box is a paint layer, and with every
-node one, a 10k-row grid spent 50–70 ms per interaction in hit-testing and
-compositor commit (select a row: 150 ms input→paint, 63 ms after). A narrower
-rule that kept only containing blocks, insets and `z-index` changed pixels —
-text after an absolute photo painted under it — which is why whatever follows
-something positioned stays `relative`. `text_align` is CSS's (`start` initially;
+Declared deviations, and beside each what is CSS's own:
+`position` is CSS's (LLP 1074 T1, 2026-09-30): `static | relative | absolute`,
+`static` initially. An absolutely positioned box is placed against its nearest
+positioned ancestor, or the root, and sits at its static position on an axis
+with neither inset (vendored Taffy patches 18 and 20, held by 79 literal-Chrome
+cases). A static box's insets do nothing, and its `z-index` applies only when
+it is a flex or grid item. Declared, as what stays of the old rule that every
+box was a containing block:
+- **A box that clips, scrolls, transforms or animates is `position: relative`
+  unless it names a position.** The Contract compiler lowers it
+  (`contract/lower/src/tags.rs`, `CONTAINS_ABSOLUTE`), and refuses an authored
+  `position: static` there. A transform or a filter makes a containing block in
+  CSS too. `overflow` and motion at rest do not: a native host clips and
+  scrolls a box's view subtree, so a descendant placed against a box outside it
+  would still be clipped and scrolled by it, and a browser makes a box a
+  containing block while a transform runs on it. The kernel's own rule is
+  position alone; a producer other than the compiler sets the row itself.
+- **The kernel paints in tree order.** A page paints its positioned boxes and
+  stacking contexts after its in-flow boxes, so a web host makes a static box
+  that follows one of those in tree order `isolation: isolate`
+  (`host/web/src/layers.rs`): it then paints in tree order with them and is no
+  containing block. This rule replaced `position: relative` there, which had
+  replaced the page's blanket `#exact-root * { position: relative }`
+  (2026-09-29): a positioned box is a paint layer, and with every node one, a
+  10k-row grid spent 50–70 ms per interaction in hit-testing and compositor
+  commit (select a row: 150 ms input→paint, 63 ms after).
+- **`z-index` orders siblings.** Apple's presenters give it to the layer
+  (`usedZIndex`); the Linux painter does not read it. CSS orders a whole
+  stacking context.
+- **`position: fixed` and `sticky` are not rows.**
+`text_align` is CSS's (`start` initially;
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
 1053). CSS `direction` orders flex rows and places blocks in the kernel, and
@@ -423,12 +438,15 @@ on its own; with neither given, min/max resolve by CSS 2.1 §10.4's table
 stored as authored). A non-replaced box's derived height is a floor its
 content can pass unless `min-height` is set or it scrolls; min/max transfer
 through the ratio only into an axis the box does not size. Declared, as not yet
-done: the automatic minimum of a *width* derived from a height; absolutely
-positioned boxes, grid items and a flex/grid container's own ratio keep
-upstream Taffy's transfer (`vendor/taffy/EXACT-PATCHES.md` patch 12). Declared: in
-*block* flow Taffy stretches an auto-width image to its container where CSS
-would use the intrinsic width (in a stretching flex column both stretch, by
-ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
+done: the automatic minimum of a *width* derived from a height; and a height
+the ratio derives is a floor, so under a block or grid parent a child's
+`height: 100%` is `auto` where Chrome resolves it against that height
+(`min-height: 0` on the box makes it definite). Absolutely positioned boxes,
+grid items, a flex or grid container's own ratio and the root size through the
+ratio as block and flex items do (LLP 1074 T2; `vendor/taffy/EXACT-PATCHES.md`
+patches 12, 18 and 19). In block flow an auto-width image keeps its intrinsic
+width, as CSS has it; in a stretching flex column it stretches, by ratio
+(`kernel/tests/it/image.rs`; LLP 1011).
 A `Canvas` is replaced too: before any row its natural size is its bitmap's
 default, 300×150, so it has the natural ratio 2:1, which a plain
 `aspect-ratio` overrides. An `iframe` (`WebView`), a `Video` before its

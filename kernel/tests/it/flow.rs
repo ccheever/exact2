@@ -441,7 +441,14 @@ fn small_side_context_does_not_remeasure_ten_thousand_ordinary_leaves() {
     }
     ops.extend([
         create(10002, NodeType::View),
-        sized(10002, 600., 400.),
+        patch(
+            10002,
+            &[
+                (StyleId::Width, n(600.)),
+                (StyleId::Height, n(400.)),
+                (StyleId::PositionType, t("relative")),
+            ],
+        ),
         create(10003, NodeType::Text),
         sized(10003, 600., 400.),
         text(10003),
