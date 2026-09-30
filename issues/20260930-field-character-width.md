@@ -12,3 +12,46 @@ A text field at `field-sizing: fixed` (the default) is 20 characters wide, as HT
 Measured 2026-09-30 with a fixture of fields in block, flex, absolute and percentage containers, driven on web, macOS and Linux (`agent.mjs <host> --plan inputs.plan layout`). After the stretch fix, every case agrees in kind; only this width differs.
 
 To match: the text measurer needs one more question, the font's average character width (CoreText: the OS/2 table through `CTFontCopyTable`; cosmic-text: the face's OS/2 table), with `0`'s width as the fallback when a font has none, as Blink does. The kernel would then multiply by the field's size (20) where it now measures the string.
+
+## What Blink does, and why it isn't matched yet (2026-09-30, later)
+
+Blink's rule, read from its source (`core/layout/layout_box.cc`
+`TextFieldIntrinsicInlineSize` and `TextAreaIntrinsicInlineSize`;
+`core/layout/forms/layout_text_control.cc` `GetAvgCharWidth`,
+`HasValidAvgCharWidth`):
+
+- `char` is the primary font's OS/2 average width, `max(avg, roundf(avg))`,
+  unless the family is on Blink's list of fonts with a bad average
+  (Helvetica, Times, Courier, Lucida Grande and about 40 more) or the
+  average exceeds 1.7 × the width of `0`; then `char` is the width of `0`.
+- An input is `ceil(size × char + (maxChar − char))`, `size` 20, with
+  `maxChar` the font's `MaxCharWidth` when the average is valid, else 0.
+- A textarea is `ceil(cols × char)` plus the scrollbar's thickness under
+  `overflow: auto`.
+
+Chrome's measured widths for the page's generic families, content box, px
+(`--plan` fixture, headless Chrome on macOS 27):
+
+| family | 13 | 16 | 20 | textarea 16 |
+|---|---|---|---|---|
+| system-ui | 146 | 175 | 214 | 183 |
+| sans-serif | 145 | 166 | 208 | 175 |
+| serif | 145 | 166 | 208 | 175 |
+| monospace | 164 | 205 | 248 | 215 |
+
+These do not follow from the macOS fonts' own tables under that rule.
+CoreText gives SF (`.SFNS-Regular`) at 16 px an average of 9.273 and a `0`
+of 9.766, so the rule gives at least 185 px against Chrome's 175. Helvetica,
+Times, Menlo and Courier New miss too (script:
+`CTFontCopyTable` for OS/2 and head, run 2026-09-30). So either headless
+Chrome resolves these generics to other faces than CoreText's defaults, or
+Skia's `fAvgCharWidth`/`fMaxCharWidth` differ from the raw tables.
+
+Next step, before any code: measure in the page what face Chrome actually
+paints for each generic (a text of twenty `0`s, and one `x`, per family and
+size, beside the fields), then fit the rule to those. The fix itself needs
+the average and maximum character widths from each host's measurer
+(CoreText's OS/2 and head tables; cosmic-text's face), which on Apple is an
+addition to the measure callback in `exact.h` (an `EXACT_ABI_VERSION` bump).
+Stopped after three rounds (a formula from memory, the fonts' tables,
+Blink's source), per AGENTS.md.

@@ -1,6 +1,7 @@
 # The JS target's agent reports no navigation URL: its copy of navigation.js has its own state
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** the agent observes the page's own navigation.js instance, which rt.js router() keeps (pageHistory); the copy stays for what is stateless; the router sweep passes and the web smoke is green
 **Systems:** web JS target, agent API
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever

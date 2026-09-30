@@ -1463,9 +1463,9 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
 /** The router slot's changes, to the browser's history (`navigation.js`,
  * the web host's own), and a popstate back as the navigation root's
  * `navigate` (LLP 1038 D7, D11). */
-let RouterSlot = null, Shown = null, Navigate = null;
+let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
 export function router(slot, history) {
-  RouterSlot = slot;
+  RouterSlot = slot; History = history;
   history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
