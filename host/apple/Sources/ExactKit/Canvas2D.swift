@@ -191,9 +191,28 @@ final class Canvas2DReplayer {
     }
 
     /// The fonts a list sets, in order: what its text needs resolved.
+    /// It runs on the main thread for every list, so it walks the record
+    /// headers and decodes only `font` records' operands: decoding every
+    /// record was most of `apply`'s main-thread time for a full-screen
+    /// canvas drawn every frame (3,000 arcs a list, F2).
     static func fonts(in data: Data) -> [Canvas2DFont] {
         var out: [Canvas2DFont] = []
-        _ = read(data) { op, n, count in if op == .font { out.append(Canvas2DFont(record: n, count: count)) } }
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard raw.count >= 8, raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self).littleEndian == 0x4432_4345,
+                  raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self).littleEndian == 1 else { return }
+            var at = 8
+            while at + 8 <= raw.count {
+                let code = raw.loadUnaligned(fromByteOffset: at, as: UInt32.self).littleEndian
+                let count = Int(raw.loadUnaligned(fromByteOffset: at + 4, as: UInt32.self).littleEndian)
+                at += 8
+                guard count >= 0, at + count * 8 <= raw.count else { return }
+                if code == Canvas2DOp.font.rawValue {
+                    let n = (0..<count).map { Double(bitPattern: raw.loadUnaligned(fromByteOffset: at + $0 * 8, as: UInt64.self).littleEndian) }
+                    out.append(Canvas2DFont(record: n, count: count))
+                }
+                at += count * 8
+            }
+        }
         return out
     }
 

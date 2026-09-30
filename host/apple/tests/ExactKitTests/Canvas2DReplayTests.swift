@@ -70,4 +70,28 @@ final class Canvas2DReplayTests: XCTestCase {
         let px = try pixel(try XCTUnwrap(parent.sublayers?.first))
         XCTAssertEqual(px, [0, 0, 0], "a new bitmap is cleared; the lists before it are dropped")
     }
+
+    /// The main thread's font scan skips every other record's operands and
+    /// finds the fonts a full decode finds, in order.
+    func testTheFontScanFindsWhatAFullReadFinds() {
+        var d = Data()
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func f64(_ v: Double) { withUnsafeBytes(of: v.bitPattern.littleEndian) { d.append(contentsOf: $0) } }
+        func font(_ size: Double, _ family: String) {
+            let cps = family.unicodeScalars.map { Double($0.value) }
+            u32(Canvas2DOp.font.rawValue); u32(UInt32(9 + cps.count))
+            [size, 700, 0, 100, 0, 0, 0, 0, 0].forEach(f64); cps.forEach(f64)
+        }
+        u32(0x4432_4345); u32(1)
+        u32(Canvas2DOp.fillRect.rawValue); u32(4); [0, 0, 10, 10].forEach(f64)
+        font(12, "serif")
+        u32(Canvas2DOp.beginPath.rawValue); u32(0)
+        u32(Canvas2DOp.cubicTo.rawValue); u32(6); [1, 2, 3, 4, 5, 6].forEach(f64)
+        font(30, "Exposure Sans,monospace")
+        var full: [Canvas2DFont] = []
+        XCTAssertTrue(Canvas2DReplayer.read(d) { op, n, count in if op == .font { full.append(Canvas2DFont(record: n, count: count)) } })
+        XCTAssertEqual(full.count, 2)
+        XCTAssertEqual(Canvas2DReplayer.fonts(in: d), full)
+        XCTAssertEqual(Canvas2DReplayer.fonts(in: d.prefix(d.count - 8)), [full[0]], "a truncated record ends the scan")
+    }
 }
