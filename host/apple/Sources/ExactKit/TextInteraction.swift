@@ -22,7 +22,7 @@ extension Presenter {
 extension NodeView {
     func updateInlineInteraction() {
         #if os(macOS)
-        updateTrackingAreas()
+        syncHoverTracking()
         needsDisplay = true
         #else
         if inlineText.contains(where: { $0.handlers.contains("hover") }), hoverRecognizer == nil {

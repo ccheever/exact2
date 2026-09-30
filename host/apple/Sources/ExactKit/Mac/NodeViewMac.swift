@@ -64,7 +64,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = [] { didSet { video?.update() } } // the media events the player reports
+    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     var arrangeShift = CGPoint.zero
@@ -282,14 +282,21 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         default: return event.charactersIgnoringModifiers ?? ""
         }
     }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        canvasInput?.updateTracking()
-        if let t = tracking { removeTrackingArea(t); tracking = nil }
-        if handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") }) {
+    /// The tracking area a `hover` handler needs (LLP 1005 §3), on the node
+    /// or an inline run, kept while one wants it. `.inVisibleRect`: AppKit
+    /// keeps its rect, so nothing here overrides `updateTrackingAreas` —
+    /// AppKit called that on every node view, thousands of them, each time
+    /// the scroll view moved, and posted a notification for each (25 ms/s
+    /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
+    func syncHoverTracking() {
+        let wants = handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") })
+        if wants, tracking == nil {
             let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(t)
             tracking = t
+        } else if !wants, let t = tracking {
+            removeTrackingArea(t)
+            tracking = nil
         }
     }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
