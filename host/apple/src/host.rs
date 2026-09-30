@@ -729,7 +729,11 @@ impl<D: DataSource> Host<D> {
     /// each reply is a commit at `now_ms` (a ticket no longer held commits
     /// nothing); a reply the source cannot shape is the batch's error and
     /// the ones before it stand.
-    pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> String {
+    pub fn fulfill_all(
+        &mut self,
+        outcomes: Vec<(u64, Outcome, Option<u64>)>,
+        now_ms: f64,
+    ) -> String {
         self.now_ms = now_ms.max(self.now_ms);
         // Announced topics first: what the device said before these replies.
         let (announced, failed) = self.runner.apply_announced();
@@ -741,8 +745,8 @@ impl<D: DataSource> Host<D> {
                 receipt,
             })
             .collect();
-        for (ticket, outcome) in outcomes {
-            match self.runner.fulfill(ticket, outcome) {
+        for (ticket, outcome, elapsed_ms) in outcomes {
+            match self.runner.fulfill_measured(ticket, outcome, elapsed_ms) {
                 Ok(Some(receipt)) => receipts.push(Timed {
                     at_ms: self.now_ms,
                     receipt,

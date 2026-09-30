@@ -89,7 +89,7 @@ impl Executor {
         self.core.begin_pump();
     }
     /// One completion per turn, rearming the FD if more remain.
-    pub fn drain(&self) -> Vec<(u64, Outcome)> {
+    pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
         self.core.drain()
     }
     /// Wake for a refusal stored on a runner ticket.

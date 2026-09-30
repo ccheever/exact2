@@ -893,7 +893,21 @@ impl<D: DataSource> Runner<D> {
         ticket: u64,
         outcome: Outcome,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let summary = outcome.summary();
+        self.fulfill_measured(ticket, outcome, None)
+    }
+
+    /// Fulfill with elapsed wall milliseconds measured by the executor, never
+    /// by the seekable agent clock. Missing measurements stay unnamed.
+    pub fn fulfill_measured(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+        elapsed_ms: Option<u64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let mut summary = outcome.summary();
+        if let Some(ms) = elapsed_ms {
+            exact_num::push_text!(&mut summary, "; wall {} ms", ms);
+        }
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
             self.log(super::lines::dropped(ticket, &summary));
             return Ok(None);

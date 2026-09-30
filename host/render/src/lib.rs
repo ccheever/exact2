@@ -693,7 +693,7 @@ pub fn settle<D: DataSource>(
         hand_out(runner, executor, &mut held);
         let outcomes = executor.drain();
         if !outcomes.is_empty() {
-            for (ticket, outcome) in outcomes {
+            for (ticket, outcome, elapsed_ms) in outcomes {
                 // Refused by the environment (a grant the host doesn't hold):
                 // the resource keeps its placeholder for the client.
                 if matches!(
@@ -706,7 +706,7 @@ pub fn settle<D: DataSource>(
                     held.refused.insert(ticket);
                     continue;
                 }
-                runner.fulfill(ticket, outcome)?;
+                runner.fulfill_measured(ticket, outcome, elapsed_ms)?;
             }
             continue;
         }

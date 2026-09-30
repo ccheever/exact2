@@ -1225,6 +1225,7 @@ impl<D: DataSource> Presenter<D> {
             self.host
                 .take_request_refusal(self.executor.ordered_idle())
                 .into_iter()
+                .map(|(ticket, outcome)| (ticket, outcome, None))
                 .collect()
         } else {
             self.executor.drain()
@@ -1236,6 +1237,7 @@ impl<D: DataSource> Presenter<D> {
                 self.host
                     .take_request_refusal(self.executor.ordered_idle())
                     .into_iter()
+                    .map(|(ticket, outcome)| (ticket, outcome, None))
                     .collect()
             };
         }

@@ -58,7 +58,7 @@ impl Executor {
         self.core.begin_pump();
     }
     /// Take at most one result; remaining outcomes schedule another pump.
-    pub fn drain(&self) -> Vec<(u64, Outcome)> {
+    pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
         self.core.drain()
     }
     /// Wake the presenter for a refusal retained on a runner ticket.

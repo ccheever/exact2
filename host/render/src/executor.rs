@@ -60,7 +60,7 @@ impl Executor {
     }
 
     /// At most one completion, oldest ordered first; more rewake.
-    pub fn drain(&self) -> Vec<(u64, Outcome)> {
+    pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
         self.core.begin_pump();
         self.core.drain()
     }

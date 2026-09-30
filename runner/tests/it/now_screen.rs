@@ -257,10 +257,17 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
     );
     assert_eq!(r.slot("result"), Some(&Value::some(Value::str("two"))));
     assert!(r
-        .fulfill(last, exact_runner::Outcome::Storage(b"four".to_vec()))
+        .fulfill_measured(
+            last,
+            exact_runner::Outcome::Storage(b"four".to_vec()),
+            Some(212)
+        )
         .unwrap()
         .is_some());
     assert_eq!(r.slot("result"), Some(&Value::some(Value::str("four"))));
+    assert!(r
+        .journal()
+        .any(|line| line.starts_with("t=1200 fulfil ") && line.contains("wall 212 ms")));
 }
 
 fn style_id(name: &str) -> u16 {

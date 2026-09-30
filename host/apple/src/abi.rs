@@ -298,6 +298,7 @@ impl<D: DataSource> Bridge<D> {
                 let mut outcomes = if self.refusal_turn {
                     host.take_request_refusal(executor.ordered_idle())
                         .into_iter()
+                        .map(|(ticket, outcome)| (ticket, outcome, None))
                         .collect()
                 } else {
                     executor.drain()
@@ -308,6 +309,7 @@ impl<D: DataSource> Bridge<D> {
                     } else {
                         host.take_request_refusal(executor.ordered_idle())
                             .into_iter()
+                            .map(|(ticket, outcome)| (ticket, outcome, None))
                             .collect()
                     };
                 }
@@ -357,7 +359,7 @@ impl<D: DataSource> Bridge<D> {
             },
         };
         let out = self.host.as_mut().map_or_else(not_booted, |host| {
-            host.fulfill_all(vec![(ticket, outcome)], now_ms)
+            host.fulfill_all(vec![(ticket, outcome, None)], now_ms)
         });
         self.emit(out)
     }

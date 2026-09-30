@@ -349,7 +349,8 @@ fn delivered_async_receipt_revalidates_untouched_target_before_late_release() {
                     status: 200,
                     headers: vec![],
                     body: vec![],
-                })
+                }),
+                None,
             )],
             20.
         )

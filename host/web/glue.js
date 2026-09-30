@@ -748,7 +748,7 @@ function apply(batch) {
         // A safe read the runner lets go of is aborted after the commit that
         // forgot it (`letGo`), as the native executor does: a write that
         // was sent was sent, and runs on, uncounted (LLP 1016 D5).
-        const requestIncarnation = incarnation, controller = new AbortController();
+        const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
           grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
@@ -760,8 +760,8 @@ function apply(batch) {
         controllers.add(controller);
         if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
         p = httpHelpers().then(({ request }) => request(op, host))
-          .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body))
-          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error))));
+          .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
         track(Promise.race([p, opened]), op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
@@ -974,7 +974,7 @@ function surfaceGranted(op) {
   const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
   return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
 }
-function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
+function fulfill(requestIncarnation, ticket, kind, status, headersText, body, elapsedMs) {
   // `boot` starts tickets again at one. A completion from the program that
   // owned an old ticket must never be delivered into the new incarnation.
   if (!wasm || requestIncarnation !== incarnation) return;
@@ -983,6 +983,7 @@ function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
   const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
   mem.set(h);
   mem.set(body, h.length);
+  if (Number.isFinite(elapsedMs)) log(`reply ${ticket}: wall ${Math.max(0, Math.round(elapsedMs))} ms`);
   send(wasm.exact_fulfill(ticket, kind, status, h.length, body.length, now()));
 }
 function safelyFulfill(...args) {

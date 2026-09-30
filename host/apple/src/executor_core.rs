@@ -43,6 +43,7 @@ struct Job {
 }
 /// A job a worker took, until its outcome is complete.
 struct Running {
+    started: std::time::Instant,
     ticket: u64,
     lane: usize,
     charge: usize,
@@ -53,6 +54,7 @@ struct Running {
     stream: bool,
 }
 struct Completed {
+    elapsed_ms: u64,
     ticket: u64,
     outcome: Outcome,
     bytes: usize,
@@ -248,6 +250,7 @@ impl Core {
             state.streams += 1;
             let abort = AbortController::new();
             state.running.push(Running {
+                started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
                 charge,
@@ -286,7 +289,7 @@ impl Core {
 
     /// One complete transaction per pump. Alternate ready lanes; never drain
     /// and lose later results when parsing one reply fails.
-    pub(super) fn drain(&self) -> Vec<(u64, Outcome)> {
+    pub(super) fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
         let mut state = self.shared.state.lock().unwrap();
         let ready = |lane: usize, state: &State| {
             if lane == 0 {
@@ -324,7 +327,7 @@ impl Core {
         if has_ready(&state) {
             wake(&mut state);
         }
-        vec![(done.ticket, done.outcome)]
+        vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
     }
 
     /// Let go of the work for every ticket the runner no longer `held`
@@ -473,6 +476,7 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
     state.bytes[lane] += more;
     let abort = AbortController::new();
     state.running.push(Running {
+        started: std::time::Instant::now(),
         ticket: job.ticket,
         lane,
         charge: job.charge,
@@ -510,6 +514,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     };
     state.bytes[lane] = state.bytes[lane] - run.charge + bytes;
     state.completed[lane].push_back(Completed {
+        elapsed_ms: run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         ticket,
         outcome,
         bytes,
@@ -530,11 +535,16 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
     if state.retired {
         return false;
     }
-    let Some(lane) = state
+    let Some((lane, elapsed_ms)) = state
         .running
         .iter()
         .find(|run| run.ticket == ticket && !run.forgotten)
-        .map(|run| run.lane)
+        .map(|run| {
+            (
+                run.lane,
+                run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            )
+        })
     else {
         return false;
     };
@@ -550,8 +560,10 @@ fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
                     .saturating_add(1);
             }
             done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
         }
         None => state.completed[lane].push_back(Completed {
+            elapsed_ms,
             ticket,
             outcome: Outcome::Message(message),
             // Charged to the running stream: its ceiling covers one message.

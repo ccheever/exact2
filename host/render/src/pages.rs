@@ -66,7 +66,7 @@ pub fn pages<D: DataSource>(
         }
         .map_err(|e| fail(e.into()))?;
         let outcome = loop {
-            if let Some((_, outcome)) = executor.drain().pop() {
+            if let Some((_, outcome, _)) = executor.drain().pop() {
                 break outcome;
             }
             if Instant::now() >= until {

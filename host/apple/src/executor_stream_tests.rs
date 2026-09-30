@@ -165,7 +165,7 @@ fn next(core: &Core, woke: &Receiver<()>) -> (u64, Outcome) {
     loop {
         core.begin_pump();
         if let Some(done) = core.drain().pop() {
-            return done;
+            return (done.0, done.1);
         }
         woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("an outcome within five seconds");

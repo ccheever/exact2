@@ -115,7 +115,7 @@ fn collect(core: &Core, woke: &Receiver<()>, count: usize) -> Vec<(u64, Outcome)
     let mut outcomes = vec![];
     while outcomes.len() < count {
         core.begin_pump();
-        outcomes.extend(core.drain());
+        outcomes.extend(core.drain().into_iter().map(|(t, o, _)| (t, o)));
         if outcomes.len() < count {
             woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .unwrap();
@@ -818,7 +818,7 @@ fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
     let mut outcomes = vec![];
     while outcomes.len() < 5 {
         core.begin_pump();
-        outcomes.extend(core.drain());
+        outcomes.extend(core.drain().into_iter().map(|(t, o, _)| (t, o)));
         if outcomes.len() < 5 {
             woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .unwrap_or_else(|_| panic!("stalled after {outcomes:?}"));
@@ -864,4 +864,22 @@ fn a_native_call_is_handed_off_and_never_holds_the_ordered_lane() {
         body: b"{}".to_vec(),
     }));
     assert_eq!(collect(&core, &woke, 1)[0].0, 20);
+}
+
+#[test]
+fn completed_latency_is_measured_before_the_ui_drains_it() {
+    let (core, fixture, woke) = setup();
+    let before = Instant::now();
+    core.run(job(991, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    fixture.release();
+    woke.recv_timeout(Duration::from_secs(5)).unwrap();
+    let completed_by = before.elapsed().as_millis() as u64;
+    // Simulate a UI owner busy after the reply; its wait is not network latency.
+    std::thread::sleep(Duration::from_millis(20));
+    let (ticket, outcome, elapsed) = core.drain().pop().unwrap();
+    assert_eq!(ticket, 991);
+    assert!(matches!(outcome, Outcome::Response(_)));
+    assert!(elapsed.unwrap() <= completed_by);
 }

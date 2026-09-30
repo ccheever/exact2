@@ -344,7 +344,8 @@ export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
     inflight.n++;
-    const done = o => { inflight.n--; land(o); };
+    const started = performance.now();
+    const done = o => { inflight.n--; t.elapsed = Math.max(0, Math.round(performance.now() - started)); land(o); };
     if (t.req) data.fetch(t.req).then(done, e => done({ failed: 1, message: String(e?.message ?? e) }));
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });
@@ -379,7 +380,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
     take(p.v, t.args); r.ticket = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, `reply ${name}`);
+  }, `reply ${name}; wall ${t.elapsed} ms`);
   const m = memo(() => {
     ver();
     const a = args();
@@ -458,7 +459,7 @@ export function mut(name, slot, refreshes, type) {
     // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, `reply ${name}`);
+  }, `reply ${name}; wall ${t.elapsed} ms`);
   Object.assign(m, {
     forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
     send(source, args, undo) {

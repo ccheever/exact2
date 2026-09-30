@@ -847,7 +847,10 @@ impl<D: DataSource> Presenter<D> {
             let outcomes = self.surfaces.take_outcomes();
             if !outcomes.is_empty() {
                 let now = self.host.now();
-                let error = self.host.fulfill_all(outcomes, now);
+                let error = self.host.fulfill_all(
+                    outcomes.into_iter().map(|(t, o)| (t, o, None)).collect(),
+                    now,
+                );
                 let after = self.after_commit();
                 if let Some(error) = error.or(after) {
                     self.surfaces.error = Some(error);
