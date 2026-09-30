@@ -1006,3 +1006,39 @@ fn timer_demand_content_region_remains_conservative_for_same_shell() {
 // No correction, collection sequence, or Presenter scroll offset is injected.
 #[path = "follow_end_growth_tests.rs"]
 mod follow_end_growth;
+
+// @ref LLP 1073 D2, D4, D5 — a frame task keeps the display pump running and
+// fires once per display frame, at the frame's time; once frames are presented
+// the timer path fires none and owes no deadline for them; a stall is not
+// caught up.
+#[test]
+fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
+    let (mut p, _, _) = boot_app(
+        r#"component App
+  state frames = 0
+  state at = 0
+  action step writes frames, at
+    frames = frames + 1
+    at = now()
+  task ticker mount
+    every(frame, step)
+  view
+    text `${frames}` testId="frames" width=100 height=20
+"#,
+    );
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert!(p.needs_animation_frame());
+    let slot = |p: &Presenter<Empty>, name| p.host.runner().slot(name).cloned();
+    assert!(p.animation_frame(10.).is_none());
+    assert_eq!(slot(&p, "frames"), Some(Value::Number(1.)));
+    assert_eq!(p.host.now(), 10.);
+    assert!(p.dirty());
+    assert_eq!(p.host.timer_due_ms(), None);
+    assert!(p.advance(1_000.).is_none());
+    assert_eq!(slot(&p, "frames"), Some(Value::Number(1.)));
+    let at = slot(&p, "at");
+    assert!(p.animation_frame(5_000.).is_none());
+    assert_eq!(slot(&p, "frames"), Some(Value::Number(2.)));
+    assert_ne!(slot(&p, "at"), at);
+}

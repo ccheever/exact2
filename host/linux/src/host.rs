@@ -464,6 +464,11 @@ impl<D: DataSource> Host<D> {
         self.runner.timer_due_ms()
     }
 
+    /// Whether a frame task wants every display frame (LLP 1073 D5).
+    pub fn wants_frames(&self) -> bool {
+        self.runner.wants_frames()
+    }
+
     /// Whether motion is running (the presenter runs frames).
     pub fn motion(&self) -> bool {
         !self.engine.quiescent() || self.press_settle().is_some()
@@ -847,6 +852,15 @@ impl<D: DataSource> Host<D> {
     /// Timer-loop demand, without skipping any runner, layout or effect work.
     pub(crate) fn advance_effects(&mut self, now_ms: f64) -> (Option<String>, bool) {
         let a = self.runner.advance_timed(now_ms);
+        self.advanced(a)
+    }
+
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
+    /// every frame task once at it; effects as [`Host::advance_effects`].
+    pub(crate) fn frame(&mut self, now_ms: f64) -> (Option<String>, bool) {
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
+        self.runner.present_frames(true);
+        let a = self.runner.frame(now_ms);
         self.advanced(a)
     }
 

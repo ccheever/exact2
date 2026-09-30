@@ -1285,6 +1285,15 @@ impl<D: DataSource> Presenter<D> {
         e.or(after)
     }
 
+    /// A display frame for the frame tasks (LLP 1073 D5): timers due by
+    /// `now_ms`, then every frame task once at it.
+    pub fn animation_frame(&mut self, now_ms: f64) -> Option<String> {
+        let (e, paint) = self.host.frame(now_ms);
+        self.dirty |= paint;
+        let after = self.finish_commit();
+        e.or(after)
+    }
+
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
         if self.host.tick(now_ms) {
