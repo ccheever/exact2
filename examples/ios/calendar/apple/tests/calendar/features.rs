@@ -76,10 +76,47 @@ fn assert_sticker_landed_at(app: &App, date: &str, expected: Frame) {
 }
 
 #[test]
-fn the_four_creation_types_form_a_two_by_two_picker_and_cancel_slides_out() {
+fn the_four_picker_choices_expand_from_the_add_button_and_collapse_in_place() {
     let root = Root::new();
     let mut app = App::open(&root);
+    let surface = app.key("add-surface");
+    let button = app.key("add-schedule");
+    let icon = app.key("picker-toggle-icon");
+    let icon_frame = app.frame("picker-toggle-icon");
     app.press("add-schedule");
+    assert_eq!(app.key("cancel-type-picker"), button);
+    assert_eq!(app.key("picker-toggle-icon"), icon);
+    assert_eq!(app.frame("picker-toggle-icon"), icon_frame);
+    let picker_content = app.key("picker-content");
+    assert_eq!(
+        app.runner
+            .kernel()
+            .node_by_key(picker_content)
+            .unwrap()
+            .style
+            .opacity,
+        0.0
+    );
+    app.presented_frame(199.0);
+    assert_eq!(
+        app.runner
+            .kernel()
+            .node_by_key(picker_content)
+            .unwrap()
+            .style
+            .opacity,
+        0.0
+    );
+    app.presented_frame(1.0);
+    assert_eq!(
+        app.runner
+            .kernel()
+            .node_by_key(picker_content)
+            .unwrap()
+            .style
+            .opacity,
+        1.0
+    );
     let event = app.frame("picker-event");
     let plan = app.frame("picker-plan");
     let task = app.frame("picker-todo");
@@ -88,9 +125,23 @@ fn the_four_creation_types_form_a_two_by_two_picker_and_cancel_slides_out() {
     assert_eq!(task.y, sticker.y);
     assert!(event.x < plan.x && task.x < sticker.x && task.y > event.y);
     let picker = app.key("type-picker");
+    assert_eq!(picker, surface);
+    assert_eq!(app.frame("type-picker").width, 360.0);
+    assert_eq!(app.frame("type-picker").height, 252.0);
+    assert_eq!(
+        app.runner
+            .kernel()
+            .node_by_key(app.key("picker-toggle-icon"))
+            .unwrap()
+            .style
+            .rotate,
+        45.0
+    );
     app.press("cancel-type-picker");
     assert_eq!(app.key("type-picker"), picker);
-    assert!(app.translation_y("type-picker") > 0.0);
+    assert_eq!(app.translation_y("type-picker"), 0.0);
+    assert_eq!(app.frame("type-picker").width, 56.0);
+    assert_eq!(app.frame("type-picker").height, 56.0);
     app.presented_frame(100.0);
     assert_eq!(app.key("type-picker"), picker);
     app.finish_motion();
@@ -99,7 +150,57 @@ fn the_four_creation_types_form_a_two_by_two_picker_and_cancel_slides_out() {
         .kernel()
         .find_by_test_id("type-picker")
         .is_empty());
+    assert_eq!(app.key("add-surface"), surface);
+    assert_eq!(app.key("add-schedule"), button);
+    assert_eq!(app.key("picker-toggle-icon"), icon);
+    assert_eq!(app.frame("picker-toggle-icon"), icon_frame);
+    assert_eq!(
+        app.runner
+            .kernel()
+            .node_by_key(app.key("picker-toggle-icon"))
+            .unwrap()
+            .style
+            .rotate,
+        0.0
+    );
     assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+}
+
+#[test]
+fn choosing_a_type_keeps_the_picker_in_place_until_the_form_morph_finishes() {
+    for (kind, form) in [("event", "schedule-editor"), ("sticker", "sticker-editor")] {
+        let root = Root::new();
+        let mut app = App::open(&root);
+        app.press("add-schedule");
+        let picker = app.key("type-picker");
+        app.press(&format!("picker-{kind}"));
+        assert_eq!(app.state("pickerOpen"), &Value::Bool(true));
+        assert_eq!(app.state("formFromPicker"), &Value::Bool(true));
+        assert_eq!(app.key("type-picker"), picker);
+        assert_eq!(app.translation_y("type-picker"), 0.0);
+        assert_eq!(
+            app.frame(form).height as f64,
+            app.derived("pickerHeight").as_number().unwrap()
+        );
+        app.presented_frame(100.0);
+        assert_eq!(app.key("type-picker"), picker);
+        assert_eq!(app.translation_y("type-picker"), 0.0);
+        app.presented_frame(120.0);
+        assert!(app
+            .runner
+            .kernel()
+            .find_by_test_id("type-picker")
+            .is_empty());
+        assert_eq!(app.state("pickerOpen"), &Value::Bool(false));
+        assert_eq!(
+            app.state(if kind == "sticker" {
+                "stickerOpen"
+            } else {
+                "editorOpen"
+            }),
+            &Value::Bool(true)
+        );
+    }
 }
 
 #[test]
@@ -168,7 +269,7 @@ fn the_pickup_keeps_one_contact_and_source_mounted_for_the_300_ms_morph() {
 }
 
 #[test]
-fn cancelling_an_editor_keeps_it_mounted_until_the_slide_out_finishes() {
+fn cancelling_a_form_keeps_it_mounted_until_its_exit_finishes() {
     for kind in ["event", "plan", "todo", "sticker"] {
         let root = Root::new();
         let mut app = App::open(&root);
@@ -186,12 +287,18 @@ fn cancelling_an_editor_keeps_it_mounted_until_the_slide_out_finishes() {
             "cancel-editor"
         });
         assert_eq!(app.key(sheet), key);
-        assert!(app.translation_y(sheet) > 0.0);
+        if kind == "todo" {
+            assert_eq!(app.translation_y(sheet), 0.0);
+            assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
+        } else {
+            assert!(app.translation_y(sheet) > 0.0);
+        }
         app.presented_frame(100.0);
         assert_eq!(app.key(sheet), key);
         app.finish_motion();
         assert!(app.runner.kernel().find_by_test_id(sheet).is_empty());
         assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+        assert_eq!(app.state("todoSheetOpen"), &Value::Bool(kind == "todo"));
         assert_eq!(app.derived("revision"), &Value::Number(1.0));
     }
 }
@@ -201,7 +308,7 @@ fn closing_the_todo_list_keeps_it_mounted_until_the_slide_out_finishes() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.press("add-schedule");
-    app.press("todos-button");
+    app.press("picker-todo");
     app.finish_motion();
     app.finish_motion();
     let key = app.key("todo-sheet");
@@ -213,6 +320,70 @@ fn closing_the_todo_list_keeps_it_mounted_until_the_slide_out_finishes() {
     app.finish_motion();
     assert!(app.runner.kernel().find_by_test_id("todo-sheet").is_empty());
     assert_eq!(app.derived("revision"), &Value::Number(1.0));
+}
+
+#[test]
+fn five_sheets_open_half_height_and_snap_full_compact_then_closed() {
+    for (kind, sheet, handle, snap) in [
+        ("date", "date-popup", "date-sheet-handle", "popupSnap"),
+        ("todo", "todo-sheet", "todo-sheet-handle", "todoSnap"),
+        (
+            "sticker",
+            "sticker-editor",
+            "sticker-sheet-handle",
+            "stickerSnap",
+        ),
+        (
+            "editor",
+            "schedule-editor",
+            "editor-sheet-handle",
+            "editorSnap",
+        ),
+        ("theme", "theme-popup", "theme-sheet-handle", "themeSnap"),
+    ] {
+        let root = Root::new();
+        let mut app = App::open(&root);
+        match kind {
+            "date" => app.press("date-2026-09-2026-09-25"),
+            "todo" => {
+                app.press("add-schedule");
+                app.press("picker-todo");
+                app.finish_motion();
+            }
+            "sticker" => app.create("sticker"),
+            "editor" => app.create("event"),
+            "theme" => app.press("theme-button"),
+            _ => unreachable!(),
+        }
+        app.finish_motion();
+        let half = app.derived("sheetHalfHeight").as_number().unwrap() as f32;
+        let full = app.derived("sheetFullHeight").as_number().unwrap() as f32;
+        let compact = app.derived("sheetCompactHeight").as_number().unwrap() as f32;
+        assert_eq!(app.state(snap), &Value::Number(1.0), "{kind}");
+        assert!((app.frame(sheet).height - half).abs() < 0.1, "{kind} half");
+
+        app.event(handle, Event::Pan(0.0, -300.0));
+        app.event(handle, Event::PanRelease(0.0, 0.0));
+        assert_eq!(app.state(snap), &Value::Number(2.0), "{kind}");
+        assert!((app.frame(sheet).height - full).abs() < 0.1, "{kind} full");
+
+        app.event(handle, Event::Pan(0.0, 600.0));
+        app.event(handle, Event::PanRelease(0.0, 0.0));
+        assert_eq!(app.state(snap), &Value::Number(0.0), "{kind}");
+        assert!(
+            (app.frame(sheet).height - compact).abs() < 0.1,
+            "{kind} compact"
+        );
+
+        app.event(handle, Event::Pan(0.0, 70.0));
+        app.event(handle, Event::PanRelease(0.0, 0.0));
+        app.finish_motion();
+        assert!(
+            app.runner.kernel().find_by_test_id(sheet).is_empty(),
+            "{kind}"
+        );
+        assert_eq!(app.derived("revision"), &Value::Number(1.0), "{kind}");
+    }
 }
 
 #[test]
@@ -289,14 +460,12 @@ fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_dr
     app.press("save-schedule");
     app.finish_motion();
     assert_eq!(app.state("popupOpen"), &Value::Bool(false));
-    app.assert_creation_closed();
+    assert_eq!(app.state("editorOpen"), &Value::Bool(false));
+    assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
     let created = todo(&app, "Initial undated task");
     let id = fields(&created)[0].as_str().unwrap().to_owned();
     assert_eq!(fields(&created)[2].as_str(), Some("#747AFF"));
     assert_eq!(fields(&created)[3], Value::Bool(false));
-    app.press("add-schedule");
-    app.press("todos-button");
-    app.finish_motion();
     app.press(&format!("todo-item-{id}"));
     assert!(!app
         .runner
@@ -320,7 +489,7 @@ fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_dr
     let mut app = App::open(&root);
     assert_eq!(fields(&todo(&app, "Undated task"))[3], Value::Bool(true));
     app.press("add-schedule");
-    app.press("todos-button");
+    app.press("picker-todo");
     app.finish_motion();
     app.press(&format!("todo-check-{id}"));
     let wire_id = format!("todo:{id}");
@@ -333,6 +502,14 @@ fn undated_todos_persist_completion_cancel_without_writes_and_convert_once_on_dr
     );
     let cancel = app.center("cancel-zone");
     app.event("calendar-input", contact.event(2, "end", cancel, ""));
+    assert_eq!(app.state("dragPhase").as_str(), Some("returning"));
+    assert_eq!(app.state("ghostX"), app.state("sourceX"));
+    assert_eq!(app.state("ghostY"), app.state("sourceY"));
+    assert_eq!(app.derived("ghostWidth"), app.state("sourceWidth"));
+    assert_eq!(app.derived("ghostHeight"), app.state("sourceHeight"));
+    assert_eq!(app.key("todo-sheet"), original_sheet);
+    app.presented_frame(17.0);
+    assert_eq!(app.state("returnPrepared"), &Value::Bool(true));
     app.finish_motion();
     assert_eq!(app.derived("revision"), &revision);
     assert_eq!(app.key("todo-sheet"), original_sheet);
@@ -403,7 +580,8 @@ fn todo_recovery_and_failed_write_retry_keep_one_original_timestamp() {
             app.press("save-schedule");
             app.finish_motion();
         }
-        app.assert_creation_closed();
+        assert_eq!(app.state("editorOpen"), &Value::Bool(false));
+        assert_eq!(app.state("todoSheetOpen"), &Value::Bool(true));
         assert_eq!(app.derived("revision"), &Value::Number(2.0));
         assert!(app.state("error").as_str().unwrap().is_empty());
         let saved = todo(&app, "Todo reply lost");
@@ -802,6 +980,14 @@ fn cancelled_sticker_drags_restore_their_source_without_writing_storage() {
         };
         app.event("calendar-input", contact.event(2, phase, point, reason));
         assert_eq!(app.state("dragPhase").as_str(), Some("returning"));
+        assert_eq!(app.state("ghostX"), app.state("sourceX"));
+        assert_eq!(app.state("ghostY"), app.state("sourceY"));
+        assert_eq!(app.derived("ghostWidth"), app.state("sourceWidth"));
+        assert_eq!(app.derived("ghostHeight"), app.state("sourceHeight"));
+        assert_eq!(app.state("returnPrepared"), &Value::Bool(false));
+        app.presented_frame(17.0);
+        assert_eq!(app.state("returnPrepared"), &Value::Bool(true));
+        assert_eq!(app.key(source_id), source, "{origin}/{ending}");
         app.finish_motion();
         assert_eq!(app.derived("revision"), &revision, "{origin}/{ending}");
         assert_eq!(app.key(source_id), source, "{origin}/{ending}");
@@ -879,8 +1065,11 @@ fn date_and_page_labels_only_include_a_different_year() {
     assert_eq!(app.text("popup-date"), "Fri, Sep 25");
     app.press("close-popup");
     app.finish_motion();
-    for _ in 0..13 {
-        app.press("previous-month");
+    for offset in 0..13 {
+        let index = 2026 * 12 + 8 - offset;
+        let page = format!("month-{:04}-{:02}", index / 12, index % 12 + 1);
+        app.event(&page, Event::Pan(220.0, 0.0));
+        app.event(&page, Event::PanRelease(0.0, 0.0));
         app.finish_motion();
     }
     app.finish_motion();

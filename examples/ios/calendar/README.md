@@ -1,24 +1,29 @@
 # Calendar
 
-An Exact calendar example with Contract views and a Rust data module. The coral
-**+** button opens a two-by-two picker for **Event**, **Plan**, **Todo**, and
-**Sticker**, each with its own form. Saving from this global picker keeps the
-date sheet closed.
+An Exact calendar example with Contract views and a Rust data module. The
+theme-colored **+** button expands into an anchored rectangular picker for **Event**,
+**Plan**, **Todo**, and **Sticker**, shown with minimalist illustrations. Its
+close control collapses back into **+**. Event, Plan, and Sticker open their
+forms from the picker with a resize and content fade. Todo opens the Todo
+list; use its **+** button to add one. Saving from the global picker keeps the
+date sheet closed. The forms use a large borderless title, compact date rows,
+and a Save button pinned to the bottom.
 
 Tap anywhere on a date, including a placed event or sticker, to open its
 full-width bottom sheet. Schedules and the sticker appear as rows there; tap a
-row to edit it, or hold it to drag it to another date. Tap the dimmed backdrop or
-drag the top handle down to dismiss the sheet;
-a short pull snaps back. Sheets slide out before being removed, including after
-saving or cancelling a form. The date and Todo sheets are capped at 360 points
-and 42% of the screen, including their bottom safe area (with a 176-point minimum
-cap on small viewports). Longer lists scroll inside the sheet.
+row to edit it, or hold it to drag it to another date. The date, Todo, form,
+sticker, and theme sheets open at half height. Drag a sheet's handle to
+snap it to compact, half, or nearly full height; pull down past compact or tap
+the dimmed backdrop to dismiss it. Sheets slide out before being removed,
+including after saving or cancelling a form. Longer lists scroll inside the
+sheet.
 
 Hold a schedule or Todo row, then drag it onto a date. The row morphs into a
 calendar block over 300 ms while the source sheet slides below the screen; the
 same contact continues dragging. A successful drop keeps the sheet closed.
-Drop in the bottom **Cancel** zone to cancel without saving and restore the
-original sheet. Releasing outside the calendar or cancelling the contact also
+Drop in the themed **Cancel** target at the bottom to cancel without saving.
+The dragged item returns to its original row as the source sheet reappears.
+Releasing outside the calendar or cancelling the contact also
 restores it. Hold near the top or just above the Cancel zone to scroll, or near
 the left or right edge to change months. Extra scroll room during a drag lets you
 reach the last week above the Cancel zone.
@@ -32,7 +37,8 @@ are saved in the app's local SQLite store.
 
 The theme button in the header opens Classic plus five wallpaper themes: Blush
 Notebook, Paris Haze, Meadow Morning, Lavender Sky, and Linen Journal. A theme
-changes the calendar colors and event presentation and remains selected after
+changes the calendar colors and wallpaper while keeping filled Event blocks the
+same shape, and remains selected after
 restarting the app.
 
 Run these commands from the repository root, using the Bun version pinned in
@@ -64,8 +70,11 @@ The existing Apple build script handles signing and reports missing prerequisite
   schedules are created only after the device reports its clock.
 - The header shows `Sep`, or `Sep, 2025` outside the current year. The date sheet
   shows `Mon, Aug 31`, appending the year only when it differs from the current one.
-- Events are filled calendar bars. Plans are colored lines with a starting dot
-  and ending arrow; a segment continuing into another week omits that endpoint.
+- Swipe horizontally across the calendar to change months. The header keeps the
+  month, Today, and theme controls; the Todo list is under **+ → Todo**.
+- Events are filled calendar bars. Plans are colored lines with a starting dot,
+  an ending arrow, and the title below the line; a segment continuing into
+  another week omits that endpoint.
 - Start and end dates are inclusive, including a timed schedule ending at midnight.
   A September 30–October 2 schedule appears on all three dates.
 - All-day schedules store civil dates. Timed schedules also store separate local
@@ -81,7 +90,7 @@ The existing Apple build script handles signing and reports missing prerequisite
 ## Todos and stickers
 
 - Todos have a title, color, and completion state, with no date. Open the Todo
-  list through **+ → View todos** to edit or complete them. Unfinished items appear first;
+  list through **+ → Todo** to add, edit, or complete them. Unfinished items appear first;
   completed items are muted and struck through.
 - Dragging a Todo onto the calendar creates a one-day, all-day Event and removes
   the Todo in one transaction. Cancelling keeps the Todo in its original list.
@@ -128,9 +137,9 @@ cargo run -q -p contract -- build examples/ios/calendar/app.contract -o /tmp/cal
 ```
 
 Drive the running app through `bun scripts/agent.mjs ios` (or `web`). Useful IDs
-include `today`, `previous-month`, `next-month`, `add-schedule`, `picker-event`,
+include `today`, `add-schedule`, `picker-event`,
 `picker-plan`, `picker-todo`, `picker-sticker`, `schedule-title`, `start-date`,
-`end-date`, `all-day`, `save-schedule`, `delete-schedule`, `todos-button`,
+`end-date`, `all-day`, `save-schedule`, `delete-schedule`, `todo-add`,
 `date-sheet-handle`, `date-popup-backdrop`, `agenda-list`, `theme-button`,
 `theme-0` through `theme-5`, and `cancel-zone`.
 
