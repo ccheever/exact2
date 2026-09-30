@@ -806,7 +806,12 @@ an exhausted source still goes idle; a replaced last row or a window that slid p
 it (the old last row gone) re-arms nothing, so a fitting sliding window stays
 idle. `reachstart` is unchanged. Both runners keep it
 (`runner/src/instance/collection/mod.rs` `update`, `host/web-js/list.js`
-`update`); the JS target's `paging.contract` pins it.
+`update`); the JS target's `paging.contract` pins it. **Extended 2026-09-30**
+(the same rule's intent, for a list whose last row is a trailing row that
+stays last, a feed's "loading" tail): a data update that keeps the last row and
+makes the list longer re-arms the end too, since the page arrived before that
+row rather than past it. Without this, the feed bench's timeline stalled after
+one page in about one run in ten. `pagetail.contract` pins it.
 
 ### 6.6 Paired runner evidence, 2026-09-16
 
