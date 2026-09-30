@@ -263,8 +263,9 @@ final class NativeViews {
     private var waits: [UInt32: NativeWait] = [:]
     private var nextToken: UInt32 = 1
     /// Since launch (`state.pool.native`): instances created, taken from the
-    /// pool, parked, and parked ones destroyed.
-    private(set) var made = 0, reused = 0, parks = 0, dropped = 0, hidden = 0, released = 0
+    /// pool (and of those, by the row they last showed), parked, and parked
+    /// ones destroyed.
+    private(set) var made = 0, reused = 0, returned = 0, parks = 0, dropped = 0, hidden = 0, released = 0
     #if os(iOS)
     /// Parked instances by tag, oldest first.
     fileprivate var parked: [String: [NativeEntry]] = [:]
@@ -766,7 +767,13 @@ extension NativeViews {
     /// props as a first mount, and the view transparent until `load`.
     fileprivate func reuse(_ entry: NativeEntry, table: NativeTable, owner: NodeView) -> Bool {
         guard var list = parked[entry.name], !list.isEmpty else { return false }
-        let from = list.removeLast()
+        let props = owner.props["nativeViewProps"] ?? "{}"
+        // A row that comes back takes the instance that last showed it, as a
+        // collection view's cell for the same item keeps its content: the
+        // instance draws nothing new, so it is not a use (the limit counts
+        // the rows an instance keeps drawings of).
+        let same = list.lastIndex { $0.props == props }
+        let from = list.remove(at: same ?? list.count - 1)
         parked[entry.name] = list.isEmpty ? nil : list
         guard let handle = from.handle, let view = from.view else { return false }
         let token = NativeProcess.next
@@ -777,9 +784,8 @@ extension NativeViews {
         entry.handle = handle
         entry.view = view
         entry.snapshotBit = from.snapshotBit
-        entry.uses = from.uses + 1
+        entry.uses = from.uses + (same == nil ? 1 : 0)
         NativeProcess.set(from.instance, token)
-        let props = owner.props["nativeViewProps"] ?? "{}"
         var error = [UInt8](repeating: 0, count: 512)
         let json = Data(props.utf8)
         view.alpha = 0
@@ -794,6 +800,7 @@ extension NativeViews {
         entry.state = "ready"
         entry.error = nil
         reused += 1
+        if same != nil { returned += 1 }
         if status != 0 { fail(entry, "error", "props refused: \(String(cString: error.map { CChar(bitPattern: $0) }))") }
         log("\(entry.name) #\(entry.id): ready (reused)")
         return true
@@ -828,7 +835,7 @@ extension NativeViews {
     }
     /// `state.pool.native`.
     var observation: [String: Any] {
-        ["made": made, "reused": reused, "parks": parks, "dropped": dropped, "hidden": hidden, "released": released,
+        ["made": made, "reused": reused, "returned": returned, "parks": parks, "dropped": dropped, "hidden": hidden, "released": released,
          "parked": parked.mapValues(\.count), "cap": Self.reuseCap, "limit": Self.reuseLimit]
     }
 }

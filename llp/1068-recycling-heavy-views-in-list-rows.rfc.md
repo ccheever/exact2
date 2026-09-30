@@ -1011,7 +1011,39 @@ rounds against the SwiftUI baseline, 2026-09-29):
 
 The map feed now beats SwiftUI on all three counts on both devices. The
 19-kind feed is ahead on fps and behind on peak (+16 and +32 MB) and CPU
-(+38 and +61 ms/s); maps are not that gap (one or two in the window).
+(+38 and +61 ms/s). The CPU gap turned out to be maps after all (§5.2.2).
+
+### 5.2.2 A row that comes back takes its own map (2026-09-30, `perf/map-return`; measured, not landed)
+
+The probe's fling runs down and back over the same rows at rising speeds, so
+a map row leaves and returns many times. Taking the feed's maps out settles
+where the 19-kind feed's gaps are (iPhone 13 Pro Max, two rounds, fling
+CPU and peak against SwiftUI's): with maps, 653 and 652 ms/s against 589 and
+602; without them 396 and 401 against 396 and 401, and without maps and the
+shader rows, 374/376 against 376/378 ms/s and 60 MB against 78–81. Time
+Profiler puts the difference in MapKit's own work: tile decoding (the
+`DaVinciGroundTileData` build 38 against 18.5 ms/s) and POI icons (28
+against 12). A returning row comes back to a map that the reuse limit (§5.2.1)
+destroyed at its third show, so its tiles are decoded again.
+
+The change: a parked instance whose last props equal the returning row's is
+taken first, and taking it is not a use, since it draws nothing new. Three
+alternating rounds on the iPhone against the same build without it
+(246770280) and SwiftUI:
+
+| | CPU ms/s | peak MB | fps | maps made |
+|---|---|---|---|---|
+| 19-kind feed, before → after (SwiftUI) | 654 → 591 (578) | 240 → 286 (273) | 110.7 → 110.8 (100.3) | 16 → 11 (20) |
+| map feed, two rounds | 3,084 → 2,983 (3,150) | 865 → 804 (901) | 82.7 → 81.1 (43.1) | 228 → 221 (520) |
+
+The CPU gap to SwiftUI on the 19-kind feed goes from +76 to +13 ms/s. The
+price is the map that is kept: the base has no map alive at most segment
+ends and the change keeps one, which moves the 19-kind peak by +29 to +46 MB
+a round (median +46, 13 over SwiftUI's). By §5.2.1's rule (match or beat
+SwiftUI's peak on both feeds without losing fps or CPU), neither build
+qualifies on this feed. The change is nearer SwiftUI on both counts, and
+better on the map feed. **Needs a ruling**: land it, or keep the limit
+counting returns. The iPad rounds are owed; its launches hung on 2026-09-30.
 
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
