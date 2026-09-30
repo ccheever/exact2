@@ -10,6 +10,29 @@ use std::path::{Path, PathBuf};
 
 mod watch;
 
+/// A development bake's map from plan node to Contract source (LLP 1035.002
+/// D6; LLP 1012.001.000 D6), `OUT_DIR/app.plan.map.json`: beside the plan,
+/// never in the product, and only when compiling the app's contract again
+/// gives the baked plan's own nodes. The digest inside names the plan it
+/// describes, so the driver never joins it to another. A map that cannot be
+/// made is absent; it never fails a build.
+fn source_map(trust: &str, app: &Path, out: &Path, plan: &exact_plan::Plan, plan_bytes: &[u8]) {
+    let path = out.join("app.plan.map.json");
+    let _ = std::fs::remove_file(&path);
+    if trust != "development" {
+        return;
+    }
+    let Ok(source) = app.join("app.contract").canonicalize() else {
+        return;
+    };
+    let Ok((compiled, map)) = contract::compile_path_mapped(&source) else {
+        return;
+    };
+    if compiled.nodes == plan.nodes {
+        let _ = std::fs::write(&path, map.json(plan_bytes));
+    }
+}
+
 /// Complete the compatibility document from the plan already baked by the
 /// app's build script. Production sequence provenance is a signed publisher
 /// receipt; an unreceipted stream requires an explicit genesis bake.
@@ -49,6 +72,7 @@ pub(crate) fn emit(
             plan.app_id, manifest.id
         ));
     }
+    source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
@@ -600,6 +624,35 @@ fn hash(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// LLP 1012.001.000 D6: a development bake leaves its plan's map beside
+    /// it, keyed by that plan's digest; a production bake leaves none, and a
+    /// plan whose nodes the contract no longer compiles to gets none.
+    #[test]
+    fn a_development_bake_leaves_its_plans_source_map() {
+        let root = std::env::temp_dir().join(format!("exact-map-{}", std::process::id()));
+        let (app, out) = (root.join("app"), root.join("out"));
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(
+            app.join("app.contract"),
+            "component App\n  view\n    text \"a\" testId=\"a\"\n",
+        )
+        .unwrap();
+        let plan = contract::compile_path(&app.join("app.contract")).unwrap();
+        let bytes = plan.encode();
+        let map = out.join("app.plan.map.json");
+        source_map("development", &app, &out, &plan, &bytes);
+        let written: Value = serde_json::from_slice(&std::fs::read(&map).unwrap()).unwrap();
+        assert_eq!(written["digest"], contract::plan_digest(&bytes));
+        source_map("production", &app, &out, &plan, &bytes);
+        assert!(!map.exists(), "a production bake carries no map");
+        let other =
+            contract::compile("component App\n  view\n    column\n      text \"b\"\n").unwrap();
+        source_map("development", &app, &out, &other, &other.encode());
+        assert!(!map.exists(), "a map for other nodes is never written");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn a_no_delivery_development_bake_names_its_gpu_dev_module() {

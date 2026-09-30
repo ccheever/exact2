@@ -252,7 +252,7 @@ function fixture(agentMode = true) {
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
-    agentClock: 0, SETTLE_DEADLINE_MS: 20000, inflight: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
+    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, inflight: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
     // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
@@ -388,6 +388,20 @@ test('agent mode alone exposes both entry points; clock keeps its existing Promi
   result.then(() => { completed = true; });
   await Promise.resolve(); await Promise.resolve();
   expect(completed).toBe(true); // The clock's and the tags' only: no flow or GPU microtasks for ordinary apps.
+  expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
+});
+
+test('a clock waits for an animated image to land on the clock it moved to (LLP 1011.000)', async () => {
+  const f = fixture();
+  let land;
+  const landed = new Promise(r => { land = r; });
+  f.imageHold = Promise.resolve({ ready: () => landed });
+  let completed = false;
+  const result = f.exact.agent({ op: 'clock', to: 16 });
+  result.then(() => { completed = true; });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  expect(completed).toBe(false);
+  land();
   expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
 });
 

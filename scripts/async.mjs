@@ -3,7 +3,8 @@
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
  * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`, the web JS target's conformance run
+ * `#[ignore = "async lane: …"]`, the web glue's unit tests (`host/web/*.test.mjs`
+ * by name), the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
  * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), then
  * `metrics.mjs --long` (every RULES budget;
@@ -57,6 +58,9 @@ function checks(sha) {
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
+    // The web glue's unit tests, by file (LLP 1012.001.000 D9; Charlie,
+    // 2026-09-30): ~7 s, no browser; four sat red for days with no lane.
+    ['glue', 'bun', ['test', ...['agent', 'collection', 'http-body', 'native-glue', 'request-refusal', 'textflow'].map(f => `./host/web/${f}.test.mjs`)]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', 'realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery', '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
@@ -84,6 +88,7 @@ function failures(name, log, status) {
   for (const m of log.matchAll(/^Diff in (\S+?):\d+:/gm)) found.add(`${name}: ${m[1].replace(WT + '/', '')} is not formatted`);
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
+  for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];
 }

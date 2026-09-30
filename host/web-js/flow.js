@@ -35,8 +35,10 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
     const c = el.getAttribute('class');
     if (!c) return '';
     if (!rules.has(c)) {
+      // The build nests every class rule, `#exact-root#exact-root { & .cN { … } }` (emit.rs).
       let h = '';
-      for (const sheet of document.styleSheets) for (const r of sheet.cssRules ?? []) if (r.selectorText === '.' + c) h = r.style.height || h;
+      const walk = list => { for (const r of list ?? []) { if (r.style && r.selectorText?.replace(/^&\s+/, '') === '.' + c) h = r.style.height || h; walk(r.cssRules); } };
+      for (const sheet of document.styleSheets) walk(sheet.cssRules);
       rules.set(c, h);
     }
     return rules.get(c);

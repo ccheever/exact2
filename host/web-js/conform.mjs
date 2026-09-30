@@ -170,7 +170,7 @@ async function drive(t, report, fail, dir, ws, js) {
     if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
     else if (linux) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
-      try { L = await open({ host: 'linux', app: t.app, ...facts, size: WEB_SIZE, ...(t.contract ? { plan: t.plan } : {}) }); }
+      try { L = await open({ host: 'linux', app: t.app, ...facts, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
@@ -330,7 +330,6 @@ async function activation(t, report, fail, url) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux');
-const WEB_SIZE = [420, 900]; // agent.mjs openWeb's viewport, given to the Linux host too
 const LINUX_OPS = ['tap', 'type', 'clock'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host

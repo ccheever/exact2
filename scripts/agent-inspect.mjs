@@ -87,6 +87,15 @@ export function sourceMapReader(locator) {
   };
 }
 
+/** Several locators as one reader: the first map whose digest is the node's plan's answers; otherwise the last reason. */
+export function sourceMapReaders(locators) {
+  const readers = locators.length ? locators.map(sourceMapReader) : [sourceMapReader(null)];
+  return {
+    async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
+    attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
+  };
+}
+
 /** A targeted reply owns its identity. A concurrently fetched tree may already
  * describe a replacement plan with reused view IDs and cannot relabel it. */
 export function identifyInspectedNode(reply, target) {

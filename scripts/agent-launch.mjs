@@ -1,5 +1,9 @@
 // Session setup shared by the agent CLI and its programmatic driver.
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+import { pendingBuildInputs } from './app.mjs';
+
+const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 export function parseFlags(argv) {
   const flags = { json: false };
@@ -48,6 +52,99 @@ export function launchFacts({seed, locale, timeZone, epoch, env = {}}) {
 
 export function launchEnvironment(facts) {
   return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch)};
+}
+
+// A build older than what it was made from is refused before launch
+// (LLP 1012.001.000 D1), so a drive never verifies yesterday's app. Each build
+// answers from its own record of its inputs: Cargo's dep-info, the Apple
+// receipt, and for the web's `dist/` (which names none) the sources its build
+// reads. These detect staleness; passing them is not proof of freshness. A
+// binary the caller names (EXACT_LINUX_BIN, EXACT_MAC_BIN) is the caller's
+// own: the driver says it did not check. A served page (--url) is its server's.
+const shown = path => path.startsWith(ROOT + '/') ? relative(ROOT, path) : path;
+const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ? ` and ${changed.length - 3} more` : '');
+
+/** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
+export function refuseStale(what, built, changed, command) {
+  if (changed.length) throw new Error(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+}
+
+/** Says, without refusing, what a coarse rule found or what was not checked. */
+export function warnStale(what, built, changed, command) {
+  if (changed.length) console.error(`${what} build may be stale (unverified): ${listed(changed)} changed since ${shown(built)} was built; ${command}`);
+}
+export const unchecked = (what, variable) => console.error(`${what} build freshness unchecked: ${variable} names the binary`);
+
+/** Every input Cargo's dep-info beside a binary names ([] without one). */
+export function depInfoInputs(bin, info = `${bin}.d`) {
+  if (!existsSync(info)) return [];
+  const line = readFileSync(info, 'utf8').split('\n')[0];
+  return line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).filter(Boolean).map(p => p.replace(/\\ /g, ' '));
+}
+
+// A build script's output (`…/build/<pkg>/out/…`) is rewritten whenever another
+// build reruns that script with other variables (the web build does, for its
+// render pass) without its sources changing; those sources are in the dep-info
+// themselves, so they, not the output, decide.
+const GENERATED = /\/build\/[^/]+\/out\//;
+/** Dep-info's inputs modified after `since`, or gone, generated outputs aside. */
+export function depInfoNewer(since, bin, info) {
+  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return true; } }).map(shown);
+}
+
+/** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
+export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin).mtimeMs, bin) : [];
+
+/** The plans a development bake of this app left a source map beside (LLP 1012.001.000 D6), as `sourceMapReader` locators: the Linux binary's own (its dep-info names the plan in OUT_DIR) and each platform's in the bake output (Apple, web). Which one describes the running plan is the reply's digest's to say. */
+export function bakedPlans(linuxBin, bakeDir) {
+  const out = depInfoInputs(linuxBin).filter(p => p.endsWith('/out/app.plan'));
+  try { for (const f of readdirSync(bakeDir)) if (f.endsWith('.plan.map.json')) out.push(resolve(bakeDir, f.slice(0, -'.map.json'.length))); } catch {}
+  return out.filter(p => existsSync(p + '.map.json'));
+}
+
+// Outputs, fixtures and prose are not what a build is made from.
+const NOT_INPUT = /^(target|dist|web-dist|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+/** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
+export function newerThan(since, roots, skip = () => false) {
+  const out = [];
+  const walk = (dir, deep) => {
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (NOT_INPUT.test(e.name)) continue;
+      const path = resolve(dir, e.name);
+      if (skip(path)) continue;
+      if (e.isDirectory()) { if (deep) walk(path, true); }
+      else if (e.isFile() && statSync(path).mtimeMs > since) out.push(shown(path));
+    }
+  };
+  for (const root of roots) typeof root === 'string' ? walk(root, true) : walk(root.shallow, false);
+  return out;
+}
+
+/** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
+export function receiptChanges(receipt, app) {
+  if (!existsSync(receipt)) return [];
+  const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
+  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/'));
+  // The receipt names what the binary links, not what built it: the Rust
+  // archive's own dep-info also names its build script's (the compiler, the bake).
+  const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
+  let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
+  const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  const tools = info ? depInfoNewer(since, null, info) : [];
+  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
+}
+
+/** A web `dist/`: sources newer than its build marker. `app` — the app's own sources, certainly inputs — refuses; `shared` — the roots its target's build reads, a coarse rule named as one — only warns. */
+export function webChanges(dist, app) {
+  const marker = resolve(dist, '.exact-build.json');
+  if (!existsSync(marker)) return { app: [], shared: [] };
+  const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
+  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
+  return {
+    app: newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/')),
+    shared: newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) })),
+  };
 }
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */

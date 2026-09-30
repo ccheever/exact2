@@ -144,7 +144,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         return reply;
     }
     match field_str(line, "op").as_deref() {
-        Some("tree") => accessibility_tree(p),
+        Some("tree") => accessibility_tree(p, line),
         Some("state") => {
             p.boxes();
             // The runner's state, then the sections a painter cannot observe
@@ -400,7 +400,7 @@ fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> S
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5), and
 /// a native module's box but no module (LLP 1024 D1).
-fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>) -> String {
+fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     p.boxes();
     use exact_kernel::generated::PropId;
     fn text<D: DataSource>(p: &Presenter<D>, id: u32) -> String {
@@ -417,8 +417,8 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>) -> String {
             .collect::<Vec<_>>()
             .join(" ")
     }
-    let mut tree: serde_json::Value =
-        serde_json::from_str(&p.host().agent(r#"{"op":"tree"}"#)).unwrap();
+    // The request as asked: the runner scopes a target and `shallow`.
+    let mut tree: serde_json::Value = serde_json::from_str(&p.host().agent(line)).unwrap();
     if let Some(nodes) = tree["nodes"].as_array_mut() {
         nodes.retain(|row| {
             row["id"]
@@ -757,6 +757,54 @@ mod tests {
         let logs = handle(&mut p, r#"{"op":"logs"}"#);
         assert_eq!(logs.matches("fulfil ").count(), 5, "{logs}");
         assert!(!logs.contains("dropped"), "{logs}");
+    }
+
+    /// LLP 1012 §1: a targeted `tree` is the target and its descendants, and
+    /// `shallow` the target alone, as the runner answers on every host.
+    #[test]
+    fn tree_answers_its_target() {
+        let plan = contract::compile(
+            "component App\n  view\n    column testId=\"outer\"\n      column testId=\"inner\"\n        text \"a\" testId=\"a\"\n      text \"b\" testId=\"b\"\n",
+        )
+        .unwrap();
+        let bytes = contract::bake(plan, NoData).unwrap().encode();
+        let (mut p, _) = Presenter::boot_with(
+            &bytes,
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let ids = |p: &mut Presenter<NoData>, request: &str| -> Vec<String> {
+            let reply: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
+            reply["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|n| n["props"]["testId"].as_str().map(str::to_owned))
+                .collect()
+        };
+        assert_eq!(
+            ids(&mut p, r#"{"op":"tree","target":"inner"}"#),
+            ["inner", "a"]
+        );
+        assert_eq!(
+            ids(&mut p, r#"{"op":"tree","target":"inner","shallow":true}"#),
+            ["inner"]
+        );
+        assert_eq!(
+            ids(&mut p, r#"{"op":"tree"}"#),
+            ["outer", "inner", "a", "b"]
+        );
+        for refused in [
+            r#"{"op":"tree","target":"missing"}"#,
+            r#"{"op":"tree","shallow":true}"#,
+            r#"{"op":"tree","target":"inner","shallow":1}"#,
+        ] {
+            assert!(handle(&mut p, refused).contains("\"error\""), "{refused}");
+        }
     }
 
     /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the

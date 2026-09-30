@@ -543,7 +543,8 @@ grammar — `tap <target> [wheel <dx> <dy> | hover | contextmenu | dblclick |
 down [at <x> <y>]]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap
 hold [<ms>]`, `tap up`, `tap cancel` (the four phase words only while a
 contact is down), `type <target> <text…>`, `clock <ms|+ms|settle>`,
-`screenshot <png> [window]`, `layout [<target>]` — is the whole of it. `layout <target>` (2026-09-09, LLP 1035.002) renders its
+`screenshot <png> [window]`, `screenshot <png|apng> over <ms> every <ms>` (film on
+the clock, LLP 1012.001.000 D2), `layout [<target>]` — is the whole of it. `layout <target>` (2026-09-09, LLP 1035.002) renders its
 `node` as a block under the listing — `node #id [testId] Type · site ·
 instance · epoch · incarnation`, one `row = value (source)` line per row,
 then `space`, `scroll`, `clip`, `visible`, `native` and, on the web,

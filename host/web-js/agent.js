@@ -73,12 +73,15 @@ export function install(exact) {
   // computed ones, under the runner's row names.
   const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align' };
   const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
+  // A class's rule may be nested: the build wraps them all in
+  // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
   const declared = el => {
-    const out = new Set(el.style);
-    for (const c of el.classList) for (const sheet of document.styleSheets) {
-      let rules; try { rules = sheet.cssRules; } catch { continue; }
-      for (const r of rules) if (r.selectorText === '.' + c) for (const p of r.style) out.add(p);
-    }
+    const out = new Set(el.style), classes = new Set([...el.classList].map(c => '.' + c));
+    const walk = rules => { for (const r of rules) {
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) out.add(p);
+      if (r.cssRules) walk(r.cssRules);
+    } };
+    for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
     return out;
   };
   const r2 = x => Math.round(x * 100) / 100;

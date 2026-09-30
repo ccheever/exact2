@@ -80,7 +80,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
   out.png"` — the nine operations of LLP 1012, the same on every host, with the clock
-  in your hands (`clock settle` instead of waiting). `bun scripts/smoke.mjs
+  in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
+  50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
+  build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the

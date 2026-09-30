@@ -1,6 +1,7 @@
-// PNG, the little the fixtures need and nothing more: decode an 8-bit,
-// non-interlaced RGB or RGBA image to RGBA bytes; encode RGBA bytes as an
-// unfiltered RGBA image. Node's zlib does the compression; this does the
+// PNG, the little the fixtures and the agent's film need and nothing more:
+// decode an 8-bit, non-interlaced RGB or RGBA image to RGBA bytes; encode RGBA
+// bytes as an unfiltered RGBA image, as an animated PNG of equal frames, or as
+// a contact sheet of them. Node's zlib does the compression; this does the
 // chunks, the filters, and the CRC. No dependency (rules/RULES.md: none).
 import { deflateSync, inflateSync } from 'node:zlib';
 
@@ -47,14 +48,66 @@ export function decodePng(buf) {
   return { width, height, data: out };
 }
 
-/** A PNG buffer from {width, height, data: RGBA bytes}. */
-export function encodePng({ width, height, data }) {
+/** An image's compressed, unfiltered scanlines. */
+function scanlines({ width, height, data }) {
   const stride = width * 4;
   const raw = Buffer.alloc((stride + 1) * height);
   for (let y = 0; y < height; y++) { raw[y * (stride + 1)] = 0; Buffer.from(data.buffer, data.byteOffset + y * stride, stride).copy(raw, y * (stride + 1) + 1); }
+  return deflateSync(raw);
+}
+const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+function header(width, height) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+  return chunk('IHDR', ihdr);
+}
+
+/** A PNG buffer from {width, height, data: RGBA bytes}. */
+export function encodePng(image) {
+  return Buffer.concat([SIGNATURE, header(image.width, image.height), chunk('IDAT', scanlines(image)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+/** An animated PNG of equal-size RGBA frames, each shown `delayMs`, looping. A viewer without APNG shows the first. */
+export function encodeApng(frames, delayMs) {
+  const { width, height } = frames[0];
+  if (frames.some(f => f.width !== width || f.height !== height)) throw new Error('animated PNG: every frame must be one size');
+  const actl = Buffer.alloc(8);
+  actl.writeUInt32BE(frames.length, 0); actl.writeUInt32BE(0, 4);
+  const parts = [SIGNATURE, header(width, height), chunk('acTL', actl)];
+  let seq = 0;
+  frames.forEach((frame, i) => {
+    const fctl = Buffer.alloc(26);
+    fctl.writeUInt32BE(seq++, 0); fctl.writeUInt32BE(width, 4); fctl.writeUInt32BE(height, 8);
+    fctl.writeUInt16BE(Math.min(65535, Math.round(delayMs)), 20); fctl.writeUInt16BE(1000, 22);
+    parts.push(chunk('fcTL', fctl));
+    const data = scanlines(frame);
+    if (i === 0) parts.push(chunk('IDAT', data));
+    else { const fdat = Buffer.alloc(4 + data.length); fdat.writeUInt32BE(seq++, 0); data.copy(fdat, 4); parts.push(chunk('fdAT', fdat)); }
+  });
+  parts.push(chunk('IEND', Buffer.alloc(0)));
+  return Buffer.concat(parts);
+}
+
+/** Equal-size RGBA frames in a grid, left to right, at most `columns` wide, a one-pixel gray gap between cells; shrunk by a whole factor (box average) until the sheet is at most `maxWidth` wide. */
+export function contactSheet(frames, { columns = 6, maxWidth = 2048 } = {}) {
+  const cols = Math.min(columns, frames.length), rows = Math.ceil(frames.length / cols);
+  const k = Math.max(1, Math.ceil((cols * frames[0].width + cols - 1) / maxWidth));
+  const w = Math.floor(frames[0].width / k), h = Math.floor(frames[0].height / k);
+  const width = cols * w + cols - 1, height = rows * h + rows - 1;
+  const data = new Uint8Array(width * height * 4).fill(128);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  frames.forEach((f, i) => {
+    const ox = (i % cols) * (w + 1), oy = Math.floor(i / cols) * (h + 1);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const d = ((oy + y) * width + ox + x) * 4;
+      for (let c = 0; c < 4; c++) {
+        let sum = 0;
+        for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) sum += f.data[((y * k + dy) * f.width + x * k + dx) * 4 + c];
+        data[d + c] = Math.round(sum / (k * k));
+      }
+    }
+  });
+  return { width, height, data };
 }
 
 /** The RGBA bytes of a rectangle of an image, as an image. */
