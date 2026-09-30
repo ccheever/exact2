@@ -1,6 +1,7 @@
 // The standalone Mac menu bar: standard application and window commands,
-// with app-declared shortcuts in File, Go and Settings. File — Open… ⌘O
-// exists when the app declares documents it opens (LLP 1033);
+// with app-declared shortcuts in File, Go and Settings. File — New Window ⌘N
+// exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
+// when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
 // equivalents, not key bindings; without this they are dead); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
@@ -124,7 +125,6 @@ public enum DevMenu {
         // owns the windows.
         if ExactDocuments.launchMode == "navigate-new" {
             file.addItem(withTitle: "New Window", action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "n")
-            if !documents { file.addItem(.separator()) }
         }
         // ⌘O belongs to the app's own documents when it declares any
         // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
@@ -132,8 +132,8 @@ public enum DevMenu {
         if documents {
             file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
             file.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "").submenu = recentMenu()
-            file.addItem(.separator())
         }
+        if !file.items.isEmpty { file.addItem(.separator()) }
         file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         // AppKit does not bind ⌘A itself (`StandardKeyBinding.dict` has no
         // `selectAll`); the Edit menu is how a field hears select-all, cut,

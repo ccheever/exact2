@@ -127,8 +127,9 @@ final class ExactWindow: NSWindow {
 }
 
 /// One window: its own session and view (LLP 1031 D1). The first is the
-/// app's; under `launch_handler`'s `navigate-new` every further document
-/// gets one of these (LLP 1069.010 D4), and the windows share one
+/// app's; under `launch_handler`'s `navigate-new` every further document,
+/// and every File ▸ New Window, gets one of these (LLP 1069.010 D4) — a ⌘N
+/// window shows no document until one lands in it — and the windows share one
 /// `tabbingIdentifier`, so AppKit's window tabs come with them.
 final class DocumentWindow: NSObject, NSWindowDelegate {
     let label: String
@@ -347,8 +348,7 @@ func route(_ paths: [String]) {
             // The window in front takes the document when it shows none yet;
             // otherwise the document has a window of its own.
             let target = frontWindow().flatMap { $0.document == nil ? $0 : nil } ?? openWindow()
-            target.deliver([path])
-            target.front()
+            if target.deliver([path]) { target.front() }
         }
     case "focus-existing":
         guard let front else { return }
@@ -398,8 +398,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         route(documents)
     }
 
-    /// File ▸ New Window (⌘N) and the tab bar's +: an empty window, where
-    /// each document has its own (LLP 1069.010 D4).
+    /// File ▸ New Window (⌘N) and the tab bar's +: an empty window with a
+    /// session of its own, whether or not the app opens documents (LLP
+    /// 1069.010 D4).
     @objc func newWindowForTab(_ sender: Any?) {
         guard ExactDocuments.launchMode == "navigate-new" else { return }
         openWindow(asTab: sender is NSWindow)

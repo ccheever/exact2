@@ -58,9 +58,10 @@ public enum ExactDocuments {
         urls.filter(\.isFileURL).map(\.standardizedFileURL.path)
     }
 
-    /// Where a document lands (LLP 1069.010 D4): the manifest's W3C
-    /// `launch_handler.client_mode`, baked as `ExactLaunchMode` —
-    /// `navigate-new` gives each document its own window and session,
+    /// Where a launch or a document lands (LLP 1069.010 D4): the manifest's
+    /// W3C `launch_handler.client_mode`, baked as `ExactLaunchMode` whether
+    /// or not the app opens documents — `navigate-new` gives each document,
+    /// and File ▸ New Window, its own window and session,
     /// `navigate-existing` (the default) the window in front,
     /// `focus-existing` the window in front unless it already shows one.
     public static var launchMode: String {

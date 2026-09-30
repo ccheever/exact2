@@ -978,6 +978,8 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const documents = macInfoPlist(app({ file_handlers: [{ action: '/', accept: { 'text/markdown': ['.md'] } }], launch_handler: { client_mode: ['auto', 'navigate-new'] } }));
   assert.match(documents, /<key>CFBundleDocumentTypes<\/key>/);
   assert.match(documents, /<key>ExactLaunchMode<\/key><string>navigate-new<\/string>/);
-  // Neither key declared, neither key baked: the host's default is `navigate-existing`.
-  assert.doesNotMatch(macInfoPlist(app({})), /ExactLaunchMode|CFBundleDocumentTypes/);
+  // No launch handler: the mode is still written, as the host's default `navigate-existing`; no document types.
+  const plain = macInfoPlist(app({}));
+  assert.match(plain, /<key>ExactLaunchMode<\/key><string>navigate-existing<\/string>/);
+  assert.doesNotMatch(plain, /CFBundleDocumentTypes/);
 });
