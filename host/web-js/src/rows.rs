@@ -22,26 +22,126 @@ impl Em<'_> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
         let press = parts.css.contains("--exact-press:");
-        let timeline = row.bindings.iter().any(|b| {
-            let b = plan.binding(b);
-            b.kind == BindingKind::Style && b.id == StyleId::AnimationTimeline as u16
+        let binding = |id: StyleId| {
+            row.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .find(|b| b.kind == BindingKind::Style && b.id == id as u16)
+        };
+        let timeline = binding(StyleId::AnimationTimeline).is_some();
+        let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
+        let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
+        // (name, unit, map): a map is JavaScript of the value (`null` writes none).
+        let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
+        let writes: Vec<(String, String, Option<String>)> = match id {
+            // `box-shadow` is the four shadow rows, each given the author's
+            // whole text (the compiler's lowering): one declaration of it.
+            StyleId::ShadowOffset => one("box-shadow", None),
+            StyleId::ShadowRadius | StyleId::ShadowColor | StyleId::ShadowOpacity => {
+                if binding(StyleId::ShadowOffset).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
+                    return Ok(());
+                }
+                return refuse("a dynamic shadow part without its `box-shadow`");
+            }
+            // A stack index: css.rs's declaration for each, by index.
+            StyleId::FontFamily => {
+                let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();
+                one("font-family", Some(format!("v=>{table}[v]??null")))
+            }
+            // css.rs's legacy clamp, on a non-scrolling block only.
+            StyleId::LineClamp => {
+                let display = parts.css.split(';').find_map(|d| d.strip_prefix("display:"));
+                if display.is_some_and(|d| d != "block")
+                    || parts.css.contains("overflow-x:scroll")
+                    || parts.css.contains("overflow-y:scroll")
+                {
+                    self.warnings.push(format!(
+                        "node {i}: style row line_clamp skipped: legacy line-clamp requires a non-scrolling block"
+                    ));
+                    return Ok(());
+                }
+                let when = |v: &str| Some(format!("v=>v>0?{v}:null"));
+                vec![
+                    ("-webkit-line-clamp".into(), String::new(), when("v")),
+                    ("display".into(), String::new(), when("\"-webkit-box\"")),
+                    ("-webkit-box-orient".into(), String::new(), when("\"vertical\"")),
+                    ("overflow".into(), String::new(), when("\"hidden\"")),
+                ]
+            }
+            // The feedback's factor, and `scale` as its product (css.rs), on
+            // a node whose own `scale` does not also compose through it.
+            StyleId::PressScale => {
+                if [StyleId::Scale, StyleId::Transition, StyleId::Animation]
+                    .into_iter()
+                    .any(|r| binding(r).is_some())
+                {
+                    return refuse("a dynamic `press-scale` beside `scale`, `transition` or `animation`");
+                }
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                vec![
+                    ("--exact-press".into(), String::new(), Some("v=>v==null||v===1?null:v".into())),
+                    (
+                        "scale".into(),
+                        String::new(),
+                        Some("v=>v==null||v===1?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
+                    ),
+                ]
+            }
+            StyleId::FontVariantNumeric => one("font-variant-numeric", None),
+            // `none` at 0, else one `blur()`, or the author's text.
+            StyleId::BackdropBlur => one(
+                "backdrop-filter",
+                Some("v=>typeof v===\"number\"?(v===0?\"none\":`blur(${v}px)`):v".into()),
+            ),
+            // SVG's transform grammar, restated as CSS's (kernel TransformList).
+            StyleId::Transform => {
+                let t = self.uses.rt("svgTransform");
+                one("transform", Some(format!("v=>{t}(v)")))
+            }
+            StyleId::MarkerStart | StyleId::MarkerMid | StyleId::MarkerEnd => {
+                let (name, _) = style::style_marker(id);
+                one(&name, Some("v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v".into()))
+            }
+            // On a pressed node an animation of `scale` plays its rule's
+            // `-exact-press` copy, and `scale` transitions as `--exact-scale`
+            // (css.rs `keyframes_name`, `css_text`).
+            StyleId::Animation if press => {
+                let names: Vec<String> = self.press_keyframes.clone();
+                let names = serde_json::to_string(&names).unwrap();
+                let mut w = vec![(
+                    "animation".to_string(),
+                    String::new(),
+                    Some(format!("v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v.split(/,(?![^(]*\\))/).map(p=>p.replace(/[\\w-]+/g,n=>{names}.includes(n)?n+\"-exact-press\":n)).join(\",\")")),
+                )];
+                if timeline {
+                    w.push(("animation-play-state".into(), String::new(), Some("v=>v==null||/^\\s*none\\s*$/i.test(v)?null:\"paused\"".into())));
+                }
+                w
+            }
+            StyleId::Transition if press => one(
+                "transition",
+                Some("v=>{if(v==null)return v;const p=v.split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/spring\\(/.test(t)),o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}".into()),
+            ),
+            _ => style::style_writes(b.id, timeline)
+                .map_err(|x| format!("node {i}: {x}"))?
+                .into_iter()
+                .map(|w| (w.name, w.unit, w.map.map(str::to_string)))
+                .collect(),
+        };
+        // A reference (`url(#…)`) names an element by its authored id, which
+        // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
+        // run time from the node (`Sr`).
+        let refs = style::can_be(plan, plan.code(b.expr), &|v| v.contains("url("));
+        let s = self.uses.rt(if refs {
+            "Sr"
+        } else if self.is_motion_node(i) {
+            "Sm"
+        } else {
+            "S"
         });
-        // An id a reference names is scoped per instance by the
-        // kernel (LLP 1055.000 D3); a dynamic one is not resolved.
-        if style::can_be(plan, plan.code(b.expr), &|v| v.contains("url(")) {
-            return Err(format!(
-                "node {i}: a dynamic `{}` that can reference an element (`url(#…)`) is not in the JS target",
-                StyleId::from_bit(b.id as u32).map_or("style", |r| r.name())
-            ));
-        }
-        let writes =
-            style::style_writes(b.id, press, timeline).map_err(|x| format!("node {i}: {x}"))?;
-        let s = self
-            .uses
-            .rt(if self.is_motion_node(i) { "Sm" } else { "S" });
-        for w in writes {
-            let (name, unit) = (w.name, w.unit);
-            match w.map {
+        for (name, unit, map) in writes {
+            match map {
                 Some(m) => {
                     let _ = write!(
                         self.out,
@@ -145,4 +245,76 @@ impl Em<'_> {
             (None, None) => None,
         }
     }
+
+    /// A node's authored `id`, named for `Sr` in a plan whose rows can
+    /// reference an element.
+    pub(super) fn exact_id(&self, i: u32) -> Option<String> {
+        let plan = self.plan;
+        if !self.refs {
+            return None;
+        }
+        plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .find_map(|b| {
+                (b.kind == BindingKind::Prop && b.id == PropId::Id as u16)
+                    .then(|| style::literal(plan, plan.code(b.expr)))
+                    .flatten()
+                    .and_then(|v| v.as_str().map(str::to_string))
+            })
+    }
+}
+
+/// The `@keyframes` that animate `scale`: a pressed node plays their
+/// `-exact-press` copies.
+pub(super) fn press_keyframes(plan: &exact_plan::Plan) -> Vec<String> {
+    plan.keyframes
+        .iter()
+        .filter(|k| {
+            exact_motion::Keyframes::parse(plan.str(k.css))
+                .is_ok_and(|f| f.css().contains("scale:"))
+        })
+        .map(|k| plan.str(k.name).to_string())
+        .collect()
+}
+
+/// Whether a dynamic style row can reference an element (`url(#…)`).
+pub(super) fn can_refer(plan: &exact_plan::Plan) -> bool {
+    plan.bindings.iter().any(|b| {
+        b.kind == BindingKind::Style
+            && style::literal(plan, plan.code(b.expr)).is_none()
+            && style::can_be(plan, plan.code(b.expr), &|v| v.contains("url("))
+    })
+}
+
+/// Take the presence rows' declarations (LLP 1063) out of a node's static
+/// CSS, returned in the order they were written.
+pub(super) fn presence_decls(css: &mut String) -> String {
+    let mut kept = String::new();
+    let mut taken = String::new();
+    for decl in css.split_inclusive(';') {
+        // The drag timelines' too (LLP 1057.003 D2, D4): motion-glue.js
+        // reads each from the element's own declaration.
+        if [
+            "--exact-layout-transition:",
+            "--exact-exit-animation:",
+            "--exact-drag-timeline:",
+            "--exact-animation-timeline:",
+            "--exact-animation-range:",
+            "--exact-timeline-scope:",
+            // The press feedback's factor (LLP 1061), which input-glue.js
+            // reads from the element's own style.
+            "--exact-press:",
+        ]
+        .iter()
+        .any(|p| decl.starts_with(p))
+        {
+            taken.push_str(decl);
+        } else {
+            kept.push_str(decl);
+        }
+    }
+    *css = kept;
+    taken
 }

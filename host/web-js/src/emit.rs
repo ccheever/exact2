@@ -212,6 +212,12 @@ struct Em<'a> {
     transforms: std::collections::BTreeMap<u32, (u32, u32)>,
     /// Each Arrange grip's list (`reorderFor`), by node.
     reorders: std::collections::BTreeMap<u32, u32>,
+    /// The `@keyframes` that animate `scale` (a pressed node plays their
+    /// `-exact-press` copies).
+    press_keyframes: Vec<String>,
+    /// Whether a dynamic row can reference an element (`url(#…)`): nodes
+    /// with an `id` then name it (`data-exact-id`, rt.js `Sr`).
+    refs: bool,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -243,6 +249,8 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         heights: Default::default(),
         transforms: Default::default(),
         reorders: Default::default(),
+        press_keyframes: rows::press_keyframes(plan),
+        refs: rows::can_refer(plan),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -726,36 +734,6 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
 
 /// A type for the agent's typed JSON: `"n"`, `"b"`, `"s"`, `"u"`,
 /// `["?",T]`, `["[",T]`, `{"field":T,…}` in field order.
-/// Take the presence rows' declarations (LLP 1063) out of a node's static
-/// CSS, returned in the order they were written.
-fn presence_decls(css: &mut String) -> String {
-    let mut kept = String::new();
-    let mut taken = String::new();
-    for decl in css.split_inclusive(';') {
-        // The drag timelines' too (LLP 1057.003 D2, D4): motion-glue.js
-        // reads each from the element's own declaration.
-        if [
-            "--exact-layout-transition:",
-            "--exact-exit-animation:",
-            "--exact-drag-timeline:",
-            "--exact-animation-timeline:",
-            "--exact-animation-range:",
-            "--exact-timeline-scope:",
-            // The press feedback's factor (LLP 1061), which input-glue.js
-            // reads from the element's own style.
-            "--exact-press:",
-        ]
-        .iter()
-        .any(|p| decl.starts_with(p))
-        {
-            taken.push_str(decl);
-        } else {
-            kept.push_str(decl);
-        }
-    }
-    *css = kept;
-    taken
-}
 
 pub(crate) fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
     let t = &plan.types[ty.0 as usize];
@@ -966,7 +944,7 @@ impl Em<'_> {
         // properties the web host's presence-glue.js reads from the element's
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
-        let presence = presence_decls(&mut css);
+        let presence = rows::presence_decls(&mut css);
         // A node with press feedback: the web host's input piece shows it.
         if presence.contains("--exact-press:") {
             let press = self.uses.rt("pressFeedback");
@@ -974,6 +952,9 @@ impl Em<'_> {
         }
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
+        }
+        if let Some(id) = self.exact_id(i) {
+            attrs.push(("data-exact-id".into(), id));
         }
         let kinds: Vec<EventKind> = row.handlers.iter().map(|h| plan.handler(h).event).collect();
         if !kinds.is_empty() {

@@ -1,0 +1,39 @@
+// data: interaction-gallery
+// Synthetic conformance plan: the dynamic rows that are not one declaration
+// of their own (LLP 1071 §7): `box-shadow`, `font-family` (a stack),
+// `line-clamp`, `font-variant-numeric`, `press-scale`, an `animation` and a
+// `transition` on a pressed node, an SVG `transform`, a marker and a paint
+// server named by `url(#…)`, resolved within the node's own instance.
+keyframes pop
+  from scale=0.9
+  to scale=1
+
+keyframes glow
+  from opacity=0.4
+  to opacity=1
+
+component RowsMore
+  state on = false
+  action flip writes on
+    on = not on
+  view
+    column testId="root" padding=16 gap=12 background-color="#ffffff" height=900 box-sizing="border-box"
+      button press=flip testId="flip"
+        text on ? "on" : "off"
+      view testId="shadow" width=120 height=40 background-color="#ffffff" box-shadow=(on ? "0 8px 16px #1d4ed880" : "2px 2px 0 #000000")
+      text "Mixed families" testId="family" font-family=(on ? "serif" : "monospace") font-size=18
+      text "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty" testId="clamped" width=200 line-clamp=(on ? 1 : 3)
+      text "0123456789" testId="digits" font-variant-numeric=(on ? "tabular-nums" : "normal") font-size=18
+      button press=flip testId="squeeze" press-scale=(on ? 0.7 : 0.9) width=160 height=48 background-color="#0ea5e9" border-width=0
+        text "squeeze"
+      button press=flip testId="pops" press-scale=0.9 width=160 height=48 background-color="#16a34a" border-width=0 animation=(on ? "pop 1s linear -500ms paused" : "glow 1s linear -500ms paused") transition=(on ? "scale 200ms ease-out, opacity 200ms" : "none")
+        text "pops"
+      svg testId="drawing" width=200 height=80 viewBox="0 0 200 80"
+        defs
+          linearGradient id="warm"
+            stop offset=0 stop-color="#f59e0b"
+            stop offset=1 stop-color="#ef4444"
+          marker id="dot" markerWidth=6 markerHeight=6 refX=3 refY=3
+            circle cx=3 cy=3 r=3 fill="#0f172a"
+        rect x=10 y=10 width=60 height=60 fill=(on ? "url(#warm)" : "#94a3b8") transform=(on ? "rotate(15 40 40)" : "translate(4 0)")
+        polyline points="90,60 130,20 170,60" fill="none" stroke="#0f172a" stroke-width=2 marker-end=(on ? "url(#dot)" : "none")

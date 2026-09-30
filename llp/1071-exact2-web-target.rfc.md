@@ -710,7 +710,7 @@ from (a) today.
 |---|---|---|
 | ~~Reorder on a virtualized list~~ landed 2026-09-29 (below) | — | — |
 | Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
-| ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ landed 2026-09-29 (below); left: a dynamic SVG `transform`, marker or `url(#…)` | — | — |
+| ~~Dynamic composite rows (clip-path, SVG paint, animation, timeline scope)~~ and ~~the rest~~ landed 2026-09-29 (below) | — | — |
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); ~~a file input and `showPicker`~~ (landed 2026-09-29, "Files and storage") | — | — |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
@@ -1401,6 +1401,30 @@ builds, and `motionparity` once animated images are carried; (f) the
 Linux-host state/tree oracle and pinned JS baselines in the lane; then (g)
 the wasm web host (`host/web/glue.js`, the web crate's wasm entry,
 `stages.mjs`) is deleted.
+
+**The rest of the dynamic rows** (landed 2026-09-29, measured; brotli):
+every dynamic style row is now carried (rows.rs). `box-shadow` is one
+declaration of the author's text (the compiler gives all four shadow rows
+the same expression); `font-family` a table of css.rs's declaration per
+stack; `line-clamp` css.rs's legacy clamp, on a non-scrolling block only
+(elsewhere skipped with css.rs's reason); `font-variant-numeric` as
+authored; backdrop blur `none` or one `blur()`; a dynamic `press-scale`
+the feedback's factor and `scale` as its product, on a node whose own
+`scale`, `transition` or `animation` does not also compose (refused by
+name there); on a pressed node an `animation` plays its rules'
+`-exact-press` copies and a `transition` moves `scale` as
+`--exact-scale`, as css.rs writes them; an SVG `transform` is restated in
+CSS's grammar (rt.js `svgTransform`, kernel `TransformList`); a marker and
+any `url(#…)` name their element by its authored id, resolved at run time
+from the node as the kernel's `resolve_id` does (the deepest common
+ancestor's first; rt.js `Sr`, over `data-exact-id`, written only in a plan
+with such a row), again after the commit when the target is built later.
+Cost: only where used; `Sr` and `svgTransform` together 710 B in `app.js`.
+Synthetic `rowsmore.contract` 9/9 over Interaction Gallery's dist (held
+presses on both pressed buttons). Found: a static `id` in a repeated row
+is the same DOM id in every instance on the JS target (the template's one
+view number), so a static reference there finds the first instance, not
+its own; not fixed here.
 
 ## 8. Rulings and open questions for Charlie
 

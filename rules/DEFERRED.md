@@ -77,8 +77,7 @@ it compiles; the Rust render host stays the primary pre-render and the JS render
 the option (his ruling of the same day). Unblocks a web first interaction in
 about a tenth of the wasm target's bytes. Until these gaps close, an app that
 needs one is refused by name and builds the wasm target, which then retires:
-a dynamic SVG
-`transform`, marker or `url(#…)` reference; state carried across the
+state carried across the
 dev loop's reload, native clients on the dev URL (the resident loop's producers
 without its wasm page) and the rest of the agent (these build `--wasm`);
 the JS render path's documents (canonical, og, robots, status, sitemap).
@@ -103,7 +102,10 @@ and the reorder drag (`reorderdrop`, reorder on a virtualized list) and `frame`/
 `measure` (Interaction Gallery and Exact Live build); and
 files and storage: a file input and `showPicker`, `saveFile`, the document
 pickers, `share`, and app storage for TypeScript and Rust sources (Fieldnotes and
-Markdown build) — LLP 1071 §7, "Files and storage".
+Markdown build) — LLP 1071 §7, "Files and storage";
+and press feedback, and every dynamic style row (shadows, font stacks, line clamp,
+numeric variants, backdrop blur, press scale, a pressed node's animation and
+transition, an SVG `transform`, markers and `url(#…)` references).
 
 **Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
 Exact Live combines crew chat, photos, a runbook and background jobs in one

@@ -274,8 +274,7 @@ fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
 /// code reads, and a paused play state under a bound `animation-timeline`.
 /// `timeline` says the node has an `animation-timeline` row, so a dynamic
 /// `animation` (whose shorthand resets the play state) is paused again;
-/// `press` that its press feedback composes through `--exact-scale`.
-pub fn style_writes(id: u16, press: bool, timeline: bool) -> Result<Vec<Write>, String> {
+pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
     let with = |name: &str, map: &'static str| Write {
         name: name.into(),
@@ -285,10 +284,6 @@ pub fn style_writes(id: u16, press: bool, timeline: bool) -> Result<Vec<Write>, 
     Ok(match row {
         // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in
         // the stylesheet (emit.rs), under the author's names.
-        StyleId::Animation if press => return Err(
-            "a dynamic `animation` on a node whose press feedback scales is not in the JS target"
-                .into(),
-        ),
         StyleId::Animation if timeline => vec![
             with("animation", NONE),
             with(
@@ -316,12 +311,6 @@ pub fn style_writes(id: u16, press: bool, timeline: bool) -> Result<Vec<Write>, 
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),
         ],
-        // A pressed node's `scale` transitions through `--exact-scale`
-        // (css.rs): not yet.
-        StyleId::Transition if press => return Err(
-            "a dynamic `transition` on a node whose press feedback scales is not in the JS target"
-                .into(),
-        ),
         // A spring is lowered by the engine (motion.js): the declaration
         // is the rest, as css.rs `transition_css` leaves springs out.
         StyleId::Transition => vec![with(
@@ -448,4 +437,39 @@ fn css_property(id: StyleId) -> String {
         }
     }
     name.replace('_', "-")
+}
+
+/// A dynamic `font-family`'s declaration for each of the plan's stacks, by
+/// index (the value a binding gives), as css.rs writes it with the host's
+/// family names (`host/web/src/host/fonts.rs` `font_names`).
+pub fn font_family_table(plan: &Plan) -> Vec<String> {
+    use exact_plan::{StackMemberKind, StacksId};
+    let names: Vec<String> = (0..plan.stacks.len())
+        .map(|i| {
+            let stack = plan.stack(StacksId(i as u32));
+            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
+            match member.kind {
+                StackMemberKind::Family => format!("ExactPlanStack{i}"),
+                generic => generic.name().to_string(),
+            }
+        })
+        .collect();
+    (0..names.len())
+        .map(|i| {
+            let mut p = exact_kernel::StyleProps::default();
+            let _ = p.set_dynamic(
+                StyleId::FontFamily,
+                &exact_kernel::StyleValue::Number(i as f64),
+            );
+            let (text, _) = exact_web::css::css_text(&p, &names);
+            text.trim_end_matches(';')
+                .split_once(':')
+                .map_or(String::new(), |(_, v)| v.to_string())
+        })
+        .collect()
+}
+
+/// A marker row's CSS property (css.rs `property`).
+pub fn style_marker(id: StyleId) -> (String, String) {
+    (css_property(id), String::new())
 }
