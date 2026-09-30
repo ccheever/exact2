@@ -531,7 +531,7 @@ function adopt(p, tag, cls, attrs) {
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
-  // An unchanged class isn't written: a write would restyle the element.
+  if (attrs?.["data-exact-box"] !== undefined && attrs?.["data-exact-own-isolation"] === undefined && e.style.isolation === "isolate") e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
   return e;

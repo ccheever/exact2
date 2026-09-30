@@ -1,6 +1,7 @@
 # The web paint classifier does not know a static flex or grid item with a z-index is a stacking context
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Live and document paint classification includes non-auto z-index on flex/grid items and re-evaluates after parent display changes; JS uses the same parent/item facts. Rust regression and production-generated Chrome flex-to-block drive pass.
 **Systems:** web host, web JS target
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

@@ -309,7 +309,7 @@ fn write<S: Source>(
     };
     let mut after = false;
     for root in roots {
-        after |= walk.element(*root, after)?;
+        after |= walk.element(*root, after, None)?;
     }
     let rest = walk.out[walk.sent..].to_string();
     Ok((
@@ -379,7 +379,12 @@ impl<S: Source> Walk<'_, '_, S> {
     /// The element and its subtree; whether it paints with the positioned
     /// (`layers::layered`), for the siblings after it. `after`: one before
     /// it does.
-    fn element(&mut self, id: ViewId, after: bool) -> Result<bool, DocumentError> {
+    fn element(
+        &mut self,
+        id: ViewId,
+        after: bool,
+        parent: Option<exact_kernel::Display>,
+    ) -> Result<bool, DocumentError> {
         let src = self.src;
         let node = src.facts(id).expect("the runner's tree names live views");
         if node.node_type.is_metadata() {
@@ -414,7 +419,7 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
-        let paint = layers::paint_of(&node);
+        let paint = layers::paint_of(&node, parent);
         let isolated = layers::isolated(paint, after);
         let mut style = layers::with_isolation(host_css_of(&node, text, tag), isolated);
         let kept = self.computed.is_some().then(|| style.clone());
@@ -562,7 +567,7 @@ impl<S: Source> Walk<'_, '_, S> {
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let mut under = false;
         for child in children.iter().copied() {
-            under |= self.element(child, under)?;
+            under |= self.element(child, under, Some(node.style.display))?;
         }
         if let Some(outer) = outer {
             self.select = outer;

@@ -1170,7 +1170,7 @@ fn document<D: DataSource + 'static>(
                 &site,
                 serve.deadline,
                 &shared.shell,
-                *at,
+                at,
                 late,
                 MAX_PAGE.saturating_sub(head.len()),
                 &mut send,

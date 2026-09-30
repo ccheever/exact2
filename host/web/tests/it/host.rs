@@ -1443,3 +1443,54 @@ fn a_frame_task_fires_once_per_presented_frame() {
     assert_eq!(slot(&host, "frames"), Some(number(2.0)));
     assert_ne!(slot(&host, "at"), at);
 }
+
+#[test]
+fn flex_and_grid_item_z_index_relayer_following_siblings() {
+    for display in ["flex", "grid", "block"] {
+        let src = format!(
+            r#"component App
+  state flex = true
+  action toggle writes flex
+    flex = not flex
+  view
+    box display=(flex ? "{display}" : "block") testId="parent"
+      box z-index=0 testId="first" press=toggle
+      box testId="second"
+"#
+        );
+        let plan = contract::compile(&src).unwrap();
+        let (mut host, batch) = Host::boot(
+            &plan.encode(),
+            caltrain_data::Caltrain,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let id = view_with_test_id(&host, "second");
+        let doc = host.document().unwrap().root;
+        let at = doc.find("data-testid=\"second\"").unwrap();
+        let element = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
+        assert_eq!(
+            element.contains("isolation:isolate"),
+            display != "block",
+            "{doc}"
+        );
+        let at = &batch[batch
+            .find(&format!("\"op\":\"create\",\"id\":{id},"))
+            .unwrap()..];
+        let css = &at[at.find("\"css\":\"").unwrap() + 7..];
+        assert_eq!(
+            css[..css.find('"').unwrap()].contains("isolation:isolate"),
+            display != "block"
+        );
+        let first = view_with_test_id(&host, "first");
+        let changed = host.dispatch(first, Event::Press);
+        assert!(!host.document().unwrap().root.contains("isolation:isolate"));
+        if display != "block" {
+            assert!(
+                changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
+                "{changed}"
+            );
+        }
+    }
+}

@@ -61,12 +61,16 @@ pub const STACKS: [StyleId; 18] = [
     StyleId::ExitAnimation,
 ];
 /// A node's [`Paint`].
-pub fn paint(node: &NodeRef<'_>) -> Paint {
-    paint_of(&node.facts())
+pub fn paint(kernel: &Kernel, node: &NodeRef<'_>) -> Paint {
+    let parent = node.parent.and_then(|id| kernel.node(id));
+    paint_of(&node.facts(), parent.map(|n| n.style.display))
 }
 
 /// [`paint`], from a node's facts.
-pub fn paint_of(node: &exact_kernel::NodeFacts<'_>) -> Paint {
+pub fn paint_of(
+    node: &exact_kernel::NodeFacts<'_>,
+    parent: Option<exact_kernel::Display>,
+) -> Paint {
     let m = &node.style.mask;
     let props = node.props;
     let editor =
@@ -75,7 +79,11 @@ pub fn paint_of(node: &exact_kernel::NodeFacts<'_>) -> Paint {
         positioned: node.style.position_type != PositionType::Static
             || node.node_type == NodeType::Canvas
             || editor,
-        stacks: STACKS.iter().any(|s| m.has(*s))
+        stacks: (matches!(
+            parent,
+            Some(exact_kernel::Display::Flex | exact_kernel::Display::Grid)
+        ) && m.has(StyleId::ZIndex))
+            || STACKS.iter().any(|s| m.has(*s))
             || props.str(PropId::BackgroundMaterial).is_some()
             || props.str(PropId::NavigationKey).is_some()
             || props.str(PropId::NavigationPresentation) == Some("modal"),
@@ -123,7 +131,7 @@ pub fn isolates(
         let Some(node) = kernel.node(id) else {
             return false;
         };
-        let (own, d) = (paint(&node), dynamic(id));
+        let (own, d) = (paint(kernel, &node), dynamic(id));
         let p = Paint {
             positioned: own.positioned || d.paint.positioned,
             stacks: own.stacks || d.paint.stacks,
@@ -210,7 +218,7 @@ impl<D: DataSource> Host<D> {
             let Some(node) = kernel.node(*id) else {
                 continue;
             };
-            let p = paint(&node);
+            let p = paint(kernel, &node);
             // Its own children may have moved; its siblings, if it is new
             // or its paint moved.
             queue(Some(*id), &mut lists);
@@ -242,9 +250,11 @@ impl<D: DataSource> Host<D> {
                     continue;
                 };
                 let facts = self.layers.0.entry(child).or_insert_with(|| Facts {
-                    paint: paint(&node),
+                    paint: paint(kernel, &node),
                     ..Facts::default()
                 });
+                // A parent display change or a reparent changes flex/grid item paint.
+                facts.paint = paint(kernel, &node);
                 if facts.paint.outside {
                     continue;
                 }

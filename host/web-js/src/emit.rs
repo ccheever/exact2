@@ -648,6 +648,7 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
         js
     };
     let mut css = fonts.css.clone();
+    css.push_str(&style::paint_css());
     css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
@@ -743,7 +744,6 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
 
 /// A type for the agent's typed JSON: `"n"`, `"b"`, `"s"`, `"u"`,
 /// `["?",T]`, `["[",T]`, `{"field":T,…}` in field order.
-
 pub(crate) fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
     let t = &plan.types[ty.0 as usize];
     match t.kind {
@@ -1142,6 +1142,7 @@ impl Em<'_> {
                 .f(b.expr, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
+            self.paint_binding(node_type, b, &e, &f);
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
                     let md = self.uses.rt("md");

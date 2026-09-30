@@ -196,6 +196,10 @@ async function drive(t, report, fail, dir, ws, js) {
       });
       const [lw, lj] = await Promise.all([W.layout(), J.layout()]);
       const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
+      // Paint facts are part of parity even when boxes happen not to overlap.
+      const paint = `Array.from(document.querySelectorAll('#exact-root > *, #exact-root [data-testid]'), e => { const s = getComputedStyle(e); return [e.dataset.testid ?? '$root', s.isolation, s.position]; })`;
+      const [fw, fj] = await Promise.all([W, J].map(s => s.carrier.evaluate(paint)));
+      const op = []; diffJSON(fw, fj, 'paint', op); op.forEach(x => fail(step, x)); st += op.length;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');
       const [pw, pj] = [resolve(dir, `${slug}-wasm.png`), resolve(dir, `${slug}-js.png`)];
       // Chrome picks how a scaled image is filtered per raster (a lower

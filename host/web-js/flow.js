@@ -24,10 +24,10 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
   const value = (el, p) => el.computedStyleMap?.().get(p);
   const own = (el, p) => { const v = value(el, p); return v?.unit === 'px' || v?.unit === 'number'; };
   const auto = (el, p) => { const v = value(el, p); return v == null || v.value === 'auto' || v.value === 'none'; };
-  const orders = el => { const s = cs(el); return s.display === 'block' && s.alignContent === 'normal'; };
+  const orders = el => { const s = cs(el); return (s.display === 'block' || el.parentElement?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal'; };
   // A static box's insets do nothing; the context contains its exclusions (LLP 1074 T1).
   const inFlow = el => cs(el).position === 'static' || cs(el).position === 'relative' && ['top', 'bottom'].every(p => auto(el, p) || own(el, p));
-  const contains = el => cs(el).position !== 'static';
+  const contains = el => el.parentElement?.id === 'exact-root' || cs(el).position !== 'static';
   const placed = el => own(el, 'top') && (own(el, 'height') || auto(el, 'height') && auto(el, 'bottom'))
     && ['min-height', 'max-height'].every(p => auto(el, p) || own(el, p));
   // A text's authored height (the kernel's `height != auto`): its inline

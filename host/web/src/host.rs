@@ -925,7 +925,7 @@ impl<D: DataSource> Host<D> {
                         .runner
                         .kernel()
                         .node(*id)
-                        .is_some_and(|n| crate::css::press_composes(&n.style));
+                        .is_some_and(|n| crate::css::press_composes(n.style));
                     batch.exit(*id, &(link.list)(&exit.animations, press));
                 }
             }
@@ -1354,7 +1354,7 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
-        crate::css::send_keyframes(&mut self.keyframes, &node.style, batch);
+        crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
         let kept = match self.computed.last() {
@@ -1414,7 +1414,7 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
-        crate::css::send_keyframes(&mut self.keyframes, &node.style, batch);
+        crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
         // @ref LLP 1053.000 D4 — a computed name the table lacks draws
         // ultra-thin, and says so once.
         let note = node

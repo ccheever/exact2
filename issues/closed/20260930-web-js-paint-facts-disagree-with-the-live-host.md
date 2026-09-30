@@ -1,6 +1,7 @@
 # The JS target decides isolation ahead of time and disagrees with the live web host in three places
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** JS isolation follows actual DOM siblings and bound paint facts using CSS selectors, preserving the first repeated copy; root flow admission accepts the positioned/flow-root page root. Chrome dynamic-position/repeated-row/flex drive and focused Rust tests pass; conformance now compares per-node paint facts.
 **Systems:** web JS target, web host
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

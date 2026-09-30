@@ -205,74 +205,60 @@ pub fn project(
         }
         out.push(Some(parts));
     }
-    // `isolation: isolate` where the live host would make it (layers.rs), for
-    // any tree the template builds.
-    let mut rows = Vec::new();
-    for region in plan
-        .regions
-        .iter()
-        .filter(|r| r.kind == exact_plan::RegionKind::Each)
-    {
-        for arm in region.arms.iter() {
-            roots_of(plan, sites, sites.of_arm(arm.0), &mut rows);
+    // CSS sibling selectors use the actual rows and active region arms.
+    // Static template guesses cannot decide a first copy or a bound position.
+    for (i, parts) in out.iter_mut().enumerate() {
+        let Some(parts) = parts else { continue };
+        let node = kernel.node(view(i)).expect("template node");
+        let paint = layers::paint_of(&node.facts(), None);
+        if paint.outside {
+            continue;
         }
-    }
-    let isolated = layers::isolates(&kernel, &[view(sites.root as usize)], &|id| {
-        let i = id as usize - 1;
-        layers::Dynamic {
-            repeated: rows.contains(&(i as u32)),
-            ..dynamic(plan, i)
+        parts.props.insert("data-exact-box".into(), "".into());
+        if paint.positioned || paint.stacks {
+            parts.props.insert("data-exact-layer".into(), "".into());
         }
-    });
-    for id in isolated {
-        if let Some(parts) = out[id as usize - 1].as_mut() {
-            parts.css.push_str("isolation:isolate;");
+        if node.style.mask.has(StyleId::Isolation) || node.node_type == NodeType::Canvas {
+            parts
+                .props
+                .insert("data-exact-own-isolation".into(), "".into());
+        }
+        if matches!(
+            node.style.display,
+            exact_kernel::Display::Flex | exact_kernel::Display::Grid
+        ) {
+            parts.props.insert("data-exact-flex".into(), "".into());
+        }
+        if node.style.mask.has(StyleId::ZIndex) {
+            parts.props.insert("data-exact-z".into(), "".into());
         }
     }
     Ok(out)
 }
 
-/// What node `i`'s dynamic rows and props may bring to the page's painting
-/// order, which the template kernel doesn't hold.
-fn dynamic(plan: &Plan, i: usize) -> layers::Dynamic {
-    let mut d = layers::Dynamic::default();
-    for row in plan.nodes[i].bindings.iter().map(|b| plan.binding(b)) {
-        if literal(plan, plan.code(row.expr)).is_some() {
-            continue;
-        }
-        let has = |ids: &[StyleId]| ids.iter().any(|s| row.id == *s as u16);
-        match row.kind {
-            BindingKind::Style if has(&[StyleId::PositionType]) => d.paint.positioned = true,
-            BindingKind::Style if has(&layers::STACKS) => d.paint.stacks = true,
-            BindingKind::Prop => match PropId::from_wire(row.id) {
-                Some(PropId::BackgroundMaterial | PropId::NavigationKey)
-                | Some(PropId::NavigationPresentation) => d.paint.stacks = true,
-                Some(PropId::Markup) => d.paint.positioned = true,
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-    d
-}
-
-/// The nodes a site list puts at its level: nodes, and a region's arms' own.
-fn roots_of(
-    plan: &Plan,
-    sites: &crate::emit::Sites,
-    list: &[crate::emit::Site],
-    into: &mut Vec<u32>,
-) {
-    for s in list {
-        match s {
-            crate::emit::Site::Node(n) => into.push(*n),
-            crate::emit::Site::Region(r) => {
-                for arm in plan.regions[*r as usize].arms.iter() {
-                    roots_of(plan, sites, sites.of_arm(arm.0), into);
-                }
-            }
-        }
-    }
+/// Painting in the actual DOM, including repeated roots and conditional arms.
+/// A flex/grid item's z-index layers it even when it is static.
+pub fn paint_css() -> String {
+    let mut own = vec![
+        "[data-exact-layer]".to_string(),
+        "[data-exact-position]".into(),
+        "[data-exact-flex]>[data-exact-z]".into(),
+    ];
+    own.extend(
+        layers::STACKS
+            .iter()
+            .map(|row| format!("[data-exact-stack-{}]", *row as u16)),
+    );
+    own.extend(
+        [
+            PropId::BackgroundMaterial,
+            PropId::NavigationKey,
+            PropId::NavigationPresentation,
+        ]
+        .map(|p| format!("[data-exact-stack-prop-{}]", p as u16)),
+    );
+    let own = own.join(",");
+    format!("#exact-root#exact-root :is({own},:has(:is({own})),[data-exact-flex]:has(>[data-exact-z]))~[data-exact-box]:not(:is({own})){{isolation:isolate}}")
 }
 
 /// The DOM prop name the live host gives `prop` on a node of `node_type`,
