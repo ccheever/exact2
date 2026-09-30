@@ -105,7 +105,8 @@ impl Fixture {
                 "--moduleResolution",
                 "bundler",
                 "--lib",
-                "ES2022",
+                // The seam names the platform-standard URL and CryptoKeyPair.
+                "ES2022,DOM",
                 "--pretty",
                 "false",
                 "app.ts",
