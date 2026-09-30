@@ -80,6 +80,25 @@ final class CollectionFillMacTests: XCTestCase {
         XCTAssertEqual(limit(wires[1]), 2)
     }
 
+    /// Two reports spend the turn's passes; a gap that shows in the same
+    /// turn is still rescued, not left blank until the next slice.
+    func testARescueAfterTwoReportsInOneTurnStillBuilds() throws {
+        let (p, list, _) = fixture(rows: 4)
+        defer { p.collections.reset() }
+        var wires: [Data] = []
+        p.collections.onFeedback = { wires.append($0) }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        p.collections.fillSlice(1, limit: 1)
+        clip.scroll(to: NSPoint(x: 0, y: 60))
+        p.collections.changed(1)
+        p.collections.flush()
+        XCTAssertEqual(wires.count, 2, "the turn's two passes are spent")
+        clip.scroll(to: NSPoint(x: 0, y: 200))
+        XCTAssertEqual(wires.count, 3, "the gap is rescued in the same turn")
+        XCTAssertEqual(limit(wires[2]), 2)
+        XCTAssertEqual(p.collections.budget.refusedSpent, 0)
+    }
+
     private func flags(_ wire: Data) -> UInt32 {
         wire.subdata(in: 76..<80).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
     }

@@ -56,8 +56,15 @@ struct CollectionCursor {
 struct CollectionTurnBudget {
     private var passes = 0
     private var busy = false
-    mutating func begin() -> Bool {
-        guard !busy, passes < 2 else { return false }
+    /// Passes refused, by why: the turn had spent its two (`spent`), or a
+    /// pass was running and a report's batch reentered (`busy`).
+    private(set) var refusedSpent = 0, refusedBusy = 0
+    /// A rescue (what shows is uncovered, LLP 1050.000 D1) is never refused
+    /// for the turn's passes: a turn that spent them on other lists, or on
+    /// a slice, would otherwise leave the port blank until the next slice.
+    mutating func begin(rescue: Bool = false) -> Bool {
+        if busy { refusedBusy += 1; return false }
+        if passes >= 2 && !rescue { refusedSpent += 1; return false }
         passes += 1; busy = true
         return true
     }
@@ -172,7 +179,13 @@ final class CollectionHost {
     var batchDepth = 0
     var correcting = false
     private var dirty = Set<UInt32>()
-    private var budget = CollectionTurnBudget()
+    private(set) var budget = CollectionTurnBudget()
+    /// Lists whose uncovered port a rescue reports first, whatever the
+    /// turn has spent (`CollectionTurnBudget.begin(rescue:)`).
+    private var rescuing = Set<UInt32>()
+    /// Each turn of the main run loop gets its passes: a continuation
+    /// (`schedule`) or a slice is not the only start of a turn.
+    private var turnObserver: CFRunLoopObserver?
     private var queued = false
     private var generation = 0
     private var contactSequence: UInt64 = 0
@@ -213,7 +226,18 @@ final class CollectionHost {
     // Platform hooks remove event monitors/recognizers when the adapter resets.
     var stopTracking: (() -> Void)?
     init(_ presenter: Presenter) { self.presenter = presenter }
-    deinit { stopTracking?() }
+    deinit {
+        stopTracking?()
+        if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
+    }
+    private func observeTurns() {
+        guard turnObserver == nil else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { [weak self] _, _ in
+            self?.budget.nextTurn()
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        turnObserver = observer
+    }
 
     func reset() {
         gestureContact = nil
@@ -222,7 +246,7 @@ final class CollectionHost {
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
         fillPending.removeAll(); sliceLimits.removeAll()
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
-        budget = CollectionTurnBudget()
+        budget = CollectionTurnBudget(); rescuing.removeAll()
         refreshPins = false; lastVisited = 0
         #if os(iOS)
         focusFound = nil
@@ -324,7 +348,9 @@ final class CollectionHost {
             // What shows cannot wait for a slice in flight (T7): land it,
             // then report from the geometry that shows now.
             if filling?() == true { drain?() }
+            rescuing.insert(view)
             flush()
+            rescuing.remove(view)
             sliceLimits[view] = nil
             if motion != nil { rescued?() }
         }
@@ -419,6 +445,7 @@ final class CollectionHost {
 
     func flush() {
         guard batchDepth == 0, let onFeedback, !dirty.isEmpty else { return }
+        observeTurns()
         // Reserve the continuation before calling Rust: its batch can reenter us.
         schedule()
         // Each list once per flush, at most, without a report (bounded
@@ -427,7 +454,8 @@ final class CollectionHost {
         while !dirty.isEmpty {
             // A slice in flight holds every report until it lands (T4).
             if filling?() == true { return }
-            guard budget.begin() else { return }
+            let rescue = !rescuing.isDisjoint(with: dirty)
+            guard budget.begin(rescue: rescue) else { return }
             #if os(iOS)
             let focus = focusFound ?? focusedView()
             focusFound = focus
@@ -443,7 +471,10 @@ final class CollectionHost {
                 return (facts.focus != nil && focusOwner != id) ||
                     (facts.interaction != nil && interactionOwner != id)
             }
-            let candidates = retiring.isEmpty ? dirty : retiring
+            // Retiring owners first (their pins go before new ones), then a
+            // rescue's list, then any.
+            let rescued = rescue ? dirty.intersection(rescuing) : []
+            let candidates = !retiring.isEmpty ? retiring : !rescued.isEmpty ? rescued : dirty
             // Round-robin keeps one refining viewport from starving another.
             let id = candidates.filter { $0 > lastVisited }.min() ?? candidates.min()!
             lastVisited = id

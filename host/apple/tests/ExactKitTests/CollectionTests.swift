@@ -75,4 +75,19 @@ final class CollectionTests: XCTestCase {
         budget.nextTurn()
         XCTAssertTrue(budget.begin())
     }
+
+    /// A rescue is never refused for the turn's passes, only while a pass
+    /// runs (a report's batch reentering); each refusal is counted by why.
+    func testARescueIsNotRefusedForTheTurnsPasses() {
+        var budget = CollectionTurnBudget()
+        XCTAssertTrue(budget.begin()); budget.end()
+        XCTAssertTrue(budget.begin()); budget.end()
+        XCTAssertFalse(budget.begin())
+        XCTAssertEqual(budget.refusedSpent, 1)
+        XCTAssertTrue(budget.begin(rescue: true))
+        XCTAssertFalse(budget.begin(rescue: true), "not inside a running pass")
+        XCTAssertEqual(budget.refusedBusy, 1)
+        budget.end()
+        XCTAssertEqual(budget.refusedSpent, 1)
+    }
 }
