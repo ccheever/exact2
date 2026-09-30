@@ -27,10 +27,9 @@ final class SvgFilterMetal {
     /// queue, once, before the first picture needs them (`shared` waits for
     /// a make still running), and run every step once on a tiny picture, so
     /// Metal Performance Shaders has made its blur's too. The first picture
-    /// is drawn in the commit that shows it: on an iPhone 13 Pro Max, F3's
-    /// waited 1–2 ms for the library from the compiler's cache, and 113–264
-    /// ms on the first launch after an install, more than the ~25 ms between
-    /// boot and the commit can hide (LLP 1055.000, first ink).
+    /// is drawn in the commit that shows it, ~25 ms after boot on an iPhone
+    /// 13 Pro Max (LLP 1055.000, first ink); the library is compiled at
+    /// build, and the GPU's own compile of each pipeline is what remains.
     static func prewarm() {
         guard !prewarming else { return }
         prewarming = true
@@ -60,42 +59,24 @@ final class SvgFilterMetal {
     /// Working textures by size (three, ping-ponged), kept while the size holds.
     private var work: [MTLTexture] = []
 
-    private static let source = """
-    #include <metal_stdlib>
-    using namespace metal;
-    kernel void colorMatrix(texture2d<float, access::read> src [[texture(0)]], texture2d<float, access::write> dst [[texture(1)]],
-                            constant float *m [[buffer(0)]], uint2 g [[thread_position_in_grid]]) {
-        if (g.x >= dst.get_width() || g.y >= dst.get_height()) return;
-        float4 p = src.read(g);
-        float4 c = p.a > 0 ? float4(p.rgb / p.a, p.a) : float4(0);
-        float4 o;
-        for (int r = 0; r < 4; r++) o[r] = m[r*5] * c.r + m[r*5+1] * c.g + m[r*5+2] * c.b + m[r*5+3] * c.a + m[r*5+4];
-        o = clamp(o, 0.0, 1.0);
-        dst.write(float4(o.rgb * o.a, o.a), g);
+    /// The kernels, compiled at build (`host/apple/metal/SvgFilter.metal`,
+    /// `ExactSvgFilter.metallib` in the app's bundle; `EXACT_SVG_METALLIB`
+    /// names another, as the host tests do). Without it every chain stays
+    /// on Core Image, and that is said once.
+    static let libraryName = "ExactSvgFilter"
+    private static func library(_ d: MTLDevice) -> MTLLibrary? {
+        let url = ProcessInfo.processInfo.environment["EXACT_SVG_METALLIB"].map { URL(fileURLWithPath: $0) }
+            ?? Bundle.main.url(forResource: libraryName, withExtension: "metallib")
+        guard let url, let lib = try? d.makeLibrary(URL: url) else {
+            FileHandle.standardError.write(Data("exact svg: no \(libraryName).metallib in the app's bundle; filter pictures run on Core Image\n".utf8))
+            return nil
+        }
+        return lib
     }
-    kernel void offset(texture2d<float, access::read> src [[texture(0)]], texture2d<float, access::write> dst [[texture(1)]],
-                       constant int2 &d [[buffer(0)]], uint2 g [[thread_position_in_grid]]) {
-        if (g.x >= dst.get_width() || g.y >= dst.get_height()) return;
-        int2 s = int2(g) - d;
-        bool in = s.x >= 0 && s.y >= 0 && s.x < int(src.get_width()) && s.y < int(src.get_height());
-        dst.write(in ? src.read(uint2(s)) : float4(0), g);
-    }
-    kernel void dropShadow(texture2d<float, access::read> src [[texture(0)]], texture2d<float, access::read> blurred [[texture(1)]],
-                           texture2d<float, access::write> dst [[texture(2)]], constant float4 &color [[buffer(0)]],
-                           constant int2 &d [[buffer(1)]], uint2 g [[thread_position_in_grid]]) {
-        if (g.x >= dst.get_width() || g.y >= dst.get_height()) return;
-        int2 s = int2(g) - d;
-        bool in = s.x >= 0 && s.y >= 0 && s.x < int(blurred.get_width()) && s.y < int(blurred.get_height());
-        float a = in ? blurred.read(uint2(s)).a : 0;
-        float4 shadow = float4(color.rgb * color.a, color.a) * a;
-        float4 p = src.read(g);
-        dst.write(p + shadow * (1 - p.a), g);
-    }
-    """
 
     private init?() {
         guard let d = SvgFilterGPU.metal?.device, MPSSupportsMTLDevice(d),
-              let lib = try? d.makeLibrary(source: SvgFilterMetal.source, options: nil),
+              let lib = SvgFilterMetal.library(d),
               let m = lib.makeFunction(name: "colorMatrix").flatMap({ try? d.makeComputePipelineState(function: $0) }),
               let o = lib.makeFunction(name: "offset").flatMap({ try? d.makeComputePipelineState(function: $0) }),
               let s = lib.makeFunction(name: "dropShadow").flatMap({ try? d.makeComputePipelineState(function: $0) }) else { return nil }

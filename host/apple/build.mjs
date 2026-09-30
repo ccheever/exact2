@@ -86,6 +86,25 @@ export function deploymentTargets(app) {
     macos: newer(String(app.manifest.host?.macos?.minimumOS ?? '14.0'), '14.0'),
   };
 }
+/** `host/apple/metal/SvgFilter.metal` compiled for `sdkName` into `out`
+ *  (`ExactSvgFilter.metallib`, @ref LLP 1055.000 D14): a filter picture's
+ *  kernels, compiled here and not at run time, where the first launch after
+ *  an install paid 113–264 ms inside the commit that shows it. Every iOS
+ *  build and the host tests need Xcode's Metal toolchain for it. */
+export function svgFilterLibrary(sdkName, minimum, out) {
+  const install = 'xcodebuild -downloadComponent MetalToolchain';
+  if (read('xcrun', ['-sdk', sdkName, 'metal', '--version']).status !== 0) {
+    throw new Error(`host/apple: this build compiles the SVG filter kernels with Xcode's Metal toolchain, which is not installed. Install it with \`${install}\``);
+  }
+  const flag = { iphoneos: `-mios-version-min=${minimum}`, iphonesimulator: `-mios-simulator-version-min=${minimum}`, macosx: `-mmacosx-version-min=${minimum}` }[sdkName];
+  const air = out.replace(/\.metallib$/, '') + '.air';
+  run('xcrun', ['-sdk', sdkName, 'metal', '-std=metal3.0', flag, '-c', resolve(root, 'host/apple/metal/SvgFilter.metal'), '-o', air], { stdio: 'pipe' });
+  run('xcrun', ['-sdk', sdkName, 'metallib', air, '-o', out], { stdio: 'pipe' });
+  rmSync(air, { force: true });
+  return out;
+}
+export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
+
 /** The Swift triple for an app's iOS build. */
 export const iosTripleFor = (app, device) =>
   device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
@@ -848,6 +867,9 @@ function main(args) {
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
   const targets = deploymentTargets(app);
+  // The filter pictures' kernels (iOS; `SvgFilterMetal`), for the bundle:
+  // first, so a missing Metal toolchain stops the build before cargo runs.
+  const svgFilterBuilt = ios ? svgFilterLibrary(sdkName, targets.ios, resolve(webBuildDir, svgFilterLibraryName)) : null;
   const cargoEnv = {
     ...developmentBuildEnv(),
     SDKROOT: sdk,
@@ -929,13 +951,15 @@ function main(args) {
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
     for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(embed, m.load));
+    // Beside the executable in the embedding app's bundle, as ExactIOS has it.
+    if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(embed, svgFilterLibraryName));
     copyAppleStaticTrees(paths.capture, embed);
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed, true));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition, compatibilityId:bakedCompat.id, build:buildReceipt }));
     const bytes = statSync(resolve(embed, archive)).size;
     placeAppleArtifact(embed, paths.embed);
-    console.log(`host/apple: ${paths.embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${hasGpu ? `, ${loadName}` : ''}, shaders, assets, compat.json; link it with ExactKit${composition === 'updating' ? ' + ExactUpdates' : ''} from the package at ${pkg.replace(root + '/', '')}`);
+    console.log(`host/apple: ${paths.embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${hasGpu ? `, ${loadName}` : ''}${svgFilterBuilt ? `, ${svgFilterLibraryName} (the bundle's top level)` : ''}, shaders, assets, compat.json; link it with ExactKit${composition === 'updating' ? ' + ExactUpdates' : ''} from the package at ${pkg.replace(root + '/', '')}`);
     if (!args.includes('--run') && !args.includes('--host')) return;
   }
   const t1 = Date.now();
@@ -1243,6 +1267,7 @@ function main(args) {
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
+  copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
   if (canvasGpuBuilt) copyFileSync(canvasGpuBuilt, resolve(bundle, 'Frameworks', canvasGpuLoadName));
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
@@ -1254,6 +1279,7 @@ function main(args) {
     writeUsageStrings(bakedCompat.reach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
+    copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
     bundles.push([hostBundle, true]);
   }
   for (const [assembled, host] of bundles) {
@@ -1341,6 +1367,10 @@ function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', '--release', '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, 'release') : resolve(app.target, 'release');
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
+    // The filter kernels the Metal chain's tests run (no bundle to find them in).
+    mkdirSync(paths.namespace, { recursive: true });
+    env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName));
+    if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
     if (!ios) {
       // Tests that compile their own Contract source run this compiler, built
       // here as `cargo build` would, never assumed from an earlier build.
