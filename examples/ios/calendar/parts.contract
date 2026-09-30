@@ -1,0 +1,193 @@
+component Weekday
+  props
+    label: string
+    tone: string
+  view
+    text label width="14.285714%" font-size=12 font-weight=500 text-align="center" color=tone
+
+component ColorChoice
+  props
+    value: string
+    label: string
+    selected: string
+    disabled: bool
+    pick: action
+  view
+    button press=pick(value) disabled=disabled testId=`color-${label}` aria-label=label aria-selected=(selected == value) width=32 height=32 flex-shrink=0 padding=0 border-width=(selected == value ? 2 : 0) border-style="solid" border-color="#ffffff" box-shadow=(selected == value ? `0 0 0 2px ${value}` : "none") border-radius=16 background-color=value display="flex" align-items="center" justify-content="center" press-scale=0.94
+      when selected == value
+        text "✓" font-size=17 font-weight=600 color="#ffffff"
+
+component TodoMark
+  props
+    completed: bool
+    color: string
+    size: number
+  view
+    svg width=size height=size viewBox="0 0 20 20" flex-shrink=0 aria-hidden=true opacity=(completed ? 0.55 : 1)
+      circle cx=10 cy=10 r=8.5 fill=(completed ? color : "none") stroke=color stroke-width=1.5
+      when completed
+        path d="M 5.5 10 L 8.5 13 L 14.5 7" fill="none" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+
+component AgendaMark
+  props
+    kind: string
+    color: string
+    completed: bool
+  view
+    box width=24 height=24 flex-shrink=0 display="flex" align-items="center" justify-content="center" aria-hidden=true
+      when kind == "todo"
+        TodoMark(completed=completed, color=color, size=20)
+      else
+        when kind == "plan"
+          svg width=24 height=24 viewBox="0 0 24 24"
+            circle cx=3 cy=12 r=2 fill=color
+            path d="M 3 12 L 21 12 M 15.5 6.5 L 21 12 L 15.5 17.5" fill="none" stroke=color stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+        else
+          box width=12 height=12 border-radius=6 background-color=color
+
+component AgendaRow
+  props
+    id: string
+    title: string
+    color: string
+    rangeLabel: string
+    kind: string
+    completed: bool
+    toggle: action
+    hidden: bool
+    disabled: bool
+    edit: action
+  view
+    column width="100%" box-sizing="border-box"
+      box position="relative" width="100%" height=64
+        row aria-hidden=true width="100%" height=64 box-sizing="border-box" padding-left=20 padding-right=20 background-color="#ffffff" opacity=(hidden ? 0 : 1) align-items="center" gap=12
+          AgendaMark(kind=kind, color=color, completed=completed)
+          column flex=1 min-width=0 gap=4 align-items="flex-start"
+            text title font-size=16 font-weight=500 opacity=(completed ? 0.5 : 1) text-decoration-line=(completed ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+            text rangeLabel font-size=13 color="#85858d" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+          image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf"
+        calendar-drag-handle id=`agenda-item-${id}` testId=`agenda-item-${id}` event-id=id enabled=(disabled ? "false" : "true") press=edit(id, kind) aria-label=`${title}, ${rangeLabel}. Hold to move.` position="absolute" left=0 top=0 right=0 bottom=0
+        when kind == "todo"
+          button testId=`todo-check-${id}` press=toggle(id, not completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled position="absolute" left=10 top=10 width=44 height=44 padding=0 border-width=0 background-color="#ffffff00"
+      box margin-left=56 margin-right=20 height=1 background-color="#f0f0f3" opacity=(hidden ? 0 : 1)
+
+component PickerChoice
+  props
+    kind: string
+    title: string
+    tone: string
+    surface: string
+    ink: string
+    pick: action
+  view
+    button testId=`picker-${kind}` press=pick(kind) flex=1 min-width=0 height=76 box-sizing="border-box" padding=16 border-width=1 border-style="solid" border-color="rgba(80,70,80,0.08)" border-radius=12 background-color=surface display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=12 press-scale=0.97
+      svg width=24 height=24 viewBox="0 0 24 24" flex-shrink=0 aria-hidden=true
+        when kind == "event"
+          path d="M 5 5 L 19 5 Q 21 5 21 7 L 21 19 Q 21 21 19 21 L 5 21 Q 3 21 3 19 L 3 7 Q 3 5 5 5 Z M 7 3 L 7 7 M 17 3 L 17 7 M 3 10 L 21 10" fill="none" stroke=tone stroke-width=1.6
+          circle cx=8 cy=15 r=1 fill=tone
+          circle cx=12 cy=15 r=1 fill=tone
+          circle cx=16 cy=15 r=1 fill=tone
+        when kind == "plan"
+          circle cx=3 cy=12 r=2 fill=tone
+          path d="M 3 12 L 21 12 M 15 6 L 21 12 L 15 18" fill="none" stroke=tone stroke-width=1.6
+        when kind == "todo"
+          circle cx=12 cy=12 r=9 fill="none" stroke=tone stroke-width=1.6
+          path d="M 7 12 L 10.5 15.5 L 17 8.5" fill="none" stroke=tone stroke-width=1.6
+        when kind == "sticker"
+          path d="M 5 3 L 19 3 Q 21 3 21 5 L 21 14 L 14 21 L 5 21 Q 3 21 3 19 L 3 5 Q 3 3 5 3 Z M 14 21 L 14 16 Q 14 14 16 14 L 21 14" fill="none" stroke=tone stroke-width=1.6
+          path d="M 7 9 Q 11 13 15 9" fill="none" stroke=tone stroke-width=1.6
+      text title font-size=16 font-weight=500 color=ink
+
+component StickerChoice
+  props
+    value: string
+    title: string
+    selected: string
+    disabled: bool
+    dragId: string
+    held: bool
+    surface: string
+    selectedSurface: string
+    ink: string
+    accent: string
+    pick: action
+  derive lifted = dragId == `sticker-pick:${value}`
+  view
+    button testId=`sticker-${value}` press=pick(value) disabled=(disabled and not (held and lifted)) aria-label=title aria-selected=(selected == value) position="relative" flex=1 min-width=0 height=88 padding=0 box-sizing="border-box" border-width=(selected == value ? 2 : 0) border-style="solid" border-color=accent border-radius=16 background-color=(selected == value ? selectedSurface : surface)
+      image `assets/stickers/${value}.png` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48 object-fit="contain" pointer-events="none" opacity=(lifted ? 0 : 1) aria-hidden=true
+      text title position="absolute" left=0 right=0 bottom=8 text-align="center" font-size=12 color=ink pointer-events="none"
+      calendar-drag-handle id=`sticker-pick-${value}` testId=`sticker-pick-${value}` event-id=`sticker-pick:${value}` enabled=(not disabled or (held and lifted) ? "true" : "false") press=pick(value) aria-label=`${title}. Hold to place on a date.` position="absolute" left="calc(50% - 24px)" top=8 width=48 height=48
+
+component StickerAgendaRow
+  props
+    day: number
+    date: string
+    stickerId: string
+    hidden: bool
+    disabled: bool
+    edit: action
+  view
+    column width="100%" box-sizing="border-box"
+      box position="relative" width="100%" height=64
+        button press=edit testId="edit-sticker" disabled=disabled position="absolute" left=0 right=0 top=0 bottom=0 padding-left=20 padding-right=20 border-width=0 background-color="#ffffff" display="flex" flex-direction="row" align-items="center" gap=12
+          image `assets/stickers/${stickerId}.png` width=36 height=36 object-fit="contain" pointer-events="none" opacity=(hidden ? 0 : 1)
+          column flex=1 min-width=0 gap=4 align-items="flex-start" opacity=(hidden ? 0 : 1)
+            text stickerId text-transform="capitalize" font-size=16 font-weight=500 color="#242428"
+            text "Hold to move or tap to change" font-size=13 color="#85858d"
+          image "symbol:forward-chevron" font-size=11 tint-color="#c9c9cf" pointer-events="none" opacity=(hidden ? 0 : 1)
+        calendar-drag-handle id=`sticker-agenda-${date}` testId=`sticker-agenda-${date}` event-id=`sticker-day:${day}:${stickerId}` enabled=(disabled ? "false" : "true") press=edit aria-label=`${stickerId} sticker. Hold to move.` position="absolute" left=0 right=0 top=0 bottom=0
+      box margin-left=68 margin-right=20 height=1 background-color="#f0f0f3" opacity=(hidden ? 0 : 1)
+
+component ThemeChoice
+  props
+    value: number
+    title: string
+    wallpaper: string
+    selected: number
+    surface: string
+    field: string
+    ink: string
+    muted: string
+    border: string
+    accent: string
+    pick: action
+  view
+    button press=pick(value) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) position="relative" flex=1 min-width=0 height=148 box-sizing="border-box" padding=8 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? accent : border) border-radius=16 background-color=(selected == value ? field : surface) display="flex" flex-direction="column" align-items="center" gap=8
+      when value == 0
+        box testId="theme-classic-preview" width="100%" height=96 flex-shrink=0 border-radius=10 background-color="#ffffff" overflow="hidden" pointer-events="none" aria-hidden=true
+          svg width="100%" height=96 viewBox="0 0 160 96"
+            text "Sep" x=10 y=17 font-size=12 font-weight=600 fill="#242428"
+            text "S" x=14 y=30 text-anchor="middle" font-size=6 fill="#d97777"
+            text "M" x=36 y=30 text-anchor="middle" font-size=6 fill="#929299"
+            text "T" x=58 y=30 text-anchor="middle" font-size=6 fill="#929299"
+            text "W" x=80 y=30 text-anchor="middle" font-size=6 fill="#929299"
+            text "T" x=102 y=30 text-anchor="middle" font-size=6 fill="#929299"
+            text "F" x=124 y=30 text-anchor="middle" font-size=6 fill="#929299"
+            text "S" x=146 y=30 text-anchor="middle" font-size=6 fill="#7796c1"
+            path d="M 6 35 L 154 35 M 6 57 L 154 57 M 6 79 L 154 79" fill="none" stroke="#ededf1" stroke-width=0.7
+            text "6" x=14 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "7" x=36 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "8" x=58 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "9" x=80 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "10" x=102 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "11" x=124 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "12" x=146 y=43 text-anchor="middle" font-size=5.5 fill="#74747c"
+            rect x=8 y=47 width=43 height=6 rx=1.5 fill="#FA7070"
+            rect x=76 y=47 width=75 height=6 rx=1.5 fill="#747AFF"
+            text "13" x=14 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "14" x=36 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "15" x=58 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "16" x=80 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "17" x=102 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "18" x=124 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            text "19" x=146 y=65 text-anchor="middle" font-size=5.5 fill="#74747c"
+            circle cx=11 cy=71 r=1.8 fill="#70B8A2"
+            path d="M 11 71 L 95 71 M 91 68 L 95 71 L 91 74" fill="none" stroke="#70B8A2" stroke-width=1.1 stroke-linecap="round" stroke-linejoin="round"
+            circle cx=115 cy=87 r=3 fill="none" stroke="#747AFF" stroke-width=1.1
+            text "Todo" x=122 y=89 font-size=5.5 fill="#74747c"
+      else
+        image wallpaper width="100%" height=96 flex-shrink=0 object-fit="cover" border-radius=10 pointer-events="none"
+      text title font-size=13 font-weight=(selected == value ? 600 : 500) line-height="18px" color=(selected == value ? ink : muted) max-width="100%" white-space="nowrap" text-overflow="ellipsis" overflow="hidden"
+      when selected == value
+        box position="absolute" top=14 right=14 width=22 height=22 border-radius=11 background-color=surface display="flex" align-items="center" justify-content="center"
+          text "✓" font-size=15 font-weight=600 color=accent

@@ -251,6 +251,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "calendar-apple"
+version = "0.1.0"
+dependencies = [
+ "calendar-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-data-host",
+ "exact-kernel",
+ "exact-logic",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "calendar-data"
+version = "0.1.0"
+dependencies = [
+ "exact-data",
+ "exact-data-host",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "calendar-web"
+version = "0.1.0"
+dependencies = [
+ "calendar-data",
+ "contract",
+ "exact-bake",
+ "exact-data-host",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "caltrain"
 version = "0.1.0"
 dependencies = [
