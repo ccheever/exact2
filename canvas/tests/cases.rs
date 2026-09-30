@@ -457,6 +457,9 @@ fn the_shared_cases_hold_for_the_rust_recorder() {
 #[test]
 fn a_cycled_palette_records_what_a_fresh_parse_records() {
     use exact_canvas::list::{records, Op};
+    // The palette has a wide form (oklch): linked here, not by whichever test
+    // happens to run first (the link is process-wide).
+    exact_canvas::color::link_wide();
     let palette = [
         "#ef4444",
         "rgb(1 2 3 / 50%)",
