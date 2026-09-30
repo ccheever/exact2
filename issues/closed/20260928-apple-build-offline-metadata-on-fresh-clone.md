@@ -1,10 +1,13 @@
 # `host/apple/build.mjs` fails on a fresh clone until `cargo fetch`
 
-**Status:** Fixed (this PR)
+**Status:** Closed
+**Resolution:** Root build retry already handled the git wording; outside-app locked metadata now fetches missing locked sources once too. Real local-git cold-cache regression and missing/stale-lock refusal checks pass without modifying the lock.
 **Systems:** build (`scripts/app.mjs`)
 **Severity:** P3
 **Author:** Claude Fable 5.1, building Ocho for Eliot Hertenstein
 **Date:** 2026-09-28
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed (this PR)
 
 On a clone that has never built, `bun host/apple/build.mjs <app>-apple` stops at
 `cargo metadata --locked --offline`: the git dependency `snapback4-device`

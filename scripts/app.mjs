@@ -169,9 +169,23 @@ export function outsideWorkspaceProblems(workspace) {
   return problems;
 }
 
+/** Resolve a binding lock, fetching its missing sources once without updating it. */
+export function lockedMetadata(workspace, noDeps = false, env = process.env) {
+  const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
+  const options = { cwd: workspace, env, encoding: 'utf8', maxBuffer: 1 << 26 };
+  let result = spawnSync('cargo', args, options);
+  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode/.test(result.stderr ?? '')) {
+    console.error(`${workspace}: fetching missing locked Cargo sources (cargo fetch --locked)`);
+    const fetched = spawnSync('cargo', ['fetch', '--locked'], options);
+    if (fetched.status === 0) result = spawnSync('cargo', args, options);
+    else result.stderr += `\ncargo fetch --locked:\n${fetched.stderr || fetched.error?.message}`;
+  }
+  return result;
+}
+
 /** Finding an outside app never changes its lock. Dependency updates are explicit. */
 function checkOutsideLock(workspace) {
-  const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'], { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', maxBuffer: 1 << 26 });
+  const result = lockedMetadata(workspace);
   if (result.status !== 0) throw new Error(`cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly, run \`cargo metadata --offline --format-version 1\` in ${workspace}.`);
 }
 
@@ -419,7 +433,7 @@ export function resolveApp(nameOrCrate) {
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = lockedMetadata(workspace, true);
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }

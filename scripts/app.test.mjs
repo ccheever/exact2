@@ -967,3 +967,32 @@ test('device grants derive the plists, their translations and the release entitl
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+test('locked metadata fetches a missing git checkout without rewriting the lock', async () => {
+  const { lockedMetadata } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-metadata-fetch-'));
+  const git = resolve(dir, 'source'), app = resolve(dir, 'app');
+  const run = (cwd, cmd, args, env = process.env) => {
+    const r = spawnSync(cmd, args, {cwd, env, encoding:'utf8'});
+    assert.equal(r.status, 0, r.stderr); return r.stdout;
+  };
+  try {
+    for (const path of [git, app]) mkdirSync(resolve(path, 'src'), {recursive:true});
+    writeFileSync(resolve(git, 'Cargo.toml'), '[package]\nname="local-source"\nversion="0.1.0"\nedition="2021"\n');
+    writeFileSync(resolve(git, 'src/lib.rs'), 'pub fn value() {}');
+    run(git, 'git', ['init', '-q']); run(git, 'git', ['add', '.']);
+    run(git, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'source']);
+    writeFileSync(resolve(app, 'Cargo.toml'), `[package]\nname="metadata-app"\nversion="0.1.0"\nedition="2021"\n[dependencies]\nlocal-source={git="file://${git}"}\n`);
+    writeFileSync(resolve(app, 'src/lib.rs'), '');
+    run(app, 'cargo', ['generate-lockfile'], {...process.env, CARGO_HOME:resolve(dir, 'warm')});
+    const lock = readFileSync(resolve(app, 'Cargo.lock'), 'utf8');
+    const env = {...process.env, CARGO_HOME:resolve(dir, 'cold')};
+    const missing = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'], {cwd:app, env, encoding:'utf8'});
+    assert.notEqual(missing.status, 0);
+    const result = lockedMetadata(app, false, env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(JSON.parse(result.stdout).packages.some(p => p.name === 'local-source'));
+    assert.equal(readFileSync(resolve(app, 'Cargo.lock'), 'utf8'), lock);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
