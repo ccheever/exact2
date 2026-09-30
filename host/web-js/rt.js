@@ -245,25 +245,49 @@ export function every(ms, action, once) {
   clock.timers.push({ due: clock.now + ms, ms, action, once });
   if (!clock.agent) drive();
 }
-/** Move the clock to `to`, firing each due timer at its own time, in order. */
-export function advance(to) {
+// A frame task (LLP 1073): once per presented frame, never caught up; on the
+// agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
+const FRAME = 1000 / 60;
+/** `every(frame, action)`. */
+export function frames(action) {
+  clock.timers.push({ due: clock.now + FRAME, frame: true, action });
+  if (!clock.agent) paint();
+}
+/** Move the clock to `to`, firing each due timer at its own time, in order;
+ * a seek fires frame tasks' virtual frames too, the wall clock's (`wall`) none. */
+export function advance(to, wall) {
   for (;;) {
     let next = null;
-    for (const t of clock.timers) if (t.due <= to && (!next || t.due < next.due)) next = t;
+    for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
     if (!next) break;
     clock.now = next.due;
-    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due += next.ms;
-    Timing = true;
-    try { next.action(); } finally { Timing = false; }
+    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due += next.frame ? FRAME : next.ms;
+    fire(next);
   }
   clock.now = Math.max(clock.now, to);
 }
-let driving = 0, start = 0;
+function fire(t) { Timing = true; try { t.action(); } finally { Timing = false; } }
+let driving = 0, start = 0, painting = 0;
 function drive() {
   clearTimeout(driving);
-  const next = Math.min(...clock.timers.map(t => t.due));
+  let next = Infinity;
+  for (const t of clock.timers) if (!t.frame && t.due < next) next = t.due;
   if (!isFinite(next)) return;
-  driving = setTimeout(() => { advance(performance.now() - start); drive(); }, Math.max(0, next - (performance.now() - start)));
+  driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
+}
+// Presented frames: before each paint, timers due by the frame's time, then
+// every frame task once at it (Runner::frame).
+function paint() {
+  if (painting || typeof requestAnimationFrame !== "function") return;
+  painting = requestAnimationFrame(function frame(ts) {
+    painting = 0;
+    if (clock.agent || !clock.timers.some(t => t.frame)) return;
+    painting = requestAnimationFrame(frame);
+    advance(Math.max(clock.now, ts - start), true);
+    const at = clock.now;
+    for (const t of clock.timers) if (t.frame) { t.due = at + FRAME; fire(t); }
+    drive();
+  });
 }
 
 // ---------------------------------------------------------------- the data seam

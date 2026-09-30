@@ -494,6 +494,15 @@ fn region_topology_and_timer_progress_are_validated() {
     // A one-shot timer is refused the same way: `after(0, x)` would fire at boot.
     stuck.timers[0].once = true;
     assert_eq!(stuck.validate(), Err(PlanError::ZeroInterval { timer: 0 }));
+    // A frame timer (LLP 1073) carries no interval and repeats.
+    stuck.timers[0].once = false;
+    stuck.timers[0].frame = true;
+    assert!(stuck.validate().is_ok());
+    stuck.timers[0].interval_ms = 16;
+    assert_eq!(stuck.validate(), Err(PlanError::FrameTimer { timer: 0 }));
+    stuck.timers[0].interval_ms = 0;
+    stuck.timers[0].once = true;
+    assert_eq!(stuck.validate(), Err(PlanError::FrameTimer { timer: 0 }));
 }
 
 #[test]

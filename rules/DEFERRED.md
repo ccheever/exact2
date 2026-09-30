@@ -359,6 +359,12 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Unblocks throwing what a `pan` drags by state, a card flung off a stack
   (`apps/spark`, admitted with it). Take: none: this is 1057 phase 2's item
   with its consumer. Still no phases, pointer ids or per-frame callbacks.
+  **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
+  waived, none offered):** one root task form, `every(frame, action)`
+  (LLP 1073): the action once per presented frame, never caught up, and on
+  the agent's seekable clock a virtual 60 Hz display. Unblocks a ticker or
+  an animation loop in step with the display (the web-framework bench's
+  grid ticker). Per-node frame callbacks and frame arguments stay out.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none

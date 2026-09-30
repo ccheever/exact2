@@ -315,6 +315,10 @@
         {
           "name": "once",
           "codec": "bool"
+        },
+        {
+          "name": "frame",
+          "codec": "bool"
         }
       ]
     },

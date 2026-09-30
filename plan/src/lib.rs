@@ -113,6 +113,10 @@ pub enum PlanError {
     ZeroInterval {
         timer: u32,
     },
+    /// A frame timer (LLP 1073) carries no interval and repeats.
+    FrameTimer {
+        timer: u32,
+    },
     /// A mutation's result slot is row-owned, but mutation results are global.
     MutationSlotOwned {
         mutation: u32,
@@ -342,7 +346,10 @@ impl Plan {
             }
         }
         for (i, t) in self.timers.iter().enumerate() {
-            if t.interval_ms == 0 {
+            if t.frame && (t.interval_ms != 0 || t.once) {
+                return Err(PlanError::FrameTimer { timer: i as u32 });
+            }
+            if !t.frame && t.interval_ms == 0 {
                 return Err(PlanError::ZeroInterval { timer: i as u32 });
             }
         }

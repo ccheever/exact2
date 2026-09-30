@@ -267,8 +267,13 @@ impl PendingReq {
 }
 
 struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired.
+    /// The next due time; infinite once a one-shot timer has fired; a frame
+    /// task's next virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
     next_ms: f64,
+    /// A frame task's last presented frame (or mount) …
+    base: f64,
+    /// … and which virtual frame after it is next.
+    k: u32,
 }
 
 /// One plan, one data source, one kernel.
@@ -481,6 +486,16 @@ pub const MAX_CLOCK_MS: f64 = 9_007_199_254_740_991.0;
 
 /// Maximum timer commits one call to [`Runner::advance_timed`] may perform.
 pub const TIMER_FIRE_LIMIT: usize = 4096;
+
+/// The seekable clock's virtual display: a frame every 1000/60 ms after a
+/// frame task last fired (LLP 1073 D3).
+pub const VIRTUAL_FRAME_MS: f64 = 1000.0 / 60.0;
+
+/// A frame task's `k`th virtual frame after `base`: `base + k·1000/60`, the
+/// product first, so sixty frames are exactly a second on every host.
+pub fn virtual_frame(base: f64, k: u32) -> f64 {
+    base + f64::from(k) * 1000.0 / 60.0
+}
 
 impl<D: DataSource> Runner<D> {
     /// This runner, linking every device capability: the plain boots'.
@@ -879,7 +894,13 @@ impl<D: DataSource> Runner<D> {
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: now + t.interval_ms as f64,
+                next_ms: if t.frame {
+                    virtual_frame(now, 1)
+                } else {
+                    now + t.interval_ms as f64
+                },
+                base: now,
+                k: 1,
             })
             .collect();
         // First frame.
@@ -1105,12 +1126,21 @@ impl<D: DataSource> Runner<D> {
         !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
     }
 
+    /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
+    /// frame source running and calls [`Runner::frame`] each frame.
+    pub fn wants_frames(&self) -> bool {
+        self.plan.timers.iter().any(|t| t.frame)
+    }
+
     /// Soonest timer deadline in this runner's clock domain; no host polling.
+    /// Frame tasks are the frame source's, not a deadline's (LLP 1073 D4).
     /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
     pub fn timer_due_ms(&self) -> Option<f64> {
         self.timers
             .iter()
-            .map(|timer| timer.next_ms)
+            .zip(&self.plan.timers)
+            .filter(|(_, row)| !row.frame)
+            .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)

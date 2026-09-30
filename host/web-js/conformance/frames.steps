@@ -1,0 +1,6 @@
+clock +100
+clock +1000
+tap toggle
+clock +500
+tap toggle
+clock +250

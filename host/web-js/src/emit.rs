@@ -506,6 +506,12 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         list("r", plan.resources.len())
     );
     for t in plan.timers.iter() {
+        if t.frame {
+            // LLP 1073: once per presented frame, virtual frames on a seek.
+            let frames = em.uses.rt("frames");
+            let _ = write!(body, "{frames}(a_{});", t.action.0);
+            continue;
+        }
         let every = em.uses.rt("every");
         let _ = write!(
             body,

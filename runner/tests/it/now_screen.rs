@@ -14,7 +14,7 @@ use exact_plan::{
     Value,
 };
 use exact_runner::{
-    Carried, DataError, DataSource, Event, Runner, RunnerError, Trap, MAX_CLOCK_MS,
+    virtual_frame, Carried, DataError, DataSource, Event, Runner, RunnerError, Trap, MAX_CLOCK_MS,
     TIMER_FIRE_LIMIT,
 };
 

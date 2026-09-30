@@ -446,9 +446,18 @@ fn lower_with_sites(
         }
     }
     for t in &root.tasks {
+        let action = l.actions[root
+            .actions
+            .iter()
+            .position(|a| a.name == t.timer.1)
+            .unwrap()];
         let word = match t.kind {
             TaskKind::Every => "every",
             TaskKind::After => "after",
+            TaskKind::Frame => {
+                l.b.frame_timer(action);
+                continue;
+            }
         };
         let Expr::Number(ms, _) = &t.timer.0 else {
             return Err(err_one(
@@ -464,11 +473,6 @@ fn lower_with_sites(
                 t.timer.2,
             ));
         }
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.timer.1)
-            .unwrap()];
         l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
     }
     // The view, inlined (by `expand`, above).

@@ -123,7 +123,7 @@ impl<D: DataSource> Runner<D> {
     /// uses [`Runner::advance_timed`], which keeps the commits before a
     /// refusal and the time each was made.
     pub fn advance(&mut self, now_ms: f64) -> Result<Vec<CommitReceipt>, RunnerError> {
-        let a = self.advance_timed(now_ms);
+        let a = self.advance_within(now_ms, false, true);
         match a.error {
             Some(e) => Err(e),
             None => Ok(a.receipts.into_iter().map(|t| t.receipt).collect()),
@@ -133,9 +133,48 @@ impl<D: DataSource> Runner<D> {
     /// Move the clock to `now_ms`, firing every timer due, in order, each at
     /// its own due time. A refusal stops the advance there: the commits so
     /// far are returned with their times, the clock stays at the refusing
-    /// timer's due time, and the refusal rides along.
+    /// timer's due time, and the refusal rides along. The wall clock's
+    /// path: no frame task fires here, only at [`Runner::frame`].
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false)
+        self.advance_within(now_ms, false, false)
+    }
+
+    /// A presented frame at `now_ms` (LLP 1073 D2, D4): timers due by then
+    /// fire as [`Runner::advance_timed`] fires them, then every frame task
+    /// once, at `now_ms`, in plan order; a frame missed is never caught up.
+    /// Each task's virtual frames restart from `now_ms` (`super::virtual_frame`).
+    pub fn frame(&mut self, now_ms: f64) -> Advanced {
+        let mut a = self.advance_timed(now_ms);
+        if a.error.is_some() || !self.wants_frames() {
+            return a;
+        }
+        let at = self.now_ms;
+        for i in 0..self.plan.timers.len() {
+            if !self.plan.timers[i].frame {
+                continue;
+            }
+            self.timers[i].base = at;
+            self.timers[i].k = 1;
+            self.timers[i].next_ms = super::virtual_frame(at, 1);
+            let action = self.plan.timers[i].action;
+            let was_poisoned = self.poisoned;
+            match self.run_action(action, Vec::new(), &[]) {
+                Ok(receipt) => a.receipts.push(Timed { at_ms: at, receipt }),
+                Err(e) => {
+                    let what = format!(
+                        "frame {} ({})",
+                        i,
+                        self.plan.str(self.plan.action(action).name)
+                    );
+                    let failed = Err(e);
+                    self.log_outcome(&what, &failed, was_poisoned);
+                    a.error = failed.err();
+                    return a;
+                }
+            }
+        }
+        a.now_ms = self.now_ms;
+        a
     }
 
     /// [`Runner::advance_timed`], stopping after the first timer whose
@@ -145,10 +184,12 @@ impl<D: DataSource> Runner<D> {
     /// send would drop it. An agent's clock jump advances this way (LLP
     /// 1012); on the wall clock, replies land between ticks by themselves.
     pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true)
+        self.advance_within(now_ms, true, true)
     }
 
-    fn advance_within(&mut self, now_ms: f64, until_request: bool) -> Advanced {
+    /// `frames`: a seek, whose virtual display fires each frame task's
+    /// frames as timers (LLP 1073 D3); else the wall clock's, which fires none.
+    fn advance_within(&mut self, now_ms: f64, until_request: bool, frames: bool) -> Advanced {
         let mut receipts = Vec::new();
         if !now_ms.is_finite() {
             return Advanced {
@@ -178,7 +219,7 @@ impl<D: DataSource> Runner<D> {
                 .timers
                 .iter()
                 .enumerate()
-                .filter(|(_, t)| t.next_ms <= now_ms)
+                .filter(|(i, t)| t.next_ms <= now_ms && (frames || !self.plan.timers[*i].frame))
                 .min_by(|(ia, a), (ib, b)| {
                     a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
                 })
@@ -249,6 +290,9 @@ impl<D: DataSource> Runner<D> {
             // and never reported (`timer_due_ms`), so it keeps no host awake.
             let next_ms = if row.once {
                 f64::INFINITY
+            } else if row.frame {
+                self.timers[i].k = self.timers[i].k.saturating_add(1);
+                super::virtual_frame(self.timers[i].base, self.timers[i].k)
             } else {
                 at + row.interval_ms as f64
             };

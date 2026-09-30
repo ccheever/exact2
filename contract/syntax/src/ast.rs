@@ -511,7 +511,8 @@ pub enum Stmt {
     },
 }
 
-/// `task name mount` with `every(ms, action)` or `after(ms, action)`.
+/// `task name mount` with `every(ms, action)`, `every(frame, action)` or
+/// `after(ms, action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
@@ -531,6 +532,9 @@ pub enum TaskKind {
     Every,
     /// `after(ms, action)`: fires once at boot+ms, then is spent.
     After,
+    /// `every(frame, action)`: fires once per presented frame (LLP 1073);
+    /// the timer's expression is a placeholder `0`.
+    Frame,
 }
 
 /// A view node.

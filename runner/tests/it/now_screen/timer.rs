@@ -10,6 +10,7 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
         interval_ms: 16,
         action,
         once: false,
+        frame: false,
     });
     let mut r = Runner::boot(
         plan,
@@ -67,6 +68,7 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
         interval_ms: 60,
         action,
         once: true,
+        frame: false,
     };
     let mut r = Runner::boot(
         plan,
@@ -93,6 +95,7 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
         interval_ms: 60,
         action,
         once: true,
+        frame: false,
     });
     let mut r = Runner::boot(
         plan,
@@ -114,4 +117,54 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
     );
     assert_eq!(r.timer_due_ms(), Some(3_000.0));
     assert_eq!(r.advance_timed(4_500.0).receipts.len(), 2);
+}
+
+// @ref LLP 1073 D2–D4 — a frame task fires once per presented frame, at the
+// frame's time and after the timers due by then, and is never caught up; the
+// wall clock's timeout fires none; a seek fires each virtual frame, every
+// 1000/60 ms after the task last fired, as a timer.
+#[test]
+fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek() {
+    let (mut plan, _) = now_screen();
+    let action = plan.timers[0].action;
+    let interval = f64::from(plan.timers[0].interval_ms);
+    plan.timers.push(exact_plan::TimersRow {
+        interval_ms: 0,
+        action,
+        once: false,
+        frame: true,
+    });
+    let mut r = Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.wants_frames());
+    // The frame source wakes a host for it, not a deadline.
+    assert_eq!(r.timer_due_ms(), Some(interval));
+    assert!(r.advance_timed(interval / 2.0).receipts.is_empty());
+    // A stall: one frame, at its time.
+    let at = |a: &exact_runner::Advanced| a.receipts.iter().map(|t| t.at_ms).collect::<Vec<_>>();
+    let f = r.frame(interval - 100.0);
+    assert_eq!(at(&f), vec![interval - 100.0]);
+    // The timer due first, then the frame task, both in the frame.
+    let f = r.frame(interval + 16.0);
+    assert_eq!(at(&f), vec![interval, interval + 16.0]);
+    assert_eq!(r.now_ms(), interval + 16.0);
+    // A seek: every virtual frame from the last presented one, as an f64 sum.
+    let seek = r.advance_until_request(interval + 120.0);
+    let want = (1..)
+        .map(|k| virtual_frame(interval + 16.0, k))
+        .take_while(|t| *t <= interval + 120.0)
+        .collect::<Vec<_>>();
+    assert_eq!(want.len(), 6);
+    assert_eq!(at(&seek), want);
+    // Sixty frames are exactly a second, and one timer falls in it.
+    assert_eq!(
+        r.advance(virtual_frame(interval + 16.0, 66)).unwrap().len(),
+        61
+    );
 }

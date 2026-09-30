@@ -995,6 +995,34 @@ fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
     assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
 }
 
+// @ref LLP 1073 D1, D4 — `every(frame, a)` lowers to a frame timer: the
+// frame source's, never a deadline; each seek fires its virtual frames.
+#[test]
+fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
+    let plan = contract::compile(
+        "component App\n  state n = 0\n  action step writes n\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text toString(n) testId=\"n\"\n",
+    )
+    .unwrap();
+    assert_eq!(plan.timers.len(), 1);
+    assert!(plan.timers[0].frame && !plan.timers[0].once && plan.timers[0].interval_ms == 0);
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.wants_frames());
+    assert_eq!(r.timer_due_ms(), None);
+    assert!(r.advance_timed(5_000.0).receipts.is_empty());
+    assert_eq!(r.frame(5_000.0).receipts.len(), 1);
+    assert_eq!(text_of(&r, "n").as_deref(), Some("1"));
+    assert_eq!(r.advance(6_000.0).unwrap().len(), 60);
+    assert_eq!(text_of(&r, "n").as_deref(), Some("61"));
+}
+
 #[test]
 fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
     let boot = |name: &str| {

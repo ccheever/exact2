@@ -238,7 +238,8 @@ on an `input` is Enter, the web's implicit submission; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
 an assignment to an undeclared slot is
 `analyze-write-not-declared`. **Tasks.** `task name mount` with
-`every(ms, action)` (fires at boot+ms and every ms after) or `after(ms,
+`every(ms, action)` (fires at boot+ms and every ms after), `every(frame,
+action)` (once per presented frame, never caught up; LLP 1073) or `after(ms,
 action)` (fires once at boot+ms, then is spent and reports no deadline),
 with a whole positive number of milliseconds (`lower-timer-interval`). **View.** Elements `tag positional attr=expr …` with
 indented children; component uses `Name(arg=expr, …)`; `when cond … else …`;

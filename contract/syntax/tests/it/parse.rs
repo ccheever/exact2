@@ -158,6 +158,28 @@ fn a_task_fires_once_with_after() {
     assert_eq!(e.id, "syntax-duplicate-declaration");
 }
 
+// @ref LLP 1073 D1 — `frame` in `every`'s first place is a word, even
+// beside a slot of that name; `after(frame, …)` is refused.
+#[test]
+fn a_task_fires_each_frame_with_every_frame() {
+    let file = parse(
+        "component A\n  state frame = 0\n  action step writes frame\n    frame = frame + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let task = &file.components[0].tasks[0];
+    assert_eq!(task.kind, TaskKind::Frame);
+    assert_eq!(task.timer.1, "step");
+    // An expression that starts with the word is still an interval.
+    let file = parse(
+        "component A\n  state frame = 16\n  action step writes frame\n    frame = 16\n  task t mount\n    every(frame + 1, step)\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    assert_eq!(file.components[0].tasks[0].kind, TaskKind::Every);
+    let e = parse("component A\n  task t mount\n    after(frame, a)\n  view\n    text \"a\"\n")
+        .unwrap_err();
+    assert_eq!(e.id, "contract-task-body");
+}
+
 #[test]
 fn static_font_declarations_parse_in_shorthand_and_block_forms() {
     let file = parse(

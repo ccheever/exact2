@@ -121,7 +121,7 @@ export function engine(rt) {
   };
   // A presented frame: the clock moves to the page's time (its timers fire),
   // and canvases that asked draw once at it (D5).
-  wasm.exact_advance = () => { rt.advance(rt.wall()); frame(); return 0; };
+  wasm.exact_advance = () => { rt.advance(rt.wall(), true); frame(); return 0; };
   // An image handle loaded or failed (LLP 1056 D9): the payload the glue
   // wrote in (src, size, ok, the lifetimes that asked); those canvases draw
   // again, cause "image". Each pending image is counted in flight.

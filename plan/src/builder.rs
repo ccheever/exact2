@@ -538,6 +538,19 @@ impl PlanBuilder {
             interval_ms,
             action,
             once,
+            frame: false,
+        });
+        TimersId(self.plan.timers.len() as u32 - 1)
+    }
+
+    /// A frame task (LLP 1073): dispatches `action` once per presented
+    /// frame, or per virtual frame on a seek.
+    pub fn frame_timer(&mut self, action: ActionsId) -> TimersId {
+        self.plan.timers.push(TimersRow {
+            interval_ms: 0,
+            action,
+            once: false,
+            frame: true,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
     }
