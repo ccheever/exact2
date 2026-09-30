@@ -42,6 +42,31 @@ pub const TOLERANCE: f64 = 1e-3;
 /// engine's and alpha a step.
 pub const COLOR_TOLERANCE: (f64, f64) = (1.0, 1.0 / 255.0 + 1e-3);
 
+/// LLP 1001 §5: sibling z-index cannot escape a later static paint group.
+/// Blending is an SVG-only row (LLP 1055.000); the island supplies its own
+/// backdrop. The two halves distinguish internal and external blue paint.
+pub const PAINT_SOURCE: &str = r##"component PaintGroups
+  view
+    column testId="root" width=240 height=200 background-color="#ffffff"
+      view testId="nested-z" position="relative" width=120 height=80
+        view position="absolute" width=120 height=80 z-index=1 background-color="#0000ff"
+        view width=120 height=80
+          view position="absolute" width=120 height=80 z-index=2 background-color="#ff0000"
+      view testId="svg-blend" position="relative" width=120 height=80
+        view position="absolute" width=120 height=80 background-color="#0000ff"
+        view width=120 height=80
+          svg width=120 height=80 viewBox="0 0 120 80"
+            rect width=60 height=80 fill="#0000ff"
+            rect width=120 height=80 fill="#ff0000" mix-blend-mode="multiply"
+"##;
+
+/// Samples are well inside flat fills, away from antialiasing and edges.
+pub const PAINT_EXPECTED: &str = r#"[
+  {"node":"nested-z","x":60,"y":40,"rgb":[0,0,255]},
+  {"node":"svg-blend","x":30,"y":40,"rgb":[0,0,0]},
+  {"node":"svg-blend","x":90,"y":40,"rgb":[255,0,0]}
+]"#;
+
 /// Fixed boxes avoid platform font metrics; the root's viewport offset is
 /// subtracted by the recorder so native safe areas do not become motion.
 pub const PRESENCE_SOURCE: &str = r##"keyframes leave

@@ -9,6 +9,20 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("paint") => {
+            let Some(path) = args.get(1) else {
+                eprintln!("usage: parity paint <plan>");
+                return ExitCode::from(2);
+            };
+            let plan = contract::compile(exact_web::parity::PAINT_SOURCE)
+                .expect("the paint fixture compiles");
+            if let Err(error) = std::fs::write(path, plan.encode()) {
+                eprintln!("{path}: {error}");
+                return ExitCode::FAILURE;
+            }
+            println!("{}", exact_web::parity::PAINT_EXPECTED);
+            ExitCode::SUCCESS
+        }
         Some("presence") => {
             let Some(path) = args.get(1) else {
                 eprintln!("usage: parity presence <plan>");
@@ -82,7 +96,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: parity cases | header <recorder> | check <fixture> | presence <plan> | geometry <plan>"
+                "usage: parity cases | header <recorder> | check <fixture> | presence <plan> | geometry <plan> | paint <plan>"
             );
             ExitCode::from(2)
         }

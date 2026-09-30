@@ -402,6 +402,18 @@ box was a containing block:
   (2026-09-29): a positioned box is a paint layer, and with every node one, a
   10k-row grid spent 50–70 ms per interaction in hit-testing and compositor
   commit (select a row: 150 ms input→paint, 63 ms after).
+  The promoted box is a paint group, including its descendants: its child's
+  `z-index` cannot escape above an earlier sibling whose `z-index` places it
+  above that group. This is the sibling scope below, not an exception for a
+  static wrapper. For example, an earlier absolute sibling at `z-index: 1`
+  stays above a later static wrapper's absolute child at `z-index: 2`.
+  The group's blend backdrop excludes earlier siblings outside the group.
+  Authored `mix-blend-mode` and `isolation` are SVG-only rows (LLP 1055.000
+  stage 10c); the compiler refuses them on boxes. An SVG island's multiply
+  child blends with earlier SVG paint inside that island, not a blue box
+  behind its static wrapper. `host/web/parity.mjs --paint` holds these
+  nested-z and internal/external SVG backdrop cases on web and macOS
+  (2026-09-30); the latter allows the declared display-colour-space difference.
 - **`z-index` orders siblings.** Apple's presenters give it to the layer
   (`usedZIndex`); the Linux painter does not read it. CSS orders a whole
   stacking context.

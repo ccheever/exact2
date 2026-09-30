@@ -4,9 +4,14 @@
 //! re-recorded with `bun host/web/parity.mjs`.
 
 #[test]
-fn the_presence_timeline_uses_one_compiled_fixture() {
-    let plan = contract::compile(exact_web::parity::PRESENCE_SOURCE).unwrap();
-    assert!(!plan.encode().is_empty());
+fn the_cross_host_drives_use_compiled_fixtures() {
+    for source in [
+        exact_web::parity::PRESENCE_SOURCE,
+        exact_web::parity::PAINT_SOURCE,
+    ] {
+        let plan = contract::compile(source).unwrap();
+        assert!(!plan.encode().is_empty());
+    }
 }
 
 #[test]

@@ -12,11 +12,14 @@
 // interaction gallery's artifacts, which link geometry because its sheet reads
 // it (build them first: its web dist, its Linux host, its macOS app), and
 // holds every answer to the fixture's own.
+// --paint compares nested sibling z-index and SVG blend backdrops on web
+// and macOS, sampling flat fills rather than font or antialiasing pixels.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { decodePng } from '../../scripts/png.mjs';
 
 const here = resolve(new URL('.', import.meta.url).pathname);
 const root = resolve(here, '../..');
@@ -149,6 +152,48 @@ async function geometryParity() {
   process.exitCode = failures.length ? 1 : 0;
 }
 
+export async function samplePaint(session, expected, path, tolerance = 8) {
+  const layout = await session.layout();
+  await session.screenshot(path, true);
+  const image = decodePng(readFileSync(path)), scale = image.width / layout.viewport.w;
+  const top = image.height - Math.round(layout.viewport.h * scale);
+  return expected.map(probe => {
+    const box = layout.nodes.find(node => node.testId === probe.node);
+    if (!box) throw new Error(`paint fixture has no ${probe.node}`);
+    const x = Math.round((box.x + probe.x) * scale), y = top + Math.round((box.y + probe.y) * scale);
+    const rgb = [...image.data.slice((y * image.width + x) * 4, (y * image.width + x) * 4 + 3)];
+    return { ...probe, actual: rgb, tolerance, matches: rgb.length === 3 && rgb.every((v, i) => Math.abs(v - probe.rgb[i]) <= tolerance) };
+  });
+}
+
+async function paintParity() {
+  const { open } = await import('../../scripts/agent.mjs');
+  const args = process.argv.slice(2), index = args.indexOf('--hosts');
+  const hosts = (index < 0 ? 'web,macos' : args[index + 1]).split(',');
+  if (hosts.some(host => !['web', 'macos'].includes(host))) throw new Error('--paint supports web,macos (iOS does not blend; Linux does not order z-index)');
+  const dir = resolve(root, 'target/paint-parity');
+  mkdirSync(dir, { recursive: true });
+  const plan = resolve(dir, 'paint.plan'), compiled = run(['paint', plan]);
+  if (compiled.status !== 0) throw new Error(compiled.stderr);
+  const expected = JSON.parse(compiled.stdout), failures = [];
+  for (const host of hosts) {
+    let session;
+    try {
+      session = await open({ host, plan, size: [240, 240] });
+      // LLP 1055.000 §10c: Core Animation blends in the display's colour
+      // space. This tests which backdrop participates, not colour fidelity;
+      // 64 still distinguishes every red, blue and black outcome here.
+      const samples = await samplePaint(session, expected, resolve(dir, `${host}.png`), host === 'macos' ? 64 : 8);
+      writeFileSync(resolve(dir, `${host}.json`), JSON.stringify(samples, null, 2) + '\n');
+      for (const sample of samples) if (!sample.matches) failures.push(`${host} ${sample.node} (${sample.x},${sample.y}): ${sample.actual}, expected ${sample.rgb}`);
+      console.log(`paint ${host}: ${samples.filter(s => s.matches).length}/${samples.length} probes match`);
+    } catch (error) { failures.push(`${host}: ${error.message}`); }
+    finally { await session?.close(); }
+  }
+  for (const failure of failures) console.error(failure);
+  process.exitCode = failures.length ? 1 : 0;
+}
+
 async function browserParity() {
   const cases = run(['cases']);
   if (cases.status !== 0) { console.error(cases.stderr); process.exit(1); }
@@ -204,5 +249,6 @@ async function browserParity() {
 if (import.meta.main) {
   if (process.argv.includes("--presence")) await presenceParity();
   else if (process.argv.includes("--geometry")) await geometryParity();
+  else if (process.argv.includes("--paint")) await paintParity();
   else await browserParity();
 }
