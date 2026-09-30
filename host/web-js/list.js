@@ -8,7 +8,7 @@
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
-import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, settled, Refusal, Hosts, exitView } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -324,13 +324,18 @@ class Collection {
     this.mounted.push(m);
   }
   createRow(p, key) {
-    const w = document.createElement("div");
+    // A rendered page's row is adopted where it stands, so what a reader
+    // pressed before the runtime ran is still in the document (LLP 1048.001 D5).
+    const served = this.served?.get(key);
+    if (served) this.served.delete(key);
+    const w = served ?? document.createElement("div");
     w.style.cssText = WRAP[this.axis];
     w.setAttribute("role", "listitem");
     w.setAttribute("data-listitemkey", key);
     const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index: sig(p), published: [-1, -1], inner: [], list: this };
     // The row's scope names its row, for a list inside it (at any time).
-    m.s = unadopted(() => scope(() => { owner().$row = m; this.o.row(w, m.item, m.index); }, this.own));
+    const build = () => scope(() => { owner().$row = m; this.o.row(w, m.item, m.index); }, this.own);
+    m.s = served ? adoptRow(w, build) : unadopted(build);
     m.view = viewId(w); w.dataset.view = m.view;
     m.root = w.firstElementChild ? viewId(w.firstElementChild) : m.view;
     if (this.dups.get(p)) journal.push(`list: a key repeats; this row is ${key}`);
@@ -606,8 +611,13 @@ export function vl(el, subject, key, row, o) {
   if (outer) { outer.inner.push(c); c.up = outer.list; c.site = o.site + "/" + outer.inner.length; }
   Lists.set(c.view, c);
   el.$list = c;
-  // A rendered page's rows are rebuilt: the window is the runner's.
-  while (el.firstChild) el.firstChild.remove();
+  // A rendered page's rows are adopted by key as the first window takes
+  // them (`createRow`); the rest of it (spacers, rows the window doesn't
+  // take) leaves at that window's `emit`.
+  if (adopting()) {
+    c.served = new Map();
+    for (const n of el.children) { const k = n.getAttribute("data-listitemkey"); if (k !== null && n.getAttribute("role") === "listitem") c.served.set(k, n); }
+  } else while (el.firstChild) el.firstChild.remove();
   el.$n = null;
   el.$jump = (name, at) => { if (el[name] !== at) (jumps ??= []).push([c.view, at, name]); };
   onEnd(() => Lists.delete(c.view));
@@ -624,7 +634,7 @@ export function vl(el, subject, key, row, o) {
       if (d) dups.set(i, d);
       idents.push(id);
     });
-    untracked(() => { c.update(items, [idents, dups], first); first = false; });
+    untracked(() => { c.update(items, [idents, dups], first); first = false; c.served = null; });
   });
   load();
 }

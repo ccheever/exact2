@@ -480,8 +480,8 @@ export function cv(e) {
 // A page rendered ahead (by the Rust render host or by this runtime under
 // Bun) is adopted, not rebuilt: construction walks the document with a
 // cursor per parent, takes each element whose tag matches, gives it the
-// class it would have had and drops the renderer's inline style and view
-// ids, and inserts the region anchors a fresh build would have made. A
+// class it would have had and drops the renderer's view ids, and inserts
+// the region anchors a fresh build would have made. A
 // mismatch abandons adoption and builds afresh.
 let Adopt = false;
 class Mismatch extends Refusal {}
@@ -493,14 +493,27 @@ function adopt(p, tag, cls, attrs) {
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling;
-  e.removeAttribute("style"); e.removeAttribute("data-view");
-  if (cls !== 0) e.setAttribute("class", "c" + cls);
+  // The renderer's inline style stays: it is the class's declarations and
+  // the live rows, which the node's style bindings rewrite as they change.
+  if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
+  // An unchanged class isn't written: a write would restyle the element.
+  if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
   return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
 /** Build fresh inside an adopted page (a virtualized list's rows). */
 export function unadopted(f) { const a = Adopt; Adopt = false; try { return f(); } finally { Adopt = a; } }
+/** Whether construction is adopting a rendered page. */
+export const adopting = () => Adopt;
+/** Adopt a rendered row under `w` (a virtualized list's, LLP 1048.001):
+ * one that isn't this plan's projection is built afresh, alone. */
+export function adoptRow(w, f) {
+  const a = Adopt; Adopt = true;
+  try { return f(); } catch (e) { if (!(e instanceof Mismatch)) throw e; say(`list: a row built afresh: ${e.message}`); } finally { Adopt = a; }
+  w.textContent = ""; w.$n = undefined;
+  return unadopted(f);
+}
 
 const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
@@ -624,14 +637,22 @@ export function nm(e) {
     .finally(() => setTimeout(() => inflight.n--));
 }
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
-export function S(e, prop, unit, f) { effect(() => css(e, prop, unit, f())); }
-function css(e, prop, unit, v) {
+export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
+let Scratch = null;
+function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
   // list update touched).
   const last = e.$css ??= {}, t = v == null ? null : typeof v === "number" ? v + unit : String(v);
   if (last[prop] === t) return;
   last[prop] = t;
+  // An adopted node's inline style is the renderer's: a value it already
+  // shows is not written again (a write restyles and repaints the node).
+  // (`transparent` is the color the renderer writes as rgba(0, 0, 0, 0).)
+  if (rendered) {
+    const now = e.style.getPropertyValue(prop), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
+    if (t == null ? !now : ((Scratch ??= document.createElement("i").style).setProperty(prop, t), same(now) === same(Scratch.getPropertyValue(prop)))) return;
+  }
   if (t == null) return e.style.removeProperty(prop);
   // A value the row refuses is invalid at computed-value time: unset,
   // never the earlier declaration (LLP 1005 §6).
@@ -983,10 +1004,13 @@ export function match(p, subject, a0, a1) {
  * item and position are signals its bindings read. */
 export function each(p, list, key, row) {
   let [a, b] = range(p), own = Owner;
-  let rows = new Map();
+  let rows = new Map(), single = false;
   effect(() => {
     const items = list();
     untracked(() => {
+      // Rows moving or leaving are adopted rows (a row waiting for its slice
+      // shows its rendered values until then, and adopts at the current ones).
+      if (b && LazyAt < Lazy.length) adoptAll();
       const next = new Map(), seen = new Map(), old = new Map();
       if (b) { let o = 0; for (const k of rows.keys()) old.set(k, o++); }
       items.forEach((item, i) => {
@@ -998,9 +1022,26 @@ export function each(p, list, key, row) {
         if (r) { rows.delete(k); r.old = old.get(k); write(r.item.n, item); write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
-          r = { item: sig(item), index: sig(i), start: mark(p) };
-          r.s = scope(() => row(p, r.item, r.index), own);
-          r.end = mark(p);
+          r = { item: sig(item), index: sig(i) };
+          if (single && i && performance.now() > AdoptBy) {
+            // Past the adoption's budget, a row of one element waits for a
+            // slice (`lazy`); a press on it or any commit adopts it first.
+            let e = at(p);
+            while (e && e.nodeType !== 1) e = e.nextSibling;
+            if (!e) throw new Mismatch(`adoption: expected a row, found nothing`);
+            p.$n = e.nextSibling;
+            r.start = r.end = e;
+            lazy([p, r, row, own]);
+          } else {
+            const next = at(p), last = next ? next.previousSibling : p.lastChild;
+            r.s = scope(() => row(p, r.item, r.index), own);
+            // A row of one element is that element, as a fresh build keeps it
+            // (a region at its top would have put its own anchors beside it).
+            const first = last ? last.nextSibling : p.firstChild;
+            if (first && first.nodeType === 1 && first.nextSibling === at(p)) r.start = r.end = first;
+            else { r.start = document.createComment(""); p.insertBefore(r.start, first ?? at(p)); r.end = mark(p); }
+            if (!i) single = r.start.nodeType === 1;
+          }
         }
         else {
           r = { item: sig(item), index: sig(i) };
@@ -1017,11 +1058,11 @@ export function each(p, list, key, row) {
       const list = [...next.values()];
       // Every row goes and the region is all its parent holds: emptied at once.
       if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
-        for (const r of rows.values()) end(r.s);
+        for (const r of rows.values()) if (r.s) end(r.s);
         p.textContent = "";
         p.append(a, b);
       }
-      else for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
+      else for (const r of rows.values()) { if (r.s) end(r.s); let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } }
       // Order, from the last row back: kept rows on the longest run already in
       // order stay; any other moves before the row after it; new rows go in
       // one fragment per run.
@@ -1065,6 +1106,59 @@ function inOrder(list) {
   return stay;
 }
 
+// Adoption in slices (LLP 1048.001): a keyed list's rows adopt in the
+// adoption's own task until its budget runs out, then in tasks of a few
+// milliseconds after it, so no one task holds the page. A press, key or
+// edit on a row still waiting adopts that row before the event reaches it;
+// a list that changes adopts every row still waiting first. A waiting row
+// shows its rendered values, and its bindings take the current ones when it
+// adopts (a structure that no longer matches builds that row afresh).
+const ADOPT_MS = 16, SLICE_MS = 8;
+let AdoptBy = Infinity;
+const Lazy = [], LazyRows = new Map();
+let LazyAt = 0, LazyTask = null;
+const LAZY_EVENTS = ["pointerdown", "mousedown", "touchstart", "click", "keydown", "input", "change", "focusin"];
+// Passive: a waiting row must never make the page's touches wait for script.
+const LAZY_OPTS = { capture: true, passive: true };
+function lazy(x) { Lazy.push(x); LazyRows.set(x[1].start, x); }
+function adoptLazy(x) {
+  const [p, r, row, own] = x;
+  LazyRows.delete(r.start);
+  // A row whose list left (its region's arm ended) has nothing to adopt.
+  if (r.s || own?.gone || !r.start.isConnected) return;
+  const save = p.$n, a = Adopt;
+  p.$n = r.start; Adopt = true;
+  try { r.s = scope(() => row(p, r.item, r.index), own); }
+  catch (e) {
+    if (!(e instanceof Mismatch)) throw e;
+    say(`each: a row built afresh: ${e.message}`);
+    Adopt = false;
+    const frag = document.createDocumentFragment(), old = r.start;
+    r.s = scope(() => row(frag, r.item, r.index), own);
+    if (frag.childNodes.length === 1 && frag.firstChild.nodeType === 1) r.start = r.end = frag.firstChild;
+    else { r.start = document.createComment(""); r.end = document.createComment(""); frag.prepend(r.start); frag.append(r.end); }
+    old.replaceWith(frag);
+  } finally { Adopt = a; p.$n = save; }
+}
+function adoptAll() { while (LazyAt < Lazy.length) adoptLazy(Lazy[LazyAt++]); lazyDone(); }
+function lazyDone() {
+  if (LazyAt < Lazy.length || !Lazy.length) return;
+  Lazy.length = LazyAt = 0; LazyRows.clear();
+  inflight.n--;
+  const root = document.getElementById("exact-root");
+  for (const t of LAZY_EVENTS) root?.removeEventListener(t, onLazy, LAZY_OPTS);
+}
+function onLazy(ev) {
+  for (let n = ev.target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); break; } }
+}
+function slice() {
+  LazyTask = null;
+  const end = performance.now() + SLICE_MS;
+  while (LazyAt < Lazy.length && performance.now() < end) adoptLazy(Lazy[LazyAt++]);
+  if (LazyAt < Lazy.length) LazyTask = post(slice); else lazyDone();
+}
+const post = f => globalThis.scheduler?.postTask ? scheduler.postTask(f, { priority: "user-visible" }) : setTimeout(f);
+
 // ---------------------------------------------------------------- boot
 /** Build the view into `#exact-root` and start the clock. */
 export function mount(f) {
@@ -1082,8 +1176,10 @@ export function mount(f) {
   // values, which the reader had changed.
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
+  AdoptBy = performance.now() + ADOPT_MS;
   commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
-  Adopt = false;
+  Adopt = false; AdoptBy = Infinity;
+  if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
   if (!built && adopting) {
     // The document isn't this plan's projection: build afresh (and say so).
@@ -1094,6 +1190,8 @@ export function mount(f) {
   if (!built) throw new Error("boot refused: " + journal.at(-1));
   if (adopted) say("adopted the document");
   say(`boot: ${root.getElementsByTagName("*").length} nodes`); // the runner's journal line (LLP 1012 logs)
+  // Rows waiting are in flight, for the agent's `clock settle`.
+  if (Lazy.length) { inflight.n++; for (const t of LAZY_EVENTS) root.addEventListener(t, onLazy, LAZY_OPTS); LazyTask = post(slice); }
   root.dataset.bootMs = String(Math.round(performance.now()));
   // Replayed once, in order, on the same elements (LLP 1048.001 D5), each
   // edited control first showing what the reader left in it.
