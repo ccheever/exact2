@@ -44,6 +44,30 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
+    /// Boot fresh state at a supplied clock, before evaluating initializers
+    /// and resource arguments. Rendering never advances it or fires timers.
+    pub fn boot_at(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        viewport: crate::Viewport,
+        launch: &str,
+        now_ms: f64,
+    ) -> Result<Runner<D>, RunnerError> {
+        Self::boot_inner(
+            RunnerLinks::ALL,
+            plan,
+            data,
+            kernel,
+            Seed::At(now_ms),
+            Vec::new(),
+            Delivery::default(),
+            viewport,
+            launch,
+        )
+        .map(Runner::linking_every_device)
+    }
+
     /// Boot with complete host delivery facts before any resource settles.
     /// A carried runner's store takes precedence over the fresh snapshot.
     #[allow(clippy::too_many_arguments)] // the host boot facts

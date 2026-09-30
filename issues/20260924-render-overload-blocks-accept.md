@@ -38,3 +38,10 @@ capacity, and retain the normal 503 behavior.
 Reviewed at `35cb7ac053cc98e6fb205d65adae8fb5d61e3de7`. Probe:
 `/tmp/exact2-review-20260924/game-probe/src/bin/render-review.rs`;
 output: `/tmp/exact2-review-20260924/render-review.log`.
+
+2026-09-30 recheck: still valid. A nonblocking rejection prototype removed
+the accept-loop wait, but a concurrent complete request could lose its 503
+to a TCP reset when more request bytes arrived between the drain and close.
+That prototype and its unstable regression were reverted after three fix
+rounds. A bounded rejection executor or pollable graceful-close queue remains
+necessary; merely dropping a nonblocking socket is insufficient.

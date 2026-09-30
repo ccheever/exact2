@@ -45,7 +45,15 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     if !direct_for(plan, Ids::Any, Projection::Auto)? {
         return Ok(None);
     }
-    let page = settle_at(plan, data, viewport, location, deadline, true)?;
+    let page = settle_at(
+        plan,
+        data,
+        viewport,
+        location,
+        deadline,
+        true,
+        crate::render_time(),
+    )?;
     let tree = match page.runner.document_tree() {
         Ok(tree) => tree,
         Err(why) => {

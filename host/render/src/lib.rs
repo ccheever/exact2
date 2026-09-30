@@ -237,8 +237,35 @@ pub fn render_with<D: DataSource + 'static, F: Fn() -> D>(
     ids: Ids,
     projection: Projection,
 ) -> Result<Rendered, String> {
+    render_with_at(
+        plan,
+        data,
+        viewport,
+        location,
+        site,
+        deadline,
+        ids,
+        projection,
+        render_time(),
+    )
+}
+
+/// [`render_with`], with a fixed render timestamp in milliseconds since the
+/// Unix epoch, including every initializer, resource argument and checkpoint.
+#[allow(clippy::too_many_arguments)]
+pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
+    plan: &Plan,
+    data: &F,
+    viewport: exact_runner::Viewport,
+    location: &str,
+    site: &Site,
+    deadline: Duration,
+    ids: Ids,
+    projection: Projection,
+    now_ms: f64,
+) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
-    let page = settle_at(plan, data, viewport, location, deadline, direct)?;
+    let page = settle_at(plan, data, viewport, location, deadline, direct, now_ms)?;
     let settled_tree = if direct {
         match page.runner.document_tree() {
             Ok(tree) => {
@@ -253,7 +280,7 @@ pub fn render_with<D: DataSource + 'static, F: Fn() -> D>(
             Err(why) if projection == Projection::Auto => {
                 println!("render {location}: with a kernel ({why})");
                 retire(page, data);
-                return render_with(
+                return render_with_at(
                     plan,
                     data,
                     viewport,
@@ -262,6 +289,7 @@ pub fn render_with<D: DataSource + 'static, F: Fn() -> D>(
                     deadline,
                     ids,
                     Projection::Kernel,
+                    now_ms,
                 );
             }
             Err(why) => {
@@ -324,6 +352,14 @@ pub(crate) struct Settling<D: DataSource> {
 /// and run its requests until the document settles or `deadline` passes.
 /// `detached`: its kernel keeps nothing, and its document is written from
 /// its instance tree (LLP 1048.004).
+fn render_time() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as f64
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     plan: &Plan,
     data: &F,
@@ -331,6 +367,7 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     location: &str,
     deadline: Duration,
     detached: bool,
+    now_ms: f64,
 ) -> Result<Settling<D>, String> {
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
@@ -378,17 +415,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     } else {
         Kernel::with_monospace_on_demand()
     };
-    let mut runner = Runner::boot_with_delivery(
-        plan.clone(),
-        settling,
-        kernel,
-        None,
-        Vec::new(),
-        Default::default(),
-        viewport,
-        location,
-    )
-    .map_err(|e| format!("boot: {e:?}"))?;
+    let mut runner = Runner::boot_at(plan.clone(), settling, kernel, viewport, location, now_ms)
+        .map_err(|e| format!("boot: {e:?}"))?;
     let settled = match activate(&mut runner, until)
         .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
     {

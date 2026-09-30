@@ -1,6 +1,7 @@
 # Server-rendered pages and checkpoints use time zero
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The renderer captures wall time or accepts render_with_at timestamp and seeds it before slot initializers/resources; kernel/direct regression verifies nonzero initial state, now(), resource arguments and checkpoint without ticking timers.
 **Systems:** Render server, Runner, Web adoption
 **Severity:** P2
 **Author:** Codex for Charlie Cheever

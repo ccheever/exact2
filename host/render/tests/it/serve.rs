@@ -757,7 +757,8 @@ fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
         addr,
         "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nCache-Control: no-store\r\n\r\n",
     );
-    assert_eq!(fresh.len(), first.len());
+    // A fresh render captures a new timestamp, which can change compressed bytes.
+    assert!(fresh.len() > best.len());
 }
 
 #[test]

@@ -5,7 +5,7 @@
 
 use super::{plan, warm_transport, Blog, Post, SITE};
 use exact_plan::Value;
-use exact_render::{render_with, Ids, Projection, Rendered};
+use exact_render::{render_with_at, Ids, Projection, Rendered};
 use exact_runner::{Answer, DataError, DataSource, Request, Store};
 use std::path::Path;
 use std::time::Duration;
@@ -44,7 +44,7 @@ fn the_fixture_s_pages_are_the_same_without_a_kernel() {
     ] {
         let data = || Blog::new(post);
         let render = |projection| {
-            render_with(
+            render_with_at(
                 &plan,
                 &data,
                 Default::default(),
@@ -53,6 +53,7 @@ fn the_fixture_s_pages_are_the_same_without_a_kernel() {
                 deadline,
                 Ids::Any,
                 projection,
+                1_700_000_000_000.0,
             )
             .unwrap()
         };
@@ -94,7 +95,7 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
             continue;
         };
         let render = |projection| {
-            render_with(
+            render_with_at(
                 &plan,
                 &|| Nowhere,
                 Default::default(),
@@ -103,6 +104,7 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
                 Duration::from_secs(2),
                 Ids::Any,
                 projection,
+                1_700_000_000_000.0,
             )
         };
         let what = file.display().to_string();

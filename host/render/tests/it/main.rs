@@ -391,14 +391,16 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
     };
     for (post, deadline) in [(Post::Soon, 5_000), (Post::Never, 100)] {
         let [runtime, any] = [exact_render::Ids::Runtime, exact_render::Ids::Any].map(|ids| {
-            exact_render::render_as(
+            exact_render::render_with_at(
                 &plan(),
-                || Blog::new(post),
+                &|| Blog::new(post),
                 Default::default(),
                 "/post/7",
                 &SITE,
                 Duration::from_millis(deadline),
                 ids,
+                exact_render::Projection::Auto,
+                1_700_000_000_000.0,
             )
             .unwrap()
         });
@@ -688,4 +690,69 @@ fn rendered_document_sets_html_language_and_direction() {
         );
         assert!(!html.contains(exact_render::scroll_document_js()), "{html}");
     }
+}
+
+#[test]
+fn render_clock_seeds_initializers_resources_and_checkpoint_without_timers() {
+    struct Clock;
+    impl DataSource for Clock {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::record(vec![args[0].clone()]))
+        }
+    }
+    let plan = contract::compile(
+        r#"
+shape ClockAnswer
+  at: number
+
+component Clock
+  state first = now()
+  resource observed = clock(now()) as shape ClockAnswer
+  view
+    column
+      text `First ${first}`
+      text `Clock ${now()}`
+      text `Resource ${observed.at}`
+"#,
+    )
+    .unwrap();
+    let now = 1_700_000_123_456.0;
+    for projection in [
+        exact_render::Projection::Kernel,
+        exact_render::Projection::Direct,
+    ] {
+        let rendered = exact_render::render_with_at(
+            &plan,
+            &|| Clock,
+            Default::default(),
+            "/",
+            &SITE,
+            Duration::from_secs(2),
+            exact_render::Ids::Any,
+            projection,
+            now,
+        )
+        .unwrap();
+        for label in ["First", "Clock", "Resource"] {
+            assert!(
+                rendered
+                    .document
+                    .root
+                    .contains(&format!("{label} 1700000123456")),
+                "{}",
+                rendered.document.root
+            );
+        }
+        assert_eq!(rendered.state.now_ms, now);
+    }
+    let fresh = render(
+        &plan,
+        || Clock,
+        Default::default(),
+        "/",
+        &SITE,
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    assert!(fresh.state.now_ms > now);
 }

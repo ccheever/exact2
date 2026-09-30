@@ -224,6 +224,8 @@ struct ResourceState {
 enum Seed<'a> {
     /// The plan's initial state.
     Fresh,
+    /// Fresh state evaluated at the supplied render clock.
+    At(f64),
     /// A reload's carried state (LLP 1007 §6).
     Carried(&'a Carried),
     /// A rendered document's answers (LLP 1048.000 D6).
@@ -633,6 +635,7 @@ impl<D: DataSource> Runner<D> {
         };
         let now_ms = match seed {
             Seed::Fresh => 0.0,
+            Seed::At(now_ms) => now_ms,
             Seed::Carried(carried) => carried.now_ms,
             Seed::Checkpoint(checkpoint) => checkpoint.now_ms,
         };
@@ -745,7 +748,7 @@ impl<D: DataSource> Runner<D> {
             reorder_owner: None,
             reorder_ops: Vec::new(),
             ids: Ids::default(),
-            now_ms: 0.0,
+            now_ms,
             timers: Vec::new(),
             presenting: false,
             batch: 0,
@@ -888,7 +891,6 @@ impl<D: DataSource> Runner<D> {
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
-        runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
