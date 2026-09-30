@@ -5,7 +5,7 @@
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-09-30 (D7: one committed Metal command buffer a canvas frame — wgpu-hal 30.0.1 vendored with two Metal patches, `vendor/wgpu-hal/EXACT-PATCHES.md`; §3 has the trace and the A/B.) 2026-09-29 (D7 accepted and landed — one submit per tick: `Surface::render` records into the module's encoder, `gpu_flush` submits once and presents; `Surface::submitted` for post-submit maps. §3 has the trace and macOS's off-main acquisition.) 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
+**Revised:** 2026-09-30 (D8 proposed — the module on a thread of its own; design only, reviewed and accepted by the performance program's orchestrator, to be built after the layer pool lands.) 2026-09-30 (D7: one committed Metal command buffer a canvas frame — wgpu-hal 30.0.1 vendored with two Metal patches, `vendor/wgpu-hal/EXACT-PATCHES.md`; §3 has the trace and the A/B.) 2026-09-29 (D7 accepted and landed — one submit per tick: `Surface::render` records into the module's encoder, `gpu_flush` submits once and presents; `Surface::submitted` for post-submit maps. §3 has the trace and macOS's off-main acquisition.) 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
 **Related:** `rules/DEFERRED.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
 
 ## Summary
@@ -297,6 +297,174 @@ staging buffer per write, and no pending-writes command buffer in the tick
 of a surface that writes only this. Caltrain's aurora, glass and stack and
 Weatherlight use it; the engine's per-frame buffers still write through the
 queue.
+
+**D8 — The module has a thread of its own** (proposed 2026-09-30; design only,
+not built. Ruled as the end state by the performance program's orchestrator
+the same day, to be built under its rule 6 after this text is reviewed.)
+
+D2 put every call to the module on the main thread, and D7 left a canvas's
+frame there too: the surface's `render`, wgpu-core's pass and submit, and the
+presentation. For one shader row at 120 Hz that is 80 ms/s of an iPad Pro's
+main thread where UIKit's `MTKView` draw is 35, and 50 against 6.5 on an
+iPhone 13 Pro Max (§3, 2026-09-30); with the patched Metal backend and the
+tick's fixes it stays about 1.6 times `MTKView`'s, because wgpu-core's
+bookkeeping for a pass and a submit is on that thread. The work cannot be made
+small enough there. It can be moved: nothing a simple canvas draws needs the
+main thread.
+
+**What the thread owns.** One thread per process, `exact.gpu`, started with the
+first module load, with a run loop. Every loaded artifact (D6) lives on it:
+`gpu_load` runs there, so the module's thread-local state, its device and
+queue, every instance and its `Surface`, the open frame (D7), and the acquiring
+threads' notifications (`gpu_on_acquire` now posts to it, not to main) are all
+that thread's. It has its own display link, running only while a canvas it
+drives wants frames. Its tick is D7's tick: for each driven canvas that is
+dirty or wants a frame, render unless its drawable is in flight and not back;
+flush once; when a waiting canvas's drawable lands, render it and flush.
+Nothing of UIKit or AppKit is read on it. The acquiring threads stay: the
+module thread must never wait in `nextDrawable`, because main waits on the
+module thread (below).
+
+**What the presenter's calls become.** The presenter keeps calling `GpuModule`;
+the wrapper hops. There are three kinds.
+
+- *Synchronous hops* — main posts a job to the module thread and waits for it:
+  `create`, `destroy`, `bind`, the asset and child-texture deliveries,
+  `input`, `agent`, `carry`/`restore`, `readback`, `sync`, error text, and
+  everything the agent's clock does (a seekable module is driven entirely by
+  these: `settle(now:)` is one hop that runs the tick at `now`). They are the
+  calls whose answer the presenter uses, or whose effect the next line depends
+  on, and they are per event, not per frame. **A hop is bounded:** a few
+  hundred microseconds of module-thread work, never a shader compile, never a
+  wait on the GPU or a drawable. What can compile or wait is not a hop (next
+  kind), and in a debug build a hop that took longer than 4 ms logs once,
+  with its name.
+- *Posts* — main queues a job and does not wait: the driven set (which
+  canvases are on screen, with their size and scale), the display period,
+  lifecycle, pause and resume; and the three calls that may hold a pipeline
+  compile (about 100 ms, LLP 1009 §3) or a device: `gpu_load` and its device
+  creation, a shader registration (LLP 1030 D8, which rebuilds every pipeline
+  that binds it), and `recover`. Each of those answers with a report; until
+  it does the presenter is where it already is with a module that is not up
+  — the canvas paints its background, the agent's `ready` waits — and a
+  canvas created before the load answers is created when it does.
+- *Reports* — the module thread queues a block on main and does not wait: a
+  canvas's messages and published record when it has any, a changed
+  `wants`, a failure, a lost device, a first frame shown (D7's
+  `gpu_on_presented`), and the outcome of a load, a shader registration or a
+  recovery.
+
+**Why it cannot deadlock.** Three threads wait on each other today or will:
+main waits on the owner (LLP 1072: `Owner.sync`, serving the owner's
+`callMain` from its wait loop); the owner waits on main only through
+`callMain`; main will wait on the module thread. The module thread waits on
+nothing: it never calls main or the owner synchronously (its only way out is a
+report), it takes no lock main holds while waiting, and it never waits for a
+drawable. So the wait graph is main → owner, owner → main (served), main →
+module, and the module thread is a sink. A hop's bound matters here too:
+while main waits in a hop, an owner `callMain` waits for main, so a long hop
+would stall the runtime's turn as well as the presenter — which is why what
+can compile or wait is a post. A surface that needs the main thread
+(an audio session, a platform view) asks through a message, as
+`exact:audio` does now. The owner never calls the module: a runtime request
+for a surface (`surfaceWork`) is delivered to main, which hops. A
+notification that arrives on another thread (device removal, memory pressure)
+posts. The one way to break this is a synchronous call out of a `Surface`
+into main; the hop asserts that main is not the caller's target while a job
+runs, and a debug build traps.
+
+**The 2D canvas is not this thread's.** A canvas that animates is drawn by
+vello (LLP 1056 §8.5) in an artifact of its own with its own device, and its
+lists reach it as they do today: the owner's turn puts them in the batch,
+main applies the batch and hands the list to the presenter's replay queue,
+which draws. Nothing there waits on the module thread or is waited on by
+it; the two share no lock and no device. The frame of latency §8.3 tolerates
+stays as it is. Should the 2D canvas ever move onto this thread, its lists
+would arrive by post, never by a wait, and the graph would keep the module
+thread as a sink — a change to LLP 1056, not to this text.
+
+**Children-capturing canvases stay main-driven.** A canvas whose surface
+samples its children (LLP 1014 D2–D5: Caltrain's sky), one nested under such a
+canvas, and one with an edit under its overlay are paced by the presenter:
+captures are UIKit work, placements go back to views every frame, and the
+capture and the frame that samples it must be the same frame. For these the
+main tick stays, and each tick is one synchronous hop that runs what the tick
+ran (children mode, the texture hand-over, render, flush, placements,
+messages). They cost the main thread what they cost today plus one round
+trip; only canvases that need none of this are driven by the module thread.
+A canvas moves between the two sets when its children mode changes, with a
+synchronous hop.
+
+**What presents with what (a canvas inside a scrolling row).** A canvas's
+position is its layer's place in the layer tree, committed by main's
+transaction with its row's, as now. Its picture is a drawable presented by
+Metal outside any transaction, as now and as an `MTKView`'s is. The compositor
+puts the latest picture at the latest position: a picture a frame late is
+the right picture in the right place, not a tear, as long as the picture does
+not depend on where the canvas is on screen. A surface that draws its
+canvas-local content — every simple canvas — cannot tear against its row.
+One whose content depends on its surroundings is a children-capturing canvas
+and is main-driven. Size is the other coupling: a resized canvas stretches its
+last picture until the first frame at the new size, one frame later than now
+(the size arrives by post); a canvas whose size animates every frame stays
+correct but soft for that frame, as on the web a canvas resized without a
+redraw is.
+
+**Visibility, backgrounding, occlusion.** The host still judges what is on
+screen (D4), on main, where the views are: when geometry moves (the
+presenter's geometry epoch: scroll, layout, a batch, a window change) it
+recomputes each canvas's visibility, once per run-loop turn, and posts the
+changes. A canvas leaves the driven set the turn it leaves the screen. iOS
+allows no GPU work in the background: `didEnterBackground` and
+`willResignActive`-to-background are *synchronous* hops that stop the module
+thread's link and drop its open frame before main returns to UIKit, and
+`willEnterForeground` posts the resume; a frame already submitted is Metal's.
+An occluded macOS window starves its canvases (D7) and costs the thread
+nothing.
+
+**Resize and device loss.** `render` already reconfigures a target whose size
+changed, after taking the drawable in flight; it does so on the module thread.
+Layer properties a configure writes (`drawableSize`, `pixelFormat`, `opaque`)
+are committed by the thread's own run loop turn. A lost device is found on the
+module thread at a render or a flush, which drops the open frame and reports;
+recovery is main's as now (backoff, `recover`, redelivery of inputs), through
+synchronous hops.
+
+**The Mac presenter.** `GpuModule` and the seams are shared. The hop has an
+inline mode — the module loaded on main, every call direct — which is what
+AppKit keeps until the mac lane moves it: its tick, its occlusion guard and
+its `displayLink(target:selector:)` are its own. Nothing in the module's ABI
+distinguishes the modes except who calls it.
+
+**Quality of service.** The thread runs at user-interactive, as the owner
+does (LLP 1072): its frame is due at the same vsync as the presenter's. A
+synchronous hop is a `DispatchWorkItem` run with `sync` on the thread's
+serial queue — the module's run loop drains that queue — so the waiting
+main thread's priority is propagated to the work by the QoS override, as
+`Owner`'s hand-rolled wait cannot; a post is `async` on the same queue at
+the thread's own class. The display link is the thread's own. Under
+`ProcessInfo.thermalState` critical or Low Power Mode the thread does
+nothing special: the display link's rate is the system's to lower, as it
+lowers main's, and a surface that wants fewer frames says so through
+`render`'s return, as now.
+
+**What it costs and what it must prove.** Process CPU does not change: the
+same frame is drawn elsewhere, minus the hop to main per drawable. The main
+thread's share of a simple canvas becomes its visibility judgment when
+geometry moves. Predicted at rest on the Extra Heavy feed: iPad main about 40
+against UIKit 60, iPhone about 10 against 18. It is a threading change:
+soaks on both devices, Thread Sanitizer over a suite that runs the hop for
+real (the macOS tests run the threaded mode), a test that holds main in a
+synchronous hop while the owner calls main and the module thread reports, and
+a review by someone other than its author.
+
+Not chosen: moving only the flush (finish, submit, present) to a worker. It
+leaves `render`, the tick and the hop on main — about 25 ms/s a canvas on
+the iPad — needs the same care about presents and acquisitions crossing
+threads, and is not where the design ends. And a `Surface: Send` module
+behind a lock, rendered from any thread: surfaces keep thread-local state
+today (shared pipelines, decode channels), and a lock main can wait on behind
+a 100 ms pipeline compile is the wait this removes.
 
 **The extension point for animatable properties** (the DEFERRED clause
 "animatable properties are extensible"): committed state is not
