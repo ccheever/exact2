@@ -14,7 +14,7 @@ fn main() {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };
-    let baked = contract::bake(plan, ocho_data::Ocho).unwrap_or_else(|e| panic!("bake: {e:?}"));
+    let baked = contract::bake(plan, ocho_data::Ocho::default()).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -24,7 +24,7 @@ fn main() {
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
-    let grants = ocho_data::Ocho.grants().to_string();
+    let grants = ocho_data::Ocho::default().grants().to_string();
     let grants = grants.as_str();
     let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
@@ -40,7 +40,7 @@ fn main() {
             "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
             contract::rust_entry(
                 "ocho_data::Ocho",
-                "ocho_data::Ocho",
+                "ocho_data::Ocho::default()",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
             .unwrap()

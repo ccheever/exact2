@@ -1,0 +1,86 @@
+// The rail (ui.rs:812-1342 and 2004-2045): the traffic-light strip, the
+// MANAGER pages, the TERMINALS tree, the footer, and the 5 px resize handle.
+// Every px here is GPUI's at 16 px per rem: p_1 = 4, p_2 = 8, p_3 = 12,
+// p_4 = 16; rounded_md = 6, rounded_sm = 2.
+
+use Icon from "./icons.contract"
+use Ellipsis from "./theme.contract"
+use Pill from "./theme.contract"
+use Reset from "./theme.contract"
+
+component Rail
+  props
+    model: RailModel
+    t: Theme
+    hoverId: string
+    press: action
+    hover: action
+    panned: action
+    doubleClick: action
+    contextMenu: action
+  derive railBorder = model.nav ? t.warn60 : t.border
+  view
+    column position="relative" height="100%" width=model.width flex-shrink=0
+      // The strip level with the traffic lights: the window's drag region
+      // (ui.rs:2004), 42 tall, 80 of left padding past the lights.
+      row testId="rail-header" height=42 flex-shrink=0 align-items="center" justify-content="flex-end" padding-left=80 padding-right=8 background-color=t.bg border-right-style="solid" border-right-width=1 border-right-color=railBorder box-sizing="border-box"
+        when model.updateLabel != ""
+          button press=press("update") testId="desktop-update" hover=hover("update") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "update" ? t.selected : t.accent15) color=t.text aria-label=model.updateTip
+            text model.updateLabel
+      scroll testId="rail" flex=1 min-height=0 background-color=t.bg border-right-style="solid" border-right-width=1 border-right-color=railBorder box-sizing="border-box"
+        column
+          text "MANAGER" padding-left=16 padding-right=16 padding-top=12 padding-bottom=4 font-size=11 line-height="18px" font-weight=600 color=t.placeholder
+          each page in model.pages key=page.id
+            button press=press(`page:${page.id}`) testId=`page-${page.id}` hover=hover(`page:${page.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 margin-left=8 margin-right=8 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(page.selected and model.nav ? t.warn70 : "rgba(0,0,0,0)") background-color=(page.selected ? t.selectedBg : (hoverId == `page:${page.id}` ? t.hoverBg : "rgba(0,0,0,0)")) color=t.text width="calc(100% - 16px)" box-sizing="border-box"
+              Icon(name=page.icon, size=14, color=(page.selected ? t.text : t.muted))
+              text page.title flex=1 class=Ellipsis
+              text page.count font-size=11 line-height="18px" color=t.muted
+          text "TERMINALS" padding-left=16 padding-right=16 padding-top=12 padding-bottom=4 font-size=11 line-height="18px" font-weight=600 color=t.placeholder
+          when length(model.tabs) == 0
+            text model.hint padding-left=16 padding-right=16 padding-bottom=4 font-size=11 line-height="18px" color=t.muted
+          each tab in model.tabs key=tab.key
+            column testId=`tab-${tab.key}` position="relative" margin-left=8 margin-right=8 border-radius=6 border-style="solid" border-width=1 border-color=(tab.active and model.nav ? t.warn70 : "rgba(0,0,0,0)") background-color=(tab.dropInto ? t.accent18 : (tab.active ? t.selectedBg : (hoverId == `tab:${tab.key}` ? t.hoverBg : "rgba(0,0,0,0)"))) box-sizing="border-box" hover=hover(`tab:${tab.key}`) pan=panned(`tab:${tab.key}`) touch-action="none" contextmenu=contextMenu(`tab:${tab.key}`) dblclick=doubleClick(`tab:${tab.key}`)
+              // The drop line (2 px, accent) above or below (ui.rs:1071).
+              when tab.dropBefore
+                box position="absolute" top=-1 left=(8 + tab.depth * 14) right=6 height=2 border-radius=999 background-color=t.accent
+              when tab.dropAfter
+                box position="absolute" bottom=-1 left=(8 + tab.depth * 14) right=6 height=2 border-radius=999 background-color=t.accent
+              button press=press(`tab:${tab.key}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 color=t.text width="100%" box-sizing="border-box" aria-label=tab.title
+                column flex=1 min-width=0 margin-left=(tab.depth * 14)
+                  row align-items="center" gap=4 min-width=0
+                    when tab.badge != ""
+                      // The machine badge (ui.rs:95-140): 14 square, radius 4, the initial in 9 px bold.
+                      box class=Pill width=14 height=14 border-radius=4 background-color=tab.badgeBg opacity=(tab.badgeFaded ? 0.4 : 1) margin-right=4 flex-shrink=0
+                        text tab.badge font-size=9 line-height="14px" font-weight=700 color=tab.badgeTint
+                    text tab.title class=Ellipsis font-weight=(tab.folder ? 500 : 400)
+                    when tab.imessage
+                      Icon(name="messages", size=13, color="#30d158")
+                    when tab.hasChildren or tab.folder
+                      button press=press(`fold:${tab.key}`) testId=`fold-${tab.key}` class=Reset flex-shrink=0 padding=0 aria-label=(tab.collapsed ? "Expand" : "Collapse")
+                        Icon(name=(tab.collapsed ? "chevron-right" : "chevron-down"), size=12, color=t.muted)
+                  when tab.working or tab.status != ""
+                    row align-items="center" min-width=0 font-size=11 line-height="15px" padding-left=(tab.badge != "" ? 22 : 0)
+                      when tab.working
+                        row flex=1 min-width=0 gap=0
+                          when tab.workingGlyph != ""
+                            text tab.workingGlyph color=tab.workingHeadColor width=15 flex-shrink=0
+                          text tab.workingHead color=tab.workingHeadColor white-space="nowrap"
+                          text tab.workingRest class=Ellipsis color=t.text
+                      else
+                        text tab.status class=Ellipsis color=t.muted
+              // Close: 18 square at top 2 / right 2, on the active row or hover (ui.rs:1250).
+              when tab.active or hoverId == `tab:${tab.key}` or hoverId == `close:${tab.key}`
+                button press=press(`close:${tab.key}`) testId=`close-${tab.key}` hover=hover(`close:${tab.key}`) class=Reset position="absolute" top=2 right=2 width=18 height=18 display="flex" align-items="center" justify-content="center" border-radius=2 background-color=(hoverId == `close:${tab.key}` ? t.border : (tab.active ? t.selectedBg : t.hoverBg)) color=(hoverId == `close:${tab.key}` ? t.text : t.muted) aria-label="Close tab"
+                  text "×"
+          // Dropping below the last row moves a tab to the end (ui.rs:1298).
+          box testId="rail-tail" flex=1 min-height=16 margin-left=8 margin-right=8 border-radius=6 background-color=(model.resizing and false ? t.accent : "rgba(0,0,0,0)")
+          row align-items="center" gap=4 padding-left=8 padding-right=8 padding-top=8 padding-bottom=8
+            button press=press("settings") testId="settings-button" hover=hover("settings") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "settings" ? t.hover : "rgba(0,0,0,0)") color=(hoverId == "settings" ? t.text : t.muted)
+              text "Settings"
+              text "⌘," font-size=11 line-height="18px" color=t.placeholder
+            box flex=1
+            button press=press("help") testId="help-button" hover=hover("help") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "help" ? t.hover : "rgba(0,0,0,0)") color=(hoverId == "help" ? t.text : t.muted)
+              text "Help"
+              text "⌘/" font-size=11 line-height="18px" color=t.placeholder
+      // The resize handle (ui.rs:1322): 5 px on the right edge, accent at 35% on hover or drag.
+      box testId="rail-resize-handle" position="absolute" top=0 right=0 bottom=0 width=5 background-color=(model.resizing or hoverId == "rail-resize" ? t.accent35 : "rgba(0,0,0,0)") hover=hover("rail-resize") pan=panned("rail-resize") touch-action="none"

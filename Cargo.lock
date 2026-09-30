@@ -2717,6 +2717,7 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
+ "serde",
  "serde_json",
 ]
 

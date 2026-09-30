@@ -1,0 +1,31 @@
+// Shared styles: GPUI's `truncate()`, a centred box, a button stripped to a
+// box (the web's button chrome removed, the UI font restored), and the
+// dialog card (ui.rs:3492: elevated, rounded_lg, border, shadow_lg).
+
+style Ellipsis
+  white-space="nowrap"
+  overflow="hidden"
+  text-overflow="ellipsis"
+  min-width=0
+style Pill
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  justify-content="center"
+style Reset
+  padding=0
+  border-width=0
+  background-color="rgba(0,0,0,0)"
+  text-align="left"
+  font-family="system-ui"
+  font-size=13
+  line-height="21px"
+style Card
+  display="flex"
+  flex-direction="column"
+  max-height="100%"
+  border-radius=8
+  border-style="solid"
+  border-width=1
+  box-shadow="0 10px 15px rgba(0,0,0,0.1)"
+  box-sizing="border-box"

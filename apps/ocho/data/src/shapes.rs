@@ -1,0 +1,308 @@
+//! The view-model's shapes, in the contract's field order: `read` turns the
+//! model's JSON into the runner's positional records. Every shape here has a
+//! twin `shape` in `app.contract`; the two are kept in step by hand.
+
+use exact_plan::Value;
+
+pub enum Shape {
+    Str,
+    Num,
+    Bool,
+    List(&'static Shape),
+    Record(&'static [(&'static str, Shape)]),
+}
+
+use Shape::{Bool, List, Num, Record, Str};
+
+pub const UI: Shape = Record(&[("version", Num), ("io", Num)]);
+pub const VERSION: Shape = Record(&[("version", Num)]);
+
+pub const THEME: Shape = Record(&[
+    ("name", Str),
+    ("dark", Bool),
+    ("bg", Str),
+    ("surface", Str),
+    ("elevated", Str),
+    ("element", Str),
+    ("border", Str),
+    ("text", Str),
+    ("muted", Str),
+    ("placeholder", Str),
+    ("accent", Str),
+    ("warn", Str),
+    ("danger", Str),
+    ("good", Str),
+    ("selected", Str),
+    ("hover", Str),
+    ("termBg", Str),
+    ("termFg", Str),
+    ("cursor", Str),
+    ("statusBar", Str),
+    // Opaque blends the rail uses (ui.rs:836-837) and the tints with alpha.
+    ("selectedBg", Str),
+    ("hoverBg", Str),
+    ("accent12", Str),
+    ("accent15", Str),
+    ("accent18", Str),
+    ("accent35", Str),
+    ("accent55", Str),
+    ("warn60", Str),
+    ("warn70", Str),
+    ("muted70", Str),
+    ("border72", Str),
+    ("backdrop", Str),
+]);
+
+pub const RAIL_PAGE: Shape = Record(&[
+    ("id", Str),
+    ("title", Str),
+    ("icon", Str),
+    ("count", Str),
+    ("selected", Bool),
+]);
+
+pub const RAIL_TAB: Shape = Record(&[
+    ("key", Str),
+    ("title", Str),
+    ("machine", Str),
+    ("badge", Str),
+    ("badgeTint", Str),
+    ("badgeBg", Str),
+    ("badgeFaded", Bool),
+    ("depth", Num),
+    ("folder", Bool),
+    ("collapsed", Bool),
+    ("hasChildren", Bool),
+    ("active", Bool),
+    ("ancestor", Bool),
+    ("status", Str),
+    ("statusMarkdown", Bool),
+    ("working", Bool),
+    ("workingGlyph", Str),
+    ("workingHead", Str),
+    ("workingHeadColor", Str),
+    ("workingRest", Str),
+    ("imessage", Bool),
+    ("number", Str),
+    ("dropBefore", Bool),
+    ("dropAfter", Bool),
+    ("dropInto", Bool),
+]);
+
+pub const RAIL: Shape = Record(&[
+    ("width", Num),
+    ("nav", Bool),
+    ("pages", List(&RAIL_PAGE)),
+    ("tabs", List(&RAIL_TAB)),
+    ("hint", Str),
+    ("updateLabel", Str),
+    ("updateTip", Str),
+    ("selectedTab", Str),
+    ("resizing", Bool),
+]);
+
+pub const ROW_ACTION: Shape = Record(&[("id", Str), ("icon", Str), ("label", Str), ("hint", Str)]);
+
+pub const METER: Shape = Record(&[
+    ("label", Str),
+    ("percent", Num),
+    ("text", Str),
+    ("reset", Str),
+    ("color", Str),
+]);
+
+pub const ROW: Shape = Record(&[
+    ("id", Str),
+    ("header", Str),
+    ("badge", Str),
+    ("badgeColor", Str),
+    ("badgeBg", Str),
+    ("title", Str),
+    ("imessage", Bool),
+    ("prs", List(&Str)),
+    ("lines", List(&Str)),
+    ("firstLine", Str),
+    ("markdownLine", Num),
+    ("attention", Bool),
+    ("working", Bool),
+    ("workingGlyph", Str),
+    ("workingHead", Str),
+    ("workingHeadColor", Str),
+    ("workingRest", Str),
+    ("usage", List(&METER)),
+    ("usageNote", Str),
+    ("archived", Bool),
+    ("selected", Bool),
+    ("actions", List(&ROW_ACTION)),
+]);
+
+pub const MANAGER: Shape = Record(&[
+    ("page", Str),
+    ("title", Str),
+    ("filterSummary", Str),
+    ("query", Str),
+    ("searching", Bool),
+    ("primary", Str),
+    ("primaryHint", Str),
+    ("rows", List(&ROW)),
+    ("empty", Str),
+    ("selected", Num),
+    ("focused", Bool),
+    ("viewOpen", Bool),
+]);
+
+pub const MENU_ITEM: Shape = Record(&[
+    ("id", Str),
+    ("label", Str),
+    ("icon", Str),
+    ("hint", Str),
+    ("checked", Bool),
+    ("checkable", Bool),
+    ("selected", Bool),
+    ("disabled", Bool),
+]);
+
+pub const POPUP: Shape = Record(&[
+    ("kind", Str),
+    ("anchor", Str),
+    ("x", Num),
+    ("y", Num),
+    ("right", Num),
+    ("title", Str),
+    ("items", List(&MENU_ITEM)),
+    ("empty", Str),
+]);
+
+pub const PICKER_ROW: Shape = Record(&[
+    ("id", Str),
+    ("chip", Str),
+    ("label", Str),
+    ("detail", Str),
+    ("hint", Str),
+    ("second", Str),
+    ("selected", Bool),
+    ("swatch", Str),
+    ("swatchBorder", Str),
+    ("accent", Bool),
+]);
+
+pub const FIELD: Shape = Record(&[
+    ("id", Str),
+    ("label", Str),
+    ("value", Str),
+    ("placeholder", Str),
+    ("kind", Str),
+    ("focused", Bool),
+    ("options", List(&Str)),
+    ("hint", Str),
+    ("multiline", Bool),
+    ("suggestions", List(&PICKER_ROW)),
+]);
+
+pub const BUTTON: Shape = Record(&[
+    ("id", Str),
+    ("label", Str),
+    ("hint", Str),
+    ("primary", Bool),
+    ("disabled", Bool),
+]);
+
+pub const OVERLAY: Shape = Record(&[
+    ("kind", Str),
+    ("width", Num),
+    ("top", Bool),
+    ("title", Str),
+    ("subtitle", Str),
+    ("pill", Str),
+    ("pillColor", Str),
+    ("glyph", Str),
+    ("placeholder", Str),
+    ("query", Str),
+    ("status", Str),
+    ("statusError", Bool),
+    ("rows", List(&PICKER_ROW)),
+    ("index", Num),
+    ("footer", Str),
+    ("body", Str),
+    ("bodyMarkdown", Bool),
+    ("fields", List(&FIELD)),
+    ("buttons", List(&BUTTON)),
+    ("hint", Str),
+    ("focusId", Str),
+]);
+
+pub const TAB_VIEW: Shape = Record(&[
+    ("key", Str),
+    ("title", Str),
+    ("argv", List(&Str)),
+    ("argvJson", Str),
+    ("machine", Str),
+    ("cwd", Str),
+    ("readOnly", Bool),
+    ("strip", Str),
+    ("stripLabel", Str),
+    ("stripDetail", Str),
+    ("stripColor", Str),
+    ("stripRetry", Bool),
+    ("exitBanner", Str),
+    ("limited", Bool),
+    ("limitedStatus", Str),
+    ("limitedProvider", Str),
+    ("overlay", Str),
+    ("overlayTitle", Str),
+    ("overlayDetail", Str),
+    ("overlayButtons", List(&BUTTON)),
+    ("overlayNote", Str),
+    ("panelOpen", Bool),
+    ("panelArgv", List(&Str)),
+    ("panelCwd", Str),
+    ("panelHeight", Num),
+    ("panelFocused", Bool),
+    ("transcript", Bool),
+    ("dropTarget", Bool),
+]);
+
+pub const TOAST: Shape = Record(&[("text", Str), ("error", Bool), ("dismissible", Bool)]);
+
+pub const VIEW: Shape = Record(&[
+    ("theme", THEME),
+    ("windowTitle", Str),
+    ("loaded", Bool),
+    ("rail", RAIL),
+    ("manager", MANAGER),
+    ("onTab", Bool),
+    ("tab", TAB_VIEW),
+    ("overlay", OVERLAY),
+    ("popup", POPUP),
+    ("toast", TOAST),
+    ("focusId", Str),
+    ("scrollTo", Str),
+    ("uiFontSize", Num),
+    ("termFontSize", Num),
+    ("region", Str),
+]);
+
+/// The value of `json` in `shape`, missing fields as their zero.
+pub fn read(shape: &Shape, json: &serde_json::Value) -> Value {
+    match shape {
+        Str => match json {
+            serde_json::Value::String(s) => Value::str(s),
+            serde_json::Value::Number(n) => Value::str(&n.to_string()),
+            serde_json::Value::Bool(b) => Value::str(if *b { "true" } else { "false" }),
+            _ => Value::str(""),
+        },
+        Num => Value::Number(json.as_f64().unwrap_or(0.0)),
+        Bool => Value::Bool(json.as_bool().unwrap_or(false)),
+        List(inner) => Value::list(
+            json.as_array()
+                .map(|items| items.iter().map(|v| read(inner, v)).collect())
+                .unwrap_or_default(),
+        ),
+        Record(fields) => Value::record(
+            fields
+                .iter()
+                .map(|(name, s)| read(s, json.get(*name).unwrap_or(&serde_json::Value::Null)))
+                .collect(),
+        ),
+    }
+}

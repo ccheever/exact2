@@ -1,0 +1,217 @@
+// Overlays (ui.rs:3492-3690 and the cards): the backdrop at black 45%, a
+// card (elevated, radius 8, border, shadow_lg) top-aligned 72 down for the
+// pickers and centred for the dialogs; and the popup menu card
+// (ui.rs:1376), anchored to its trigger or at the pointer.
+
+use Icon from "./icons.contract"
+use Ellipsis from "./theme.contract"
+use Reset from "./theme.contract"
+use Card from "./theme.contract"
+
+component Overlays
+  props
+    model: Overlay
+    popup: Popup
+    t: Theme
+    hoverId: string
+    windowWidth: number
+    press: action
+    hover: action
+    typed: action
+    overlayKeyDown: action
+  view
+    when model.kind != ""
+      column testId="backdrop" position="absolute" top=0 left=0 right=0 bottom=0 background-color=t.backdrop align-items="center" justify-content=(model.top ? "flex-start" : "center") padding-top=(model.top ? 72 : 24) padding-bottom=24 box-sizing="border-box" key=overlayKeyDown
+        button press=press("backdrop") testId="backdrop-close" class=Reset position="absolute" top=0 left=0 right=0 bottom=0 width="100%" height="100%" aria-label="Close"
+        column testId=`overlay-${model.kind}` class=Card width=model.width max-width="100%" background-color=t.elevated border-color=t.border position="relative"
+          // ---- Pickers: palette, PR finder, topic finder, themes (ui.rs:2078) ----
+          when model.kind == "picker"
+            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-bottom-color=t.border font-family="ui-monospace"
+              text model.glyph color=t.accent
+              input id="query" testId="query" value=model.query input=typed("query") placeholder=model.placeholder autofocus=true aria-label=model.placeholder flex=1 min-width=0 height=21 line-height="21px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=13 color=t.text
+              text "↑ ↓ choose · Enter open · Esc close" font-size=11 line-height="18px" color=t.muted white-space="nowrap"
+            when model.status != ""
+              text model.status padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
+            scroll id="picker-list" max-height=440 padding-top=4 padding-bottom=4
+              column
+                each r in model.rows key=r.id
+                  button press=press(`pick:${r.id}`) testId=`pick-${r.id}` hover=hover(`pick:${r.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=12 margin-left=4 margin-right=4 padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 border-radius=6 background-color=(r.selected ? t.selected : (hoverId == `pick:${r.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="calc(100% - 8px)" box-sizing="border-box"
+                    when r.swatch != ""
+                      box width=12 height=12 border-radius=2 background-color=r.swatch border-style="solid" border-width=1 border-color=r.swatchBorder flex-shrink=0
+                    when r.chip != ""
+                      text r.chip width=64 flex-shrink=0 font-size=11 line-height="18px" color=t.accent
+                    when r.second != ""
+                      column flex=1 min-width=0
+                        text r.label class=Ellipsis color=(r.accent ? t.accent : t.text)
+                        text r.second class=Ellipsis font-size=12 line-height="19px" color=t.muted
+                    else
+                      text r.label flex=1 class=Ellipsis color=(r.accent ? t.accent : t.text)
+                    when r.detail != ""
+                      text r.detail class=Ellipsis font-size=12 line-height="19px" color=t.muted max-width="45%"
+                    when r.hint != ""
+                      text r.hint flex-shrink=0 font-size=11 line-height="18px" color=t.muted
+            when model.footer != ""
+              text model.footer padding-left=16 padding-right=16 padding-top=4 padding-bottom=4 border-top-style="solid" border-top-width=1 border-top-color=t.border font-size=11 line-height="18px" color=t.muted
+          // ---- Confirm (ui.rs:3689): title in warn, body muted, Cancel n / Yes y ----
+          when model.kind == "confirm"
+            text model.title padding-left=16 padding-right=16 padding-top=12 font-weight=600 color=t.warn
+            text model.body padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=t.muted
+            row justify-content="flex-end" gap=8 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              each b in model.buttons key=b.id
+                button press=press(`button:${b.id}`) testId=`button-${b.id}` hover=hover(`button:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `button:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
+                  text b.label
+                  when b.hint != ""
+                    text b.hint font-size=11 line-height="18px" color=t.muted
+          // ---- Message (m): title, meta line, markdown body ----
+          when model.kind == "message"
+            row align-items="center" padding-left=16 padding-right=16 padding-top=12
+              text model.title flex=1 font-weight=600 class=Ellipsis
+              text model.hint font-size=12 line-height="19px" color=t.muted
+            text model.subtitle padding-left=16 padding-right=16 padding-top=4 font-size=12 line-height="19px" color=t.muted
+            scroll max-height=420 padding-left=16 padding-right=16 padding-top=8 padding-bottom=12
+              text model.body font-size=14 line-height="22px" white-space="pre-wrap"
+          // ---- Help (ui.rs:3891): sections from the keymap, keys in Menlo at 200 wide ----
+          when model.kind == "help"
+            row align-items="center" padding-left=16 padding-right=16 padding-top=12
+              text model.title flex=1 font-weight=600
+              text model.hint font-size=12 line-height="19px" color=t.muted
+            scroll id="help-body" max-height=560 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              column gap=12
+                each r in model.rows key=r.id
+                  when r.chip == "section"
+                    text r.label padding-top=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
+                  else
+                    row gap=12
+                      text r.label width=200 flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="19px"
+                      text r.detail font-size=12 line-height="19px" color=t.muted
+          // ---- Settings and forms: fields in a column (ui.rs:5102, 5360) ----
+          // ---- The launch composer (ui.rs:4273): Project and Machine chips, the prompt, then the model pill, account and permissions chips in one row ----
+          when model.kind == "launch"
+            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=12
+              text model.title flex=1 font-weight=600 class=Ellipsis
+              when model.pill != ""
+                text model.pill padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 font-size=11 line-height="18px" font-weight=700 color=model.pillColor background-color=`${model.pillColor}2e`
+            column gap=8 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              each f in filter(model.fields, x => x.id == "launch-project" or x.id == "launch-machine") key=f.id
+                button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text width="100%" box-sizing="border-box"
+                  text f.label flex-shrink=0
+                  text f.value flex=1 class=Ellipsis font-family="ui-monospace" font-size=12
+                  text "▾" font-size=11 line-height="18px" color=t.placeholder
+              each f in filter(model.fields, x => x.id == "launch-prompt") key=f.id
+                column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg
+                  input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder focus=press(`focus:${f.id}`) autofocus=f.focused aria-label=f.label width="100%" min-height=68 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
+              row gap=8 flex-wrap="wrap" align-items="center"
+                each f in filter(model.fields, x => x.id == "model-pill" or x.id == "account-chip" or x.id == "permissions-chip") key=f.id
+                  when f.kind == "pill"
+                    button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text max-width=400 box-sizing="border-box"
+                      text f.label font-size=11 line-height="18px" color=t.muted flex-shrink=0
+                      text f.value class=Ellipsis font-family="ui-monospace" font-size=12 color=(f.hint == "model" and f.focused ? t.accent : t.text)
+                      each e in f.options key=e
+                        text e font-size=12 line-height="19px" font-family="ui-monospace" color=(f.hint == "effort" and f.focused ? t.accent : t.muted)
+                      text "▾" font-size=11 line-height="18px" color=t.placeholder
+                  when f.kind == "text"
+                    column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=t.bg max-width=400
+                      input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder autofocus=true aria-label=f.label width=240 height=19 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text
+                  when f.kind == "chip"
+                    button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text max-width=(f.id == "account-chip" ? 300 : 352) box-sizing="border-box"
+                      text f.label flex-shrink=0
+                      text f.value class=Ellipsis font-family="ui-monospace" font-size=12
+                      text "▾" font-size=11 line-height="18px" color=t.placeholder
+              when model.status != ""
+                text model.status font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
+            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=12 border-top-style="solid" border-top-width=1 border-top-color=t.border
+              text model.footer flex=1 min-width=0 font-size=11 line-height="18px" color=t.muted
+              each b in model.buttons key=b.id
+                button press=press(`button:${b.id}`) testId=`button-${b.id}` hover=hover(`button:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `button:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
+                  text b.label
+                  when b.hint != ""
+                    text b.hint font-size=11 line-height="18px" color=t.muted
+          when model.kind == "settings" or model.kind == "form" or model.kind == "quick" or model.kind == "machine-picker" or model.kind == "project-picker" or model.kind == "add-folder" or model.kind == "pair"
+            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=12
+              text model.title flex=1 font-weight=600 class=Ellipsis
+              when model.pill != ""
+                text model.pill padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 font-size=11 line-height="18px" font-weight=700 color=model.pillColor background-color=`${model.pillColor}2e`
+              when model.subtitle != ""
+                text model.subtitle font-size=12 line-height="19px" color=t.muted
+            when model.status != ""
+              text model.status padding-left=16 padding-right=16 padding-top=8 font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
+            scroll max-height=520 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              column gap=8
+                each f in model.fields key=f.id
+                  column gap=4
+                    when f.kind == "text" or f.kind == "prompt" or f.kind == "path"
+                      text f.label font-size=11 line-height="18px" color=(f.focused ? t.accent : t.muted)
+                      column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg
+                        input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder focus=press(`focus:${f.id}`) autofocus=f.focused aria-label=f.label width="100%" min-height=(f.multiline ? 68 : 19) line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
+                      when length(f.suggestions) > 0
+                        column
+                          each s in f.suggestions key=s.id
+                            button press=press(`pick:${s.id}`) hover=hover(`pick:${s.id}`) class=Reset display="flex" padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 border-radius=6 background-color=(s.selected ? t.selected : (hoverId == `pick:${s.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="100%" box-sizing="border-box" font-family="ui-monospace" font-size=12
+                              text s.label class=Ellipsis
+                    when f.kind == "choice" or f.kind == "picker" or f.kind == "chip"
+                      button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text width="100%" box-sizing="border-box"
+                        text f.label font-size=11 line-height="18px" color=(f.focused ? t.accent : t.muted) flex-shrink=0
+                        text f.value flex=1 class=Ellipsis font-family="ui-monospace" font-size=12
+                        text "▾" font-size=11 line-height="18px" color=t.placeholder
+                    when f.kind == "toggle" or f.kind == "stepper" or f.kind == "info"
+                      row align-items="center" gap=16 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 background-color=(f.focused ? t.selected : "rgba(0,0,0,0)")
+                        text f.label flex=1
+                        when f.kind == "stepper"
+                          button press=press(`step-down:${f.id}`) hover=hover(`step-down:${f.id}`) class=Reset padding-left=8 padding-right=8 border-radius=6 background-color=(hoverId == `step-down:${f.id}` ? t.selected : t.element) color=t.text
+                            text "−"
+                          text f.value width=48 text-align="center" font-family="ui-monospace" font-size=12
+                          button press=press(`step-up:${f.id}`) hover=hover(`step-up:${f.id}`) class=Reset padding-left=8 padding-right=8 border-radius=6 background-color=(hoverId == `step-up:${f.id}` ? t.selected : t.element) color=t.text
+                            text "+"
+                        when f.kind == "toggle"
+                          button press=press(`toggle:${f.id}`) hover=hover(`toggle:${f.id}`) class=Reset padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(f.value == "On" ? t.selected : (hoverId == `toggle:${f.id}` ? t.hover : t.element)) color=(f.value == "On" ? t.accent : t.text)
+                            text f.value
+                        when f.kind == "info"
+                          text f.value font-size=12 line-height="19px" color=t.muted
+                        when f.hint != ""
+                          button press=press(`reset:${f.id}`) hover=hover(`reset:${f.id}`) class=Reset padding-left=6 padding-right=6 border-radius=6 color=(hoverId == `reset:${f.id}` ? t.text : t.muted) aria-label="Reset to default  ·  ⌫"
+                            text "↺"
+                    when f.kind == "quick-row"
+                      button press=press(`pick:${f.id}`) hover=hover(`pick:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=12 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 background-color=(f.focused ? t.surface : (hoverId == `pick:${f.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="100%" box-sizing="border-box"
+                        text f.hint font-weight=600 color=t.accent font-family="ui-monospace"
+                        text f.label class=Ellipsis
+                        when f.value != ""
+                          text f.value class=Ellipsis font-size=12 line-height="19px" color=t.muted
+                when length(model.rows) > 0
+                  column
+                    each r in model.rows key=r.id
+                      button press=press(`pick:${r.id}`) testId=`pick-${r.id}` hover=hover(`pick:${r.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=12 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 background-color=(r.selected ? t.selected : (hoverId == `pick:${r.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="100%" box-sizing="border-box"
+                        when r.chip != ""
+                          text r.chip width=24 flex-shrink=0 color=t.accent
+                        column flex=1 min-width=0
+                          text r.label class=Ellipsis color=(r.accent ? t.accent : t.text) font-family=(model.kind == "project-picker" ? "ui-monospace" : "system-ui") font-size=(model.kind == "project-picker" ? 12 : 13)
+                          when r.second != ""
+                            text r.second class=Ellipsis font-size=12 line-height="19px" color=t.muted
+                        when r.detail != ""
+                          text r.detail class=Ellipsis font-size=12 line-height="19px" color=t.muted
+                when model.body != ""
+                  text model.body font-size=12 line-height="19px" color=t.muted white-space="pre-wrap"
+            when model.footer != "" or length(model.buttons) > 0
+              row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=12 border-top-style="solid" border-top-width=1 border-top-color=t.border
+                text model.footer flex=1 min-width=0 font-size=11 line-height="18px" color=t.muted
+                each b in model.buttons key=b.id
+                  button press=press(`button:${b.id}`) testId=`button-${b.id}` hover=hover(`button:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `button:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text opacity=(b.disabled ? 0.5 : 1)
+                    text b.label
+                    when b.hint != ""
+                      text b.hint font-size=11 line-height="18px" color=t.muted
+    // ---- The popup menu card (ui.rs:1376): min 208, max 416, py_1; items px_3 py_1 ----
+    when popup.kind != ""
+      button press=press("popup-close") testId="popup-scrim" class=Reset position="absolute" top=0 left=0 right=0 bottom=0 width="100%" height="100%" aria-label="Close menu"
+      column testId="popup-card" position="absolute" left=(popup.right > 0 ? "auto" : `${popup.x}px`) right=(popup.right > 0 ? `${windowWidth - popup.right}px` : "auto") top=popup.y min-width=208 max-width=416 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=t.elevated box-shadow="0 10px 15px rgba(0,0,0,0.1)" role="menu" z-index=2
+        when popup.title != ""
+          text popup.title padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
+        when length(popup.items) == 0
+          text popup.empty padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=12 line-height="19px" color=t.muted
+        each item in popup.items key=item.id
+          button press=press(`menu:${item.id}`) testId=`menu-${item.id}` hover=hover(`menu:${item.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=12 line-height="19px" background-color=(item.selected ? t.selected : (hoverId == `menu:${item.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="100%" box-sizing="border-box" role="menuitem" opacity=(item.disabled ? 0.5 : 1)
+            when item.checkable
+              text (item.checked ? "✓" : "") width=12 flex-shrink=0 color=t.accent
+            when item.icon != ""
+              Icon(name=item.icon, size=13, color=t.text)
+            text item.label flex=1 class=Ellipsis
+            when item.hint != ""
+              text item.hint flex-shrink=0 font-size=10 line-height="16px" color=t.placeholder

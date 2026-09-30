@@ -27,6 +27,22 @@ final class GhosttyRuntime {
     /// The terminal's background from the user's configuration, as `#rrggbb`,
     /// so the Contract can paint the pane around the surface to match.
     fileprivate(set) var background = ""
+    /// The active scheme's terminal colors as `rrggbb`, for the PTY's
+    /// `FLEET_TERMINAL_FOREGROUND` / `_BACKGROUND` (backend.rs).
+    var terminalColors: (fg: String, bg: String) {
+        var fg = "d7dae0", bg = "1b1e24"
+        if let config = config(for: currentScheme) {
+            var color = ghostty_config_color_s()
+            for (key, into) in [("background", 1), ("foreground", 0)] {
+                if ghostty_config_get(config, &color, key, UInt(key.utf8.count)) {
+                    let hex = String(format: "%02x%02x%02x", color.r, color.g, color.b)
+                    if into == 1 { bg = hex } else { fg = hex }
+                }
+            }
+        }
+        return (fg, bg)
+    }
+    var currentScheme = "dark"
     fileprivate var lightConfig: ghostty_config_t?
     fileprivate var darkConfig: ghostty_config_t?
     fileprivate func config(for scheme: String) -> ghostty_config_t? { scheme == "dark" ? darkConfig : lightConfig }
@@ -78,7 +94,7 @@ final class GhosttyRuntime {
         }
         let overrides = """
         confirm-close-surface = false
-        window-padding-x = 12
+        window-padding-x = 8
         window-padding-y = 8
         window-padding-balance = true
         macos-titlebar-style = hidden
@@ -235,8 +251,13 @@ final class SurfaceView: NSView {
 
     /// The app's appearance ("light" or "dark"), from the Contract: the
     /// theme pair in the configuration follows it.
-    var scheme = "light" { didSet { if scheme != oldValue { syncAppearance() } } }
-    func applyScheme() { syncAppearance() }
+    var scheme = "light" { didSet { if scheme != oldValue { GhosttyRuntime.shared.currentScheme = scheme; syncAppearance() } } }
+    func applyScheme() { GhosttyRuntime.shared.currentScheme = scheme; syncAppearance() }
+    /// Text into the terminal as typed (a reply from a notification, the docked panel's draft).
+    func paste(_ text: String) {
+        guard let surface else { return }
+        text.withCString { ptr in ghostty_surface_text(surface, ptr, UInt(text.utf8.count)) }
+    }
 
     private func syncAppearance() {
         guard let surface, let config = GhosttyRuntime.shared.config(for: scheme) else { return }
@@ -421,7 +442,8 @@ final class SurfaceView: NSView {
     }
 }
 
-/// The terminals, by tab: made on first sight, kept while the tab is open.
+/// The terminals, by tab key: made on first sight with the argv the model
+/// named, kept while the tab is open.
 final class TerminalStore {
     private weak var module: OchoModule?
     private var views: [String: SurfaceView] = [:]
@@ -429,20 +451,32 @@ final class TerminalStore {
 
     init(module: OchoModule) { self.module = module }
 
-    func view(for tab: Tab) -> SurfaceView? {
-        if let v = views[tab.id] { return v }
+    func view(for key: String, argv: [String], cwd: String) -> SurfaceView? {
+        if let v = views[key] { return v }
         guard let module, let binary = module.fleet.binary, GhosttyRuntime.shared.app != nil else { return nil }
-        var env = tab.env
-        env["TERM_PROGRAM"] = "ocho"
-        let view = SurfaceView(command: [binary] + tab.command, environment: env)
-        view.onExit = { [weak self, weak module] in
-            self?.exited.insert(tab.id)
-            module?.announce()
-            NotificationCenter.default.post(name: .ochoTerminalExited, object: tab.id)
+        // backend.rs: the PTY's environment.
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "fleet-desktop"
+        env["FLEET_HOME"] = FleetHome.path
+        env["FLEET_ATTACH_RETRY"] = "1"
+        let colors = GhosttyRuntime.shared.terminalColors
+        env["FLEET_TERMINAL_FOREGROUND"] = colors.fg
+        env["FLEET_TERMINAL_BACKGROUND"] = colors.bg
+        let view = SurfaceView(command: [binary] + argv, environment: env)
+        view.onExit = { [weak self] in
+            self?.exited.insert(key)
+            NotificationCenter.default.post(name: .ochoTerminalExited, object: key)
         }
-        views[tab.id] = view
+        views[key] = view
         return view
     }
+
+    func write(tab: String, text: String) { views[tab]?.paste(text) }
+
+    /// ⌘K: the scrollback goes (`clear` through the shell would need a prompt).
+    func clear(tab: String) { views[tab]?.paste("\u{0C}") }
 
     func close(tab: String) {
         if let v = views.removeValue(forKey: tab) { v.removeFromSuperview() }
@@ -491,8 +525,10 @@ final class TerminalInstance: ExactNativeInstance {
         tabId = next
         container.subviews.forEach { $0.removeFromSuperview() }
         guard let module, !next.isEmpty else { return }
-        guard let tab = module.tabs.tab(next) else { events.message("missing"); return }
-        guard let surface = module.terminals.view(for: tab) else {
+        // `argv` is a JSON array of the arguments after `fleet`.
+        let argv = (props["argv"].flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String]) ?? []
+        guard !argv.isEmpty else { events.message("missing"); return }
+        guard let surface = module.terminals.view(for: next, argv: argv, cwd: props["cwd"] ?? "") else {
             events.message(GhosttyRuntime.shared.failure ?? "unavailable")
             return
         }

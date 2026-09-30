@@ -1,190 +1,110 @@
-//! Ocho's data source. The app is a client of the `fleet` CLI, and everything
-//! that reaches outside the process lives in the app's one native module (the
-//! Swift `Ocho` on macOS; `modules/web/index.js` on the web): the `fleet
-//! snapshot --watch` feed, the open tabs and their terminals, the one-shot
-//! commands. This source is the portable glue: each answer is a long native
-//! call (`Request::native`) whose JSON reply is read into the shape the
-//! Contract declares. The `fleet` resource watches the module's `fleet`
-//! topic, so each announcement asks it again.
+//! Ocho's data source: the workspace model, a port of the GPUI desktop's
+//! (`fleet/desktop`, origin/main e577272), answering the view from memory.
+//!
+//! The seam is Elm-shaped. The contract keeps two counters (`ui.version`,
+//! `ui.io`) and sends every event to `dispatch`; the model changes and the
+//! counters come back. Resources `feed` and `desktop` bring the app's
+//! module's I/O in (the `fleet snapshot --watch` stream, the `desktop.json`
+//! mirror) and hand a version out; `io(n)` runs the jobs the model queued
+//! (fleet commands) through the module and applies their replies; `view(…)`
+//! is the whole view-model, answered now from the model whenever any of the
+//! versions moves. Terminals stay native views (`ghostty-terminal`), keyed
+//! by the tab the model names.
 
 #![deny(missing_docs)]
+// The port lands module by module; what the view does not reach yet is
+// kept, not pruned, until the last phase wires it (then this line goes).
+#![allow(dead_code)]
+
+mod indicator;
+mod keymap;
+mod launch;
+mod markdown;
+mod model;
+mod palette;
+mod permissions;
+mod picker;
+mod preferences;
+mod quick;
+mod rows;
+mod session;
+mod settings;
+mod shapes;
+mod tab_tree;
+mod theme;
+mod types;
+mod updater;
+mod view;
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
 
-/// A value's shape, mirroring the Contract's `shape` declarations field for
-/// field. Records are read by name from the module's JSON and written by
-/// position, the order the Contract declares.
-enum Shape {
-    Str,
-    Num,
-    Bool,
-    List(&'static Shape),
-    Record(&'static [(&'static str, Shape)]),
-}
+pub use model::{Event, Workspace};
 
-use Shape::{Bool, List, Num, Record, Str};
-
-const MACHINE: Shape = Record(&[
-    ("id", Str),
-    ("name", Str),
-    ("online", Bool),
-    ("status", Str),
-    ("sessions", Num),
-    ("active", Num),
-    ("detail", Str),
-    ("local", Bool),
-    ("home", Str),
-    ("index", Num),
-]);
-const SESSION: Shape = Record(&[
-    ("id", Str),
-    ("machineId", Str),
-    ("machine", Str),
-    ("title", Str),
-    ("provider", Str),
-    ("account", Str),
-    ("state", Str),
-    ("cwd", Str),
-    ("model", Str),
-    ("summary", Str),
-    ("updated", Str),
-    ("pinned", Bool),
-    ("live", Bool),
-    ("index", Num),
-]);
-const ACCOUNT: Shape = Record(&[
-    ("handle", Str),
-    ("email", Str),
-    ("provider", Str),
-    ("status", Str),
-    ("connected", Bool),
-    ("usage", Str),
-]);
-const TAB: Shape = Record(&[
-    ("id", Str),
-    ("slot", Num),
-    ("title", Str),
-    ("subtitle", Str),
-    ("provider", Str),
-    ("machineId", Str),
-    ("sessionId", Str),
-    ("state", Str),
-    ("status", Str),
-    ("depth", Num),
-    ("folder", Bool),
-    ("collapsed", Bool),
-]);
-const CHOICE: Shape = Record(&[
-    ("id", Str),
-    ("code", Str),
-    ("group", Str),
-    ("label", Str),
-    ("detail", Str),
-    ("provider", Str),
-]);
-const FLEET: Shape = Record(&[
-    ("ready", Bool),
-    ("message", Str),
-    ("machines", List(&MACHINE)),
-    ("sessions", List(&SESSION)),
-    ("accounts", List(&ACCOUNT)),
-    ("tabs", List(&TAB)),
-    ("accountChoices", List(&CHOICE)),
-    ("machineChoices", List(&CHOICE)),
-    ("recentDirs", List(&CHOICE)),
-    ("liveCount", Num),
-    ("revision", Num),
-    ("terminalBackground", Str),
-]);
-const MODELS: Shape = Record(&[
-    ("key", Str),
-    ("ready", Bool),
-    ("message", Str),
-    ("models", List(&CHOICE)),
-]);
-const RECEIPT: Shape = Record(&[
-    ("ok", Bool),
-    ("message", Str),
-    ("tabId", Str),
-    ("version", Num),
-]);
-
-/// The shape each source answers with; `None` is an unknown source.
-fn shape_of(source: &str) -> Option<&'static Shape> {
-    Some(match source {
-        "fleet" => &FLEET,
-        "models" => &MODELS,
-        "openTab" | "openShell" | "closeTab" | "toggleFolder" | "launch" | "sessionAction" => {
-            &RECEIPT
-        }
-        _ => return None,
-    })
-}
-
-/// The topic a source's answer watches, if any: the module announces it.
-fn topic_of(source: &str) -> Option<&'static str> {
-    match source {
-        "fleet" => Some("fleet"),
-        _ => None,
-    }
-}
-
-/// `json` read as `shape`: a missing or mistyped field is the shape's empty
-/// value, never a refusal, so a module that grows a field keeps working.
-fn read(shape: &Shape, json: &serde_json::Value) -> Value {
-    match shape {
-        Str => match json {
-            serde_json::Value::String(s) => Value::str(s),
-            serde_json::Value::Number(n) => Value::str(&n.to_string()),
-            serde_json::Value::Bool(b) => Value::str(if *b { "true" } else { "false" }),
-            _ => Value::str(""),
-        },
-        Num => Value::Number(json.as_f64().unwrap_or(0.0)),
-        Bool => Value::Bool(json.as_bool().unwrap_or(false)),
-        List(inner) => Value::list(
-            json.as_array()
-                .map(|items| items.iter().map(|v| read(inner, v)).collect())
-                .unwrap_or_default(),
-        ),
-        Record(fields) => Value::record(
-            fields
-                .iter()
-                .map(|(name, s)| read(s, json.get(*name).unwrap_or(&serde_json::Value::Null)))
-                .collect(),
-        ),
-    }
-}
-
-/// A Contract value as JSON, for the request's arguments.
-fn json_of(value: &Value) -> serde_json::Value {
-    match value {
-        Value::Number(n) => serde_json::json!(n),
-        Value::Bool(b) => serde_json::json!(b),
-        Value::Unit => serde_json::Value::Null,
-        Value::Option(None) => serde_json::Value::Null,
-        Value::Option(Some(v)) => json_of(v),
-        Value::List(items) => serde_json::Value::Array(items.iter().map(json_of).collect()),
-        Value::Record(items) => serde_json::Value::Array(items.iter().map(json_of).collect()),
-        other => serde_json::Value::String(other.text().to_string()),
-    }
-}
-
-/// The app's data source. Every answer is a request the host runs: at the
-/// bake that leaves the resource pending, so the first frame is the empty
-/// picture and the host asks the module once it is up.
+/// The app's data source.
 #[derive(Default)]
-pub struct Ocho;
+pub struct Ocho {
+    model: Workspace,
+}
+
+/// A `dispatch` argument as text, whatever the contract passed.
+fn text(args: &[Value], i: usize) -> String {
+    match args.get(i) {
+        Some(Value::Number(n)) => format!("{n}"),
+        Some(Value::Bool(b)) => (if *b { "true" } else { "false" }).into(),
+        Some(v) => v.as_str().unwrap_or_default().to_string(),
+        None => String::new(),
+    }
+}
+
+fn number(args: &[Value], i: usize) -> f64 {
+    match args.get(i) {
+        Some(Value::Number(n)) => *n,
+        Some(v) => v.as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+        None => 0.0,
+    }
+}
+
+fn json_of(v: &Value) -> serde_json::Value {
+    match v {
+        Value::Number(n) => serde_json::Number::from_f64(*n)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::List(items) => serde_json::Value::Array(items.iter().map(json_of).collect()),
+        Value::Option(inner) => inner
+            .as_deref()
+            .map(json_of)
+            .unwrap_or(serde_json::Value::Null),
+        v => match v.as_str() {
+            Some(s) => serde_json::Value::String(s.to_string()),
+            None => serde_json::Value::Null,
+        },
+    }
+}
+
+fn counters(model: &Workspace) -> Value {
+    shapes::read(
+        &shapes::UI,
+        &serde_json::json!({ "version": model.version, "io": model.io }),
+    )
+}
+
+fn version(n: u64) -> Value {
+    shapes::read(&shapes::VERSION, &serde_json::json!({ "version": n }))
+}
 
 impl DataSource for Ocho {
     fn app_id(&self) -> &str {
         "dev.getfirewood.ocho"
     }
 
-    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
-        match shape_of(source) {
-            Some(shape) => Ok(read(shape, &serde_json::Value::Null)),
-            None => Err(DataError::UnknownSource(source.into())),
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "dispatch" => Ok(counters(&self.model)),
+            "feed" | "desktop" | "io" => Ok(version(0)),
+            "picture" => Ok(view::render(&self.model, &args_versions(args))),
+            _ => Err(DataError::UnknownSource(source.into())),
         }
     }
 
@@ -194,57 +114,96 @@ impl DataSource for Ocho {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        let Some(_) = shape_of(source) else {
-            return Err(DataError::UnknownSource(source.into()));
-        };
-        if let Some(topic) = topic_of(source) {
-            store.observe_topic(topic);
+        match source {
+            "dispatch" => {
+                let event = Event::parse(
+                    &text(args, 0),
+                    &text(args, 1),
+                    &text(args, 2),
+                    number(args, 3),
+                    number(args, 4),
+                );
+                self.model.dispatch(event);
+                Ok(Answer::Now(counters(&self.model)))
+            }
+            "picture" => Ok(Answer::Now(view::render(&self.model, &args_versions(args)))),
+            "feed" | "desktop" => {
+                store.observe_topic(source);
+                Ok(Answer::Later(native(source, args)))
+            }
+            "io" => {
+                let jobs = self.model.take_jobs();
+                if jobs.is_empty() {
+                    return Ok(Answer::Now(version(self.model.io_version)));
+                }
+                let body = serde_json::json!({ "op": "io", "jobs": jobs });
+                Ok(Answer::Later(Request::native(
+                    body.to_string().into_bytes(),
+                )))
+            }
+            _ => Err(DataError::UnknownSource(source.into())),
         }
-        let body = serde_json::json!({
-            "op": source,
-            "args": args.iter().map(json_of).collect::<Vec<_>>(),
-        });
-        Ok(Answer::Later(Request::native(
-            body.to_string().into_bytes(),
-        )))
     }
 
     fn parse(
         &mut self,
-        _store: &mut Store,
+        store: &mut Store,
         source: &str,
         _args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        let Some(shape) = shape_of(source) else {
-            return Err(DataError::UnknownSource(source.into()));
-        };
-        // The answer keeps watching its topic, whatever came back: a request
-        // the host could not run (the module not yet loaded, on a native
-        // host's first frame) settles as the empty picture, and the module's
-        // first announcement asks again.
-        if let Some(topic) = topic_of(source) {
-            _store.observe_topic(topic);
-            if let Outcome::Failed { .. } = outcome {
-                return Ok(Answer::Now(read(shape, &serde_json::Value::Null)));
-            }
+        if matches!(source, "feed" | "desktop") {
+            // Keep watching, whatever came back: a request the module could
+            // not run yet (its dylib after the first frame) settles as the
+            // version so far, and its first announcement asks again.
+            store.observe_topic(source);
         }
-        match outcome {
+        let json = match outcome {
             Outcome::Response(response) if response.status == 200 => {
-                let json: serde_json::Value = serde_json::from_slice(&response.body)
-                    .map_err(|e| DataError::Unavailable(format!("{source}: {e}")))?;
-                Ok(Answer::Now(read(shape, &json)))
+                serde_json::from_slice::<serde_json::Value>(&response.body)
+                    .map_err(|e| DataError::Unavailable(format!("{source}: {e}")))?
             }
-            Outcome::Response(response) => Err(DataError::Unavailable(format!(
-                "{source}: {}",
-                String::from_utf8_lossy(&response.body)
-            ))),
+            Outcome::Response(response) => {
+                self.model
+                    .io_failed(&String::from_utf8_lossy(&response.body));
+                serde_json::Value::Null
+            }
             Outcome::Failed { message, .. } => {
-                Err(DataError::Unavailable(format!("{source}: {message}")))
+                if source == "io" {
+                    self.model.io_failed(&message);
+                }
+                serde_json::Value::Null
             }
-            _ => Err(DataError::Unavailable(format!(
-                "{source}: unexpected outcome"
-            ))),
+            _ => serde_json::Value::Null,
+        };
+        match source {
+            "feed" => {
+                self.model.apply_feed(&json);
+                Ok(Answer::Now(version(self.model.feed_version)))
+            }
+            "desktop" => {
+                self.model.apply_desktop(&json);
+                Ok(Answer::Now(version(self.model.desktop_version)))
+            }
+            "io" => {
+                self.model.apply_io(&json);
+                Ok(Answer::Now(version(self.model.io_version)))
+            }
+            _ => Err(DataError::UnknownSource(source.into())),
         }
     }
+}
+
+fn native(op: &str, args: &[Value]) -> Request {
+    let body = serde_json::json!({
+        "op": op,
+        "args": args.iter().map(json_of).collect::<Vec<_>>(),
+    });
+    Request::native(body.to_string().into_bytes())
+}
+
+/// The version numbers `view(…)` was asked with, so an answer can say what
+/// it saw (the contract never reads them; they exist to key the ask).
+fn args_versions(args: &[Value]) -> Vec<f64> {
+    (0..args.len()).map(|i| number(args, i)).collect()
 }
