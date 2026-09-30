@@ -769,6 +769,17 @@ The canvas rows do not animate, so they keep the bitmap and still beat SwiftUI i
 | SwiftUI | 60 | 119.9, 0 | 509 | 344 | 105 / 105 | 116.2 / 119.2 | 355 / 398 | 165 / 163 |
 | vello, every canvas on the GPU | 62 | 119.9, 0 | 411 | 188 | 153 / 136 | 120.0 / 120.0 | 222 / 335 | 162 / 164 |
 
+**At the landing tip** (`6cc04da1e`, rebased on origin/main; its apps and module built from that commit, SwiftUI in the same session; the bake-off rows above are the bake branches'):
+
+| Landing tip | F2 redraws/s | F2 fps, late/s | F2 CPU | F2 main CPU (busy) | F2 peak / end | rows fps t / b | rows main CPU t / b | rows peak t / b |
+|---|---|---|---|---|---|---|---|---|
+| iPhone, vello | 60 | 119.5–119.8, 0.2–0.5 | 394 | 29 (174) | 85–87 / 80 | 119.1 / 119.0 | 158 / 297 | 67 / 84 |
+| iPhone, SwiftUI | 60 | 119.9, 0.1 | 444 | 321 (387) | 75 / 61 | 113.7 / 117.9 | 320 / 378 | 157 / 155 |
+| iPad, vello | 62 | 119.9, 0 | 411–417 | 42–43 (183–186) | 117–119 / 109–112 | 120.0 / 120.0 | 169 / 324 | 62 / 75 |
+| iPad, SwiftUI | 60 | 119.9, 0 | 512 | 345 (424) | 105 / 105 | 115.9 / 119.4 | 354 / 395 | 165 / 167 |
+
+Cold first draw at the tip: 103–157 ms from process start to the first GPU pixels, the first replay 23–31 ms. Parity at the tip, every canvas on the GPU: 94 of 94 and Caltrain's map on macOS (worst 5.52 at 1×, 4.21 at 2×) and on the iOS simulator (5.34; 3.26 at 3×), against the wasm web build: origin/main's JS agent answers `layout` without a `viewport`, so `smoke.mjs canvas` (and `svg`, and the web smoke's Caltrain drive) stop at the web capture on main itself. The Swift stress test passes under Thread Sanitizer at the tip; the five checks pass on the M5 mini.
+
 - **Against SwiftUI's F2:** vello redraws as often at 93% (iPhone) and 82% (iPad) of its CPU and 58% and 55% of its main thread, in 24 MB (iPhone) and 32 MB (iPad) more memory, about one full-screen surface (14 and 22 MB): the second surface a canvas drawn off the main thread needs while Core Animation shows the first.
 - **Cold first draw** (process start to the first GPU pixels, and that replay): vello 117–166 ms, first replay 29–37 ms (the pipelines built from the embedded AIR); Skia 107–228 ms, first replay 26–96 ms (its MSL compiled on the device).
 - **Size:** the module is 3.89 MB in the bundle (vello; the prototype's was 4.1 MB), in every Apple app as the SVG island module is, opened only by a canvas that animates. Web: unchanged (the browser draws canvases); the web core does not grow.
