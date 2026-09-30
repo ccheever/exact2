@@ -66,8 +66,9 @@
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is
      a plain block, so printing, #anchors, scroll restoration and a collapsing
-     browser toolbar work, with JavaScript or without. */
-  html:has([data-scrolldocument="true"]) {
+     browser toolbar work, with JavaScript or without. The render host and
+     the runtimes mark `<html>` while an element is the page's scroller. */
+  html[data-scrolldocument] {
     & body { height: auto; min-height: 100%; }
     & #exact-root { height: auto; }
     & [data-scrolldocument="true"] { overflow: visible !important; height: auto !important; max-height: none !important; }

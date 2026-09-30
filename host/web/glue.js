@@ -412,8 +412,10 @@ function syncMarkup(el) {
       select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
   }).catch(error => console.error('exact: Markdown editor:', error));
 }
+// LLP 1048.003 D4: `<html data-scrolldocument>` while an element is the page's scroller, which the shell's rule reads (never a `:has()` over the tree).
+const scrollDocs = new Set(), markScrollDocument = (on = false) => { for (const el of scrollDocs) if (!el.isConnected) scrollDocs.delete(el); else on ||= el.getAttribute("data-scrolldocument") === "true"; document.documentElement.toggleAttribute("data-scrolldocument", on); };
 function applyProps(el, set, clear) {
-  syncMedia(el, set, clear);
+  syncMedia(el, set, clear); if (set && "data-scrolldocument" in set) scrollDocs.add(el);
   let sandboxChanged = false;
   for (const name of clear || []) {
     if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
@@ -502,7 +504,7 @@ function syncViewportFit() {
   const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
   if (meta && meta.content !== want) meta.content = want;
   const vv = globalThis.visualViewport;
-  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !root.querySelector('[data-scrolldocument="true"]') ? `${Math.min(innerHeight, vv.height)}px` : "";
+  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !document.documentElement.hasAttribute("data-scrolldocument") ? `${Math.min(innerHeight, vv.height)}px` : "";
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
@@ -871,11 +873,10 @@ function apply(batch) {
   for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
   listSelection?.after();
   syncLists();
-  // Focusing can dispatch an action; every node/value in this batch must be
-  // committed before its focus handler runs.
+  // Focusing can dispatch an action: every node/value of the batch is committed before its focus handler runs.
   runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
-  positionContexts(); presence.live?.after(batch, views);
+  positionContexts(); presence.live?.after(batch, views); markScrollDocument();
   return batch.timers;
 }
 function applyBatch(batch) {
@@ -898,8 +899,7 @@ function applyBatch(batch) {
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
 }
-// LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty
-// until every local face loaded, or 100 ms elapsed. At the barrier, install
+// LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty until every local face loaded, or 100 ms elapsed. At the barrier, install
 // every face already ready unless its family has a failed sibling; faces that
 // finish later remain unused for this generation (no post-paint swap).
 async function prepareFonts(faces, assets) {

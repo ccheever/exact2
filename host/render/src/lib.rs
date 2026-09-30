@@ -29,7 +29,7 @@ mod source;
 mod stream;
 
 pub use executor::Executor;
-pub use page::{capture, capture_js, page};
+pub use page::{capture, capture_js, page, scroll_document_js};
 pub use pages::pages;
 pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;

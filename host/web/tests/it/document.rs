@@ -445,7 +445,8 @@ fn the_page_scroller_is_marked_in_the_document() {
     );
     let at = doc.find("data-testid=\"page\"").unwrap();
     let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-    // The shell's `:has([data-scrolldocument="true"])` rule makes the page scroll.
+    // The document says so, for `<html data-scrolldocument>`, which the
+    // shell's rule reads to make the page scroll.
     assert!(open.contains(" data-scrolldocument=\"true\""), "{open}");
     assert!(open.contains(" data-scroll=\"true\""), "{open}");
     // A bound marker that doesn't hold says so, and the rule doesn't match it.
@@ -453,4 +454,11 @@ fn the_page_scroller_is_marked_in_the_document() {
         "component A\n  state signedOut = false\n  view\n    column height=\"100%\"\n      scroll document=signedOut flex=1 min-height=0 testId=\"page\"\n        text \"a\"\n",
     );
     assert!(doc.contains(" data-scrolldocument=\"false\""), "{doc}");
+    let marked = |src: &str| host(src, Says(""), "/").document().unwrap().scroll_document;
+    assert!(marked(
+        "component A\n  view\n    scroll document height=100\n      text \"a\"\n"
+    ));
+    assert!(!marked(
+        "component A\n  state on = false\n  view\n    scroll document=on height=100\n      text \"a\"\n"
+    ));
 }

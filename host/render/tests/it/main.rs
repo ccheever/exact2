@@ -656,4 +656,17 @@ fn rendered_document_sets_html_language_and_direction() {
     assert!(exact_render::page(&shell, &rendered)
         .unwrap()
         .contains(r#"<html lang="en" dir="ltr">"#));
+    // A page whose scroller is the page's marks its root for the shell's
+    // rule (LLP 1048.003 D4), on either runtime's shell; a JavaScript page
+    // sent whole needs no script for it.
+    rendered.document.scroll_document = true;
+    let js = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+    for shell in [shell.as_str(), js] {
+        let html = exact_render::page(shell, &rendered).unwrap();
+        assert!(
+            html.contains(r#"<html lang="en" dir="ltr" data-scrolldocument>"#),
+            "{html}"
+        );
+        assert!(!html.contains(exact_render::scroll_document_js()), "{html}");
+    }
 }

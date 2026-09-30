@@ -59,6 +59,9 @@ pub struct Document {
     /// Every `@keyframes` rule an element's `animation` names, once each
     /// (LLP 1055 D7), for the head: a reader without JavaScript sees it play.
     pub keyframes: String,
+    /// An element is the page's scroller (`scroll document`, LLP 1048.003
+    /// D4): `<html data-scrolldocument>`, which the shell's rule reads.
+    pub scroll_document: bool,
 }
 
 /// Why a tree has no document.
@@ -117,6 +120,7 @@ fn walk<D: DataSource>(
         links: 0,
         buttons: 0,
         select: None,
+        scroll_document: false,
     };
     let roots = runner.roots();
     for root in &roots {
@@ -137,6 +141,7 @@ fn walk<D: DataSource>(
         interactive_widget: prop(PropId::InteractiveWidget),
         head: runner.head(),
         keyframes: walk.keyframes.values().map(String::as_str).collect(),
+        scroll_document: walk.scroll_document,
     };
     Ok((document, walk.computed))
 }
@@ -169,6 +174,7 @@ struct Walk<'r, D: DataSource> {
     buttons: u32,
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
+    scroll_document: bool,
 }
 
 impl<D: DataSource> Walk<'_, D> {
@@ -192,6 +198,9 @@ impl<D: DataSource> Walk<'_, D> {
         }
         let mut props = props_for(&node);
         super::svg_props(kernel, &node, &mut props);
+        self.scroll_document |= props
+            .get("data-scrolldocument")
+            .is_some_and(|v| v == "true");
         let (text, _) = css::css_text(&super::css_style(kernel, &node), &self.fonts);
         // The rules its animations name, for the head: a reader without
         // JavaScript sees them play (LLP 1055 D7).

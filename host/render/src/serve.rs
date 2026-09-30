@@ -1098,7 +1098,7 @@ fn document<D: DataSource + 'static>(
         .filter(|_| request.navigate && !request.cdn && request.if_none_match.is_none());
     let head = lang.zip(early).and_then(|((lang, dir), out)| {
         Some((
-            crate::page::head_js(&shared.shell, lang, dir, preload).ok()?,
+            crate::page::head_js(&shared.shell, lang, dir, preload, false).ok()?,
             out,
         ))
     });
@@ -1143,7 +1143,7 @@ fn document<D: DataSource + 'static>(
                 Some((_, head)) => {
                     let late =
                         !preload && crate::page::activate_js(rendered.activate) != "interaction";
-                    head.clone() + &crate::page::body_js(&shared.shell, &rendered, late)?
+                    head.clone() + &crate::page::body_js(&shared.shell, &rendered, late, false)?
                 }
                 None => page(&shared.shell, &rendered)?,
             };
@@ -1375,9 +1375,10 @@ fn csp(grants: &str, dist: &Path) -> String {
     let hash = |bytes: &[u8]| exact_data::envelope::base64(&Sha256::digest(bytes));
     // The JavaScript runtime's capture script too (LLP 1071): its pages carry that one.
     let mut scripts = format!(
-        "'self' 'wasm-unsafe-eval' 'sha256-{}' 'sha256-{}'",
+        "'self' 'wasm-unsafe-eval' 'sha256-{}' 'sha256-{}' 'sha256-{}'",
         hash(crate::page::capture().as_bytes()),
-        hash(crate::page::capture_js().as_bytes())
+        hash(crate::page::capture_js().as_bytes()),
+        hash(crate::page::scroll_document_js().as_bytes())
     );
     for file in ["module-prelude.js", "app.js"] {
         if let Ok(bytes) = std::fs::read(dist.join(file)) {

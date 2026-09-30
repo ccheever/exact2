@@ -48,7 +48,11 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         &mut html,
         "<html",
         ">",
-        &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir),
+        &format!(
+            "<html lang=\"{lang}\" dir=\"{}\"{}>",
+            rendered.document.dir,
+            scroll_attr(rendered.document.scroll_document)
+        ),
     )?;
     // The shell's viewport meta goes before the head, which has its own.
     cut(&mut html, "<meta name=\"viewport\"", ">\n", "")?;
@@ -118,6 +122,24 @@ pub fn capture_js() -> &'static str {
     include_str!("../../web-js/capture.js").trim_end()
 }
 
+/// `<html data-scrolldocument>` when an element is the page's scroller
+/// (LLP 1048.003 D4): the shell's rule reads the root, not a `:has()` over
+/// the whole tree at every style recalculation.
+fn scroll_attr(on: bool) -> &'static str {
+    if on {
+        " data-scrolldocument"
+    } else {
+        ""
+    }
+}
+
+/// The mark a streamed page sets once its render finds the page's scroller,
+/// its `<html>` having gone before (the only other inline script; the CSP
+/// admits its bytes).
+pub fn scroll_document_js() -> &'static str {
+    "document.documentElement.setAttribute(\"data-scrolldocument\",\"\")"
+}
+
 /// A route's activation on the JavaScript runtime (LLP 1071 D6): what it
 /// declared, with an undeclared one `eager`, the default (preloaded from
 /// the head, run after first paint).
@@ -134,7 +156,11 @@ pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str 
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let preload = activate_js(rendered.activate) != "interaction";
     let document = &rendered.document;
-    Ok(head_js(shell, &document.lang, &document.dir, preload)? + &body_js(shell, rendered, false)?)
+    let scroll = document.scroll_document;
+    Ok(
+        head_js(shell, &document.lang, &document.dir, preload, scroll)?
+            + &body_js(shell, rendered, false, scroll)?,
+    )
 }
 
 /// Whether `shell` is the JavaScript runtime's, whose pages a server can
@@ -198,7 +224,13 @@ fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
 /// page's data is still being asked; the head stays open, so what the
 /// render decides — the title, the metas, a late preload — still lands in
 /// `<head>`.
-pub(crate) fn head_js(shell: &str, lang: &str, dir: &str, preload: bool) -> Result<String, String> {
+pub(crate) fn head_js(
+    shell: &str,
+    lang: &str,
+    dir: &str,
+    preload: bool,
+    scroll: bool,
+) -> Result<String, String> {
     let at = places(shell)?;
     let lang = lang
         .replace('&', "&amp;")
@@ -208,7 +240,10 @@ pub(crate) fn head_js(shell: &str, lang: &str, dir: &str, preload: bool) -> Resu
     out.push_str(&shell[..at.html.0]);
     let _ = std::fmt::Write::write_fmt(
         &mut out,
-        format_args!("<html lang=\"{lang}\" dir=\"{dir}\">"),
+        format_args!(
+            "<html lang=\"{lang}\" dir=\"{dir}\"{}>",
+            scroll_attr(scroll)
+        ),
     );
     out.push_str(&shell[at.html.1..at.title.0]);
     out.push_str("<script>");
@@ -232,12 +267,23 @@ pub(crate) fn head_js(shell: &str, lang: &str, dir: &str, preload: bool) -> Resu
 /// `#exact-root`, and its checkpoint in the entry's place, which the capture
 /// script finds. The document goes as the runtime adopts it
 /// ([`for_runtime`]).
-pub(crate) fn body_js(shell: &str, rendered: &Rendered, late: bool) -> Result<String, String> {
+pub(crate) fn body_js(
+    shell: &str,
+    rendered: &Rendered,
+    late: bool,
+    marked: bool,
+) -> Result<String, String> {
     let at = places(shell)?;
     let mut out =
         String::with_capacity(rendered.document.root.len() + rendered.checkpoint.len() + 1024);
     out.push_str(&without_fonts(shell, &rendered.head));
     out.push('\n');
+    // A head sent before the render could not mark `<html>` (`scroll_attr`).
+    if rendered.document.scroll_document && !marked {
+        out.push_str("<script>");
+        out.push_str(scroll_document_js());
+        out.push_str("</script>\n");
+    }
     if late {
         for (start, stop) in preloads(shell, &at) {
             out.push_str(&shell[start..stop]);
@@ -438,3 +484,45 @@ fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
 
 /// A `modulepreload` in the JavaScript shell's head (`host/web-js/build.mjs`).
 const MODULE_PRELOAD: &str = "<link rel=\"modulepreload\" href=\"";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A streamed page's head went before its render found the page's
+    /// scroller: the rest marks `<html>` with the one script the CSP admits.
+    #[test]
+    fn a_streamed_page_marks_its_scroller_after_the_head() {
+        let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+        let mut rendered = Rendered {
+            document: exact_web::document::Document {
+                lang: "en".into(),
+                dir: "ltr".into(),
+                root: "<div></div>".into(),
+                viewport_fit: None,
+                interactive_widget: None,
+                head: Default::default(),
+                keyframes: String::new(),
+                scroll_document: true,
+            },
+            head: String::new(),
+            checkpoint: "{}".into(),
+            digest: "0".into(),
+            state: Default::default(),
+            settled: crate::Settled::Complete,
+            activate: exact_plan::ActivatePolicy::Inferred,
+        };
+        let head = head_js(shell, "en", "ltr", true, false).unwrap();
+        assert!(head.contains("<html lang=\"en\" dir=\"ltr\">"), "{head}");
+        let mark = format!("<script>{}</script>", scroll_document_js());
+        let rest = body_js(shell, &rendered, false, false).unwrap();
+        assert!(rest.find(&mark).unwrap() < rest.find("<div id=\"exact-root\">").unwrap());
+        assert!(!body_js(shell, &rendered, false, true)
+            .unwrap()
+            .contains(&mark));
+        rendered.document.scroll_document = false;
+        assert!(!body_js(shell, &rendered, false, false)
+            .unwrap()
+            .contains(&mark));
+    }
+}

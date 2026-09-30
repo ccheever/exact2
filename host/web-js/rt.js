@@ -191,7 +191,16 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); for (const f of After) f(); }
+export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); for (const f of After) f(); }
+/** `<html data-scrolldocument>` while an element is the page's scroller
+ * (LLP 1048.003 D4), which the shell's rule reads, as the web host's glue. */
+const Docs = new Set();
+let Marked = false;
+function markDocument() {
+  Marked = false;
+  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
+  document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
+}
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
@@ -427,7 +436,7 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) for (const k in attrs) e.setAttribute(k, rel(k, attrs[k]));
+  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
   p.append(e);
   return e;
@@ -462,7 +471,7 @@ function adopt(p, tag, cls, attrs) {
   p.$n = e.nextSibling;
   e.removeAttribute("style"); e.removeAttribute("data-view");
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); }
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
   return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
@@ -474,6 +483,7 @@ const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|pla
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 export function P(e, name, f) {
+  if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
