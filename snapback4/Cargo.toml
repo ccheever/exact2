@@ -1,3 +1,26 @@
+# Messages and the optional Snapback adapter resolve private sources here,
+# outside exact2's root lock. External apps still depend on this crate by path.
+[workspace]
+members = ["../apps/messages/web", "../apps/messages/apple", "../apps/messages/linux"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+# Snapback4 0.2.30 release source: a397218e2332964ebe29aa1d30918c436713cc8a.
+# Match the published CLI and browser device, without a mutable sibling checkout.
+[workspace.dependencies]
+snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
+snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
+snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
+
+[patch.crates-io]
+taffy = { path = "../vendor/taffy" }
+cosmic-text = { path = "../vendor/cosmic-text" }
+wgpu-hal = { path = "../vendor/wgpu-hal" }
+
 [package]
 name = "exact-snapback4"
 version.workspace = true

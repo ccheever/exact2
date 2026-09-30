@@ -199,6 +199,23 @@ test('shell repair replaces half-written members before metadata', () => fixture
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
 }));
 
+test('in-repo app members can own a separate locked workspace without EXACT_APP_DIR', () => fixture(({app, root, pkg, write, run}) => {
+  delete process.env.EXACT_APP_DIR;
+  write('apps/separate/app.contract', 'component App\n  view\n');
+  write('apps/separate/app.json', JSON.stringify({name:'Separate',app:{id:'com.exact.separate',name:'Separate'}}));
+  pkg('apps/separate/web', 'separate-web');
+  write('apps/separate/web/Cargo.toml', '[package]\nworkspace="../../../optional"\nname="separate-web"\nversion="0.1.0"\nedition="2021"\n');
+  write('optional/Cargo.toml', '[workspace]\nmembers=["../apps/separate/web"]\nresolver="2"\n');
+  run('cargo', ['generate-lockfile', '--offline', '--manifest-path', resolve(root,'optional/Cargo.toml')]);
+  const resolved = app('separate');
+  assert.equal(resolved.workspace, resolve(root,'optional'));
+  assert.equal(resolved.target, resolve(root,'optional/target'));
+  assert.equal(resolved.cargoPackage('web').name, 'separate-web');
+  pkg('apps/separate/linux', 'separate-linux');
+  write('apps/separate/linux/Cargo.toml', '[package]\nworkspace="../../.."\nname="separate-linux"\nversion="0.1.0"\nedition="2021"\n');
+  assert.throws(() => app('separate'), /different Cargo workspaces/);
+}));
+
 test('copied app identities keep separate Cargo graphs and generated hosts', () => fixture(({app, dir, game, write}) => {
   const first = app();
   const before = ['gpu','web','apple','linux'].map(kind => first.cargoPackage(kind).manifest_path);

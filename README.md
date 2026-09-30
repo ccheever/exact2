@@ -29,6 +29,12 @@ in `bun.lock`; Cargo pins native devices and schema compilers to the matching
 release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
 Run `bun install --frozen-lockfile` before baking Messages, and use the pinned CLI
 with `bun run --bun snapback4` from an app directory.
+Messages and the optional `exact-snapback4` adapter belong to the separate
+`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
+commands need no Snapback access. The ordinary Messages build commands select
+that workspace automatically; direct Cargo commands use
+`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
+dependency on `snapback4/`.
 
 
 A cross-platform application runtime. The Rust kernel computes layout, each platform

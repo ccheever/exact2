@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../snapback4"
 name = "messages-web"
 version.workspace = true
 edition.workspace = true

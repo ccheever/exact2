@@ -1,5 +1,6 @@
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
-// are workspace members and build into `target/`. Outside it (weird-castle:
+// normally belong to the root workspace and build into `target/`; an explicit
+// package.workspace uses that workspace's lock and target. Outside it (weird-castle:
 // its own repo or a member of a surrounding workspace, depending on our crates by
 // path so the two iterate together), `EXACT_APP_DIR` names the directory and
 // everything else follows from it: the workspace cargo runs in, the target
@@ -163,7 +164,11 @@ export function outsideWorkspaceProblems(workspace) {
   const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8')).patch?.['crates-io'] ?? {};
   const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || resolve(workspace, theirs[name].path) !== resolve(ROOT, spec.path));
   if (wrong.length) problems.push(`${workspace}/Cargo.toml: [patch.crates-io] must name exact2's vendored ${wrong.map(([name]) => name).join(', ')}. Use (or run \`bun exact.mjs update\` in an app \`exact new\` made):\n[patch.crates-io]\n${patchLines(workspace).join('\n')}`);
-  const toolchain = resolve(workspace, 'rust-toolchain.toml');
+  // A nested workspace inherits the checkout's pinned toolchain from rustup.
+  // An external workspace still needs its own pin.
+  const localToolchain = resolve(workspace, 'rust-toolchain.toml');
+  const toolchain = !existsSync(localToolchain) && resolve(workspace).startsWith(ROOT + '/')
+    ? resolve(ROOT, 'rust-toolchain.toml') : localToolchain;
   const channel = existsSync(toolchain) ? /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(toolchain, 'utf8'))?.[1] : null;
   if (PINNED_RUST && channel !== PINNED_RUST) problems.push(`${toolchain}: ${channel ? `pins ${channel}` : 'is missing'}; exact2 builds with ${PINNED_RUST}. Copy ${resolve(ROOT, 'rust-toolchain.toml')} there (\`bun exact.mjs update\` does).`);
   return problems;
@@ -403,11 +408,25 @@ export function resolveApp(nameOrCrate) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
   let workspace = ROOT;
-  if (outside && manifest.game === undefined) {
+  if (manifest.game === undefined) {
+    // Cargo's package.workspace can put an in-repo app in a separate lock
+    // without moving its sources. Look at authored member manifests rather
+    // than guessing a workspace from the app's name or enclosing directory.
+    const memberDirs = [dir, ...readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => resolve(dir, entry.name))];
+    const declared = [...new Set(memberDirs.flatMap(member => {
+      const path = resolve(member, 'Cargo.toml');
+      if (!existsSync(path)) return [];
+      const owner = Bun.TOML.parse(readFileSync(path, 'utf8')).package?.workspace;
+      return owner === undefined ? [] : [realpathSync(resolve(member, owner))];
+    }))];
+    if (declared.length > 1) throw new Error(`${dir}: app crates declare different Cargo workspaces: ${declared.join(', ')}`);
     // Ordinary external apps may belong to an enclosing Cargo workspace. Games
     // always use their generated workspace below and need no Cargo process here.
-    const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
-    workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
+    if (declared.length) workspace = declared[0];
+    else if (outside) {
+      const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
+      workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
+    }
     // EXACT_APP_DIR may name an app of this repo; only another workspace is checked.
     if (workspace !== ROOT && existsSync(resolve(workspace, 'Cargo.toml'))) {
       const problems = outsideWorkspaceProblems(workspace);
