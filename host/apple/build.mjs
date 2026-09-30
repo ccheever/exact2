@@ -1000,6 +1000,11 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
+  } else {
+    // SwiftPM links at Package.swift's `.macOS(.v14)` whatever MACOSX_DEPLOYMENT_TARGET says, so
+    // an app whose manifest asks for a newer macOS had its Rust archive (built for that version)
+    // refused as a mixed target. The triple carries the version, as the iOS one does.
+    swiftArgs.push('--triple', `${macTriple}${targets.macos}`);
   }
   // SwiftPM owns its output layout. Swift Build and the native build system
   // use different directories; ask with the same destination arguments.
