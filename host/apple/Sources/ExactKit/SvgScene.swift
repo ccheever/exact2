@@ -114,6 +114,8 @@ enum CssAnimations {
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
+        // A prepared path hashes as the numbers it was built from.
+        case let p as PreparedPath: h.combine(p.digest)
         case let d as [String: Any]:
             // A spec's prepared parts ("#") are made from the rest.
             let keys = d.keys.filter { $0 != "#" }.sorted()

@@ -6,10 +6,18 @@ import CoreGraphics
 import Foundation
 import QuartzCore
 
-/// A path built off main, carried in an SVG element's payload under "p".
+/// A path built off main, carried in an SVG element's payload under "p",
+/// with the digest of the numbers it was built from: what the scene hashes
+/// a shape's spec by (`SvgScene.drew`) in their place.
 final class PreparedPath {
     let path: CGPath
-    init(_ path: CGPath) { self.path = path }
+    let digest: Int
+    init(_ source: Any) {
+        path = SvgGeometry.path(source)
+        var h = Hasher()
+        CssAnimations.digest(source, into: &h)
+        digest = h.finalize()
+    }
 }
 
 /// A CSS animation spec's lowered parts, carried under "#" in the spec: its
@@ -116,7 +124,7 @@ enum SvgPrepare {
 
     static func element(_ value: Any) -> Any {
         guard var e = value as? [String: Any] else { return value }
-        if let p = e["p"], !(p is PreparedPath) { e["p"] = PreparedPath(SvgGeometry.path(p)) }
+        if let p = e["p"], !(p is PreparedPath) { e["p"] = PreparedPath(p) }
         if let children = e["c"] as? [Any] { e["c"] = children.map(element) }
         if let list = e["a"] as? [[String: Any]] { e["a"] = list.map(spec) }
         if var tf = e["tf"] as? [String: Any], let list = tf["a"] as? [[String: Any]] {
