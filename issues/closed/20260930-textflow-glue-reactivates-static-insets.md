@@ -1,6 +1,7 @@
 # The web's text-flow renderer makes a flowed static paragraph `relative`, which activates its insets
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Flow fragments use the existing layout containment without changing static paragraphs to relative; 30 text-flow tests pass, including real Chrome point and percentage inset and fragment-position checks.
 **Systems:** web host (textflow-glue.js), web JS target
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

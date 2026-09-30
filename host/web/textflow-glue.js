@@ -516,7 +516,8 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     const diff = fragmentDiff(s.last, fragments, !s.rendered);
     if (!s.rendered) {
       s.el.replaceChildren();
-      if (result.position === 'static') s.el.style.position = 'relative';
+      // Layout containment contains the absolute fragments without activating
+      // a static paragraph's authored insets.
       s.el.style.contain = 'layout';
       s.height = s.el.style.height;
       s.rendered = true;

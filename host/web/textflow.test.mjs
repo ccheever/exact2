@@ -571,6 +571,10 @@ async function flowInputFixture() {
     root.innerHTML = '<div navigationBack="/" style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
     const parent = root.firstElementChild, paragraph = parent.firstElementChild, ball = parent.lastElementChild;
     parent.exactHandlers = navigate ? ['navigate'] : [];
+    // Static insets must stay inert when absolute flow fragments mount.
+    paragraph.style.top = press ? '50px' : '50%';
+    paragraph.style.left = press ? '25px' : '25%';
+    const before = paragraph.getBoundingClientRect();
     const original = paragraph.firstElementChild;
     original.exactHandlers = press ? ['press'] : [];
     original.exactFlowEvents = press ? ['click'] : [];
@@ -586,6 +590,12 @@ async function flowInputFixture() {
     const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
     flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
     await flow.settle();
+    const after = paragraph.getBoundingClientRect();
+    if (after.x !== before.x || after.y !== before.y || getComputedStyle(paragraph).position !== 'static')
+      throw Error('flow activated static insets');
+    const fragment = paragraph.querySelector('[data-flow-fragment]').getBoundingClientRect();
+    if (Math.abs(fragment.x - before.x) > 0.1 || Math.abs(fragment.y - before.y) > 0.1)
+      throw Error('flow fragments escaped the static paragraph');
     const clone = paragraph.querySelector('a');
     if (!clone || clone === original) throw Error('fixture must click a flowed clone');
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: modified });
