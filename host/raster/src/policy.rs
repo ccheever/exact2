@@ -672,6 +672,14 @@ impl RasterSession {
     pub fn shutdown(&self) {
         clear(&self.owner.gate, self.id(), Clear::Shutdown);
     }
+    /// Follow the owning viewport's capacity without retiring displayed images
+    /// or in-flight decoder charges. A shrink drops cold images; surviving
+    /// charges can exceed the new budget until their owners release them.
+    pub fn set_budget(&self, budget: u64) {
+        if self.owner.account.set_budget(budget.max(SESSION_BYTES)) {
+            self.trim();
+        }
+    }
     /// Memory pressure: drop unpinned cold owners, retaining displayed dedup.
     /// Surviving backing owners always retain their independent byte charge.
     pub fn trim(&self) {

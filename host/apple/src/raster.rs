@@ -143,6 +143,13 @@ pub fn session_create(budget: u64) -> u64 {
     id
 }
 
+/// Update one session's capacity while preserving its live backing owners.
+pub fn session_budget(id: u64, budget: u64) {
+    if let Some(core) = session(id) {
+        core.set_budget(budget);
+    }
+}
+
 /// 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. Charge handles survive all.
 pub fn session_control(id: u64, op: u32) {
     let Some(core) = session(id) else { return };

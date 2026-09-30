@@ -429,7 +429,7 @@ if (host === 'host' || host === 'host-ios') {
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();
         hcheck(shown > 0 && kept === shown && sb3.slots.searchFocused === true, `a's blur reached b: keyboard ${shown} → ${kept}, searchFocused ${sb3.slots.searchFocused}`);
-        await s.tap('stations-back');
+        // Keep b's picker and editor for the refusal and destruction checks.
       }
       s.session = 'a';
     }

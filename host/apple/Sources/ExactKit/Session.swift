@@ -390,6 +390,9 @@ public final class ExactSession {
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
     weak var view: ExactView?
+    #if os(iOS)
+    private var systemDark = false
+    #endif
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
     var agentBox: Agent?
     /// Milliseconds from `main` to this session's first node draw and layout.
@@ -484,9 +487,9 @@ public final class ExactSession {
         }
         // LLP 1056 D4: Canvas 2D backs its bitmaps at the display's scale.
         #if canImport(UIKit)
-        let scale = UIScreen.main.scale
+        let scale = presenter.viewport.traitCollection.displayScale
         #else
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let scale = presenter.viewport.window?.backingScaleFactor ?? 1
         #endif
         _ = runtime.canvasDisplay(scale: max(1, scale), memory: ProcessInfo.processInfo.physicalMemory)
         // A window on another display corrects it; the canvases redraw (D4).
@@ -1087,7 +1090,16 @@ public final class ExactSession {
     /// frame on screen already reads the user's preferences.
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
-        apply(runtime.setPreferences(DisplayPreferences.bits))
+        #if os(iOS)
+        // The scene owns system appearance; a window's app override does not.
+        if let scene = view?.window?.windowScene {
+            systemDark = scene.traitCollection.userInterfaceStyle == .dark
+        }
+        let dark = systemDark
+        #else
+        let dark = DisplayPreferences.systemDark
+        #endif
+        apply(runtime.setPreferences(DisplayPreferences.bits(systemDark: dark)))
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1384,4 +1396,3 @@ final class Frames: NSObject {
         #endif
     }
 }
-

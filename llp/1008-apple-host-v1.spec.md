@@ -649,6 +649,21 @@ display slept, 2026-08-29, showed both, and HEAD's own presenter the same.
 
 ## 9. iOS: the UIKit presenter (`host/apple/ios`, `host/apple/swift`; 2026-08-29)
 
+**Scene and display ownership (2026-09-30, iOS 27 / iPhone Duo).** Both
+standalone and two-session sample adapters connect a `UIWindowScene` and
+create `UIWindow(windowScene:)`; the sample no longer uses app-lifecycle
+window creation. `ExactView` follows its own bounds and asymmetric safe-area
+insets across resize. Its local display-scale trait updates Canvas 2D and
+image decode resolution even when logical bounds do not change; its scene,
+not the process's first connected scene, supplies system appearance. Raster
+capacity follows eight viewport-sized RGBA bitmaps, bounded to 32–192 MiB.
+The session account changes capacity without resetting interests or releasing
+live backing owners. Shrinking drops cold images and prevents further
+allocation while surviving charges exceed the new capacity; growth wakes
+queued decodes. AppKit follows its view's backing-properties callback through
+the same capacity seam. The iOS deployment floor remains 17; Xcode 27.1's SDK
+is needed to exercise Duo's full-screen layouts and reserved regions.
+
 **Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** The Rust host
 emits the coalesced `router{top,url,removed}` op at boot and beside commands
 after commits. The session retains the last op for both agents' `navigation.url`;

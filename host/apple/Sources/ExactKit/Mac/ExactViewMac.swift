@@ -19,6 +19,7 @@ public final class ExactView: NSView {
     public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
     @objc public func copy(_ sender: Any?) { session.presenter.selection.copy() }
     private var lastSize = CGSize.zero
+    private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
     /// The adapter's hook for the first root's `viewport-fit` (window chrome
     /// is the window's business, LLP 1008 §9); the insets themselves are
@@ -93,6 +94,13 @@ public final class ExactView: NSView {
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let size = session.presenter.viewportSize
         guard size.width > 0, size.height > 0 else { return }
+        let scale = window?.backingScaleFactor ?? 1
+        session.rasters.fit(size: size, scale: scale)
+        if scale != lastDisplayScale {
+            lastDisplayScale = scale
+            session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
+            session.rasters.displayChanged()
+        }
         if !session.booted {
             // An embedder's view boots the session at its first real size;
             // the standalone adapter booted it before the window showed.
@@ -106,6 +114,11 @@ public final class ExactView: NSView {
             session.resize(size)
         }
         syncInsets()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        fit()
     }
 
     public override func viewDidMoveToWindow() {

@@ -64,25 +64,16 @@ enum DisplayPreferences {
     }
     /// `prefers-color-scheme: dark` — the *system's* appearance, beneath any
     /// `setScheme` the app chose (LLP 1034 D3 as amended by LLP 1069.000 D1).
+    #if os(macOS)
     static var systemDark: Bool {
-        #if os(macOS)
-        // Under the agent, the appearance `prefer` set (AgentMac). Otherwise
-        // the user's preference: `NSApp.effectiveAppearance` is the wrong
-        // reading, since an app that chose dark reports dark. The global
-        // domain's `AppleInterfaceStyle` is absent when the system is light.
         if let agent = Agent.systemAppearance { return agent.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
         return UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased().contains("dark") == true
-        #else
-        // The window scene's trait: the system's (or the agent's override on
-        // the scene); `setScheme` styles the window, beneath which this sits.
-        let scene = UIApplication.shared.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first
-        return (scene?.traitCollection ?? UIScreen.main.traitCollection).userInterfaceStyle == .dark
-        #endif
     }
+    #endif
     /// The ABI's form (`exact_set_preferences`): bit 0 reduced motion, bit 1
     /// reduced transparency, bit 2 contrast more, bit 3 contrast less (both:
     /// custom), bit 4 a dark system.
-    static var bits: UInt32 {
+    static func bits(systemDark: Bool) -> UInt32 {
         let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
         return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0)
     }

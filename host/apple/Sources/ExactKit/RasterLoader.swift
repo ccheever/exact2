@@ -299,30 +299,26 @@ final class RasterLoader {
         var failure: String?
         var delivered = false
     }
-    /// Decoded pixels a session may hold: what its views pin, and a cache of
-    /// what they let go, so a row that shows a source again, or another row
-    /// showing it at the same size, takes the pixels without a decode. Eight
-    /// screens of pixels, from 32 MiB to 192 MiB.
-    static let screenBudget: UInt64 = {
-        #if os(macOS)
-        let screen = NSScreen.main.map { $0.frame.size.width * $0.frame.size.height * $0.backingScaleFactor * $0.backingScaleFactor } ?? 0
-        #else
-        let screen = UIScreen.main.nativeBounds.width * UIScreen.main.nativeBounds.height
-        #endif
-        return UInt64(min(192 * 1024 * 1024, max(32 * 1024 * 1024, screen * 4 * 8)))
-    }()
+    /// Eight viewport-sized RGBA bitmaps, bounded to 32–192 MiB. Start at
+    /// the floor until the owning view has geometry, never a process screen.
+    static let minimumBudget: UInt64 = 32 * 1024 * 1024
+    static func viewportBudget(size: CGSize, scale: CGFloat) -> UInt64 {
+        let pixels = size.width * size.height * scale * scale
+        guard pixels.isFinite, pixels >= 0 else { return minimumBudget }
+        return UInt64(min(192 * 1024 * 1024, max(CGFloat(minimumBudget), pixels * 4 * 8)))
+    }
     /// Sources no view shows whose metadata stays for the cache's keys.
     static let coldSources = 256
-    let budget: UInt64
+    private(set) var budget: UInt64
     let id: UInt64
     private let backend: RasterBackend
     private var interests: [UInt32: Interest] = [:]
     private var paused = false
     private var destroyed = false
     private var pressure: DispatchSourceMemoryPressure?
-    init(budget: UInt64 = RasterLoader.screenBudget) {
-        self.budget = budget
-        id = exact_raster_session_create(budget)
+    init(budget: UInt64 = RasterLoader.minimumBudget) {
+        self.budget = max(Self.minimumBudget, budget)
+        id = exact_raster_session_create(self.budget)
         backend = RasterBackend(id: id); backend.loader = self
         RasterWorkers.shared.add(backend)
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
@@ -330,6 +326,18 @@ final class RasterLoader {
         pressure.resume(); self.pressure = pressure
     }
     deinit { shutdown() }
+    func fit(size: CGSize, scale: CGFloat) {
+        let next = Self.viewportBudget(size: size, scale: scale)
+        guard !destroyed, next != budget else { return }
+        budget = next
+        exact_raster_session_budget(id, next)
+    }
+    /// Reconsider decode resolution even when the boxes kept their point sizes.
+    func displayChanged() {
+        for interest in Array(interests.values) {
+            if let view = interest.view { resized(view) }
+        }
+    }
     @discardableResult func load(_ view: NodeView, source: String, resolver: AssetResolver) -> Bool {
         guard !destroyed, (interests[view.id] != nil || interests.count < 1024), let record = backend.acquire(source, resolver: resolver) else {
             view.presenter?.session?.log("image deferred: raster metadata/subscriber/source limit"); return false
@@ -367,7 +375,7 @@ final class RasterLoader {
         #if os(macOS)
         let scale = view.window?.backingScaleFactor ?? 1
         #else
-        let scale = view.window?.screen.scale ?? 1
+        let scale = view.traitCollection.displayScale
         #endif
         let box = view.bounds.size
         var longest = max(box.width, box.height)

@@ -1,6 +1,9 @@
 //! An allocation owns this account, never a session, mailbox or payload.
 use crate::{Refusal, Stats};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Condvar, Mutex, Weak,
+};
 
 #[derive(Default)]
 pub(crate) struct Wake {
@@ -18,27 +21,39 @@ impl Wake {
 pub(crate) struct BudgetAccount {
     pub usage: Mutex<Stats>,
     /// Decoded bytes this session may hold: pinned, cold, retiring, reserved.
-    pub budget: u64,
+    budget: AtomicU64,
     wake: Weak<Wake>,
 }
 impl BudgetAccount {
     pub fn new(wake: &Arc<Wake>, budget: u64) -> Arc<Self> {
         Arc::new(Self {
             usage: Mutex::new(Stats::default()),
-            budget,
+            budget: AtomicU64::new(budget),
             wake: Arc::downgrade(wake),
         })
     }
+    /// Serialize capacity changes with reservation admission. Existing charges
+    /// survive a shrink, and block new allocations until they fit again.
+    pub fn set_budget(&self, budget: u64) -> bool {
+        let usage = self.usage.lock().unwrap();
+        let old = self.budget.swap(budget, Ordering::Relaxed);
+        drop(usage);
+        self.notify();
+        budget < old
+    }
     pub fn available(&self) -> u64 {
         let s = self.usage.lock().unwrap();
-        self.budget - s.resident_bytes - s.reserved_bytes
+        self.budget
+            .load(Ordering::Relaxed)
+            .saturating_sub(s.resident_bytes + s.reserved_bytes)
     }
     pub fn reserve(self: &Arc<Self>, bytes: u64) -> Result<AllocationReservation, Refusal> {
-        if bytes > self.budget {
+        let mut usage = self.usage.lock().unwrap();
+        let budget = self.budget.load(Ordering::Relaxed);
+        if bytes > budget {
             return Err(Refusal::TooLarge);
         }
-        let mut usage = self.usage.lock().unwrap();
-        if bytes > self.budget - usage.resident_bytes - usage.reserved_bytes {
+        if bytes > budget.saturating_sub(usage.resident_bytes + usage.reserved_bytes) {
             return Err(Refusal::Budget);
         }
         usage.reserved_bytes += bytes;

@@ -9,6 +9,11 @@ macro_rules! raster_exports {
         pub extern "C" fn exact_raster_session_create(budget: u64) -> u64 {
             $crate::raster::session_create(budget)
         }
+        /// Follow a session's display capacity without invalidating live images.
+        #[no_mangle]
+        pub extern "C" fn exact_raster_session_budget(id: u64, budget: u64) {
+            $crate::raster::session_budget(id, budget)
+        }
         /// Reset, pause, resume, shut down, or trim a raster account.
         #[no_mangle]
         pub extern "C" fn exact_raster_session_control(id: u64, op: u32) {

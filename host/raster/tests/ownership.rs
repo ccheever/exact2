@@ -774,3 +774,39 @@ fn blocked_waiter_skips_full_mailbox_when_another_session_becomes_runnable() {
     drop(permit);
     worker.join().unwrap();
 }
+
+#[test]
+fn viewport_budget_shrink_preserves_backings_and_growth_wakes_queued_decodes() {
+    let gate = Gate::new();
+    let session = gate.session_with_budget(64 * MIB);
+    let drops = Arc::new(AtomicUsize::new(0));
+    let a = session.request(demand(1, 1, 24, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    let displayed_a = session.take_ready(a).unwrap();
+    let b = session.request(demand(2, 2, 24, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    let displayed_b = session.take_ready(b).unwrap();
+    session.set_budget(32 * MIB);
+    assert_eq!(total(&session), 48 * MIB);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        session.reserve_allocation(1),
+        Err(Refusal::Budget)
+    ));
+    let pending = session.request(demand(3, 3, 8, 0)).unwrap();
+    assert!(gate.next_decode().is_none());
+    session.set_budget(64 * MIB);
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(session.take_ready(pending).is_some());
+    assert!(session.cancel(a));
+    drop(displayed_a);
+    assert_eq!(session.stats().cold_bytes, 24 * MIB);
+    session.set_budget(32 * MIB);
+    assert_eq!(session.stats().cold_bytes, 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert!(displayed_b.payload::<Arc<Backing>>().is_some());
+    assert!(session.cancel(b));
+    drop(displayed_b);
+    session.trim();
+    assert!(session.reserve_allocation(1).is_ok());
+}

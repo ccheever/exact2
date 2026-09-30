@@ -16,6 +16,7 @@ public final class ExactView: UIView {
     private var fitPending = false
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
+    private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
     private var keyboardObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
@@ -43,7 +44,7 @@ public final class ExactView: UIView {
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
         session.presenter.observeKeyboard()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
     }
 
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
@@ -94,6 +95,7 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window != nil { reportScheme() }
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if window == nil {
@@ -167,6 +169,15 @@ public final class ExactView: UIView {
             }
         }
         guard frame.width > 0, frame.height > 0 else { return }
+        // Display changes can leave logical bounds unchanged. Update resources
+        // independently of the resize commit, from this view's local traits.
+        let scale = max(1, traitCollection.displayScale)
+        session.rasters.fit(size: frame.size, scale: scale)
+        if scale != lastDisplayScale {
+            lastDisplayScale = scale
+            session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
+            session.rasters.displayChanged()
+        }
         var size = frame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and

@@ -236,6 +236,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         watchControl()
     }
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        for (_, session) in sessions { session.becameActive() }
+    }
 }
 
 UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil, NSStringFromClass(AppDelegate.self))
