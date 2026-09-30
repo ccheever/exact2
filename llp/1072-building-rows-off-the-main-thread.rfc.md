@@ -1020,6 +1020,38 @@ turn, so at rest a continuation runs each turn and does nothing — the shape
 of the in-flight spin the spin fix (f7aa53049) removed. Whoever reopens the
 branch verifies that first.
 
+### 8.11 The lead's velocity term, measured and parked (r8, 2026-09-30)
+
+A moving list's window leads its port by one viewport on each side plus
+`min(0.25 s × |v|, 2 viewports)` toward the travel (`lead` in
+`runner/src/instance/collection/mod.rs`, the same on every host). Rows built
+ahead that a reversal retires unseen were the fling's largest waste (§8.6:
+at 3k–6k pt/s a third of the rows built are never shown, 12% at 12k, 5% at
+24k), so two shorter leads were measured on the iPad's 19-kind fling, both
+sides the same diagnostic build with the lead switched by environment, three
+rounds each, against the default:
+
+| lead | CPU ms/s | main ms/s | fps, every speed | late frames | worst frame |
+|---|---|---|---|---|---|
+| half a viewport + 0.1 s × \|v\| | 643.5 → 630.7 (−12.8) | 281.3 → 268.4 (−12.9) | +12000: 115.3 → 111.2; −6000: 114.8 → 119.5; else unchanged | 1.2 → 1.0/s; +12k pass 3–4 → 4–6, −6k 3–5 → 0–1 | 91.9 → 108.5 ms |
+| one viewport + 0.1 s × \|v\| | 627.4 → 612.5 (−14.9) | 269.6 → 263.3 (−6.3) | unchanged (−6000: 114.4 → 115.4) | 1.2 = 1.2/s; +12k pass 3/3/3 → 4/5/4, −6k 4/5/3 → 2/2/2 | 93.8 → 110.5 ms (the first fill); outside warm-up 65 → 72–75 at −6000, 12k's 56 → 49 |
+
+Blanks were 0 in every run; peaks 356 → 337 and 356 → 362 MB. **The
+mechanism:** at 6k–12k pt/s the shorter forward lead means the slice a
+reversal needs — the −6000 → +12000 turn is the fling's largest speed jump,
+and reversals are what a thumb does — is built a few frames later than the
+port reaches it, so the pass after the turn drops one or two more frames and
+its longest frame grows, while the pass before it (built less ahead) drops
+fewer. The CPU saved is the rows never shown; the frames lost are the rows
+not yet built. At 24k both terms cap at two viewports and nothing changes.
+
+**Parked** (the coordinator for Charlie, 2026-09-30: frame drops over total
+CPU, the standing priority of 2026-09-26). A 0.15 s point would sit in the
+noise of a three-round A/B on both measures. A next reader should not retry
+the same knob: the lead is not the lever for the rows never shown; a
+reversal-aware window (rows behind the travel retired sooner, the forward
+lead kept) or a cheaper row to build is.
+
 ## 9. Amending LLP 1050.000 D3 (ruled, Q5)
 
 D3 today: "a row may take longer than a frame, but never mid-fling." Amended:
