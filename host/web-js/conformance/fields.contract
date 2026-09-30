@@ -1,0 +1,61 @@
+// data: sparkline
+// Synthetic conformance plan: keyed rows whose items change some fields and
+// keep others (LLP 1071.000 D2, D3), on Sparkline's `coins(version)`, where
+// each tick moves every third coin's series and keeps its name, ticker and
+// color. A binding reads one field, several, or the whole row through a
+// component derive; a key reads the row or, with `mode`, state beside it; a
+// filter changes the list's length.
+shape Coin
+  id: string
+  name: string
+  ticker: string
+  letter: string
+  color: string
+  price: string
+  change: string
+  up: bool
+  points: string
+  lastX: number
+  lastY: number
+
+component Fields
+  state version = 0
+  state mode = "a"
+  state few = false
+  resource coins = coins(version) as shape list<Coin>
+  derive shown = filter(coins, c => not few or c.up)
+  action tick writes version
+    version = version + 1
+  action flip writes mode
+    mode = mode == "a" ? "b" : "a"
+  action narrow writes few
+    few = not few
+  view
+    column testId="root" gap=4 padding=8
+      row gap=8
+        button press=tick testId="tick"
+          text "tick"
+        button press=flip testId="flip"
+          text `mode ${mode}`
+        button press=narrow testId="narrow"
+          text (few ? "all" : "rising")
+      column testId="pure"
+        each c in shown key=c.id
+          Line(c=c)
+      column testId="impure"
+        each c in coins key=`${c.id}-${mode}`
+          row testId=`k-${c.id}` gap=6
+            text c.ticker
+            text `${c.price} ${c.change}` color=(c.up ? "#16a34a" : "#dc2626")
+
+component Line
+  props
+    c: Coin
+  derive whole = `${c.name}/${c.lastX}/${c.lastY}`
+  view
+    row testId=`row-${c.id}` gap=6 height=20
+      text c.name testId=`name-${c.id}`
+      text c.price testId=`price-${c.id}` background-color=(c.up ? "#dcfce7" : "#fee2e2")
+      text whole testId=`whole-${c.id}`
+      svg width=96 height=20 viewBox="0 0 96 32"
+        polyline points=c.points fill="none" stroke=c.color stroke-width=1.5

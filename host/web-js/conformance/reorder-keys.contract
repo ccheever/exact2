@@ -1,0 +1,41 @@
+// Synthetic conformance plan: the same keys in another order (LLP 1071.000
+// D2's walk stops; the full keyed pass moves the rows), on Caltrain's
+// stations: the line in its order, and every station nearest first — the
+// same rows, the same length — then a subset and back.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+component ReorderKeys
+  resource loc = defaultLocation() as shape Location
+  resource line = stations(loc) as shape list<Station>
+  resource all = nearest(loc, length(line)) as shape list<Station>
+  resource close = nearest(loc, 3) as shape list<Station>
+  state order = "line"
+  derive shown = (order == "line" ? line : (order == "near" ? all : close))
+  action byLine writes order
+    order = "line"
+  action byDistance writes order
+    order = "near"
+  action closest writes order
+    order = "close"
+  view
+    column testId="root" gap=4 padding=8
+      row gap=8
+        button press=byLine testId="by-line"
+          text "line"
+        button press=byDistance testId="by-distance"
+          text "nearest"
+        button press=closest testId="closest"
+          text "closest 3"
+      each s in shown key=s.id
+        row testId=`station-${s.id}` gap=6
+          text s.name
+          text `zone ${s.zone}` color=(s.zone > 2 ? "#b91c1c" : "#111827")
+          text `${s.distance} m`

@@ -8,7 +8,7 @@
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
-import { sig, effect, scope, end, untracked, write, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -314,7 +314,7 @@ class Collection {
     const start = this.index.prefix(p), finish = start + this.index.h[p];
     return finish <= top ? [true, top - finish] : [false, Math.max(0, start - end)];
   }
-  reposition(m, p) { m.position = p; write(m.item.n, this.items[p]); write(m.index.n, p); }
+  reposition(m, p) { m.position = p; writeItem(m.item.n, this.items[p]); write(m.index.n, p); }
   settle(m) {
     const count = this.index.len;
     if (m.published[0] !== m.position || m.published[1] !== count) {

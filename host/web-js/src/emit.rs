@@ -1137,6 +1137,7 @@ impl Em<'_> {
             let f = self
                 .f(b.expr, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
+            let at = self.out.len();
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
                     let md = self.uses.rt("md");
@@ -1153,6 +1154,11 @@ impl Em<'_> {
                     );
                 }
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
+            }
+            // The row item's fields it reads (LLP 1071.000 D3).
+            if let Some(m) = crate::reads::field_mask(&f).filter(|_| self.out.len() > at) {
+                let (fm, stmt) = (self.uses.rt("fm"), self.out.split_off(at));
+                let _ = write!(self.out, "{fm}({m},()=>{{{stmt}}});");
             }
         }
         self.motion_node(i, &e, scope)?;
@@ -1461,9 +1467,14 @@ impl Em<'_> {
             }
             None => {
                 let each = self.uses.rt("each");
+                let pure = if crate::reads::pure_key(&key, &item, &index) {
+                    ",1"
+                } else {
+                    ""
+                };
                 let _ = write!(
                     self.out,
-                    "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}});"
+                    "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}}{pure});"
                 );
             }
         }

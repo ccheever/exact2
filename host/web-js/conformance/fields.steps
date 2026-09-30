@@ -1,0 +1,10 @@
+# Ticks keep every key in place (D2's walk, D3's masks); a mode flip moves an
+# impure key; a filter changes the length; ticks again under each.
+tap tick
+tap tick
+tap flip
+tap tick
+tap narrow
+tap tick
+tap narrow
+tap tick

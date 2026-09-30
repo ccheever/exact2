@@ -13,6 +13,7 @@ mod code;
 mod emit;
 mod faces;
 mod facts;
+mod reads;
 mod style;
 
 use std::process::ExitCode;

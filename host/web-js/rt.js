@@ -1,4 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js";
+import { conforms } from "./shape.js";
+export { conforms };
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -71,6 +73,17 @@ function write(n, v) {
   n.v = v; Rev++;
   for (const o of n.obs) stale(o, DIRTY);
 }
+/** A row's new item: an effect `fm` marked re-runs only if a field it reads changed (LLP 1071.000 D3). */
+export function writeItem(n, v) {
+  const o = n.v;
+  if (eq(o, v)) return;
+  let m = -1;
+  if (Array.isArray(o) && Array.isArray(v) && o.length === v.length) { m = 0; for (let k = 0; k < v.length && k < 31; k++) if (!eq(o[k], v[k])) m |= 1 << k; }
+  n.v = v; Rev++;
+  for (const x of n.obs) if (!x.m || x.m & m) stale(x, DIRTY);
+}
+let Mask = 0; // effects made in `fm`'s `g` read a row's item only as the fields in `m`
+export function fm(m, g) { const o = Mask; Mask = m; try { g(); } finally { Mask = o; } }
 function flush() {
   if (Flushing) return;
   Flushing = true;
@@ -90,7 +103,7 @@ export function memo(fn, t) {
   Settle.push(n);
   return () => read(n);
 }
-export function effect(fn) { const n = node(fn, undefined, 1); fresh(n); return n; }
+export function effect(fn) { const n = node(fn, undefined, 1); if (Mask) n.m = Mask; fresh(n); return n; }
 /** A scope whose effects `dispose` ends, owned by `parent` (a region's
  * arms and rows belong to the region's scope, never to its effect, which
  * drops what it owns each time it reruns). */
@@ -102,8 +115,7 @@ function scope(f, parent = Owner) {
   return n;
 }
 function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
-/** Every leaving row's scope ended, its owner's kids filtered once (a splice
- * each was quadratic); nothing unsubscribes from the rows' own signals. */
+/** Leaving rows' scopes end, owner's kids filtered once; nothing unsubscribes from their own signals. */
 function endAll(rows) {
   let up = null;
   for (const r of rows.values()) if (r.s) { r.item.n.dead = r.index.n.dead = 1; dispose(r.s); up = r.s.up; }
@@ -117,30 +129,6 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
-/** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
- * numbers are finite, as the runner's shape checks require. `o` is a value
- * that conformed: a part of `v` that is the same array as its part in `o`
- * conforms as it did, unchecked (the Rust runner's `Conformed` re-checks
- * only the list items that are not the same object, runner/src/conform.rs). */
-export function conforms(v, t, i = [0], o) {
-  if (o !== undefined && v === o && typeof v === "object" && v !== null) { skip(t, i); return true; }
-  const c = t[i[0]++];
-  if (c === "n") return typeof v === "number" && isFinite(v);
-  if (c === "b") return typeof v === "boolean";
-  if (c === "s") return typeof v === "string";
-  if (c === "u") return v == null;
-  if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
-  if (c === "[") {
-    const at = i[0], was = Array.isArray(o) ? o : null;
-    if (!Array.isArray(v)) return false;
-    for (let k = 0; k < v.length; k++) { i[0] = at; if (!conforms(v[k], t, i, was?.[k])) return false; }
-    i[0] = at; skip(t, i); return true;
-  }
-  if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
-  return true;
-}
-function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
-
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false;
 export const journal = [];
 const say = line => journal.push(`t=${clock.now} ${line}`);
@@ -1042,15 +1030,27 @@ export function match(p, subject, a0, a1) {
 }
 /** `each`: rows by key in item order; a kept row keeps its elements, its
  * item and position are signals its bindings read. */
-export function each(p, list, key, row) {
+export function each(p, list, key, row, pure) {
   let [a, b] = range(p), own = Owner;
-  let rows = new Map(), single = false;
+  let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list();
     untracked(() => {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
       if (b && LazyAt < Lazy.length) adoptAll();
+      // Keys that didn't move: new items to their rows, nothing else (LLP 1071.000 D2).
+      if (pure && order && items.length === order.length) {
+        let i = 0;
+        for (; i < items.length; i++) {
+          const item = items[i], r = order[i];
+          if (r.item.n.v === item) continue;
+          const k = key(() => item, () => i);
+          if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;
+          writeItem(r.item.n, item);
+        }
+        if (i === items.length) return;
+      }
       // A row's place in the last pass is its `at`; repeats count once a key repeats.
       const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
@@ -1058,7 +1058,7 @@ export function each(p, list, key, row) {
         k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
         if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
-        if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) write(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
+        if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
           r = { item: sig(item), index: sig(i) };
@@ -1092,9 +1092,9 @@ export function each(p, list, key, row) {
           else { r.start = document.createComment(""); r.end = document.createComment(""); frag.prepend(r.start); frag.append(r.end); }
           r.frag = frag;
         }
-        next.set(k, r);
+        r.k = k; next.set(k, r);
       });
-      const list = [...next.values()];
+      const list = order = [...next.values()];
       for (let i = 0; i < list.length; i++) list[i].at = i;
       // Every row goes and the region is all its parent holds: emptied at once.
       if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
