@@ -1,6 +1,7 @@
 # A web page module's announcements connect only after a `native.later`, are applied once per announcement, and a failed load is cached until reload
 
-**Status:** Fixed: page modules connect after first paint without a later call, coalesce announcements by topic and generation, and retry rejected loads with cleared caches; loader, activation, and coalescing regressions pass.
+**Status:** Closed
+**Resolution:** Already fixed: page-native activation, coalescing and failed-load retry tests pass on 2026-09-30 (host/web/native-glue.test.mjs).
 **Systems:** Web host (`host/web/native-glue.js`, `host/web/glue.js`), runner announcements (`runner/src/runner/time.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -15,6 +16,8 @@
 - Register announcements independently of long calls: after first paint, or at the first `native.watch`.
 - Queue and deduplicate web announcements, and drain them at the same boundary native hosts use.
 - Clear both caches when a load is rejected.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: page modules connect after first paint without a later call, coalesce announcements by topic and generation, and retry rejected loads with cleared caches; loader, activation, and coalescing regressions pass.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max (code and design), Opus 5.5 max. Verification: confirmed by reading.
 

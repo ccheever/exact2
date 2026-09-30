@@ -1,6 +1,7 @@
 # The Linux host never reports locale, time zone or launch seed, so `t()` stays on the base table and the documented `Intl` idiom throws
 
-**Status:** Fixed: Linux reports normalized locale, IANA zone and a secure launch seed and retains them on reload; usable runner defaults and one place-plus-seed commit are verified by Contract/Linux regressions and Linux smoke (broader host-suite failures noted below).
+**Status:** Closed
+**Resolution:** Already fixed by the implementation and Linux drive recorded below; current agent launch-fact tests pass on 2026-09-30.
 **Systems:** Linux host (`host/linux/src/app.rs`), runner time facts (`runner/src/runner/time.rs`, `runner/src/time.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -19,6 +20,8 @@
 - On Linux, derive locale from `LC_ALL`/`LC_MESSAGES`/`LANG` (normalize `en_US.UTF-8` to `en-US`) and the zone from the tz database. Draw a seed from `getrandom`.
 - Give the pre-report values usable defaults (`en-US`/`UTC`), or document that sources must guard the empty strings.
 - Set both facts in one runner call so launch commits once, not twice (the web and Apple currently commit twice, `host/web/src/host.rs:742-759`).
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: Linux reports normalized locale, IANA zone and a secure launch seed and retains them on reload; usable runner defaults and one place-plus-seed commit are verified by Contract/Linux regressions and Linux smoke (broader host-suite failures noted below).
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Grok 4.7 xhigh, Astra max (design). Verification: confirmed by reading; `set_place`/`set_seed` have no caller on Linux.
 

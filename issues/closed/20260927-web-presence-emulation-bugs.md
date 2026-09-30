@@ -1,6 +1,7 @@
 # The web's layout-transition emulation diverges from native: resize animates, springs read wall time, paint freezes, shrinking clips early, same-name exits never end
 
-**Status:** Fixed: items 1–4 and 6 now snap resize, use animation time, refresh paint/anchors and lift shrinking clips; Chrome regressions and agent drives pass. Item 5 did not reproduce in Chrome 154. Supplemental web smoke reports Chrome process diagnostics.
+**Status:** Closed
+**Resolution:** Already fixed: all production-controller Chrome presence regressions pass on 2026-09-30 (host/web/tests/presence.test.mjs).
 **Systems:** Web host (`host/web/presence-glue.js`, `host/web/glue.js`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -17,6 +18,8 @@ Each item is confirmed by reading unless marked.
 6. **The stand-in's anchor is skipped by reorder (plausible, weak).** The anchor carries `data-exiting`, which child reconciliation skips, so it can sit at a stale index until the next move rebuilds it.
 
 **Fix:** items 1–4 have direct fixes (snap on resize; sample `animation.currentTime`; keep paint on the element or re-sync it; move the clip to the surface). Items 5–6 need exits to have their own identity and lifetime. Whether to keep the emulation at all is the open design question in the review.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: items 1–4 and 6 now snap resize, use animation time, refresh paint/anchors and lift shrinking clips; Chrome regressions and agent drives pass. Item 5 did not reproduce in Chrome 154. Supplemental web smoke reports Chrome process diagnostics.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Grok 4.7 xhigh, Astra max (code and design), Opus 5.5 max (design). Verification: 1–4 confirmed by reading; 5–6 plausible.
 

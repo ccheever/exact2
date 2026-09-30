@@ -1,6 +1,7 @@
 # Manifest: tsconfig `paths` replace `typescript.aliases`, outside-app resolution is `--locked`, and the dark launch colour is `background_color_dark`
 
-**Status:** Fixed: both TypeScript producers read captured tsconfig paths/baseUrl, app resolution never rewrites locks, and web/iOS launch colours use background_color/background_color_dark; compiler regressions and five focused app/real-actool checks pass (full-suite baseline failures recorded below).
+**Status:** Closed
+**Resolution:** Already fixed: current app resolution and manifest regressions pass, including split-directory bake cases that previously failed (scripts/app.test.mjs, 2026-09-30).
 **Systems:** `scripts/app.mjs`, `scripts/app.schema.json`, `js/bake`, `host/apple/build.mjs`, apps' `app.json`
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -60,6 +61,8 @@ External apps (not edited):
   `~/projects/grnl` on this machine, so their current literal aliases and
   colours could not be inspected. The transformations above specify the
   changes without inventing their values. No Charlie design ruling remains.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: both TypeScript producers read captured tsconfig paths/baseUrl, app resolution never rewrites locks, and web/iOS launch colours use background_color/background_color_dark; compiler regressions and five focused app/real-actool checks pass (full-suite baseline failures recorded below).
 
 Check results:
 

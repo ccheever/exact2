@@ -1,6 +1,7 @@
 # `exact new` writes dependency paths one level short for an app beside the exact2 checkout
 
-**Status:** Fixed: Host dependencies are relative to their containing manifests, and failed creation removes the partial app; sibling-app Cargo metadata and forced-failure cleanup regressions pass.
+**Status:** Closed
+**Resolution:** Already fixed: sibling manifest-relative paths and failed-create cleanup regressions pass on 2026-09-30 (game/new-app.test.mjs).
 **Systems:** Outside apps (`game/new.mjs`, `game/new-app.test.mjs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -17,5 +18,7 @@ The test passes only because `tmpdir()` is outside `/Users`, so every path comes
 - Compute each path relative to the manifest that contains it.
 - Add a test with the app as a sibling of the checkout.
 - Remove the directory when creation fails.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: Host dependencies are relative to their containing manifests, and failed creation removes the partial app; sibling-app Cargo metadata and forced-failure cleanup regressions pass.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max; reproduced by the verifier. Verification: reproduced.

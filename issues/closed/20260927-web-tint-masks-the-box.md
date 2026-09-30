@@ -1,6 +1,7 @@
 # On the web, a tinted raster's mask also masks the image's own background, border and shadow
 
-**Status:** Partly fixed: retained and explained the declared box-paint deviation; Chrome reproduced both fixture mismatches and tests protect bare untinted images in live batches and documents. Remaining: a tinted raster's own background, border and shadow are still masked on the web.
+**Status:** Closed
+**Resolution:** Resolved by the explicitly permitted declared-deviation fallback already documented in LLP 1001 and LLP 1011; tinting the picture separately from its own box remains a declared limitation, with author guidance below.
 **Systems:** Web host (`host/web/src/element.rs` `host_css`, `host/web/src/document.rs`, `host/web/glue.js`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -45,6 +46,8 @@ approach; it is not a test claiming that the remaining paint defect is fixed.
 `12 passed; 0 failed`. Full `exact-web` lib/bin/integration suite:
 `196 passed; 0 failed; 5 ignored`; web-host Clippy with warnings denied passed.
 Required root checks all passed:
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Partly fixed: retained and explained the declared box-paint deviation; Chrome reproduced both fixture mismatches and tests protect bare untinted images in live batches and documents. Remaining: a tinted raster's own background, border and shadow are still masked on the web.
 
 - `cargo build --all-targets --keep-going`: finished dev profile, 19.05s.
 - `cargo test --lib --bins --tests --no-fail-fast`: 71 suites,

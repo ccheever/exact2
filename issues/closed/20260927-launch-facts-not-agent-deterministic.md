@@ -1,6 +1,7 @@
 # Under the agent, the launch seed, locale and time zone come from the machine and a CSPRNG, and a web dev reload draws a new seed
 
-**Status:** Fixed: every agent carrier supplies seed 1 (LLP 1069.007), en-US and UTC with drive overrides; web and native reloads retain the launch seed, verified by agent, Linux, Swift and live smoke regressions (broader host-suite failures noted below).
+**Status:** Closed
+**Resolution:** Already fixed: fixed agent launch facts, overrides and reload lifetime regressions pass on 2026-09-30 (host/web/agent.test.mjs); native evidence remains below.
 **Systems:** Web host (`host/web/glue.js`), Apple host (`host/apple/Sources/ExactKit/Session.swift`), agent (`scripts/agent.mjs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -16,6 +17,8 @@
 **Fix:**
 - Under the agent, read a fixed seed, locale and zone, with documented defaults overridable from the drive (environment or query), and never touch the platform's values.
 - Keep the seed for the launch across dev reloads on every host.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: every agent carrier supplies seed 1 (LLP 1069.007), en-US and UTC with drive overrides; web and native reloads retain the launch seed, verified by agent, Linux, Swift and live smoke regressions (broader host-suite failures noted below).
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Grok 4.7 xhigh, Astra max (code and design). Verification: confirmed by reading.
 

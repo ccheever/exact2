@@ -1,6 +1,7 @@
 # If the presence module fails to load, the web holds every later batch and retries the load forever
 
-**Status:** Fixed: failed presence loads release updates without motion and journal once; loader regressions and a Chrome agent drive pass. Supplemental web smoke reports Chrome keychain/encryption and paint-timing diagnostics.
+**Status:** Closed
+**Resolution:** Already fixed: unavailable presence releases held and future batches and logs once; both loader regressions pass on 2026-09-30.
 **Systems:** Web host (`host/web/navigation.js` `presenceLoader`, `host/web/glue.js`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -12,6 +13,8 @@ When an exit arrives, `presence.hold(batch)` defers the batch until `presence-gl
 **Result:** after one failed fetch of the module (offline, a deploy that removed the old hash), every later UI update queues behind it and the load retries in a loop. The page stops updating.
 
 **Fix:** add a terminal "unavailable" state. Apply held and later batches without presence motion (exits leave at once, layout snaps), and journal it once.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: failed presence loads release updates without motion and journal once; loader regressions and a Chrome agent drive pass. Supplemental web smoke reports Chrome keychain/encryption and paint-timing diagnostics.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max. Verification: confirmed by reading.
 
