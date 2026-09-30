@@ -114,6 +114,7 @@ impl Core {
 
     /// [`Core::start`] with every transport the other owners, scoped grants
     /// and streams open made by `host` (the render host's, LLP 1048.000 D10).
+    #[allow(dead_code)] // only the render host's executor calls it
     pub(super) fn start_on(
         bindings: Option<ibex2::host::Bindings>,
         grants: &str,
