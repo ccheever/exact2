@@ -1351,11 +1351,11 @@ final class Frames: NSObject {
         ticks += 1
         if reported == 0 { reported = t }
         guard t - reported >= 1, let c = session?.canvases else { return }
-        var line = String(format: "fps %.0f · longest gap %.1f ms · renders %d avg %.1f ms · captures %d avg %.1f ms", Double(ticks) / (t - reported), longest * 1000, c.windowRenders, c.windowRenderSeconds * 1000 / Double(max(1, c.windowRenders)), c.windowCaptures, c.windowCaptureSeconds * 1000 / Double(max(1, c.windowCaptures)))
+        var line = String(format: "fps %.0f · longest gap %.1f ms · renders %d avg %.1f ms · submits %d · captures %d avg %.1f ms", Double(ticks) / (t - reported), longest * 1000, c.windowRenders, c.windowRenderSeconds * 1000 / Double(max(1, c.windowRenders)), c.windowSubmits, c.windowCaptures, c.windowCaptureSeconds * 1000 / Double(max(1, c.windowCaptures)))
         if !Capture.cpu, let sh = Shadow.shared, c.windowCaptures > 0 { line += String(format: " (mirror %.1f, gpu %.1f, read %.1f)", sh.lastMirrorMs, sh.lastRenderMs, sh.lastReadMs) }
         onReport?(line)
         ticks = 0; longest = 0; reported = t
-        c.windowRenders = 0; c.windowRenderSeconds = 0; c.windowCaptures = 0; c.windowCaptureSeconds = 0
+        c.windowRenders = 0; c.windowRenderSeconds = 0; c.windowSubmits = 0; c.windowCaptures = 0; c.windowCaptureSeconds = 0
     }
     #endif
 

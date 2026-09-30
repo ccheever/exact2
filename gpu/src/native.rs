@@ -453,6 +453,12 @@ pub fn starved(id: u32) -> bool {
     with(|m| m.starved(id)).unwrap_or(false)
 }
 
+/// Whether a render of the canvas has something to do: `false` while its
+/// drawable in flight has not landed.
+pub fn landed(id: u32) -> bool {
+    with(|m| m.landed(id)).unwrap_or(false)
+}
+
 /// Register the presenter's callback for a starved canvas's drawable: it
 /// runs on the thread that acquired it, and asks for a render on the main
 /// thread. `None` removes it.
@@ -829,6 +835,14 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_starved(id: u32) -> u32 {
             u32::from($crate::native::starved(id))
+        }
+
+        /// 0 while the drawable a starved canvas waits for is in flight and
+        /// not back: a render of it would draw nothing, and the presenter
+        /// leaves it to the callback below.
+        #[no_mangle]
+        pub extern "C" fn gpu_landed(id: u32) -> u32 {
+            u32::from($crate::native::landed(id))
         }
 
         /// The presenter's callback for a starved canvas's drawable, called on

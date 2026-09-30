@@ -229,11 +229,12 @@ impl Module {
                 self.error = e;
                 ok = false;
             }
-            // The next drawable, waited for while this frame is composited.
+            // The next drawable, waited for while this frame is composited;
+            // the presenter hears when it lands.
             #[cfg(not(target_arch = "wasm32"))]
             if c.request {
                 if let Some(target) = &inst.presentation {
-                    inst.acquire.request(target);
+                    inst.acquire.request_awaited(target);
                 }
             }
             #[cfg(target_arch = "wasm32")]

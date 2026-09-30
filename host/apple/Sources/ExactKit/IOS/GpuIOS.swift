@@ -125,6 +125,13 @@ final class Canvases {
         /// The tick that last judged this canvas on screen and rendered it
         /// (`Canvases.ticks`): a starved render draws that tick's frame.
         var shownTick = 0
+        /// The tick whose frame this canvas last drew: one frame a tick,
+        /// however many of its drawables land within it.
+        var drawnTick = 0
+        /// `onScreen`'s last answer and the geometry epoch it was given at
+        /// (`Canvases.shown`).
+        var screenEpoch = -1
+        var screenOn = false
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
@@ -195,6 +202,8 @@ final class Canvases {
     /// report, and the time they took (capture: paint and upload).
     var windowRenders = 0
     var windowRenderSeconds = 0.0
+    /// Submits in the window: one per module a flush reached with a frame open.
+    var windowSubmits = 0
     var windowCaptures = 0
     var windowCaptureSeconds = 0.0
     private var captureScheduled = false
@@ -567,6 +576,22 @@ final class Canvases {
         return view.convert(view.bounds, to: window).intersects(clip)
     }
 
+    /// `onScreen`, kept until something may have moved a view: a layout, a
+    /// scroll, a window move or a presentation batch moves the geometry epoch
+    /// (`TransformGeometryHost.epoch`). Motion writes transforms each frame
+    /// without one, so while it runs, and every 30th tick regardless, the
+    /// walk is made again. It was 12 ms/s of an iPhone's main thread for
+    /// three animated rows at rest, converting rects up each canvas's
+    /// ancestors 120 times a second.
+    func shown(_ e: Entry, _ view: UIView) -> Bool {
+        guard let s = session else { return onScreen(view) }
+        let epoch = s.presenter.transformGeometry.epoch
+        if e.screenEpoch == epoch, !s.frames.motion, ticks % 30 != 0 { return e.screenOn }
+        e.screenOn = onScreen(view)
+        e.screenEpoch = epoch
+        return e.screenOn
+    }
+
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
         guard !modules.isEmpty, visible else { return false }
@@ -595,16 +620,22 @@ final class Canvases {
             // virtualized list keeps rows mounted past the viewport; their
             // canvases keep what they want (and their dirty inputs) and render
             // the first frame they are seen.
-            guard onScreen(metal) else { more = true; continue }
+            guard shown(e, metal) else { more = true; continue }
             e.shownTick = ticks
+            // Waiting for the drawable it asked for as its last frame was
+            // presented (gpu/src/acquire.rs): a render now would draw
+            // nothing. It draws this tick's frame when the drawable lands
+            // (`renderStarved`) — at 120 Hz that is every frame, about 4 ms in.
+            if let landed = m.landed, m.starved?(e.id) == 1, landed(e.id) == 0 { more = true; continue }
             // No starvation guard here (the AppKit presenter pauses a canvas
             // whose render took over 200 ms, a covered window's drawable
             // wait): iOS has no occlusion of that kind — a backgrounded app
             // is `visible == false` — and on the simulator the first render
             // of a surface, its pipelines compiling, honestly takes that long.
-            renderNow(m, e, metal, now)
+            renderNow(m, e, metal, now, tick: ticks)
             more = more || e.wants
         }
+        windowSubmits += unflushed.count
         flushRecorded()
         lastTickNow = now
         ticks += 1
@@ -617,14 +648,17 @@ final class Canvases {
     /// Ticks so far: which tick judged a canvas on screen (`Entry.shownTick`).
     private var ticks = 1
 
-    private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double) {
+    private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double, tick: Int) {
         let scale = Float(metal.metalLayer.contentsScale)
         let t0 = CACurrentMediaTime()
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
-        recorded(m)
+        // A render that went without a drawable recorded nothing: no frame
+        // to submit for it, and its tick's frame is still to draw.
+        let drew = m.starved?(e.id) != 1
+        if drew { recorded(m); e.drawnTick = tick }
         // A module that cannot say when a first frame is shown (`gpu_seen`):
         // the frame just recorded is presented by this tick's flush.
-        if metal.awaitingFirstFrame, m.seen == nil, r < 2, m.starved?(e.id) != 1 { DispatchQueue.main.async { metal.reveal() } }
+        if drew, metal.awaitingFirstFrame, m.seen == nil, r < 2 { DispatchQueue.main.async { metal.reveal() } }
         windowRenders += 1
         windowRenderSeconds += CACurrentMediaTime() - t0
         if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
@@ -652,10 +686,16 @@ final class Canvases {
         frameNow = now
         defer { frameNow = previous }
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
-            // On screen at the last tick, which rendered it: no second walk up its ancestors.
-            guard e.shownTick == ticks - 1, let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
-            renderNow(m, e, metal, now)
+            // On screen at the last tick, which rendered it: no second walk
+            // up its ancestors. One frame a tick: a canvas that drew this
+            // tick's frame and whose next drawable is already back draws the
+            // next tick's frame at that tick. And only a canvas whose own
+            // drawable landed: the others' renders would draw nothing.
+            guard e.shownTick == ticks - 1, e.drawnTick != ticks - 1, let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
+            if let landed = m.landed, landed(e.id) == 0 { continue }
+            renderNow(m, e, metal, now, tick: ticks - 1)
         }
+        windowSubmits += unflushed.count
         flushRecorded()
     }
 }
