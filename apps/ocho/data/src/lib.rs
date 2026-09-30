@@ -21,6 +21,7 @@ mod keymap;
 mod launch;
 mod markdown;
 mod model;
+mod notifications;
 mod palette;
 mod permissions;
 mod picker;

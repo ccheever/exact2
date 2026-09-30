@@ -19,7 +19,7 @@ component Manager
     doubleClick: action
     contextMenu: action
   view
-    column flex=1 min-width=0 min-height=0
+    column id="manager" flex=1 min-width=0 min-height=0
       // Header (ui.rs:1496): px_4 py_2, bottom border; the title row gap_3.
       column padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-bottom-color=t.border flex-shrink=0
         row align-items="center" gap=12
@@ -50,7 +50,7 @@ component Manager
                 when row.header != ""
                   text row.header padding-left=8 padding-right=8 padding-top=12 padding-bottom=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
                 // A row (ui.rs:1848): gap_3 px_3 py_1p5, rounded_md, a ring when selected and focused.
-                row testId=`row-${row.id}` align-items="flex-start" gap=12 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=6 border-style="solid" border-width=1 border-color=(row.selected and model.focused ? t.accent55 : "rgba(0,0,0,0)") background-color=(row.selected ? t.selected : (hoverId == `row:${row.id}` ? t.hover : "rgba(0,0,0,0)")) box-sizing="border-box" hover=hover(`row:${row.id}`) dblclick=doubleClick(`row:${row.id}`) contextmenu=contextMenu(`row:${row.id}`)
+                row id=`row-${row.id}` testId=`row-${row.id}` align-items="flex-start" gap=12 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=6 border-style="solid" border-width=1 border-color=(row.selected and model.focused ? t.accent55 : "rgba(0,0,0,0)") background-color=(row.selected ? t.selected : (hoverId == `row:${row.id}` ? t.hover : "rgba(0,0,0,0)")) box-sizing="border-box" hover=hover(`row:${row.id}`) dblclick=doubleClick(`row:${row.id}`) contextmenu=contextMenu(`row:${row.id}`, `row-${row.id}`)
                   button press=press(`row:${row.id}`) class=Reset display="flex" flex-direction="row" align-items="flex-start" gap=12 flex=1 min-width=0 color=t.text aria-label=row.title
                     // The badge column: 96 wide; chip px_1p5, rounded_sm, 11 medium, color at 15%.
                     row width=96 flex-shrink=0 justify-content="flex-start"

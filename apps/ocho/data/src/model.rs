@@ -338,6 +338,10 @@ pub struct Workspace {
     pub focus_id: String,
     /// The list row to scroll into view after this frame.
     pub scroll_to: String,
+    /// The window title last handed to the host.
+    pub window_title: String,
+    /// The sessions watched for notifications.
+    pub notifications: crate::notifications::Notifications,
 }
 
 impl Default for Workspace {
@@ -398,6 +402,8 @@ impl Workspace {
             hovered: None,
             focus_id: String::new(),
             scroll_to: String::new(),
+            window_title: String::new(),
+            notifications: Default::default(),
         }
     }
 
@@ -423,6 +429,19 @@ impl Workspace {
             Event::DoubleClick(id) => self.double_click(&id),
             Event::ContextMenu(id, x, y) => self.context_menu(&id, x, y),
             Event::Unknown => {}
+        }
+        self.sync_window_title();
+    }
+
+    /// "{tab} — Ocho" on a tab, "Ocho" on the manager (workspace.rs `window_title`).
+    pub fn sync_window_title(&mut self) {
+        let title = match self.tabs.active_tab() {
+            Some(tab) => format!("{} — Ocho", tab.title),
+            None => "Ocho".to_string(),
+        };
+        if title != self.window_title {
+            self.window_title = title.clone();
+            self.host(vec!["window-title".into(), title], String::new());
         }
     }
 
@@ -693,6 +712,54 @@ impl Workspace {
 
     fn apply_event(&mut self, mut event: FleetEvent) {
         let now = self.now;
+        // Notifications watch the sessions the event carries (notifications.rs `observe`).
+        let mut notes = Vec::new();
+        {
+            let settings = &self.settings;
+            let n = &mut self.notifications;
+            let mut watch = |machine: &Machine, sessions: &[Session]| {
+                for s in sessions {
+                    notes.extend(n.observe(machine, s, settings));
+                }
+            };
+            if let Some(state) = &event.state {
+                for m in &state.machines {
+                    if let Some(last) = &m.last {
+                        watch(m, &last.sessions);
+                    }
+                }
+            }
+            if let Some(m) = &event.machine {
+                if let Some(last) = &m.last {
+                    watch(m, &last.sessions);
+                }
+            }
+            if let Some(update) = &event.indicators {
+                if let Some(m) = self
+                    .state
+                    .machines
+                    .iter()
+                    .find(|m| m.id == update.machine_id)
+                {
+                    watch(m, &update.sessions);
+                }
+            }
+        }
+        for note in notes {
+            match note {
+                crate::notifications::Note::Post {
+                    kind,
+                    title,
+                    body,
+                    thread,
+                } => {
+                    self.host(vec!["notify".into(), title, thread, kind.into()], body);
+                }
+                crate::notifications::Note::Remove { thread } => {
+                    self.host(vec!["notify-remove".into(), thread], String::new());
+                }
+            }
+        }
         if !event.latest_provider_versions.is_empty() {
             self.latest_provider_versions = event.latest_provider_versions.clone();
         }

@@ -63,6 +63,7 @@ pub const RAIL_PAGE: Shape = Record(&[
 
 pub const RAIL_TAB: Shape = Record(&[
     ("key", Str),
+    ("slug", Str),
     ("title", Str),
     ("machine", Str),
     ("badge", Str),

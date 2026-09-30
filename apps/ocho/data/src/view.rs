@@ -162,6 +162,8 @@ fn rail_tab(ws: &Workspace, theme: &Theme, i: usize) -> Json {
     };
     json!({
         "key": tab.key,
+        // The key without ':' (a driver reads `id:selector` in a target).
+        "slug": tab.key.replace(':', "-"),
         "title": title,
         "machine": machine,
         "badge": badge,

@@ -39,7 +39,7 @@ component Rail
           when length(model.tabs) == 0
             text model.hint padding-left=16 padding-right=16 padding-bottom=4 font-size=11 line-height="18px" color=t.muted
           each tab in model.tabs key=tab.key
-            column testId=`tab-${tab.key}` position="relative" margin-left=8 margin-right=8 border-radius=6 border-style="solid" border-width=1 border-color=(tab.active and model.nav ? t.warn70 : "rgba(0,0,0,0)") background-color=(tab.dropInto ? t.accent18 : (tab.active ? t.selectedBg : (hoverId == `tab:${tab.key}` ? t.hoverBg : "rgba(0,0,0,0)"))) box-sizing="border-box" hover=hover(`tab:${tab.key}`) pan=panned(`tab:${tab.key}`) touch-action="none" contextmenu=contextMenu(`tab:${tab.key}`) dblclick=doubleClick(`tab:${tab.key}`)
+            column id=`tab-${tab.slug}` testId=`tab-${tab.slug}` position="relative" margin-left=8 margin-right=8 border-radius=6 border-style="solid" border-width=1 border-color=(tab.active and model.nav ? t.warn70 : "rgba(0,0,0,0)") background-color=(tab.dropInto ? t.accent18 : (tab.active ? t.selectedBg : (hoverId == `tab:${tab.key}` ? t.hoverBg : "rgba(0,0,0,0)"))) box-sizing="border-box" hover=hover(`tab:${tab.key}`) pan=panned(`tab:${tab.key}`) touch-action="none" contextmenu=contextMenu(`tab:${tab.key}`, `tab-${tab.slug}`) dblclick=doubleClick(`tab:${tab.key}`)
               // The drop line (2 px, accent) above or below (ui.rs:1071).
               when tab.dropBefore
                 box position="absolute" top=-1 left=(8 + tab.depth * 14) right=6 height=2 border-radius=999 background-color=t.accent
@@ -56,7 +56,7 @@ component Rail
                     when tab.imessage
                       Icon(name="messages", size=13, color="#30d158")
                     when tab.hasChildren or tab.folder
-                      button press=press(`fold:${tab.key}`) testId=`fold-${tab.key}` class=Reset flex-shrink=0 padding=0 aria-label=(tab.collapsed ? "Expand" : "Collapse")
+                      button press=press(`fold:${tab.key}`) testId=`fold-${tab.slug}` class=Reset flex-shrink=0 padding=0 aria-label=(tab.collapsed ? "Expand" : "Collapse")
                         Icon(name=(tab.collapsed ? "chevron-right" : "chevron-down"), size=12, color=t.muted)
                   when tab.working or tab.status != ""
                     row align-items="center" min-width=0 font-size=11 line-height="15px" padding-left=(tab.badge != "" ? 22 : 0)
@@ -70,7 +70,7 @@ component Rail
                         text tab.status class=Ellipsis color=t.muted
               // Close: 18 square at top 2 / right 2, on the active row or hover (ui.rs:1250).
               when tab.active or hoverId == `tab:${tab.key}` or hoverId == `close:${tab.key}`
-                button press=press(`close:${tab.key}`) testId=`close-${tab.key}` hover=hover(`close:${tab.key}`) class=Reset position="absolute" top=2 right=2 width=18 height=18 display="flex" align-items="center" justify-content="center" border-radius=2 background-color=(hoverId == `close:${tab.key}` ? t.border : (tab.active ? t.selectedBg : t.hoverBg)) color=(hoverId == `close:${tab.key}` ? t.text : t.muted) aria-label="Close tab"
+                button press=press(`close:${tab.key}`) testId=`close-${tab.slug}` hover=hover(`close:${tab.key}`) class=Reset position="absolute" top=2 right=2 width=18 height=18 display="flex" align-items="center" justify-content="center" border-radius=2 background-color=(hoverId == `close:${tab.key}` ? t.border : (tab.active ? t.selectedBg : t.hoverBg)) color=(hoverId == `close:${tab.key}` ? t.text : t.muted) aria-label="Close tab"
                   text "×"
           // Dropping below the last row moves a tab to the end (ui.rs:1298).
           box testId="rail-tail" flex=1 min-height=16 margin-left=8 margin-right=8 border-radius=6 background-color=(model.resizing and false ? t.accent : "rgba(0,0,0,0)")

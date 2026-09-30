@@ -260,7 +260,11 @@ impl Workspace {
         let (anchor, x, right) = match popup.kind {
             PopupKind::ViewMenu => ("view-menu".to_string(), 0.0, x),
             PopupKind::RowMenu(ix) => (format!("more-{}", self.row_id(ix)), x, 0.0),
-            PopupKind::TabMenu(pos) => (format!("tab-{}", self.tabs.tabs[pos].key), x, 0.0),
+            PopupKind::TabMenu(pos) => (
+                format!("tab-{}", self.tabs.tabs[pos].key.replace(':', "-")),
+                x,
+                0.0,
+            ),
             _ => (String::new(), x, 0.0),
         };
         let kind = match popup.kind {

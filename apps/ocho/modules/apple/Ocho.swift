@@ -207,7 +207,12 @@ final class DesktopMirror {
     private var lastWritten = ""
     var onChange: (() -> Void)?
 
-    var url: URL { URL(fileURLWithPath: FleetHome.path).appendingPathComponent("desktop.json") }
+    /// `$OCHO_DESKTOP_FILE` stands in for the real file (a drive's sandbox:
+    /// closing a tab there must not touch the desktop.json the other Ocho keeps).
+    var url: URL {
+        if let path = ProcessInfo.processInfo.environment["OCHO_DESKTOP_FILE"], !path.isEmpty { return URL(fileURLWithPath: path) }
+        return URL(fileURLWithPath: FleetHome.path).appendingPathComponent("desktop.json")
+    }
 
     func start() {
         reload(announce: false)
@@ -317,7 +322,13 @@ final class JobRunner {
                     finish(["status": 0, "stderr": "", "stdout": NSPasteboard.general.string(forType: .string) ?? ""])
                 }
             case "notify":
-                Notifier.post(title: argv.count > 1 ? argv[1] : "Ocho", body: stdin, thread: argv.count > 2 ? argv[2] : "")
+                DispatchQueue.main.async {
+                    // notifications.rs: nothing while the app is in front.
+                    if !NSApp.isActive { Notifier.post(title: argv.count > 1 ? argv[1] : "Ocho", body: stdin, thread: argv.count > 2 ? argv[2] : "") }
+                    finish(["status": 0, "stderr": "", "stdout": ""])
+                }
+            case "notify-remove":
+                Notifier.remove(thread: argv.count > 1 ? argv[1] : "")
                 finish(["status": 0, "stderr": "", "stdout": ""])
             case "close-terminal":
                 DispatchQueue.main.async {
@@ -387,7 +398,18 @@ enum Notifier {
         content.body = body
         content.sound = .default
         if !thread.isEmpty { content.threadIdentifier = thread }
-        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        let id = UUID().uuidString
+        if !thread.isEmpty { remove(thread: thread); posted[thread] = id }
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
+    private static var posted: [String: String] = [:]
+
+    /// The thread's notification goes (the session runs again).
+    static func remove(thread: String) {
+        guard let id = posted.removeValue(forKey: thread) else { return }
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
     }
 }
 

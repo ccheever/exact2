@@ -63,6 +63,7 @@ shape RailPage
   selected: bool
 shape RailTab
   key: string
+  slug: string
   title: string
   machine: string
   badge: string
@@ -290,10 +291,19 @@ component Ocho
   // so the card can hang off the trigger as GPUI's anchored popups do.
   action pressAt(id: string, anchor: string) writes ui
     send ui = dispatch("press-at", id, "", frame(anchor).x, frame(anchor).y)
+  // The keys that move focus are the manager's `/` (⌘F too, below) into the
+  // search box and Enter / Escape out of it: the model decides the rest.
   action keyDown(name: string) writes ui
     send ui = dispatch("key", name, "", 0, 0)
+    if name == "/" and not vm.onTab and vm.overlay.kind == "" and vm.popup.kind == ""
+      focus("search")
   action searchKeyDown(name: string) writes ui
     send ui = dispatch("key-at", name, "search", 0, 0)
+    if name == "Enter" or name == "Escape"
+      focus("manager")
+  action focusSearch writes ui
+    send ui = dispatch("press", "key:meta+f", "", 0, 0)
+    focus("search")
   action overlayKeyDown(name: string) writes ui
     send ui = dispatch("key-at", name, "overlay", 0, 0)
   action terminalKeyDown(name: string) writes ui
@@ -309,8 +319,10 @@ component Ocho
     send ui = dispatch("pan", id, "", dx, dy)
   action doubleClick(id: string) writes ui
     send ui = dispatch("dblclick", id, "", 0, 0)
-  action contextMenu(id: string) writes ui
-    send ui = dispatch("contextmenu", id, "", 0, 0)
+  // A right-click has no pointer position in Contract (LLP 1005 §5): the menu
+  // opens a little inside the node's own frame instead.
+  action contextMenu(id: string, anchor: string) writes ui
+    send ui = dispatch("contextmenu", id, "", frame(anchor).x + 24, frame(anchor).y + 24)
   // One tick a second (workspace.rs: toasts fade, indicators animate, the
   // window's size rides along so the rail's clamp knows it).
   action tick writes ui, clock
@@ -399,7 +411,7 @@ component Ocho
           box width=2 height=2
         button press=press("key:meta+shift+e") testId="key-meta-shift-e" aria-keyshortcuts="Meta+Shift+E" aria-label="Enter NAV" class=Reset width=2 height=2 flex-shrink=0
           box width=2 height=2
-        button press=press("key:meta+f") testId="key-meta-f" aria-keyshortcuts="Meta+F" aria-label="Search" class=Reset width=2 height=2 flex-shrink=0
+        button press=focusSearch testId="key-meta-f" aria-keyshortcuts="Meta+F" aria-label="Search" class=Reset width=2 height=2 flex-shrink=0
           box width=2 height=2
         button press=press("key:ctrl+d") testId="key-ctrl-d" aria-keyshortcuts="Control+D" aria-label="Half page down" class=Reset width=2 height=2 flex-shrink=0
           box width=2 height=2
