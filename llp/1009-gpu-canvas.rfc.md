@@ -261,6 +261,18 @@ stage (`setObjectBytes`, `setMeshBytes`, `setVertexBytes`,
 pipeline change (about 8 ms/s), which is what the staging cost. It returns
 if wgpu sets only the stages that read them.
 
+**A per-frame uniform is written in place** (2026-09-29, with D7).
+`exact_gpu::FrameUniform` is what a surface writes each frame instead of
+`queue.write_buffer`: on Apple a ring of four shared-storage buffers
+imported into wgpu as uniforms, the frame writing the next slot's memory and
+binding that slot's bind group — a canvas holds at most three drawables, so
+the slot written was last read by a frame whose drawable has come back, its
+commands complete; elsewhere one buffer written through the queue. No
+staging buffer per write, and no pending-writes command buffer in the tick
+of a surface that writes only this. Caltrain's aurora, glass and stack and
+Weatherlight use it; the engine's per-frame buffers still write through the
+queue.
+
 **The extension point for animatable properties** (the DEFERRED clause
 "animatable properties are extensible"): committed state is not
 presentation state (LLP 1002), so "a property is more state" would not
@@ -339,6 +351,21 @@ The spec (1009.000) transcribes the landing.
   late 6.9 → 5.2, 24k pt/s 93.0 → 103.7, CPU 663 → 657. GPU readbacks
   (Caltrain, Weatherlight, the engine's core and compressed suites, 100
   images) are byte-identical to origin/main.
+- **At rest, 2026-09-29** (iPhone 13 Pro Max, the Extra Heavy feed,
+  `rest 0`, three interleaved rounds each, medians). A GPU canvas that does
+  not ask for a frame already records and submits nothing; at rest the
+  canvases' work is the shader rows animating at 120 Hz, as SwiftUI's and
+  UIKit's do (UIKit's `MTKView` draw is about 6 ms/s of its main thread per
+  row). What was more than the drawing: `write_buffer`'s staging (about
+  8 ms/s a row), `applicationState` read every tick and starved pass
+  (3–12 ms/s), and one starved pass per landed drawable, each walking every
+  canvas's ancestors again (`onScreen`, 24 ms/s with three rows). With
+  `FrameUniform`, the state read once per change and one coalesced starved
+  pass that trusts the tick's judgment: the 19-kind feed's main thread
+  59 → 49 ms/s (CPU 108 → 93), the shader-only feed's 217 → 160
+  (CPU 429 → 350), 120 fps and no late frames in both. Predicted from the
+  traces: about 51 and 187 for the first two changes, which measured 52 and
+  184 alone.
 - **macOS, 2026-09-28/29** (the same feed at rest, five canvases on
   screen; `~/bench/xheavy/gpusubmit/mac`). With the drawable acquired on
   the main thread, 54% of the main thread's wall-clock samples were waiting
