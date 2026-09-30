@@ -406,39 +406,11 @@ enum FontRegistry {
     }
 }
 
-/// Line breaks the kernel's measurements produced, published by the
-/// measuring engine on the owner thread for the painting engine on main
-/// (LLP 1072 §8.1): plain values under one lock, keyed by the paragraph's
-/// content and width. A font install empties it.
-final class BreakBoard: @unchecked Sendable {
-    private struct Key: Hashable { let spec: Spec; let width: CGFloat }
-    private let lock = NSLock()
-    private var breaks: [Key: LineGeometry] = [:]
-    private var order: [Key] = []
-    private static let limit = 512
-    func put(_ spec: Spec, width: CGFloat, _ value: LineGeometry) {
-        let key = Key(spec: spec, width: width)
-        lock.lock(); defer { lock.unlock() }
-        guard breaks[key] == nil else { return }
-        if order.count >= Self.limit { breaks.removeValue(forKey: order.removeFirst()) }
-        order.append(key)
-        breaks[key] = value
-    }
-    func get(_ spec: Spec, width: CGFloat) -> LineGeometry? {
-        lock.lock(); defer { lock.unlock() }
-        return breaks[Key(spec: spec, width: width)]
-    }
-    func clear() {
-        lock.lock(); defer { lock.unlock() }
-        breaks.removeAll(keepingCapacity: true); order.removeAll(keepingCapacity: true)
-    }
-}
-
 /// A session's text: two engines of one kind, never shared (LLP 1072 §8.1).
 /// This one paints, on main; its `measurer` answers the kernel's
 /// measurements on the owner thread. Each keeps its own fonts, shaped text
-/// and caches; what painting reuses from measuring crosses as plain line
-/// breaks (`BreakBoard`).
+/// and caches; what painting reuses from measuring crosses as plain values
+/// (`TextAnswers`): each measured paragraph's metrics and line breaks.
 final class TextEngine {
     #if os(macOS)
     var readerParagraphs: [UInt32: RegionReaderParagraph] = [:] {
@@ -457,8 +429,14 @@ final class TextEngine {
     private(set) var measurer: TextEngine?
     /// The painting engine a measurer belongs to.
     private(set) weak var painter: TextEngine?
-    /// Where the measurer publishes breaks the painter reuses.
-    private var board: BreakBoard?
+    /// Where the measurer publishes what it measured: it answers from there
+    /// before typesetting, and the painter takes its line breaks there.
+    private(set) var answers: TextAnswers?
+    /// This engine's key for a lookup there (`TextAnswerKey`), reused.
+    private var answerKey: [UInt8] = []
+    /// Whether this engine is a measurer whose answers are published: its
+    /// residency then keeps shaped text only, the table the answers.
+    private var publishes: Bool { painter != nil && (answers?.limit ?? 0) > 0 }
     var fonts: [String: PlatformFont] = [:]
     private var residency: TextResidency
     var residencyStats: TextResidencyStats { residency.stats }
@@ -513,12 +491,14 @@ final class TextEngine {
 
     /// A painting engine with its measurer.
     static func pair(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
-                     bundled: @escaping (String) -> URL? = { _ in nil }) -> TextEngine {
+                     bundled: @escaping (String) -> URL? = { _ in nil },
+                     answerBytes: Int = TextAnswers.defaultLimit) -> TextEngine {
         let painter = TextEngine(resolve: resolve, read: read, bundled: bundled)
         let measurer = TextEngine(resolve: resolve, read: read, bundled: bundled)
-        let board = BreakBoard()
-        painter.measurer = measurer; painter.board = board
-        measurer.painter = painter; measurer.board = board
+        let answers = TextAnswers(limit: answerBytes)
+        painter.measurer = measurer; painter.answers = answers
+        measurer.painter = painter; measurer.answers = answers
+        measurer.residency.keepsAnswers = !measurer.publishes
         return painter
     }
     /// The context the kernel's measure and font hooks get: the measurer's.
@@ -579,6 +559,7 @@ final class TextEngine {
         #endif
         fonts.removeAll(keepingCapacity: true)
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
+        residency.keepsAnswers = !publishes
         dropMeasuredBreaks()
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
@@ -811,7 +792,7 @@ final class TextEngine {
     func measuredBreaks(_ spec: Spec, width: CGFloat) -> LineGeometry? {
         let identity = residency.identity(spec)
         if let kept = measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)] { return kept }
-        if let published = board?.get(identity.geometry, width: width) { return published }
+        if let published = publishedLines(identity, width: width) { return published }
         if let measured = residency.geometry(identity, width: width) { return LineGeometry(measured) }
         // Scalar answers keep lines only for unclamped text (TextResidency).
         return residency.answerLines(identity, width: width).map { LineGeometry(ranges: $0.0, baselines: $0.1) }
@@ -836,7 +817,7 @@ final class TextEngine {
 
     /// A new identity namespace (a font catalog, a restored checkpoint) keys nothing here.
     private func dropMeasuredBreaks() {
-        board?.clear()
+        answers?.clear()
         namespace += 1
         measuredBreakCache.removeAll(keepingCapacity: true)
         measuredBreakOrder.removeAll(keepingCapacity: true)
@@ -844,14 +825,31 @@ final class TextEngine {
 
     private func keepBreaks(_ p: Paragraph, identity: TextIdentity, width: CGFloat) {
         let key = MeasuredBreakKey(token: identity.token, width: width)
-        guard measuredBreakCache[key] == nil else { return }
+        // Published again when the table let it go: a put it already holds is a touch.
+        if let kept = measuredBreakCache[key] { publish(identity, offer: TextAnswerKey.offer(width: width), p, lines: kept); return }
         if measuredBreakOrder.count >= Self.measuredBreakLimit {
             measuredBreakCache.removeValue(forKey: measuredBreakOrder.removeFirst())
         }
         measuredBreakOrder.append(key)
         let geometry = LineGeometry(p)
         measuredBreakCache[key] = geometry
-        if painter != nil { board?.put(identity.geometry, width: width, geometry) }
+        publish(identity, offer: TextAnswerKey.offer(width: width), p, lines: geometry)
+    }
+
+    /// The measurer's answer for `identity` at an offer, for both engines.
+    private func publish(_ identity: TextIdentity, offer: UInt64, _ p: Paragraph, lines: LineGeometry?) {
+        publish(identity, offer: offer, ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)), lines: lines)
+    }
+    private func publish(_ identity: TextIdentity, offer: UInt64, _ metrics: ExactMetrics, lines: LineGeometry?) {
+        guard publishes, let answers else { return }
+        let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
+        answers.put(hash: hash, key: answerKey, offer: offer, metrics: metrics, lines: lines)
+    }
+    /// The line breaks the measurer published for `identity` at `width`.
+    private func publishedLines(_ identity: TextIdentity, width: CGFloat) -> LineGeometry? {
+        guard let answers else { return nil }
+        let hash = TextAnswerKey.write(identity.geometry, into: &answerKey)
+        return answers.lines(hash: hash, key: answerKey, width: width)
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
@@ -872,7 +870,7 @@ final class TextEngine {
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
         let ranges = spec.lineClamp == 0
             ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.ranges
-                ?? (painter == nil ? board?.get(identity.geometry, width: width)?.ranges : nil)
+                ?? (painter == nil ? publishedLines(identity, width: width)?.ranges : nil)
                 ?? residency.answerLines(identity, width: width)?.0 : nil
         let p = layout(shape, width: width, breaks: breaks, ranges: ranges)
         shape.lastParagraph = p
@@ -1193,12 +1191,25 @@ final class TextEngine {
         if let pending = readerMeasureOnUI(request) { return pending }
         #endif
         let lookupStarted = CACurrentMediaTime()
-        let knownIdentity = residency.borrowedIdentity(request)
         let intrinsic = request.width < 0
+        let offer = request.width == EXACT_MIN_CONTENT ? TextAnswerKey.minContent
+            : intrinsic ? TextAnswerKey.maxContent : TextAnswerKey.offer(width: CGFloat(request.width))
+        // What this measurer answered before, whatever its residency still
+        // holds: no identity, shape or paragraph is touched for it.
+        if publishes, let answers, request.exclusion_count == 0, request.markup == 0 {
+            let hash = TextAnswerKey.write(request, into: &answerKey)
+            if let metrics = answers.metrics(hash: hash, key: answerKey, offer: offer) {
+                measureHits += 1
+                measureSeconds += CACurrentMediaTime() - lookupStarted
+                return metrics
+            }
+        }
+        let knownIdentity = residency.borrowedIdentity(request)
         let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent
             : intrinsic ? .maxContent : .definite(Double(request.width == 0 ? 0 : request.width).bitPattern)
+        // A measurer whose answers are published keeps none in its residency.
         if request.exclusion_count == 0, let identity = knownIdentity {
-            if let metrics = residency.scalar(identity, kind: kind) {
+            if !publishes, let metrics = residency.scalar(identity, kind: kind) {
                 measureHits += 1
                 measureSeconds += CACurrentMediaTime() - lookupStarted
                 return metrics
@@ -1238,7 +1249,7 @@ final class TextEngine {
             return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         }
         let identity = knownIdentity ?? residency.identityAfterBorrowedMiss(spec)
-        if knownIdentity == nil, let metrics = residency.scalar(identity, kind: kind) {
+        if knownIdentity == nil, !publishes, let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1
             measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
             return metrics
@@ -1257,7 +1268,9 @@ final class TextEngine {
         } else { p = paragraph(spec, identity: identity, width: width) }
         if !intrinsic { keepBreaks(p, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
-        if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
+        if intrinsic {
+            if publishes { publish(identity, offer: offer, metrics, lines: nil) } else { residency.put(identity, kind: kind, metrics: metrics) }
+        }
         measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
         return metrics
     }

@@ -281,8 +281,10 @@ that share nothing:
   caches.
 - **What crosses** from a measurement to painting is immutable
   `LineGeometry` (the nested-list lane's type, `perf/clamp-raster`) in a
-  locked `BreakBoard`. It is keyed by the paragraph's metric content and
-  width, and a font install empties it.
+  locked table, with the metrics measured there (`TextAnswers`, §8.1 "As
+  built"; first a 512-entry board of breaks). It is keyed by the
+  paragraph's metric content and the width offered, and a font install
+  empties it.
 - **Fonts.** The font hook installs the catalog in the measurer on the
   owner, and in the painter on main while the owner waits.
 - **Owner-side work.** Checkpoints, font commits and cache trims reach the
@@ -793,6 +795,46 @@ r2 splits `TextEngine`:
   painting's.
 - **Font generation:** bumped by an `exact_set_fonts` install or a catalog
   change. A publication with an old generation is not used.
+
+**As built, 2026-09-30: measured answers.** What measurement publishes is
+each paragraph's answer at each size the kernel offers it: the metrics, and
+at a definite width the line breaks (`TextAnswers.swift`). Both engines read
+it, under its one lock:
+- **The measurer answers from it first.** The kernel offers a new row's
+  paragraph about ten sizes (thirty calls for an inbox row's three
+  paragraphs). A paragraph measured before is answered with no identity,
+  shape or typesetter made, whatever the measurer's residency still holds.
+  Before, the residency's 4,096 cold entries were the memory: a
+  thousand-message list's travel evicted them, and each row coming back was
+  typeset again (8–9 of its 30 calls; the owner's cost a row 0.22 → 0.45 ms
+  on an iPad Pro M1). The measurer's residency now keeps shaped text only:
+  the table replaces its list of answers, it is not a second one.
+- **The painter takes its breaks from it.** Before, a paragraph the
+  measurer answered from its own cache published nothing, and the board
+  held 512: main typeset half of what a fast list painted a second time, to
+  tell the raster job where its lines end.
+- **The key is the paragraph's metric content as bytes**: its runs' UTF-8
+  and the fields that move glyphs, the strut, the wrapping. It is compared
+  exactly, and built the same from the kernel's request (before any
+  `String` is made of it) and from the painter's `Spec`. A definite width
+  is keyed at the kernel's `f32`: the painter's width came through the
+  batch's decimal text, and unless it is a quarter of a point it is not the
+  double of the kernel's `f32`, so as an exact double it never matched (a
+  flexed label beside an intrinsic one).
+- **Bounded by bytes**: 2.5 MB, least recently used first out, about 3,500
+  paragraphs of a sentence or two at two or three offers each. The 19-kind
+  fling ends with 1,400 paragraphs in it, 0.7 MB.
+- **An answer that is gone is only typeset again.** What is measured and
+  what is painted are what they are without the table
+  (`OwnerTextIOSTests`: 160 paragraphs through a 16 KB table, each one's
+  metrics and breaks against an engine that has none; the owner publishing
+  while main reads, under the Thread Sanitizer). A font catalog change
+  empties it from each engine's reset, in either order.
+- **Measured** (iPad Pro M1, 3 rounds interleaved, the inbox's fling):
+  48k pt/s 106.9/102.0 → 119.9/117.0 fps, 96k 101.0/102.0 → 106.5/106.0;
+  the owner's cost for a 9-row rescue 3.5–4.0 → 1.85 ms; main typesets
+  none of what it paints (6–9 paragraphs a frame before). The 19-kind
+  fling's fps is unchanged, its main thread 7–23 ms/s lower from 6k to 24k.
 
 **macOS, in stage 1:**
 - `readerMeasure` (`RegionReaderMac.swift:428`) runs inside `measure`, now

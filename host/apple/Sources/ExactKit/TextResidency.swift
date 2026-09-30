@@ -321,6 +321,9 @@ struct TextResidency {
     // and identity caps independently bound metadata between these visits.
     private static let cleanupQuota = 1
     let softTargetBytes: Int
+    /// Whether shaped text that goes leaves its answer here. A measurer
+    /// whose answers are published (`TextAnswers`) keeps none of its own.
+    var keepsAnswers = true
     private let catalog = TextCatalogIdentity()
     /// One entry in `slab`. Its links are `links` at the same index: the
     /// recency list of every entry and the list of cold ones. A key per link
@@ -483,7 +486,7 @@ struct TextResidency {
                 // Layout can revisit an exploratory width after its CTLines
                 // were retired. Keep its tiny answer under the same bounded
                 // cold policy, without retaining another full paragraph.
-                if case .paragraph(let paragraph) = entry(old)?.owned {
+                if keepsAnswers, case .paragraph(let paragraph) = entry(old)?.owned {
                     let metrics = ExactMetrics(width: Float(paragraph.width), height: Float(paragraph.height),
                                                baseline: Float(paragraph.firstBaseline))
                     removeCold(old)
@@ -662,7 +665,7 @@ struct TextResidency {
     }
     /// A cold paragraph at a width leaves its answer; anything else just goes.
     private mutating func evict(at i: Int32) {
-        guard case .paragraph(let p)? = slab[Int(i)]?.cold, let key = p.residencyKey, let shape = p.shape,
+        guard keepsAnswers, case .paragraph(let p)? = slab[Int(i)]?.cold, let key = p.residencyKey, let shape = p.shape,
               Double(bitPattern: key.widthBits).isFinite else { removeCold(at: i); return }
         removeCold(at: i)
         let answer = TextEntryKey.scalar(shape.identity.token, .definite(key.widthBits))
