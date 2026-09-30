@@ -1117,7 +1117,7 @@ const ADOPT_MS = 16, SLICE_MS = 8;
 let AdoptBy = Infinity;
 const Lazy = [], LazyRows = new Map();
 let LazyAt = 0, LazyTask = null;
-const LAZY_EVENTS = ["pointerdown", "mousedown", "touchstart", "click", "keydown", "input", "change", "focusin"];
+const LAZY_EVENTS = ["pointerdown", "mousedown", "touchstart", "click", "keydown", "beforeinput", "input", "change", "focusin"];
 // Passive: a waiting row must never make the page's touches wait for script.
 const LAZY_OPTS = { capture: true, passive: true };
 function lazy(x) { Lazy.push(x); LazyRows.set(x[1].start, x); }
@@ -1148,9 +1148,10 @@ function lazyDone() {
   const root = document.getElementById("exact-root");
   for (const t of LAZY_EVENTS) root?.removeEventListener(t, onLazy, LAZY_OPTS);
 }
-function onLazy(ev) {
-  for (let n = ev.target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); break; } }
+function adoptAt(target) {
+  for (let n = target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); break; } }
 }
+const onLazy = ev => adoptAt(ev.target);
 function slice() {
   LazyTask = null;
   const end = performance.now() + SLICE_MS;
@@ -1194,7 +1195,9 @@ export function mount(f) {
   if (Lazy.length) { inflight.n++; for (const t of LAZY_EVENTS) root.addEventListener(t, onLazy, LAZY_OPTS); LazyTask = post(slice); }
   root.dataset.bootMs = String(Math.round(performance.now()));
   // Replayed once, in order, on the same elements (LLP 1048.001 D5), each
-  // edited control first showing what the reader left in it.
+  // edited control first showing what the reader left in it (its row, if it
+  // waits for a slice, adopted first, so adoption doesn't write over it).
+  for (const t of early) adoptAt(t.target);
   for (const [e, v, c] of shown) if (e.isConnected) { if (e.type === "checkbox" || e.type === "radio") e.checked = c; else if (e.type !== "file") e.value = v; }
   for (const t of early) if (t.target.isConnected) t.type === "click" ? t.target.click() : t.target.dispatchEvent(new Event(t.type, { bubbles: true }));
 }
