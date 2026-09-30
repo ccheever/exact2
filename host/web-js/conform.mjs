@@ -8,7 +8,7 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--linux] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
 //   (the JS builds go to <out>/dist/<target>)
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
@@ -20,6 +20,17 @@
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
 //   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
+//   --linux adds a second reference beside the wasm page: the Rust runner
+//   headless on the Linux host (`agent.mjs linux`, the data app's release
+//   binary, built by --build), driven by the same steps on the same plan,
+//   its state and tree compared with the wasm page's (`linux` failures).
+//   Layout and pixels are the Linux host's own and are not compared. The
+//   only normalization is the route stack's browser location (`linuxView`);
+//   a target whose app has no Linux host, or a plan that says `// linux:
+//   <why>`, is reported as not compared (`// linux: state only (<why>)`
+//   compares its state and not its tree), and the comparison stops at the
+//   first step the Linux host has no delivery for (a pointer gesture, a
+//   wheel, a list's `into`, the browser's history) or that `LINUX_APART` names.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -54,17 +65,17 @@ function serve(dir) {
 
 // ---------------------------------------------------------------- comparisons
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', (n.handlers ?? []).join(' ')].join('|'));
-function diffLists(a, b, what) {
+function diffLists(a, b, what, other = 'js') {
   const out = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) { out.push(`${what} #${i}: wasm «${a[i] ?? '—'}» js «${b[i] ?? '—'}»`); if (out.length >= 4) { out.push(`${what}: … (${a.length} vs ${b.length} entries)`); break; } }
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) { out.push(`${what} #${i}: wasm «${a[i] ?? '—'}» ${other} «${b[i] ?? '—'}»`); if (out.length >= 4) { out.push(`${what}: … (${a.length} vs ${b.length} entries)`); break; } }
   return out;
 }
-function diffJSON(a, b, path, out) {
+function diffJSON(a, b, path, out, other = 'js') {
   if (out.length >= 8) return;
   if (JSON.stringify(a) === JSON.stringify(b)) return;
   if (a && b && typeof a === 'object' && typeof b === 'object' && Array.isArray(a) === Array.isArray(b)) {
-    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJSON(a[k], b[k], `${path}.${k}`, out);
-  } else out.push(`${path}: wasm ${JSON.stringify(a)?.slice(0, 120)} js ${JSON.stringify(b)?.slice(0, 120)}`);
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJSON(a[k], b[k], `${path}.${k}`, out, other);
+  } else out.push(`${path}: wasm ${JSON.stringify(a)?.slice(0, 120)} ${other} ${JSON.stringify(b)?.slice(0, 120)}`);
 }
 function boxes(l) { const m = new Map(); for (const n of l.nodes) if (n.testId && !m.has(n.testId)) m.set(n.testId, n); return m; }
 function diffLayout(a, b) {
@@ -94,6 +105,35 @@ function diffPng(a, b, sideBySide, masks = []) {
 }
 const STATE_KEYS = ['slots', 'derives', 'resources'];
 
+// The wasm page's route stack carries the browser's location; the Linux
+// host has none. So, and only in a route stack (entries shaped { id, name,
+// url, tab, params } and the stack's `next`): an entry's `url` loses the
+// query parameters the agent's harness puts in the page's address (agent,
+// seed, locale, timeZone, epoch); entry ids are renumbered in the order the
+// state lists them (the web runner's boot adopts the page's history entry,
+// allocating ids in another order and taking ids a Linux boot does not);
+// and the stack's `next` id is dropped. Everything else is
+// compared as is.
+const HARNESS = ['agent', 'seed', 'locale', 'timeZone', 'epoch'];
+const isEntry = v => v && typeof v === 'object' && !Array.isArray(v) && ['id', 'name', 'url', 'tab', 'params'].every(k => k in v);
+function linuxView(state) {
+  const rank = new Map();
+  const walk = (v, f) => { if (v && typeof v === 'object') { f(v); for (const x of Object.values(v)) walk(x, f); } };
+  walk(state, v => { if (isEntry(v) && typeof v.id === 'number' && !rank.has(v.id)) rank.set(v.id, rank.size); });
+  const map = v => {
+    if (!v || typeof v !== 'object') return v;
+    if (Array.isArray(v)) return v.map(map);
+    const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, map(x)]));
+    if (isEntry(v)) {
+      if (rank.has(v.id)) o.id = rank.get(v.id);
+      if (typeof v.url === 'string') { const u = new URL(v.url, 'http://x'); for (const k of HARNESS) u.searchParams.delete(k); o.url = u.pathname + u.search; }
+    }
+    if (Array.isArray(v.tabs) && 'next' in v) delete o.next;
+    return o;
+  };
+  return map(state);
+}
+
 // ---------------------------------------------------------------- one target
 async function target(t, report) {
   const fail = (step, what) => report.failures.push({ target: t.name, step, what });
@@ -118,7 +158,7 @@ async function target(t, report) {
 }
 
 async function drive(t, report, fail, dir, ws, js) {
-  let W, J;
+  let W, J, L;
   try {
     // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
@@ -126,6 +166,20 @@ async function drive(t, report, fail, dir, ws, js) {
     catch (e) { return fail('wasm-open', e.message.split('\n')[0]); }
     try { J = await open({ host: 'web', app: t.app, ...facts, url: js.url }); }
     catch (e) { return fail('js-open', e.message.split('\n')[0]); }
+    const linux = t.urls ? null : linuxFor(t);
+    if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
+    else if (linux) {
+      // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
+      try { L = await open({ host: 'linux', app: t.app, ...facts, size: WEB_SIZE, ...(t.contract ? { plan: t.plan } : {}) }); }
+      catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
+    }
+    // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
+    const onLinux = async (step, fn) => {
+      if (!L) return;
+      const apart = LINUX_APART[t.name];
+      if (apart && step === apart[0]) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${apart[1]}` }); await L.close?.().catch(() => {}); L = null; return; }
+      try { await fn(L); } catch (e) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${e.message.split('\n')[0]}` }); await L.close?.().catch(() => {}); L = null; }
+    };
     const compare = async step => {
       let st = 0;
       const [sw, sj] = await Promise.all([W.state(), J.state().catch(e => ({ error: e.message }))]);
@@ -133,6 +187,13 @@ async function drive(t, report, fail, dir, ws, js) {
       else { const o = []; for (const k of STATE_KEYS) diffJSON(sw[k], sj[k], k, o); o.forEach(x => fail(step, 'state ' + x)); st += o.length; }
       const [tw, tj] = await Promise.all([W.tree(), J.tree()]);
       const o2 = diffLists(norm(tw), norm(tj), 'tree'); o2.forEach(x => fail(step, x)); st += o2.length;
+      await onLinux(step, async L => {
+        const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [], vw = linuxView(sw), vl = linuxView(sl);
+        for (const k of STATE_KEYS) diffJSON(vw[k], vl[k], k, o, 'linux');
+        if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
+        o.forEach(x => fail(step, 'linux ' + x));
+        report.steps.push({ target: t.name, step, reference: 'linux', differences: o.length });
+      });
       const [lw, lj] = await Promise.all([W.layout(), J.layout()]);
       const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');
@@ -158,7 +219,7 @@ async function drive(t, report, fail, dir, ws, js) {
     // <target>` and `up` (a held contact: press feedback) — each compared
     // after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
-    const settle = () => Promise.all([W.clock('settle'), J.clock('settle')]);
+    const settle = () => Promise.all([W.clock('settle'), J.clock('settle'), onLinux('settle', L => L.clock('settle'))]);
     await settle();
     let tree = await compare('boot');
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
@@ -166,6 +227,7 @@ async function drive(t, report, fail, dir, ws, js) {
       const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; }
       try { await run(J); } catch (e) { fail(line, `js: ${e.message.split('\n')[0]}`); continue; }
+      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
       tree = await compare(line);
     }
@@ -178,16 +240,17 @@ async function drive(t, report, fail, dir, ws, js) {
       try { await W.tap(id); } catch (e) { ok = false; report.steps.push({ target: t.name, step: `tap ${id}`, skipped: `wasm: ${e.message.split('\n')[0]}` }); }
       if (!ok) continue;
       try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `js: ${e.message.split('\n')[0]}`); continue; }
+      await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
       await settle();
       tree = await compare(`tap ${id}`);
     }
-    await Promise.all([W.clock('+60000'), J.clock('+60000')]);
+    await Promise.all([W.clock('+60000'), J.clock('+60000'), onLinux('clock +60000', L => L.clock('+60000'))]);
     await compare('clock +60000');
   } catch (e) {
     fail('drive', e.stack?.split('\n').slice(0, 2).join(' ') ?? String(e));
   } finally {
-    await W?.close?.(); await J?.close?.(); ws.close(); js.close();
+    await W?.close?.(); await J?.close?.(); await L?.close?.(); ws.close(); js.close();
   }
   // The app's own tests, on both.
   const tests = resolve(root, 'apps', t.app, 'app.test.contract');
@@ -265,6 +328,34 @@ async function activation(t, report, fail, url) {
   }
 }
 
+// ---------------------------------------------------------------- the Linux reference
+const linuxRef = argv.includes('--linux');
+const WEB_SIZE = [420, 900]; // agent.mjs openWeb's viewport, given to the Linux host too
+const LINUX_OPS = ['tap', 'type', 'clock'];
+// Where an app's drive reaches what only one host has, the Linux comparison
+// stops before that step (null: from the start), saying why (each is a host
+// difference, not the runner's).
+const LINUX_APART = {
+  caltrain: ['tap open-deck', 'its deck screen is an iframe, whose load and message only a browser delivers'],
+  'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
+  'native-fixture': [null, 'its views are native modules (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
+  'photo-editor': [null, 'its editor is a native module (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
+  messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
+};
+const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
+function linuxFor(t) {
+  if (!linuxRef) return null;
+  const why = t.contract && /^\/\/ linux: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1];
+  if (why?.startsWith('state only')) return { stateOnly: true };
+  if (why) return { why: `not compared on Linux: ${why}` };
+  const crate = linuxCrate(t.app);
+  if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
+  if (LINUX_APART[t.name]?.[0] === null) return { why: `not compared on Linux: ${LINUX_APART[t.name][1]}` };
+  // agent.mjs runs the crate's own binary; a crate that builds only other bins (a render server) has none.
+  if (!existsSync(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'release', crate))) return { why: `not compared on Linux: ${t.app}'s Linux crate has no ${crate} binary built` };
+  return {};
+}
+
 // ---------------------------------------------------------------- the run
 const report = { at: new Date().toISOString(), targets: {}, steps: [], failures: [] };
 // `--urls <app> <a> <b>`: two served pages of one app, compared the same way
@@ -278,6 +369,11 @@ if (argv.includes('--build')) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const b = spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
   if (b.status !== 0) report.failures.push({ target: a, step: 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
+}
+if (linuxRef && argv.includes('--build')) {
+  const crates = [...new Set([...apps, ...synthetic.map(s => s.data)].map(linuxCrate).filter(Boolean))];
+  const b = crates.length ? spawnSync('cargo', ['build', '-q', '--release', ...crates.flatMap(c => ['-p', c])], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }) : { status: 0 };
+  if (b.status !== 0) report.failures.push({ target: 'linux', step: 'linux-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
@@ -299,10 +395,12 @@ for (const t of targets) {
 writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 1));
 const byTarget = {};
 for (const f of report.failures) (byTarget[f.target] ??= []).push(f);
-const lines = [`# JS target conformance — ${report.at}`, '', '| target | JS build | steps compared | steps equal | failures | app tests (wasm / js) |', '|---|---|---|---|---|---|'];
+const lines = [`# JS target conformance — ${report.at}`, '', `| target | JS build | steps compared | steps equal | failures | app tests (wasm / js) |${linuxRef ? ' Linux reference (equal / compared) |' : ''}`, `|---|---|---|---|---|---|${linuxRef ? '---|' : ''}`];
 for (const t of targets) {
-  const s = report.steps.filter(x => x.target === t.name && x.differences != null), info = report.targets[t.name] ?? {};
-  lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${info.tests ? `${info.tests.wasm} / ${info.tests.js}` : '—'} |`);
+  const mine = report.steps.filter(x => x.target === t.name), s = mine.filter(x => x.differences != null && !x.reference), info = report.targets[t.name] ?? {};
+  const lx = mine.filter(x => x.reference === 'linux'), lskip = mine.find(x => x.step === 'linux' || x.linux === 'stopped');
+  const lcell = lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`;
+  lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${info.tests ? `${info.tests.wasm} / ${info.tests.js}` : '—'} |${linuxRef ? ` ${lcell} |` : ''}`);
 }
 lines.push('', '## Failures', '');
 for (const [t, fs] of Object.entries(byTarget)) { lines.push(`### ${t}`); for (const f of fs) lines.push(`- **${f.step}** — ${f.what}`); lines.push(''); }

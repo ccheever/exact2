@@ -1421,10 +1421,15 @@ runs on both targets (landed): `navigation.rs`'s
 `browser_session_history_on_the_js_target` builds the sweep's corpus plan
 as one JS build (`host/web-js/build.mjs --plan`) served as a build tree,
 with the same fixture's history journal, and runs every case the JS
-target has a seam for; three are named as not the JS target's and
-skipped with their reason (the focused route teardown and the autofocus
-case drive the runner's focus controller; the in-document reboot is
-`exact.reload`). `smoke.mjs web`'s `navigation::` filter runs both. The
+target has a seam for; two are named as not the JS target's and
+skipped with their reason (the autofocus case: the JS page writes
+`autofocus` and focuses nothing, QUEUE; the in-document reboot is
+`exact.reload`). The focused route teardown runs on the JS target with
+the browser's Back in place of the runner's URL event, and found a fifth
+fault: Chrome blurs a focused element while removing it, still
+connected, so a retired route's editor dispatched its blur (rt.js now
+hears a blur after the removal, on a microtask, and drops it for a
+node no longer in the document, as glue.js drops a retired view's). `smoke.mjs web`'s `navigation::` filter runs both. The
 sweep found and fixed four JS faults: a same-origin link to a declared
 route opened a new document instead of navigating in place (LLP 1038
 §7; rt.js now follows it in place, and a link that is also a press
@@ -1443,7 +1448,7 @@ Linux-host state/tree oracle and pinned JS baselines in the lane; then
 `stages.mjs`) is deleted from everything but games and conformance's
 reference, which it stays for until (f).
 
-### A conformance reference without the wasm page (design, 2026-09-29; not built)
+### A conformance reference without the wasm page (design, 2026-09-29; its first step built)
 
 What was asked: the Linux host headless (`agent.mjs linux`) as the
 reference for state and tree, and the JS results of a green commit, saved,
@@ -1496,6 +1501,36 @@ that is sound on its own: run the Linux state/tree comparison beside the
 wasm one (a second oracle in the same run), so a disagreement between
 the two references shows before the wasm page is removed. Order (f)
 waits on that and on a ruling that pins may stand for layout and pixels.
+
+*The second reference, built* (2026-09-29): `conform.mjs --linux`, in the
+async lane. Beside the wasm page and the JS page, each target also runs on
+the Linux host headless (the data app's release binary, which `--build`
+builds; the web's viewport, 420×900; the same facts), and after every step
+its state and tree are compared with the wasm page's (`linux` failures;
+layout and pixels are the Linux host's own and are not compared). The
+only normalization is the route stack's browser location, in the route
+stack alone: an entry's `url` loses the harness's query parameters
+(`agent`, `seed`, `locale`, `timeZone`, `epoch`), entry ids are
+renumbered in the order the state lists them (the web runner's boot adopts
+the page's history entry and allocates ids in another order: `2, 0, 1`
+for three tabs where Linux has `0, 1, 2`), and the stack's `next` id is
+dropped. The router plan prints ids and the address into its text, so it
+is compared by state only (`// linux: state only (…)` in the plan). The
+comparison stops, saying so, at the first step the Linux host has no
+delivery for (a drag, pinch, held press, wheel, a list's `into`, the
+browser's history), and where an app reaches what only one host has
+(`LINUX_APART`: Caltrain's deck iframe; Markdown Stress's editor
+selection report; Native Fixture and Photo Editor, native modules;
+Messages, whose data sources write to storage on the Linux host where the
+page refuses storage in agent mode without `--storage`, a policy
+difference in QUEUE). Measured on the lane's 23 apps and 23 synthetic
+plans: 157 steps compared on Linux over 14 apps and 23 plans, every one
+equal; 9 apps not compared (six have no Linux host, Weatherlight's Linux
+crate builds only its render server, two are native modules). What it
+does not hold: everything after a gesture, which is most of the list,
+reorder, transform and swipe plans; the iframe, editor and module
+surfaces; and all layout and pixels. Those are why the wasm page stays
+the reference until §8 question 7 is answered.
 
 **The rest of the dynamic rows** (landed 2026-09-29, measured; brotli):
 every dynamic style row is now carried (rows.rs). `box-shadow` is one

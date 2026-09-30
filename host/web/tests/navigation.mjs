@@ -219,8 +219,10 @@ try {
   });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
-    await fresh('/post/42');
-    await until(`exact.root.getAttribute('aria-busy')==='false'`);
+    // The JS target has no URL event: its route leaves by the browser's Back
+    // (history.back() moves no focus), so it pushes the route first.
+    if (js) { await fresh(); await tap('push-post'); await until(`location.pathname==='/post/42'`); }
+    else { await fresh('/post/42'); await until(`exact.root.getAttribute('aria-busy')==='false'`); }
     const beforeErrors = consoleErrors.length;
     const key = (await state()).navigation.route;
     await tap('editor');
@@ -230,7 +232,8 @@ try {
     await tap('editor');
     // A URL event leaves focus on the old editor until the route's ancestor
     // is removed. Clicking a different control first would hide this bug.
-    await evaluate(`(async()=>exact.agent({op:'type',id:(await exact.agent({op:'tree'})).roots[0],text:'/'}))()`);
+    if (js) await evaluate('history.back()');
+    else await evaluate(`(async()=>exact.agent({op:'type',id:(await exact.agent({op:'tree'})).roots[0],text:'/'}))()`);
     await until(`location.pathname==='/'`);
     const landed = await state();
     assert.equal(landed.slots.blurPresses, 1, 'retired editor must not dispatch blur');
@@ -242,7 +245,7 @@ try {
     await evaluate(`document.activeElement.blur()`);
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
-  }, 'a URL typed into the root (the runner\'s URL event) and the root\'s aria-busy are the wasm host\'s');
+  });
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
@@ -553,7 +556,7 @@ try {
     await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
     assert.equal(await first(), 'other');
     assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
-  }, 'autofocus and its focus controller (navigation.js `focusController`) are not carried by the JS runtime yet (QUEUE)');
+  }, 'the JS page writes `autofocus` but focuses nothing: the browser autofocuses only at its first flush, and a focus controller (navigation.js `focusController`) needs a commit hook in rt.js (QUEUE)');
 
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }

@@ -791,6 +791,10 @@ export function on(e, kind, f) {
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); });
+    // Chrome blurs a focused element as it is removed, while still connected;
+    // a retired view dispatches nothing (glue.js), so the blur is heard once
+    // the removal is done (a microtask: before a user event's next listener).
+    case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f()));
     default: return l(kind, () => f());
   }
 }
