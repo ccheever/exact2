@@ -38,3 +38,9 @@ whose arguments depend on `now()`.
 Reviewed at `35cb7ac053cc98e6fb205d65adae8fb5d61e3de7`. Probe:
 `/tmp/exact2-review-20260924/game-probe/src/bin/render-review.rs`;
 output: `/tmp/exact2-review-20260924/render-review.log`.
+
+Integration verification (2026-09-30): the JS agent keeps its elapsed clock at
+zero when adopting a document rendered on wall time; ordinary adoption retains
+the rendered clock. The Caltrain web app smoke reproduced the inherited-clock
+regression, then passed all three app tests and the sixty-timer seek after this
+correction (`web smoke: ok in 4.1 s`).

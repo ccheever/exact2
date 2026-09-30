@@ -1259,8 +1259,9 @@ export function checkpoint() {
   if (!el) return Checkpoint;
   const cp = JSON.parse(el.textContent);
   Checkpoint.kept = new Map(cp.answers.map(([name, , args, value]) => [name, [value_(args), value_(value)]]));
-  Checkpoint.time = cp.time;
-  clock.now = cp.time || 0;
+  // A drive starts at zero even when its document was rendered on a wall clock.
+  const driven = AGENT_ADMITTED && typeof location !== "undefined" && new URLSearchParams(location.search).has("agent") && !globalThis.__exactRender;
+  Checkpoint.time = clock.now = driven ? 0 : cp.time || 0;
   return Checkpoint;
 }
 /** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
