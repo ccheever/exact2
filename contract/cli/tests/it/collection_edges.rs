@@ -696,3 +696,39 @@ fn an_empty_replacement_rearms_new_data_without_dispatching_an_empty_edge() {
     send(&mut r, 0.);
     assert_eq!(hits(&r), (2., 2.));
 }
+
+// @ref LLP 1010 §6.5 — `initial-item-count` is how many rows a list builds
+// before its first layout report (a served page's rows), whatever its
+// estimate; the estimate still sizes the window after it, so a realistic one
+// reaches no edge on that first report.
+#[test]
+fn initial_item_count_sets_the_first_window_apart_from_the_estimate() {
+    let tall = |extra: &str| {
+        SOURCE.replace(
+            "list virtualized=true height=320",
+            &format!("list virtualized=true height=320 estimated-item-height=200{extra}"),
+        )
+    };
+    let r = boot(&tall(""));
+    assert_eq!(r.collections()[0].rows.len(), 3, "ceil(16 × 32 / 200)");
+    let mut r = boot(&tall(" initial-item-count=12"));
+    assert_eq!(r.collections()[0].rows.len(), 12);
+    // 31 rows of 200 by estimate: the first report reaches no end.
+    r.act("change", vec![Value::Number(0.), Value::Number(31.)])
+        .unwrap();
+    send(&mut r, 0.);
+    assert_eq!(hits(&r).1, 0.);
+    for (value, why) in [
+        ("0", "at least one row"),
+        ("65", "at most 64"),
+        ("2.5", "whole"),
+    ] {
+        let e = contract::compile(&tall(&format!(" initial-item-count={value}"))).unwrap_err();
+        assert!(e.to_string().contains("initial-item-count"), "{why}: {e}");
+    }
+    let e = contract::compile(
+        "component App\n  view\n    list initial-item-count=4\n      text \"a\"\n",
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("virtualized"), "{e}");
+}

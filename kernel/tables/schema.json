@@ -571,6 +571,11 @@
       "kind": "float"
     },
     {
+      "id": 215,
+      "name": "initialItemCount",
+      "kind": "float"
+    },
+    {
       "id": 214,
       "name": "scrollRestoration",
       "kind": "str"

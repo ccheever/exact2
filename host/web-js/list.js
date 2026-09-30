@@ -174,7 +174,7 @@ class Collection {
     // The list's literal size along its axis bounds an inner list's first rows.
     const sizes = (o.x ? o.pw : o.ph).filter(n => typeof n === "number" && isFinite(n) && n > 0);
     this.port = sizes.length ? Math.min(...sizes) : null;
-    this.bootstrap = Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
+    this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
       kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null });

@@ -1297,6 +1297,7 @@ impl Em<'_> {
             "0".to_string(),
             "!1".to_string(),
         );
+        let mut init = "void 0".to_string();
         for b in plan.nodes[i as usize]
             .bindings
             .iter()
@@ -1330,6 +1331,7 @@ impl Em<'_> {
                 BindingKind::Prop if b.id == PropId::ScrollFollowEnd as u16 => {
                     follow = format!("()=>{value}")
                 }
+                BindingKind::Prop if b.id == PropId::InitialItemCount as u16 => init = value,
                 BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
                     manual = format!("({value})===\"manual\"")
                 }
@@ -1337,7 +1339,7 @@ impl Em<'_> {
             }
         }
         Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
+            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
             ph.join(","),
             pw.join(","),
             edges[0],

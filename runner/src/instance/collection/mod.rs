@@ -234,6 +234,7 @@ impl Collection {
         let mut enabled = false;
         let mut follow_end = false;
         let mut estimated_height = ESTIMATED_HEIGHT;
+        let mut initial: Option<usize> = None;
         let mut axis = ListAxis::Vertical;
         // The list's own literal size on each axis (`height=399`), which
         // bounds the rows its first frame needs: [vertical, horizontal].
@@ -281,6 +282,17 @@ impl Collection {
                     return Err(invalid("estimated item height must be positive and finite"));
                 }
                 estimated_height = height;
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::InitialItemCount as u16 {
+                let Value::Number(count) = u.eval(binding.expr, frames)? else {
+                    return Err(invalid("initial item count must be a number"));
+                };
+                if !(count.fract() == 0.0 && (1.0..=64.0).contains(&count)) {
+                    return Err(invalid(
+                        "initial item count must be a whole number from 1 to 64",
+                    ));
+                }
+                initial = Some(count as usize);
             }
         }
         if !enabled {
@@ -331,14 +343,17 @@ impl Collection {
             index: SizeIndex::new(estimated_height).map_err(index_error)?,
             estimated_height,
             // Keep the original provisional pixel budget, capped at sixteen
-            // rows. Actual nested-scrollport feedback determines the real window.
-            bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
-                .ceil()
-                .min(
-                    port.filter(|_| in_collection_row(plan, frames))
-                        .map_or(f64::INFINITY, |p| (p / estimated_height).ceil() + 1.0),
-                )
-                .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
+            // rows, unless the list says how many (`initial-item-count`).
+            // Actual nested-scrollport feedback determines the real window.
+            bootstrap_rows: initial.unwrap_or(
+                ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
+                    .ceil()
+                    .min(
+                        port.filter(|_| in_collection_row(plan, frames))
+                            .map_or(f64::INFINITY, |p| (p / estimated_height).ceil() + 1.0),
+                    )
+                    .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
+            ),
             declared_port: port,
             items: Items::default(),
             keys: Vec::new(),

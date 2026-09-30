@@ -506,6 +506,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
         // The row-axis twin (LLP 1070 H2): a virtualized row list's estimate.
         "estimated-item-width" => AttrTarget::Prop(p("estimatedItemWidth")),
+        // How many rows a virtualized list builds before its first layout
+        // report — a served page's and the first window's (LLP 1010 §6.5).
+        "initial-item-count" => AttrTarget::Prop(p("initialItemCount")),
         // History's `scrollRestoration` values (LLP 1070 §4.2): whether a
         // nested list keeps its position across its row's retirement.
         "scroll-restoration" => AttrTarget::Prop(p("scrollRestoration")),
@@ -940,6 +943,27 @@ pub(crate) fn validate_list(
     span: contract_syntax::Span,
 ) -> Result<(), super::LowerError> {
     use contract_syntax::Expr;
+    if let Some(count) = expanded.iter().find(|a| a.name == "initial-item-count") {
+        let virtualized = tag == "list"
+            && expanded
+                .iter()
+                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if !virtualized {
+            return super::err(
+                "lower-list-virtualized",
+                "`initial-item-count` is a virtualized list's first window; it goes on `list virtualized=true`",
+                count.span,
+            );
+        }
+        if !matches!(count.value, Expr::Number(n, _) if n.fract() == 0.0 && (1.0..=64.0).contains(&n))
+        {
+            return super::err(
+                "lower-list-height",
+                "`initial-item-count` is one literal whole number of rows, 1 to 64",
+                count.span,
+            );
+        }
+    }
     if let Some(fixed) = expanded.iter().find(|a| a.name == "item-height") {
         return super::err(
             "lower-list-height",
