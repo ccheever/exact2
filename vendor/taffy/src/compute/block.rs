@@ -506,7 +506,8 @@ fn compute_inner(
         sizes_through_ratio(&style, padding_border_size, known_dimensions, raw_min_size, raw_max_size);
     let percentage_basis_dimensions = Size {
         width: known_dimensions.width,
-        height: known_dimensions.height.filter(|_| inputs.known_dimensions_are_definite.height),
+        height: known_dimensions.height.filter(|_| inputs.known_dimensions_are_definite.height)
+            .or_else(|| crate::compute::ratio::percentage_height(&style, padding_border_size, known_dimensions.width)),
     };
     let container_content_box_size = percentage_basis_dimensions.maybe_sub(content_box_inset.sum_axes());
 
@@ -1261,6 +1262,8 @@ fn perform_final_layout_on_in_flow_children(
 
             //
 
+            let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, item.node_id, parent_size);
+            let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
             let inputs = LayoutInput {
                 run_mode,
                 sizing_mode: SizingMode::InherentSize,

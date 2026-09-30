@@ -340,6 +340,11 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     // EXACT PATCH 4: retain capacity, never results, across flex layouts.
     let mut flex_items = flex_item_scratch::Scratch::take();
     generate_anonymous_flex_items(tree, node, &constants, &mut flex_items);
+    for child in flex_items.iter_mut() {
+        if let Some(width) = crate::compute::ratio::minimum_ratio_width(tree, child.node, constants.node_inner_size) {
+            child.min_size.width = Some(width).maybe_max(child.min_size.width);
+        }
+    }
 
     // 9.2. Line Length Determination
 
@@ -582,7 +587,9 @@ fn compute_constants(
     };
 
     let node_outer_size = known_dimensions;
-    let node_inner_size = node_outer_size.maybe_sub(content_box_inset.sum_axes());
+    let node_inner_size = node_outer_size.map_height(|height| height.or_else(||
+        crate::compute::ratio::percentage_height(&style, padding_border_sum, node_outer_size.width)))
+        .maybe_sub(content_box_inset.sum_axes());
     let known_main_size_is_definite = known_dimensions_are_definite.main(dir);
     let has_definite_main_size = known_main_size_is_definite && known_dimensions.main(dir).is_some();
     let has_definite_cross_size = known_dimensions_are_definite.cross(dir) && known_dimensions.cross(dir).is_some();
@@ -1385,9 +1392,11 @@ fn item_known_dimension_definiteness(constants: &AlgoConstants, item: &FlexItem)
     let cross_size = item.size_style.cross(dir);
     let is_stretched = !has_cross_auto_margins
         && (cross_size.is_stretch() || (item.align_self == AlignSelf::STRETCH && cross_size.is_auto()));
-    let cross_is_definite = is_stretched
+    let ratio_auto_height = dir.is_row() && item.aspect_ratio.is_some()
+        && item.size_style.height.is_auto() && !constants.has_definite_cross_size;
+    let cross_is_definite = !ratio_auto_height && (is_stretched
         || item.size.cross(dir).is_some()
-        || (!dir.is_row() && constants.cross_axis_available_space_is_definite);
+        || (!dir.is_row() && constants.cross_axis_available_space_is_definite));
 
     Size { width: true, height: true }.with_main(dir, main_is_definite).with_cross(dir, cross_is_definite)
 }

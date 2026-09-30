@@ -1,6 +1,7 @@
 # clip-path accepts only absolute M/L/Q/C/Z, so a circle is hand-approximated
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Superseded by the full SVG path parser: the requested arc and relative-command examples normalize and round-trip; other basic shapes remain the explicit unsupported subset in LLP 1001.
 **Systems:** kernel, contract compiler, Apple host, Linux host
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

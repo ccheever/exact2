@@ -644,3 +644,24 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     )
     .unwrap();
 }
+
+#[test]
+fn logical_alignment_keywords_compile_from_the_schema() {
+    for property in [
+        "align-items",
+        "align-self",
+        "justify-items",
+        "justify-content",
+        "align-content",
+    ] {
+        for keyword in ["start", "end", "self-start", "self-end"] {
+            if property.ends_with("content") && keyword.starts_with("self-") {
+                continue;
+            }
+            let source = format!(
+                "component App\n  view\n    box {property}=\"{keyword}\" direction=\"rtl\"\n"
+            );
+            contract::compile(&source).unwrap_or_else(|e| panic!("{property}: {keyword}: {e}"));
+        }
+    }
+}

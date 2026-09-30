@@ -164,6 +164,13 @@ mod tests {
             "path(evenodd, \"M 10 10 L 30 10 L 30 30 L 10 30 Z M 0 0 L 5 5\")"
         );
         assert_eq!(ClipPath::parse(&full.css()), Some(full));
+        for data in [
+            "path('M12 2a10 10 0 1 1 0 20a10 10 0 1 1 0-20Z')",
+            "path('m2 2h20v20h-20z')",
+        ] {
+            let path = ClipPath::parse(data).unwrap();
+            assert_eq!(ClipPath::parse(&path.css()), Some(path));
+        }
         for bad in [
             "path('')",
             "path('M0 0 Z 1')",

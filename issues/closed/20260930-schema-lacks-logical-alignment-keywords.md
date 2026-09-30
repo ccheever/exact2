@@ -1,6 +1,7 @@
 # The schema's alignment enums lack `start`, `end`, `self-start` and `self-end`, which Taffy has
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Schema exposes start/end and item/self self-start/self-end; Contract exposes all five alignment rows; literal Chrome LTR/RTL fixtures and compiler vocabulary tests pass.
 **Systems:** kernel (schema), Contract compiler, web host
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

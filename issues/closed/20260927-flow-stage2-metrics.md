@@ -1,11 +1,14 @@
 # `metrics.mjs` reports a still layout's cost and a multi-shape worst case for text-around-shapes Stage 2
 
-**Status:** Fixed: metrics reports repeated-run Stage 2 timings and actual pass/measurement counts; 9 auto-flow tests and the metrics fixture pass, with medians recorded in LLP 1043.000 §8. Required root build/test/Clippy remain blocked by unrelated pre-existing set_place test errors (below).
+**Status:** Closed
+**Resolution:** Already implemented and rerun with bun scripts/metrics.mjs --flow: still 8/32-leaf layouts perform zero remeasurements and one comparison; cold pages take 8/32 extra passes within 18/66 bounds.
 **Systems:** `scripts/metrics.mjs`, kernel (`kernel/src/flow.rs`, `LayoutTree::settle_flow`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
 **Related:** LLP 1043.000 (the 2026-09-27 ruling: Stage 2 is accepted on these numbers)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: metrics reports repeated-run Stage 2 timings and actual pass/measurement counts; 9 auto-flow tests and the metrics fixture pass, with medians recorded in LLP 1043.000 §8. Required root build/test/Clippy remain blocked by unrelated pre-existing set_place test errors (below).
 
 Charlie accepted Stage 2's bounded re-layout on condition that the cost is measured. Add to `metrics.mjs`:
 - the cost of a still layout of an admitted page (the LLP claims one comparison, with no measurement);

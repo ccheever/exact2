@@ -1,6 +1,7 @@
 # An exclusion under a static parent is placed elsewhere and wraps nothing; the compiler could say so
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Compiler rejects wrap-flow:both beneath a known static non-root parent and names position:relative; tests cover conditional regions, roots, and parents positioned by overflow or transform lowering.
 **Systems:** Contract compiler, kernel (flow)
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever

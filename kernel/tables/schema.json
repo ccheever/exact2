@@ -1263,7 +1263,9 @@
         "space-between",
         "space-around",
         "space-evenly",
-        "normal"
+        "normal",
+        "start",
+        "end"
       ],
       "default": "normal"
     },
@@ -1274,7 +1276,11 @@
         "center",
         "baseline",
         "stretch",
-        "normal"
+        "normal",
+        "start",
+        "end",
+        "self-start",
+        "self-end"
       ],
       "default": "normal"
     },
@@ -1285,7 +1291,11 @@
         "flex-end",
         "center",
         "baseline",
-        "stretch"
+        "stretch",
+        "start",
+        "end",
+        "self-start",
+        "self-end"
       ],
       "default": "auto"
     },
@@ -1298,7 +1308,9 @@
         "space-between",
         "space-around",
         "space-evenly",
-        "normal"
+        "normal",
+        "start",
+        "end"
       ],
       "default": "normal"
     },

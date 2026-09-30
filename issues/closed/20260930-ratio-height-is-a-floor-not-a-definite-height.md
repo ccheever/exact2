@@ -1,6 +1,7 @@
 # A height `aspect-ratio` derives is a floor, so a child's `height: 100%` is `auto` where Chrome resolves it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Resolve percentages against the ratio height while content may enlarge the used height; removed all five owed cases and added overflowing-percentage fixtures against live Chrome.
 **Systems:** vendored Taffy, kernel
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

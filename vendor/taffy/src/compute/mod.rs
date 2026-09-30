@@ -72,13 +72,29 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
     // - Its margins place it: auto margins take the space a given width leaves (equal shares;
     //   a negative share goes to the end margin alone), and an over-constrained box ignores its
     //   end margin.
-    // An absolutely positioned root is out of flow: it keeps its content size and the origin.
+    // An absolutely positioned root uses the shared absolute solver in a definite offer.
     use crate::compute::ratio::sizes_through_ratio;
     use crate::{BoxSizing, Position};
 
     let parent_size = available_space.into_options();
     let style = tree.get_core_container_style(root);
     let in_flow = style.position() != Position::Absolute;
+    if !in_flow && style.box_generation_mode() != crate::BoxGenerationMode::None {
+        if let Size { width: Some(width), height: Some(height) } = parent_size {
+            let direction = style.direction();
+            drop(style);
+            common::absolute::AbsolutePass {
+                area_size: Size { width, height },
+                area_offset: Point::ZERO,
+                direction,
+                sizing_mode: SizingMode::InherentSize,
+                #[cfg(feature = "content_size")]
+                is_scroll_container: false,
+            }.place(tree, root, crate::tree::StaticPosition::point(Point::ZERO, false, 0), None, Point::ZERO);
+            return;
+        }
+    }
+
     let is_rtl = style.direction().is_rtl();
     let margin = style.margin().map(|margin| margin.resolve_to_option(parent_size.width.unwrap_or(0.0), |val, basis| tree.calc(val, basis)));
     let non_auto_margin = margin.map(|m| m.unwrap_or(0.0));
@@ -134,6 +150,9 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
     } else {
         Size::NONE
     };
+
+    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, root, parent_size);
+    let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
 
     // Recursively compute node layout
     let mut output = tree.perform_child_layout(

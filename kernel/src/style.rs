@@ -1072,6 +1072,8 @@ fn flex_wrap(v: FlexWrap) -> taffy::style::FlexWrap {
 fn justify_content(v: JustifyContent) -> Option<taffy::style::JustifyContent> {
     Some(match v {
         JustifyContent::Normal => return None,
+        JustifyContent::Start => taffy::style::JustifyContent::START,
+        JustifyContent::End => taffy::style::JustifyContent::END,
         JustifyContent::FlexStart => taffy::style::JustifyContent::FLEX_START,
         JustifyContent::FlexEnd => taffy::style::JustifyContent::FLEX_END,
         JustifyContent::Center => taffy::style::JustifyContent::CENTER,
@@ -1084,6 +1086,10 @@ fn justify_content(v: JustifyContent) -> Option<taffy::style::JustifyContent> {
 fn align_items(v: AlignItems) -> Option<taffy::style::AlignItems> {
     Some(match v {
         AlignItems::Normal => return None,
+        AlignItems::Start => taffy::style::AlignItems::START,
+        AlignItems::End => taffy::style::AlignItems::END,
+        AlignItems::SelfStart => taffy::style::AlignItems::SELF_START,
+        AlignItems::SelfEnd => taffy::style::AlignItems::SELF_END,
         AlignItems::FlexStart => taffy::style::AlignItems::FLEX_START,
         AlignItems::FlexEnd => taffy::style::AlignItems::FLEX_END,
         AlignItems::Center => taffy::style::AlignItems::CENTER,
@@ -1095,6 +1101,10 @@ fn align_items(v: AlignItems) -> Option<taffy::style::AlignItems> {
 fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
     match v {
         AlignSelf::Auto => None,
+        AlignSelf::Start => Some(taffy::style::AlignSelf::START),
+        AlignSelf::End => Some(taffy::style::AlignSelf::END),
+        AlignSelf::SelfStart => Some(taffy::style::AlignSelf::SELF_START),
+        AlignSelf::SelfEnd => Some(taffy::style::AlignSelf::SELF_END),
         AlignSelf::FlexStart => Some(taffy::style::AlignSelf::FLEX_START),
         AlignSelf::FlexEnd => Some(taffy::style::AlignSelf::FLEX_END),
         AlignSelf::Center => Some(taffy::style::AlignSelf::CENTER),
@@ -1106,6 +1116,8 @@ fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
 fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
     Some(match v {
         AlignContent::Normal => return None,
+        AlignContent::Start => taffy::style::AlignContent::START,
+        AlignContent::End => taffy::style::AlignContent::END,
         AlignContent::FlexStart => taffy::style::AlignContent::FLEX_START,
         AlignContent::FlexEnd => taffy::style::AlignContent::FLEX_END,
         AlignContent::Center => taffy::style::AlignContent::CENTER,

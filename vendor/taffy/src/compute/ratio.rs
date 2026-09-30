@@ -158,3 +158,44 @@ pub(crate) fn resolve_through(
         None => (size, min, max),
     }
 }
+
+/// The ratio's preferred block size is definite for percentage resolution
+/// even when the content-based automatic minimum makes the used box taller.
+pub(crate) fn percentage_height(style: &impl CoreStyle, pb: Size<f32>, width: Option<f32>) -> Option<f32> {
+    if !style.size().height.is_auto() {
+        return None;
+    }
+    Some(Ratio::of(style, pb)?.height(width?))
+}
+
+/// The automatic inline minimum of a non-replaced ratio box whose width
+/// derives from a definite height is its min-content width, capped by max-width.
+pub(crate) fn minimum_ratio_width(
+    tree: &mut impl crate::LayoutPartialTree,
+    node: crate::NodeId,
+    parent: Size<Option<f32>>,
+) -> Option<f32> {
+    use crate::{LayoutPartialTreeExt, MaybeResolve, ResolveOrZero};
+    let style = tree.get_core_container_style(node);
+    if style.aspect_ratio().is_none() || !style.size().width.is_auto()
+        || !style.min_size().width.is_auto() || style.is_compressible_replaced()
+        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container()
+        || style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b)).is_none() {
+        return None;
+    }
+    let pb = (style.padding().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))
+        + style.border().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))).sum_axes();
+    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb.width } else { 0.0 };
+    let max = style.max_size().width.maybe_resolve(parent.width, |v, b| tree.calc(v, b)).map(|w| w + adjustment);
+    drop(style);
+    let intrinsic = tree.measure_child_size(
+        node,
+        Size::NONE,
+        parent,
+        Size { width: crate::AvailableSpace::MinContent, height: crate::AvailableSpace::MinContent },
+        crate::SizingMode::ContentSize,
+        crate::AbsoluteAxis::Horizontal,
+        crate::geometry::Line::FALSE,
+    );
+    Some(intrinsic.maybe_min(max))
+}

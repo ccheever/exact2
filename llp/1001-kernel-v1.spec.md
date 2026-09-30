@@ -437,11 +437,11 @@ on its own; with neither given, min/max resolve by CSS 2.1 §10.4's table
 (Taffy patches 5 and 12). Any box takes CSS `aspect-ratio` (`auto || <ratio>`,
 stored as authored). A non-replaced box's derived height is a floor its
 content can pass unless `min-height` is set or it scrolls; min/max transfer
-through the ratio only into an axis the box does not size. Declared, as not yet
-done: the automatic minimum of a *width* derived from a height; and a height
-the ratio derives is a floor, so under a block or grid parent a child's
-`height: 100%` is `auto` where Chrome resolves it against that height
-(`min-height: 0` on the box makes it definite). Absolutely positioned boxes,
+through the ratio only into an axis the box does not size. A width derived
+from a definite height takes its content-based automatic minimum (unless
+`min-width` is explicit or the box scrolls). Percentage children resolve
+against the ratio's preferred height even when the content minimum enlarges
+the used box. Absolutely positioned boxes,
 grid items, a flex or grid container's own ratio and the root size through the
 ratio as block and flex items do (LLP 1074 T2; `vendor/taffy/EXACT-PATCHES.md`
 patches 12, 18 and 19). In block flow an auto-width image keeps its intrinsic

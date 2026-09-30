@@ -15,3 +15,17 @@ What to do in each, once they move to a main at or after d8a4a0ebf, found with t
 - a `z-index` on a static box that is not a flex or grid item does nothing now; add `position="relative"` where it mattered.
 
 The compiler already lowers `relative` onto boxes that clip, scroll, transform or animate, so those need nothing.
+
+## Sweep, 2026-09-30
+
+Weird Castle's main, Login, password and account-menu containing boxes are
+explicitly positioned; its only static `z-index` box is a flex item, where CSS
+applies it. Interview's main and Screen containing boxes are positioned, and its
+current Contract compiles to 462 nodes. No static-default migration was needed
+in these inspected paths, and neither external repository was edited.
+
+A full Weird Castle drive is blocked by its existing uncommitted Contract
+changes: `app.contract:76` fails inference for the unused `setPassword(value)`
+parameter. This is outside the exact2 ticket sweep; the external work was
+preserved. Keep this issue open until that app builds and both external apps
+can be driven against the integrated exact2 change.

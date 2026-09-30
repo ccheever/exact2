@@ -939,10 +939,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
         "align-items" => styles(&[StyleId::AlignItems]),
+        "align-content" => styles(&[StyleId::AlignContent]),
         "align-self" => styles(&[StyleId::AlignSelf]),
         "box-sizing" => styles(&[StyleId::BoxSizing]),
         "object-fit" => styles(&[StyleId::ObjectFit]),
         "justify-content" => styles(&[StyleId::JustifyContent]),
+        "justify-items" => styles(&[StyleId::JustifyItems]),
         "position" => styles(&[StyleId::PositionType]),
         "inset" => styles(&[StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left]),
         "top" => styles(&[StyleId::Top]),
@@ -1215,4 +1217,41 @@ fn similar(name: &str, admitted: impl Fn(&str) -> bool) -> Option<String> {
         candidate.remove(index);
     }
     found
+}
+
+/// Exclusions wrap their parent's text and must be positioned by that parent.
+pub(crate) fn check_exclusion(
+    tag: &Tag,
+    attrs: &[contract_syntax::Attr],
+    parent_positioned: bool,
+) -> Result<(), crate::LowerError> {
+    use contract_syntax::Expr;
+    // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
+    if let Some(wrap) = attrs.iter().find(|a| a.name == "wrap-flow") {
+        if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
+            let position = attrs.iter().find(|a| a.name == "position");
+            let absolute = tag
+                .fixed_styles
+                .iter()
+                .any(|(id, v)| *id == StyleId::PositionType && *v == "absolute");
+            if position.map_or(
+                !absolute,
+                |a| matches!(&a.value, Expr::Str(v, _) if v != "absolute"),
+            ) {
+                return crate::err(
+                    "lower-attr-value",
+                    "`wrap-flow: both` requires `position: absolute` in exact2 v1",
+                    wrap.span,
+                );
+            }
+            if !parent_positioned {
+                return crate::err(
+                    "lower-attr-value",
+                    "`wrap-flow: both` wraps its parent's text; give the parent `position: relative`",
+                    wrap.span,
+                );
+            }
+        }
+    }
+    Ok(())
 }

@@ -1,6 +1,7 @@
 # An absolute box's percentage insets and height resolve against a containing block whose height came from content
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Obsolete review claim: live Chrome resolves abspos top:50% and height:50% to 50px inside a content-sized 100px block, flex or grid containing block; all three recorded kernel fixtures match.
 **Systems:** vendored Taffy, kernel
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

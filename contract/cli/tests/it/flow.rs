@@ -145,3 +145,26 @@ fn every_new_row_and_offsets_update_through_one_commit() {
         "{json}"
     );
 }
+
+#[test]
+fn exclusions_require_their_parent_to_contain_them() {
+    for parent in ["", "position=\"static\""] {
+        let source = format!("component App\n  view\n    box\n      box {parent}\n        when true\n          box position=\"absolute\" wrap-flow=\"both\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("give the parent `position: relative`"),
+            "{error}"
+        );
+    }
+    for parent in [
+        "position=\"relative\"",
+        "overflow=\"hidden\"",
+        "translate=\"0px 0px\"",
+    ] {
+        contract::compile(&format!("component App\n  view\n    box\n      box {parent}\n        box position=\"absolute\" wrap-flow=\"both\"\n")).unwrap();
+    }
+    contract::compile("component App\n  view\n    box position=\"absolute\" wrap-flow=\"both\"\n")
+        .unwrap();
+}

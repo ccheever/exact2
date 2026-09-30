@@ -494,12 +494,11 @@ first tranche left on upstream's `maybe_apply_aspect_ratio`:
   and `resolve_through` serve an algorithm that holds the parts, not the style;
 - absolutely positioned boxes (patch 18) and the root (patch 19).
 
-Not claimed:
-- the automatic minimum of a width derived from a height (the inline axis);
-- a height the ratio derives is a floor, so under a block or grid parent it is
-  not a definite height, and a child's `height: 100%` is `auto` where Chrome
-  resolves it against the ratio's height (`min-height: 0` on the box makes it
-  definite). Five cases in `browser_position.rs` (`OWED`) hold this.
+Completed 2026-09-30: the automatic minimum of a width derived from a definite
+height, and percentage resolution against the preferred ratio height even
+when the content minimum enlarges the used box. The five `OWED` cases were
+removed; new Chrome fixtures cover overflowing percentage children, inline
+minima, explicit min/max bounds, scroll-container opt-outs and absolute roots.
 
 **Held by** `kernel/tests/it/browser_ratio.rs`: 60 literal-Chrome cases.
 `image.rs` and `video.rs` each change one expectation to Chrome's: a set width
@@ -719,3 +718,10 @@ a box). `layout_equality.rs` draws positions, missing insets and end insets on
 a second random stream, so its trees' seeds are unchanged: both differentials
 (incremental against rehydrated and replayed, 40 rounds) pass over 1,500 seeds.
 
+
+2026-09-30 ticket sweep: patch 18 measures shrink-to-fit between intrinsic widths
+after subtracting the static inline inset; patch 19 uses that solver for an
+absolute root in a definite offer. Chrome cases are in `browser_containing_block.tsv`.
+Patch 12 also resolves percentages against the ratio height while allowing the
+content minimum to enlarge the used height, and measures the automatic inline
+minimum for height-derived widths (block, flex, grid, absolute boxes and roots).

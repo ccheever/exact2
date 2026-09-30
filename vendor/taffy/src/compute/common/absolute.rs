@@ -20,7 +20,7 @@ use crate::style::{AvailableSpace, BoxSizing, CoreStyle, Dimension, Direction, O
 #[cfg(feature = "content_size")]
 use crate::compute::common::scrollable_overflow::compute_scrollable_overflow_contribution;
 use crate::tree::{
-    Layout, LayoutOutput, LayoutPartialTree, LayoutPartialTreeExt, NodeId, SizingMode, StaticPosition,
+    Layout, LayoutOutput, LayoutPartialTree, LayoutPartialTreeExt, NodeId, SizingMode, StaticAlignment, StaticPosition,
 };
 use crate::util::sys::f32_max;
 use crate::util::{MaybeMath, MaybeResolve, ResolveOrZero};
@@ -117,6 +117,11 @@ impl AbsolutePass {
         #[cfg(feature = "content_size")]
         let (overflow, contain) = (absolute.overflow, absolute.contain);
         #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
+        let static_inline_space = match position.align.x {
+            StaticAlignment::Start => area_size.width - (position.rect.left + origin.x - area_offset.x),
+            StaticAlignment::End => position.rect.right + origin.x - area_offset.x,
+            StaticAlignment::Center => area_size.width,
+        };
         let placed = absolute.layout(
             tree,
             node,
@@ -126,6 +131,7 @@ impl AbsolutePass {
             self.direction,
             self.sizing_mode,
             origin,
+            static_inline_space,
             |size, margin| {
                 let at = position.resolve(size, margin);
                 Point { x: at.x + origin.x, y: at.y + origin.y }
@@ -220,7 +226,7 @@ impl AbsoluteBox {
     /// child): a layout's location is relative to the parent.
     #[allow(clippy::too_many_arguments)]
     fn layout(
-        self,
+        mut self,
         tree: &mut impl LayoutPartialTree,
         node: NodeId,
         order: u32,
@@ -229,6 +235,7 @@ impl AbsoluteBox {
         direction: Direction,
         sizing_mode: SizingMode,
         origin: Point<f32>,
+        static_inline_space: f32,
         static_position: impl FnOnce(Size<f32>, Rect<f32>) -> Point<f32>,
     ) -> Placed {
         let Self { margin, inset, .. } = self;
@@ -236,7 +243,7 @@ impl AbsoluteBox {
         // The space the insets and margins leave: what an auto size fills with both insets, and
         // what a box without them is measured in.
         let inset_space = Size {
-            width: area_size.width
+            width: if inset.left.is_none() && inset.right.is_none() { static_inline_space } else { area_size.width }
                 - inset.left.unwrap_or(0.0)
                 - inset.right.unwrap_or(0.0)
                 - non_auto_margin.horizontal_axis_sum(),
@@ -253,6 +260,9 @@ impl AbsoluteBox {
         };
         let parent_size = area_size.map(Some);
 
+        if let Some(min) = crate::compute::ratio::minimum_ratio_width(tree, node, parent_size) {
+            self.min_size.width = Some(min).maybe_max(self.min_size.width);
+        }
         let mut given = self.size;
         if self.size_style.width.is_sizing_keyword() || self.size_style.height.is_sizing_keyword() {
             resolve_absolute_sizing_keywords(
@@ -265,6 +275,21 @@ impl AbsoluteBox {
                 margin,
                 sizing_mode,
             );
+        }
+
+        // CSS shrink-to-fit clamps available width between the intrinsic
+        // widths; a wrapped leaf's measured ink width is not its used width.
+        if given.width.is_none()
+            && (self.ratio.is_none() || (given.height.is_none() && between_insets.height.is_none()))
+            && between_insets.width.is_none() && !self.is_replaced {
+            let mut intrinsic = |width| tree.measure_child_size(
+                node, Size::NONE, parent_size,
+                Size { width, height: AvailableSpace::MaxContent },
+                sizing_mode, AbsoluteAxis::Horizontal, Line::FALSE,
+            );
+            let min = intrinsic(AvailableSpace::MinContent);
+            let max = intrinsic(AvailableSpace::MaxContent);
+            given.width = Some(inset_space.width.max(min).min(max));
         }
 
         let (size, min_size, max_size) = match self.ratio {

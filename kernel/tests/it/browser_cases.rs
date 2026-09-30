@@ -48,6 +48,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "direction" => &[Direction],
             "flex-direction" => &[FlexDirection],
             "align-items" => &[AlignItems],
+            "align-content" => &[AlignContent],
             "justify-items" => &[JustifyItems],
             "justify-content" => &[JustifyContent],
             "align-self" => &[AlignSelf],
@@ -175,7 +176,11 @@ pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -
     for (id, want) in expected {
         let f = k.node(*id).unwrap().frame;
         let got = [f.x, f.y, f.width, f.height];
-        if got.iter().zip(want).any(|(g, w)| (g - w).abs() > 0.01) {
+        if got
+            .iter()
+            .zip(want)
+            .any(|(g, w)| !g.is_finite() || !w.is_finite() || (g - w).abs() > 0.01)
+        {
             out.push(format!("{case} #{id}: kernel {got:?}, Chrome {want:?}"));
         }
     }

@@ -64,8 +64,8 @@ tests are the authority.
   the offer less the root's margins, its margins place it, and auto margins
   centre a root narrower than its offer. It is what makes the page a document
   a viewport scrolls over rather than a box shrunk to its content (the first
-  bare-root fixture laid out 89 pt wide). An absolutely positioned root keeps
-  its content size. This replaced a kernel rewrite of `width: auto` to `100%`
+  bare-root fixture laid out 89 pt wide). An absolutely positioned root resolves its insets and size against a
+  definite offer through the shared absolute-box solver. This replaced a kernel rewrite of `width: auto` to `100%`
   under border-box sizing (2026-09-30), which left margins unsubtracted and
   made a content-box root's limits and height border-box.
 - **The kernel publishes scrollable overflow**: Taffy's `content_size` per

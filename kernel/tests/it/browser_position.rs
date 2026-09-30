@@ -52,8 +52,8 @@ fn cases(fixture: &str) -> Vec<Case<'_>> {
         .collect()
 }
 
-/// Every case's mismatches. The root is `position: relative` (in Chrome it
-/// was, so that it is the containing block the kernel's root is). With
+/// Every case's mismatches. The static-root fixtures use the production
+/// default; the kernel makes that root the containing block. With
 /// `relative`, so is every box that names no position: the cases of the
 /// first fixture were measured in Chrome that way.
 fn failures(fixture: &str, relative: bool) -> Vec<(String, Vec<String>)> {
@@ -79,27 +79,11 @@ fn failures(fixture: &str, relative: bool) -> Vec<(String, Vec<String>)> {
                 .map(|node| (node.0, node.3.to_string()))
                 .collect();
             let texts: Vec<(u32, &str)> = texts.iter().map(|(id, s)| (*id, s.as_str())).collect();
-            let k = lay_out_with(props(&positioned(case.root, true)), nodes, &texts, &[]);
+            let k = lay_out_with(props(&positioned(case.root, relative)), nodes, &texts, &[]);
             (case.name.to_string(), mismatches(case.name, &k, &case.want))
         })
         .collect()
 }
-
-/// Cases the kernel does not match yet, each declared in LLP 1074. The test
-/// fails when one starts to match, so the list cannot go stale.
-///
-/// All five are one gap: a height the ratio derives is a floor (LLP 1053,
-/// Taffy patch 12), so under a block or grid parent it is not a definite
-/// height and a child's `height: 100%` is `auto`. Chrome resolves the
-/// percentage against the ratio's height. `min-height: 0` on the box makes
-/// the height definite.
-const OWED: &[&str] = &[
-    "block in block: width + ratio, a child that fills",
-    "block in grid: width + ratio, a child that fills",
-    "flex in block: width + ratio, a child that fills",
-    "flex in grid: width + ratio, a child that fills",
-    "grid item: ratio, a child that fills",
-];
 
 /// Cases about what else makes a containing block in a browser: a
 /// transform, a filter. The kernel's rule is position alone; the Contract
@@ -142,7 +126,7 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 #[test]
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
-    check(failures(fixture, true), OWED);
+    check(failures(fixture, true), &[]);
 }
 
 /// LLP 1074 T1: `position: static` is the default, an absolute box's

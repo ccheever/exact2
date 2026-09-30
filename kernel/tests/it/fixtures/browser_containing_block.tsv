@@ -77,3 +77,43 @@ an absolute box under a static flex: the root contains it	width:400px;height:300
 a relative flex item contains its absolute box	width:400px;height:300px	2>1>display:flex;width:200px;height:100px;margin-left:30px;margin-top:15px> & 3>2>position:relative;width:50px;margin-left:10px> & 4>3>position:absolute;left:0;right:0;top:0;bottom:0>	2=30,15,200,100 3=40,15,50,100 4=40,15,50,100
 the static position under a relative inline offset	width:400px;height:300px	2>1>position:relative;left:9px;top:4px;width:200px;margin-left:30px;margin-top:15px> & 3>2>height:30px> & 4>2>position:absolute;width:20px;height:20px;>	2=39,19,200,30 3=39,19,200,30 4=39,49,20,20
 through a relative-offset static chain	width:400px;height:300px	2>1>position:relative;width:300px;height:200px;margin-left:20px> & 3>2>width:200px;margin-left:30px;margin-top:15px> & 4>3>height:30px> & 5>3>position:absolute;width:20px;height:20px;right:0;bottom:0> & 6>3>position:absolute;width:20px;height:20px;>	2=20,15,300,200 3=50,15,200,30 4=50,15,200,30 5=300,195,20,20 6=50,45,20,20
+absolute percent auto block	width:400px;display:block	2>1>height:100px;width:100px> & 3>1>position:absolute;top:50%;height:50%;width:20px>	1=0,0,400,100 2=0,0,100,100 3=0,50,20,50
+absolute percent auto flex	width:400px;display:flex	2>1>height:100px;width:100px> & 3>1>position:absolute;top:50%;height:50%;width:20px>	1=0,0,400,100 2=0,0,100,100 3=0,50,20,50
+absolute percent auto grid	width:400px;display:grid	2>1>height:100px;width:100px> & 3>1>position:absolute;top:50%;height:50%;width:20px>	1=0,0,400,100 2=0,0,100,100 3=0,50,20,50
+logical start	width:400px;margin-left:0;margin-right:auto;display:grid	2>1>display:grid;width:100px;height:50px;align-self:start;justify-items:start> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,20,10
+logical end	width:400px;margin-left:0;margin-right:auto;display:grid	2>1>display:grid;width:100px;height:50px;align-self:end;justify-items:end> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=80,0,20,10
+logical self-start	width:400px;margin-left:0;margin-right:auto;display:grid	2>1>display:grid;width:100px;height:50px;align-self:self-start;justify-items:self-start> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,20,10
+logical self-end	width:400px;margin-left:0;margin-right:auto;display:grid	2>1>display:grid;width:100px;height:50px;align-self:self-end;justify-items:self-end> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=80,0,20,10
+logical start;direction:rtl	width:400px;margin-left:0;margin-right:auto;display:grid;direction:rtl	2>1>display:grid;width:100px;height:50px;align-self:start;justify-items:start> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=300,0,100,50 3=380,0,20,10
+logical end;direction:rtl	width:400px;margin-left:0;margin-right:auto;display:grid;direction:rtl	2>1>display:grid;width:100px;height:50px;align-self:end;justify-items:end> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=300,0,100,50 3=300,0,20,10
+logical self-start;direction:rtl	width:400px;margin-left:0;margin-right:auto;display:grid;direction:rtl	2>1>display:grid;width:100px;height:50px;align-self:self-start;justify-items:self-start> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=300,0,100,50 3=380,0,20,10
+logical self-end;direction:rtl	width:400px;margin-left:0;margin-right:auto;display:grid;direction:rtl	2>1>display:grid;width:100px;height:50px;align-self:self-end;justify-items:self-end> & 3>2>width:20px;height:10px>	1=0,0,400,50 2=300,0,100,50 3=300,0,20,10
+absolute shrink static inset	width:400px	2>1>margin-left:100px;width:300px> & 3>2>position:absolute;height:20px>xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx	1=0,0,400,0 2=100,0,300,0 3=100,0,300,20
+absolute root insets	position:absolute;left:10px;top:20px;width:30px;height:40px	2>1>width:10px;height:10px>	1=10,20,30,40 2=10,20,10,10
+absolute root stretch	position:absolute;left:10px;right:20px;top:20px;bottom:30px	2>1>width:10px;height:10px>	1=10,20,770,550 2=10,20,10,10
+ratio inline minimum block	width:400px;display:block	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline minimum flex	width:400px;display:flex	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline minimum grid	width:400px;display:grid	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline limits block	width:400px;display:block	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline limits block;min-width:0	width:400px;display:block	2>1>height:50px;aspect-ratio:1;min-width:0> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio inline limits block;max-width:70px	width:400px;display:block	2>1>height:50px;aspect-ratio:1;max-width:70px> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,70,50 3=0,0,100,10
+ratio inline limits block;overflow:hidden	width:400px;display:block	2>1>height:50px;aspect-ratio:1;overflow:hidden> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio percentage overflow block20	width:400px;display:block	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:20px>	1=0,0,400,70 2=0,0,100,70 3=0,0,100,50 4=0,50,100,20
+ratio percentage overflow block80	width:400px;display:block	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:80px>	1=0,0,400,130 2=0,0,100,130 3=0,0,100,50 4=0,50,100,80
+ratio inline limits flex	width:400px;display:flex	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline limits flex;min-width:0	width:400px;display:flex	2>1>height:50px;aspect-ratio:1;min-width:0> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio inline limits flex;max-width:70px	width:400px;display:flex	2>1>height:50px;aspect-ratio:1;max-width:70px> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,70,50 3=0,0,100,10
+ratio inline limits flex;overflow:hidden	width:400px;display:flex	2>1>height:50px;aspect-ratio:1;overflow:hidden> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio percentage overflow flex20	width:400px;display:flex	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:20px>	1=0,0,400,70 2=0,0,100,70 3=0,0,100,50 4=0,50,100,20
+ratio percentage overflow flex80	width:400px;display:flex	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:80px>	1=0,0,400,130 2=0,0,100,130 3=0,0,100,50 4=0,50,100,80
+ratio inline limits grid	width:400px;display:grid	2>1>height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,100,50 3=0,0,100,10
+ratio inline limits grid;min-width:0	width:400px;display:grid	2>1>height:50px;aspect-ratio:1;min-width:0> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio inline limits grid;max-width:70px	width:400px;display:grid	2>1>height:50px;aspect-ratio:1;max-width:70px> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,70,50 3=0,0,100,10
+ratio inline limits grid;overflow:hidden	width:400px;display:grid	2>1>height:50px;aspect-ratio:1;overflow:hidden> & 3>2>width:100px;height:10px>	1=0,0,400,50 2=0,0,50,50 3=0,0,100,10
+ratio percentage overflow grid20	width:400px;display:grid	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:20px>	1=0,0,400,70 2=0,0,100,70 3=0,0,100,50 4=0,50,100,20
+ratio percentage overflow grid80	width:400px;display:grid	2>1>width:100px;aspect-ratio:2> & 3>2>height:100%> & 4>2>height:80px>	1=0,0,400,130 2=0,0,100,130 3=0,0,100,50 4=0,50,100,80
+ratio inline absolute	width:400px	2>1>position:absolute;height:50px;aspect-ratio:1> & 3>2>width:100px;height:10px>	1=0,0,400,0 2=0,0,100,50 3=0,0,100,10
+ratio inline root	height:50px;aspect-ratio:1	2>1>width:100px;height:10px>	1=0,0,100,50 2=0,0,100,10
+absolute shrink static inset rtl	width:400px;direction:rtl;margin-left:0;margin-right:auto	2>1>margin-right:100px;width:300px> & 3>2>position:absolute;height:20px>xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx	1=0,0,400,0 2=0,0,300,0 3=0,0,300,20
+ratio percent max-height block	width:400px	2>1>display:block;width:100px;aspect-ratio:1;max-height:50px> & 3>2>height:100%;width:20px>	1=0,0,400,50 2=0,0,100,50 3=0,0,20,50
+ratio percent max-height flex	width:400px	2>1>display:flex;width:100px;aspect-ratio:1;max-height:50px> & 3>2>height:100%;width:20px>	1=0,0,400,50 2=0,0,100,50 3=0,0,20,50

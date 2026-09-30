@@ -14,7 +14,7 @@ Charlie asked, 2026-09-30: are there parts of CSS that Taffy does not implement 
 | | Item | Disposition |
 |---|---|---|
 | T1 | `position: static` and the CSS containing block | **Built** (§3) |
-| T2 | The rest of `aspect-ratio` | **Built**, except two declared gaps (§4) |
+| T2 | The rest of `aspect-ratio` | **Built**, including the ratio follow-ups (§4) |
 | T3 | A replaced element's width in block flow | **Withdrawn**: the 0.14 upgrade had fixed it; LLP 1001 corrected |
 | T4 | Auto margins on absolute boxes and on the root | **Built**, and wider than proposed (§4) |
 | T5 | Stable block offsets at measure time | Not built: text flow no longer depends on it |
@@ -103,9 +103,9 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (`grok-4.7`, xhigh, served as `gro
 | `browser_position.tsv` | 279 | Absolute boxes in block, flex and grid containers (insets, auto margins, overflow, RTL, ratios); a flex or grid container's own ratio under four kinds of parent; grid items' ratios; roots' ratios and margins. Every box is positioned |
 | `browser_containing_block.tsv` | 79 | Real `static`: which ancestor contains an absolute box, what else makes a containing block, static positions in block, flex and grid, static and relative insets |
 
-The kernel matches all of them except twelve, each declared in the test:
-- five are one `aspect-ratio` gap (§4, "Not done");
-- seven are what else makes a containing block in a browser (a transform, a filter, `backdrop-filter`): the kernel's rule is position alone, and the compiler lowers `relative` onto such a box (D1).
+The ticket sweep added 40 Chrome cases, including ratio automatic minima and
+percentage children, logical alignment, and absolute roots (416 total; the position fixture has 297 cases). The five
+previously owed ratio cases now pass. The remaining seven exceptions are what else makes a containing block in a browser (a transform, a filter, `backdrop-filter`): the kernel's rule is position alone, and the compiler lowers `relative` onto such a box (D1).
 
 What Chrome said that shaped the design:
 
@@ -192,11 +192,17 @@ A temporary compiler audit (not committed) listed every absolute box under a sta
 
 **The ratio (patch 12, extended)** now covers a flex or grid container's own size, grid items (their size, their known dimensions during track sizing and their minimum contribution), absolute boxes and the root.
 
-**The root (patch 19).** A root is a block-level box in its offer whatever it lays its children out as. Its margins are subtracted from an automatic width and place it; auto margins centre a root narrower than its offer; its size goes through the ratio. The kernel's rewrite of a root's `width: auto` to `100%` under border-box sizing is deleted, with the three deviations LLP 1010 declared for it.
+The solver also subtracts a static inline inset before shrink-to-fit sizing and
+uses the CSS min-content / available / max-content clamp (2026-09-30 ticket sweep).
 
-**Not done, declared:**
-- The automatic minimum of a width derived from a height.
-- A height the ratio derives is a floor, not a definite height. Under a block or grid parent, a child's `height: 100%` is `auto` where Chrome resolves it against the ratio's height. `min-height: 0` on the box makes it definite. Five fixture cases hold this as owed.
+**The root (patch 19).** A root is a block-level box in its offer whatever it lays its children out as. Its margins are subtracted from an automatic width and place it; auto margins centre a root narrower than its offer; its size goes through the ratio. An absolute root uses the shared solver against a definite offer. The kernel's rewrite of a root's `width: auto` to `100%` under border-box sizing is deleted, with the three deviations LLP 1010 declared for it.
+
+**Ratio follow-ups, built 2026-09-30:** an automatic inline minimum uses the
+min-content width when a non-replaced box derives its width from a definite
+height, respecting `min-width`, `max-width` and scroll-container opt-outs.
+A ratio-derived height is the percentage basis even when content makes the used
+height larger. Block and flex layout keep those two quantities separate; the
+five formerly owed cases and content-overflow cases pass against Chrome.
 
 ## 5. Already in Taffy, not exposed
 
@@ -204,7 +210,7 @@ These need no new layout algorithm. They do need schema rows, Contract grammar, 
 
 - **`grid-template-areas` and named grid lines.** The kernel's grid placement is numeric and would need extending. Differential cases first.
 - **`safe` and `unsafe` alignment.** LLP 1054.000.001 already proposes `safe center`.
-- **`start`, `end`, `self-start`, `self-end`.** An RTL-aware app needs these before most of this list. The new fixtures had to write `flex-start`.
+- **`start`, `end`, `self-start`, `self-end`: exposed 2026-09-30.** Item/self alignment accepts all four; content alignment accepts `start` and `end`. Schema-generated validation and CSS serialization share the vocabulary; Contract also exposes `justify-items` and `align-content`. Chrome fixtures cover LTR and RTL.
 - **`display: flow-root`.** The web host already appends it on a block root.
 - **Preferred-size keywords** `min-content`, `max-content`, `fit-content`, `stretch`.
 - **`overflow: clip`, `justify-self`, implicit grid track sizes.**

@@ -1,6 +1,7 @@
 # A width derived from a height through `aspect-ratio` gets no automatic minimum
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Measure the non-replaced ratio box’s automatic inline minimum across block/flex/grid/absolute/root paths; live Chrome fixtures cover intrinsic width, explicit min-width:0, max-width and scrolling opt-outs.
 **Systems:** vendored Taffy, kernel
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever

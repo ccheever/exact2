@@ -1,6 +1,7 @@
 # The Chrome position fixtures lay every kernel root out positioned, so the static-root path is untested there
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Containing-block fixtures now exercise the production static-root default, frame comparison rejects non-finite coordinates, and existing compiler-positioning plus reparent/hide differential tests cover the other named paths.
 **Systems:** kernel tests
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever

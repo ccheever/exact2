@@ -1,6 +1,7 @@
 # An absolute box without a width is measured in the whole containing block, not from its static position
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Subtract the static inline inset before the CSS intrinsic min/available/max width clamp; the recorded 400px containing block / 100px inset fixture now yields Chrome’s 300px width.
 **Systems:** vendored Taffy, kernel
 **Severity:** P3
 **Author:** Claude (Fable 5.1) for Charlie Cheever

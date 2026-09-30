@@ -1,6 +1,7 @@
 # An absolutely positioned root keeps its content size at the origin, whatever its insets
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A root in a definite offer uses the shared absolute solver; Chrome fixtures verify explicit insets, inset stretching and descendant coordinates.
 **Systems:** vendored Taffy, kernel
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever

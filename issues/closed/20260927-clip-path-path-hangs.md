@@ -1,6 +1,7 @@
 # `clip-path: path('M0 0 Z 1')`, and the same `d` on an SVG `path`, hangs the kernel and grows memory without bound
 
-**Status:** Fixed: reject implicit repeats after Z/z and assert parser progress; both hanging entry points reproduced under a timeout, then passed SVG-prefix and CSS-rejection regression tests.
+**Status:** Closed
+**Resolution:** Already fixed: SVG closes cannot implicitly repeat and parsing must progress; current kernel SVG/clip rejection regressions pass for M0 0 Z 1 and the lowercase form.
 **Systems:** Kernel (`kernel/src/svg/path.rs`, `kernel/src/clip.rs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -14,5 +15,7 @@ After a `Z`, a trailing number makes the parser repeat the close-path command im
 **Origin:** the loop is in Charlie's SVG `d` parser (`cb57a5d1`), and was already reachable from `path d=`. Seth's merge `a5f03a59` also exposed it through CSS `clip-path`, where `clip.rs` now calls `parse_d_whole`. A style value an app computes at runtime can hang the host.
 
 **Fix:** refuse numbers after `Z`/`z`, as the SVG grammar does (and browsers stop rendering the path at that error), and assert that each command iteration consumes input. Add both strings as tests.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: reject implicit repeats after Z/z and assert parser progress; both hanging entry points reproduced under a timeout, then passed SVG-prefix and CSS-rejection regression tests.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max; reproduced by the verifier. Verification: reproduced.

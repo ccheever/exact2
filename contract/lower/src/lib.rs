@@ -145,6 +145,8 @@ pub(crate) struct Lowerer<'a> {
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
+    /// Whether the enclosing element contains its exclusions (LLP 1043.000).
+    parent_positioned: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +243,7 @@ fn lower_with_sites(
             .collect(),
         fn_depth: 0,
         svg_depth: 0,
+        parent_positioned: true,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -669,26 +672,7 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
-                // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
-                if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
-                    if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
-                        let position = expanded.iter().find(|a| a.name == "position");
-                        let absolute = t
-                            .fixed_styles
-                            .iter()
-                            .any(|(id, v)| *id == StyleId::PositionType && *v == "absolute");
-                        if position.map_or(
-                            !absolute,
-                            |a| matches!(&a.value, Expr::Str(v, _) if v != "absolute"),
-                        ) {
-                            return err(
-                                "lower-attr-value",
-                                "`wrap-flow: both` requires `position: absolute` in exact2 v1",
-                                wrap.span,
-                            );
-                        }
-                    }
-                }
+                tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
                 let lengths =
@@ -1000,7 +984,18 @@ impl<'a> Lowerer<'a> {
                 }
                 let enters = tag == "svg";
                 self.svg_depth += enters as u32;
+                let parent_positioned = self.parent_positioned;
+                self.parent_positioned = parent_tag.is_none()
+                    || expanded
+                        .iter()
+                        .rev()
+                        .find(|a| a.name == "position")
+                        .is_some_and(|a| !matches!(&a.value, Expr::Str(v, _) if v == "static"))
+                    || t.fixed_styles
+                        .iter()
+                        .any(|(id, v)| *id == StyleId::PositionType && *v != "static");
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.parent_positioned = parent_positioned;
                 self.svg_depth -= enters as u32;
                 lowered
             }
