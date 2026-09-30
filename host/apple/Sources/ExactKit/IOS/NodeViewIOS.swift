@@ -1009,6 +1009,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// picture (`BoxFilter`), drawn again after each batch.
     private var boxFilter: BoxFilter?
     func applyFilter() {
+        // A node with no `filter` and none before makes no `BoxFilter` (three
+        // layers) to learn so: every styled node passes through here.
+        guard boxFilter != nil || style["filter"] != nil else { return }
         let f = boxFilter ?? BoxFilter()
         if f.set(style["filter"]) {
             boxFilter = f

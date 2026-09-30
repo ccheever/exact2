@@ -23,6 +23,34 @@ final class BoxLayerIOSTests: XCTestCase {
         return n
     }
 
+    /// CSS `filter` (LLP 1055.000 D14) arriving in a later style, and
+    /// leaving in one after: the box is masked while filtered and its
+    /// picture is drawn with each batch; a node that never had one is
+    /// neither.
+    func testAFilterGainedAfterCreationIsAppliedAndOneLostIsRemoved() throws {
+        let sub: [Double] = [-10, -10, 20, 20]
+        // One Gaussian blur over the box's own picture (`Filter::encode`).
+        let program: [Double] = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
+        try XCTSkipUnless(SvgFilterGPU.runs(program.map(Float.init)), "no GPU filter path on this host")
+        let filter: BatchValue = .object(["p": .array(program.map { .number($0) })])
+        let plain: NodeStyle = ["background_color": white]
+        let p = Presenter()
+        let n = NodeView(id: 1, kind: "view", presenter: p)
+        p.views[n.id] = n
+        n.frame = CGRect(x: 0, y: 0, width: 300, height: 120)
+        p.viewport.addSubview(n)
+        n.applyStyle(plain)
+        XCTAssertTrue(p.boxFilters.isEmpty)
+        XCTAssertNil(n.layer.mask)
+        var filtered = plain; filtered["filter"] = filter
+        n.applyStyle(filtered)
+        XCTAssertFalse(p.boxFilters.isEmpty, "the style that brings a filter makes the box's picture")
+        XCTAssertNotNil(n.layer.mask, "the box itself is hidden behind its picture")
+        n.applyStyle(plain)
+        XCTAssertTrue(p.boxFilters.isEmpty)
+        XCTAssertNil(n.layer.mask)
+    }
+
     func testAnUnpaintedNodeHasNoBitmapHoweverTall() {
         let spacer = node([:], size: CGSize(width: 402, height: 865_678))
         XCTAssertNil(spacer.layer.contents)
