@@ -140,16 +140,30 @@ impl<K: Ord, V> SortedMap<K, V> {
 }
 
 impl<K: Ord, V> FromIterator<(K, V)> for SortedMap<K, V> {
-    /// As `BTreeMap`: of equal keys, the last value stays.
+    /// As `BTreeMap`: of equal keys, the last value stays. Sorted once, not
+    /// inserted one by one: entries out of key order would each move the
+    /// tail (a thousand-row list's views, quadratic).
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut map = SortedMap::new();
-        map.extend(iter);
-        map
+        let mut entries: Vec<(K, V)> = iter.into_iter().collect();
+        // Stable: of equal keys the last collected is last.
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries.dedup_by(|later, kept| {
+            let same = later.0 == kept.0;
+            if same {
+                std::mem::swap(&mut later.1, &mut kept.1);
+            }
+            same
+        });
+        SortedMap { entries }
     }
 }
 
 impl<K: Ord, V> Extend<(K, V)> for SortedMap<K, V> {
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
+        if self.entries.is_empty() {
+            *self = iter.into_iter().collect();
+            return;
+        }
         for (k, v) in iter {
             self.insert(k, v);
         }
@@ -264,12 +278,13 @@ impl<T: Ord> SortedSet<T> {
 }
 
 impl<T: Ord> FromIterator<T> for SortedSet<T> {
+    /// As `BTreeSet`: of equal items, the first stays. Sorted once, as
+    /// [`SortedMap`]'s.
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut set = SortedSet::new();
-        for item in iter {
-            set.insert(item);
-        }
-        set
+        let mut items: Vec<T> = iter.into_iter().collect();
+        items.sort();
+        items.dedup();
+        SortedSet { items }
     }
 }
 
@@ -421,5 +436,17 @@ mod tests {
             collected.iter().eq(expected.iter()),
             "the last of equal keys wins"
         );
+        let mut extended = SortedMap::new();
+        extended.extend(pairs);
+        assert!(extended.iter().eq(expected.iter()));
+        extended.extend([(0, 'e'), (3, 'f')]);
+        let mut both = expected.clone();
+        both.extend([(0, 'e'), (3, 'f')]);
+        assert!(extended.iter().eq(both.iter()));
+        let items = [3, 1, 3, 2, 1];
+        let set: SortedSet<_> = items.into_iter().collect();
+        assert!(set
+            .iter()
+            .eq(items.into_iter().collect::<BTreeSet<_>>().iter()));
     }
 }

@@ -7,12 +7,14 @@
 //! order.
 
 use crate::id::IdSet;
-use crate::sorted::SortedMap;
+use std::collections::BTreeMap;
 
-/// `testId` → slot indexes, maintained on set/clear/destroy/reset.
+/// `testId` → slot indexes, maintained on set/clear/destroy/reset. A tree:
+/// a list's rows add ids out of order (`row-10` sorts before `row-2`), which
+/// a sorted vector pays for by moving its tail each time.
 #[derive(Debug, Default, Clone)]
 pub struct SelectorIndex {
-    by_test_id: SortedMap<String, Vec<u32>>,
+    by_test_id: BTreeMap<String, Vec<u32>>,
 }
 
 impl SelectorIndex {
@@ -30,9 +32,12 @@ impl SelectorIndex {
             self.remove(slot, old);
         }
         if let Some(new) = new {
-            self.by_test_id
-                .get_or_insert_with(new.to_string(), Vec::new)
-                .push(slot);
+            match self.by_test_id.get_mut(new) {
+                Some(slots) => slots.push(slot),
+                None => {
+                    self.by_test_id.insert(new.to_string(), vec![slot]);
+                }
+            }
         }
     }
 
