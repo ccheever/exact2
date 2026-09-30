@@ -732,3 +732,30 @@ fn initial_item_count_sets_the_first_window_apart_from_the_estimate() {
     .unwrap_err();
     assert!(e.to_string().contains("virtualized"), "{e}");
 }
+
+// @ref LLP 1010 (2026-09-29 ruling, provisional) — a page that arrives
+// before a trailing row that stays last (a feed's "loading" tail) re-arms
+// the end as a page appended past it does: the list grew and kept its last
+// row. The bench's feed stalled after its first page without it.
+#[test]
+fn rows_arriving_before_a_trailing_row_rearm_the_end() {
+    let source = SOURCE
+        .replace(
+            "  state fail = false\n",
+            "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow writes limit\n    limit = limit + 20\n",
+        )
+        .replace("each x in rows key=x", "each x in shown key=x");
+    let mut r = boot(&source);
+    // 21 rows of 32: the end is at 352.
+    measure(&mut r, 352., 32.);
+    send(&mut r, 352.);
+    assert_eq!(hits(&r).1, 1.);
+    // Still at the end: a page lands before the tail; the reader follows it.
+    r.act("grow", vec![]).unwrap();
+    measure(&mut r, 992., 32.);
+    send(&mut r, 992.);
+    assert_eq!(hits(&r).1, 2., "the list grew and kept its last row");
+    // Nothing new: the end stays disarmed.
+    send(&mut r, 992.);
+    assert_eq!(hits(&r).1, 2.);
+}

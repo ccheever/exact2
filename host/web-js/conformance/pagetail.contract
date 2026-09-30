@@ -1,0 +1,51 @@
+// data: carousel
+// Synthetic conformance plan: paging.contract's reader, with the feed
+// bench's shape since `initial-item-count` (LLP 1010 §6.5): a realistic
+// estimate, twelve first rows, and a trailing row that stays last (a feed's
+// "loading" tail), so a landed page arrives before the last row, not past it.
+// The list grew and its last row stayed, which re-arms the end as rows
+// appended past it do; before that, this reader stalled after one page.
+// paging.contract's notes follow.
+//
+// Infinite scroll with a page in flight (the
+// web framework bench's feed). `reachend` asks for a page unless one is on
+// its way (then its action does nothing), a timer lands it 30 rows later
+// and, in the same commit, takes the reader to the new end (an authored
+// scrollTop, as a reader jumping to the bottom every 150 ms does before the
+// new rows are measured). Rows appended past the end re-arm it (LLP 1010,
+// Charlie's ruling of 2026-09-29, provisional), so this reader, who never
+// leaves the end, is offered each next page. The source has five: a long
+// clock jump then delivers list feedback between timers on the JS target
+// and after them on the wasm target, which only a bounded source hides.
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component PagingTail
+  resource cards = cards(2000) as shape list<Card>
+  state hi = 30
+  state loading = false
+  state pages = 0
+  state top = 0
+  derive shown = filter(cards, c => c.n < hi or c.n == 1999)
+  action more writes loading
+    if not loading
+      loading = true
+  action land writes hi, loading, pages, top
+    if loading and pages < 5
+      hi = min(2000, hi + 30)
+      loading = false
+      pages = pages + 1
+      top = top + 1000000
+  task arrive mount
+    every(300, land)
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      text `${hi} rows, ${pages} pages${loading ? ", loading" : ""}` testId="summary" flex-shrink=0 padding=8
+      list virtualized=true reachend=more estimated-item-height=180 initial-item-count=12 scrollTop=top testId="feed" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        each c in shown key=c.id
+          row testId=`row-${c.n}` height=(40 + c.n % 3 * 12) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+            text c.label font-size=14

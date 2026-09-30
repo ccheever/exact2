@@ -421,7 +421,7 @@ impl Collection {
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
         let mut in_place: Option<Vec<usize>> = None;
-        let last = self.last_key();
+        let (last, count) = (self.last_key(), self.index.len());
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
             let Value::List(items) = u.eval(descriptor.subject, frames)? else {
@@ -470,16 +470,15 @@ impl Collection {
             if self.index.len() == 0 {
                 self.edge_armed = [true; 2];
             }
-            // @ref LLP 1010 (2026-09-29 ruling, provisional) — rows appended
-            // past the end are a new end: the old last row is still here with
-            // rows after it, so the edge re-arms and a reader still there when
-            // a page lands is offered the next one. An empty page, a replaced
-            // last row or a window that slid past it re-arm nothing.
-            if last
-                .as_deref()
-                .and_then(|key| self.index.position(key))
-                .is_some_and(|p| p + 1 < self.index.len())
-            {
+            // @ref LLP 1010 (2026-09-29 ruling, provisional) — rows that
+            // arrived are a new end: the old last row is still here with rows
+            // after it, or the list grew and kept it (a page inserted before
+            // a trailing row that stays last, a feed's "loading" tail), so the
+            // edge re-arms and a reader still there when a page lands is
+            // offered the next one. An empty page, a replaced last row or a
+            // window that slid past it re-arm nothing.
+            let kept = last.as_deref().and_then(|key| self.index.position(key));
+            if kept.is_some_and(|p| p + 1 < self.index.len() || self.index.len() > count) {
                 self.edge_armed[1] = true;
             }
             self.restore(anchor)?;

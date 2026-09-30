@@ -189,7 +189,7 @@ class Collection {
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
-    const anchor = this.anchor(), last = this.index.order.at(-1);
+    const anchor = this.anchor(), last = this.index.order.at(-1), count = this.index.len;
     const compare = !fresh && items.length === this.items.length;
     const rekeyed = !compare || idents.some((k, i) => k !== this.idents[i]);
     let inPlace = null;
@@ -201,11 +201,13 @@ class Collection {
     const previous = inPlace && JSON.stringify(this.snapshot());
     if (inPlace) this.invalidateRows(inPlace); else this.invalidateEstimates();
     if (!this.index.len) this.edgeArmed = [true, true];
-    // Rows appended past the end are a new end: the old last row is still
-    // here with rows after it, so it re-arms (LLP 1010, the 2026-09-29
+    // Rows that arrived are a new end: the old last row is still here with
+    // rows after it, or the list grew and kept it (a page inserted before a
+    // trailing row that stays last), so it re-arms (LLP 1010, the 2026-09-29
     // ruling, provisional). An empty page, a replaced last row or a window
     // that slid past it re-arm nothing.
-    if (last !== undefined && this.index.pos.get(last) < this.index.len - 1) this.edgeArmed[1] = true;
+    const kept = last === undefined ? undefined : this.index.pos.get(last);
+    if (kept !== undefined && (kept < this.index.len - 1 || this.index.len > count)) this.edgeArmed[1] = true;
     this.restore(anchor);
     this.realize(true, {});
     const now = this.snapshot();
