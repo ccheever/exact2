@@ -791,9 +791,7 @@ export function on(e, kind, f) {
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); });
-    // Chrome blurs a focused element as it is removed, while still connected;
-    // a retired view dispatches nothing (glue.js), so the blur is heard once
-    // the removal is done (a microtask: before a user event's next listener).
+    // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
     case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f()));
     default: return l(kind, () => f());
   }
@@ -1485,9 +1483,7 @@ export function router(slot, history) {
     if (!press && !Navigate) return;
     ev.preventDefault();
     if (press || here) return;
-    const before = RouterSlot.n?.v;
-    Navigate(to);
-    if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
+    const before = RouterSlot.n?.v; Navigate(to); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
   }, true);
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;

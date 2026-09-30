@@ -536,12 +536,16 @@ try {
   await run('autofocus preserves existing focus, and a reload keeps it at its place', async () => {
     served = dist;
     const plan = [...readFileSync(dir + '/accessibility.plan')];
-    const page = readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8');
-    writeFileSync(dist + '/index.html', page.replace('<script type="module" src="./glue.js"></script>',
-      `<script>(${fixture})(${JSON.stringify(plan)})</script><script type="module" src="./glue.js"></script>`));
+    if (js) { served = dir + '/accessibility'; jsBuild('accessibility.plan', served); }
+    else {
+      const page = readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8');
+      writeFileSync(dist + '/index.html', page.replace('<script type="module" src="./glue.js"></script>',
+        `<script>(${fixture})(${JSON.stringify(plan)})</script><script type="module" src="./glue.js"></script>`));
+    }
     await call('Page.navigate', {url:url+'/'});
     await until(`globalThis.exact?.ready?.then(()=>!!document.querySelector('[data-testid="first"]'))`);
     await evaluate('exact.ready');
+    if (js) await evaluate(`(exact.agent = exact.agentSettled, true)`);
     const first = () => evaluate(`document.activeElement?.getAttribute('data-testid')`);
     assert.equal(await first(), 'first');
     const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="other"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
@@ -551,12 +555,14 @@ try {
     assert.equal((await state()).slots.count, 2);
     await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
     assert.equal(await first(), 'other');
+    // The JS target compiles one plan: it has no carried reload to keep focus through.
+    if (js) { served = dist; skipped.push({ name: 'autofocus: a carried reload keeps focus at its place', why: 'an in-document plan swap (exact.reload) is the wasm runner\'s' }); return; }
     // A carried reload is the same document (LLP 1035.000 D9): focus stays at
     // Other's place in the tree, and First's autofocus does not take it back.
     await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
     assert.equal(await first(), 'other');
     assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
-  }, 'the JS page writes `autofocus` but focuses nothing: the browser autofocuses only at its first flush, and a focus controller (navigation.js `focusController`) needs a commit hook in rt.js (QUEUE)');
+  });
 
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }

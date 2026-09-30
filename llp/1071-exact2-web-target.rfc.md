@@ -1421,10 +1421,11 @@ runs on both targets (landed): `navigation.rs`'s
 `browser_session_history_on_the_js_target` builds the sweep's corpus plan
 as one JS build (`host/web-js/build.mjs --plan`) served as a build tree,
 with the same fixture's history journal, and runs every case the JS
-target has a seam for; two are named as not the JS target's and
-skipped with their reason (the autofocus case: the JS page writes
-`autofocus` and focuses nothing, QUEUE; the in-document reboot is
-`exact.reload`). The focused route teardown runs on the JS target with
+target has a seam for; what is not is named and skipped with its reason:
+the in-document reboot and the autofocus case's last part, a carried
+reload, both `exact.reload`, an in-document plan swap the JS target
+(one compiled plan) has no counterpart for. The autofocus case runs up to
+there, on the JS runtime's boot autofocus. The focused route teardown runs on the JS target with
 the browser's Back in place of the runner's URL event, and found a fifth
 fault: Chrome blurs a focused element while removing it, still
 connected, so a retired route's editor dispatched its blur (rt.js now
