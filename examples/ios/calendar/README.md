@@ -2,11 +2,17 @@
 
 An Exact calendar example with one Contract view and a Rust data module. Tap a date
 for its schedules in a full-width bottom sheet; tap a schedule to edit it, or use
-the coral **+** button to add one. The sheet fits a short list and scrolls a longer
-one. Hold a schedule row for a moment, then drag it onto another date. The sheet
-lowers to a compact header while a Contract preview follows your finger. Hold near the top or bottom
-to scroll, or near the left or right edge to change months. Changes are saved in the
-app's local SQLite store.
+the coral **+** button to add one. Tap the dimmed backdrop or drag the top handle
+down to dismiss the sheet; a short pull snaps back. Its overall height, including
+the bottom safe area, is capped at 360 points and 42% of the screen (with a
+176-point minimum cap on small viewports). Longer lists scroll inside the sheet.
+
+Hold a schedule row for a moment, then drag it onto another date. The entire sheet
+moves below the screen and its backdrop disappears while a Contract preview
+follows your finger. The sheet returns when the drop or cancellation finishes.
+Hold near the top or bottom to scroll, or
+near the left or right edge to change months. Changes are saved in the app's local
+SQLite store.
 
 Run these commands from the repository root, using the Bun version pinned in
 `package.json`:
@@ -69,7 +75,8 @@ cargo run -q -p contract -- build examples/ios/calendar/app.contract -o /tmp/cal
 
 Drive the running app through `bun scripts/agent.mjs ios` (or `web`). Useful IDs
 include `today`, `previous-month`, `next-month`, `add-schedule`, `schedule-title`,
-`start-date`, `end-date`, `all-day`, `save-schedule`, and `delete-schedule`.
+`start-date`, `end-date`, `all-day`, `save-schedule`, `delete-schedule`,
+`date-sheet-handle`, `date-popup-backdrop`, and `agenda-list`.
 
 In the browser, a landscape-to-portrait resize can clamp a month's vertical scroll
 offset to the top; the displayed month is retained.

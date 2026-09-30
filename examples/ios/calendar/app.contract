@@ -155,10 +155,15 @@ component Calendar
   state pagerPanning = false
   state pagerFrameTime = 0
   state popupOpen = false
+  state popupOffset = 0
+  state popupPanning = false
+  state popupClosing = false
+  state popupUntil = 0
   state selectedDay = none
   derive day = match selectedDay { case some(value) => value, case none => clock.today }
   resource agenda = calendarDay(day, revision) as shape Agenda
-  derive popupHeight = min(max(160, viewport.height * 0.6), 92 + max(84, min(5, length(agenda.items)) * 65) + (error != "" or notice != "" or busy ? 32 : 0))
+  derive popupHeight = 112 + max(77, min(5, length(agenda.items)) * 65) + (error != "" or notice != "" or busy ? 32 : 0)
+  derive popupCap = min(360, max(176, viewport.height * 0.42))
   state editorOpen = false
   state editId = ""
   state eventRetry = 0
@@ -254,7 +259,7 @@ component Calendar
   derive dragging = dragId != ""
   derive held = dragPhase == "held"
   derive edgeWanted = held and dragMoved and dragY >= portY and dragY <= portY + portHeight and dragX >= portX and dragX <= portX + portWidth ? (dragX < portX + 36 and month > 22800 ? -1 : (dragX > portX + portWidth - 36 and month < 25211 ? 1 : 0)) : 0
-  derive popupLowered = held or dragPhase == "landing" or (dragPhase == "fading" and dragCommitted)
+  derive popupLowered = dragging
   derive hoverDay = held ? hoverTarget.day : -1000000
 
   action tick writes minute
@@ -272,7 +277,7 @@ component Calendar
       case some(packet)
         if packet.valid and packet.sequence > contactAck
           contactAck = packet.sequence
-          if packet.phase == "begin" and packet.serial > dragSerial and not dragging and not busy and not editorOpen
+          if packet.phase == "begin" and packet.serial > dragSerial and not dragging and not busy and not editorOpen and not popupClosing and not popupPanning
             match first(filter(agenda.items, (item) => item.id == packet.eventId))
               case some(item)
                 dragSerial = packet.serial
@@ -298,10 +303,18 @@ component Calendar
                 edgeDirection = 0
                 edgeSince = now()
                 edgeReadyAt = now()
-                portX = frame("calendar-stage").x - frame("calendar").x
-                portY = frame("calendar-stage").y - frame("calendar").y
-                portWidth = frame("calendar-stage").width
-                portHeight = frame("calendar-stage").height
+                match some(frame("calendar-stage"))
+                  case some(stage)
+                    match some(frame("calendar"))
+                      case some(root)
+                        portX = stage.x - root.x
+                        portY = stage.y - root.y
+                        portWidth = stage.width
+                        portHeight = stage.height
+                      case none
+                        portWidth = 0
+                  case none
+                    portWidth = 0
                 notice = ""
                 error = ""
               case none
@@ -341,15 +354,24 @@ component Calendar
               notice = "Move cancelled"
       case none
         notice = ""
-  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt
-    if not frame("calendar-stage").unavailable
-      portX = frame("calendar-stage").x - frame("calendar").x
-      portY = frame("calendar-stage").y - frame("calendar").y
-      portWidth = frame("calendar-stage").width
-      portHeight = frame("calendar-stage").height
-      if frame("calendar-stage").height > 0 and (frame("calendar-stage").height != stageHeight or viewport.height != stageViewportHeight)
-        stageHeight = frame("calendar-stage").height
-        stageViewportHeight = viewport.height
+  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, libraryStarted, libraryMessage, loadedLibrary, stageHeight, stageViewportHeight, pagerPositionValue, pagerVelocity, pagerFrameTime, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, popupOpen, popupClosing, popupOffset
+    // Reuse this frame's geometry without caching it across frames or resizes.
+    match some(frame("calendar-stage"))
+      case some(stage)
+        if not stage.unavailable
+          match some(frame("calendar"))
+            case some(root)
+              portX = stage.x - root.x
+              portY = stage.y - root.y
+              portWidth = stage.width
+              portHeight = stage.height
+              if stage.height > 0 and (stage.height != stageHeight or viewport.height != stageViewportHeight)
+                stageHeight = stage.height
+                stageViewportHeight = viewport.height
+            case none
+              portWidth = 0
+      case none
+        portWidth = 0
     if not pagerPanning and (not dragging or held) and (magnitude(pagerPosition - month) > 0.0001 or magnitude(pagerVelocity) > 0.001)
       pagerPositionValue = some(pagePosition(pagerPosition, pagerVelocity, month, min(1 / 30, max(0, now() - pagerFrameTime) / 1000)))
       pagerVelocity = pageVelocity(pagerPosition, pagerVelocity, month, min(1 / 30, max(0, now() - pagerFrameTime) / 1000))
@@ -379,9 +401,13 @@ component Calendar
       if now() >= dragUntil
         dragPhase = "fading"
         dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 90)
-    if dragPhase == "fading" and now() >= dragUntil
+    if dragPhase == "fading" and now() >= dragUntil and not busy
       dragPhase = "idle"
       dragId = ""
+    if popupClosing and now() >= popupUntil
+      popupOpen = false
+      popupClosing = false
+      popupOffset = 0
   action calendarScrolled(page: number, left: number, top: number) writes calendarScrollTop, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6
     if page == month
       calendarScrollTop = top
@@ -452,15 +478,33 @@ component Calendar
     pagerVelocity = 0
     pagerFrameTime = now()
     popupOpen = false
-  action chooseDate(value: number) writes selectedDay, popupOpen, error, notice
+  action chooseDate(value: number) writes selectedDay, popupOpen, error, notice, popupOffset, popupPanning, popupClosing
     if not dragging and not busy
       selectedDay = some(value)
       popupOpen = true
+      popupOffset = 0
+      popupPanning = false
+      popupClosing = false
       error = ""
       notice = ""
-  action closePopup writes popupOpen
+  action closePopup writes popupOpen, popupOffset, popupPanning, popupClosing
     if not dragging
       popupOpen = false
+      popupOffset = 0
+      popupPanning = false
+      popupClosing = false
+  action popupPan(dx: number, dy: number) writes popupOffset, popupPanning
+    if popupOpen and not dragging and not busy and not editorOpen and not popupClosing and (popupPanning or (dy > 0 and dy > magnitude(dx)))
+      popupPanning = true
+      popupOffset = min(popupCap + 40, max(0, popupOffset + dy))
+  action popupRelease(vx: number, vy: number) writes popupPanning, popupClosing, popupUntil, popupOffset
+    if popupPanning
+      popupPanning = false
+      if popupOffset >= max(48, popupCap * 0.18) or (popupOffset > 12 and vy > 700 and vy > magnitude(vx))
+        popupClosing = true
+        popupUntil = now() + (viewport.prefersReducedMotion ? 0 : 240)
+      else
+        popupOffset = 0
   action editEvent(id: string) writes editId, editorOpen, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, notice, retryToken, retryOperation
     if not busy and not dragging
       retryToken = ""
@@ -601,9 +645,12 @@ component Calendar
           text (error != "" ? error : notice) testId="calendar-notice" aria-live="polite" padding=12 border-radius=14 background-color=(error != "" ? "#fff1ef" : "#f5f5f7") color=(error != "" ? "#b74238" : "#727278") font-size=13
       button id="add-schedule" testId="add-schedule" press=editEvent("") aria-label="Add schedule" disabled=(not libraryReady or busy or dragging or popupOpen) position="absolute" bottom="calc(env(safe-area-inset-bottom) + 24px)" right=20 width=56 height=56 border-width=0 border-radius=28 background-color="#FA7070" box-shadow="0 6px 20px rgba(238, 99, 107, 0.24)" display="flex" align-items="center" justify-content="center" press-scale=0.94 opacity=(dragging or popupOpen ? 0 : 1) transition="opacity 160ms ease-out"
         image "symbol:add" font-size=26 font-weight=400 tint-color="#ffffff"
+      when popupOpen and not dragging and not editorOpen
+        box id="date-popup-backdrop" testId="date-popup-backdrop" press=closePopup aria-label="Close schedules" position="absolute" left=0 right=0 top=0 bottom=0 background-color="rgba(28, 31, 44, 0.16)" z-index=4 opacity=(popupClosing ? 0 : 1 - unit(popupOffset / max(1, popupCap))) transition=(viewport.prefersReducedMotion or popupPanning ? "none" : "opacity 180ms ease-out")
       when popupOpen
-        column id="date-popup" testId="date-popup" role="dialog" aria-label=agenda.label position="absolute" bottom=0 left=0 right=0 height=`calc(${popupHeight}px + env(safe-area-inset-bottom))` min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" z-index=5 translate=`0px ${popupLowered ? popupHeight - 80 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : "translate spring(320, 30, 1)") animation=(viewport.prefersReducedMotion ? "none" : "popupIn 180ms ease-out")
-          box width=32 height=4 margin-top=10 margin-bottom=2 align-self="center" background-color="#dcdce1" border-radius=2 flex-shrink=0
+        column id="date-popup" testId="date-popup" role="dialog" aria-label=agenda.label position="absolute" bottom=0 left=0 right=0 height=`calc(${popupHeight}px + env(safe-area-inset-bottom))` max-height=popupCap min-height=0 box-sizing="border-box" padding-bottom="env(safe-area-inset-bottom)" border-top-left-radius=24 border-top-right-radius=24 background-color="#ffffff" box-shadow="0 -6px 32px rgba(28, 31, 44, 0.12)" overflow="hidden" z-index=5 translate=`0px ${popupLowered or popupClosing ? popupCap + 40 : popupOffset}px` transition=(viewport.prefersReducedMotion or popupPanning ? "none" : "translate spring(320, 30, 1)") animation=(viewport.prefersReducedMotion ? "none" : "popupIn 180ms ease-out")
+          box id="date-sheet-handle" testId="date-sheet-handle" aria-label="Drag down to close schedules" pan=popupPan panrelease=popupRelease touch-action="none" width="100%" height=36 flex-shrink=0 display="flex" flex-direction="column" align-items="center" justify-content="flex-start"
+            box width=32 height=4 margin-top=10 background-color="#dcdce1" border-radius=2
           row height=64 flex-shrink=0 padding-left=20 padding-right=16 box-sizing="border-box" gap=8 align-items="center"
             column flex=1 min-width=0 gap=4
               text (dragging ? "Move schedule" : agenda.label) testId="popup-date" font-size=18 font-weight=600 letter-spacing=-0.3 line-height="21px" line-clamp=2 overflow="hidden"
@@ -619,7 +666,7 @@ component Calendar
                   text "No schedules yet" font-size=16 font-weight=500 color="#494950"
                   text "Tap + to add something to your day." font-size=13 color="#85858d"
               each item in agenda.items key=item.id
-                AgendaRow(item=item, hidden=(popupLowered or dragId == item.id), disabled=(busy or editorOpen or (dragging and (not held or dragId != item.id))), edit=editEvent)
+                AgendaRow(item=item, hidden=(popupLowered or dragId == item.id), disabled=(busy or editorOpen or popupClosing or (dragging and (not held or dragId != item.id))), edit=editEvent)
           when error != "" or notice != "" or busy
             text (busy ? "Saving…" : (error != "" ? error : notice)) testId="popup-status" aria-live="polite" padding-left=20 padding-right=20 padding-top=4 padding-bottom=12 font-size=13 color=(error != "" ? "#b74238" : "#85858d") flex-shrink=0 opacity=(popupLowered ? 0 : 1)
       when dragging

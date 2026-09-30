@@ -2,10 +2,10 @@
 
 use calendar_data::Calendar;
 use exact_data_host::Storage;
-use exact_kernel::{Env, Frame, Kernel, Offer};
+use exact_kernel::{Env, Frame, Kernel, NodeKey, Offer};
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    DataSource, Dispatch, Event, Outcome, Reply, RequestOut, Runner, Viewport, Work,
+    DataSource, Dispatch, Event, Outcome, Reply, RequestOut, Runner, RunnerError, Viewport, Work,
 };
 use std::{
     collections::BTreeMap,
@@ -177,9 +177,12 @@ impl App {
     }
 
     fn dispatch(&mut self, test_id: &str, event: Event) {
-        let keys = self.runner.kernel().find_by_test_id(test_id);
-        assert_eq!(keys.len(), 1, "expected one visible {test_id}");
-        let view = self.runner.kernel().node_by_key(keys[0]).unwrap().id;
+        let view = self
+            .runner
+            .kernel()
+            .node_by_key(self.key(test_id))
+            .unwrap()
+            .id;
         self.runner.dispatch(view, event).unwrap();
     }
     fn event(&mut self, test_id: &str, event: Event) {
@@ -213,10 +216,34 @@ impl App {
             .map(|item| fields(item)[0].as_str().unwrap().to_owned())
             .unwrap_or_else(|| panic!("agenda has no {title}"))
     }
-    fn frame(&self, test_id: &str) -> Frame {
+    fn key(&self, test_id: &str) -> NodeKey {
         let keys = self.runner.kernel().find_by_test_id(test_id);
-        assert_eq!(keys.len(), 1, "expected one laid-out {test_id}");
-        self.runner.kernel().laid_out_frame(keys[0]).unwrap().0
+        assert_eq!(keys.len(), 1, "expected one mounted {test_id}");
+        keys[0]
+    }
+    fn frame(&self, test_id: &str) -> Frame {
+        self.runner
+            .kernel()
+            .laid_out_frame(self.key(test_id))
+            .unwrap()
+            .0
+    }
+    fn translation_y(&self, test_id: &str) -> f32 {
+        self.runner
+            .kernel()
+            .node_by_key(self.key(test_id))
+            .unwrap()
+            .style
+            .translate
+            .y
+    }
+    fn content_height(&self, test_id: &str) -> f32 {
+        self.runner
+            .kernel()
+            .node_by_key(self.key(test_id))
+            .unwrap()
+            .content
+            .1
     }
     fn center(&self, test_id: &str) -> (f64, f64) {
         let frame = self.frame(test_id);
@@ -306,6 +333,127 @@ fn launch_uses_the_reported_month_and_opens_the_selected_dates_agenda() {
     app.press("date-2026-09-2026-09-25");
     assert_eq!(app.state("popupOpen"), &Value::Bool(true));
     assert_eq!(app.agenda_id("Summer in Seoul"), "sample-2026-09-6");
+}
+
+#[test]
+fn the_sheet_backdrop_covers_the_calendar_and_dismisses_without_selecting_another_date() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
+    app.press("date-2026-09-2026-09-25");
+    let selected = app.derived("day").clone();
+    let month = app.derived("month").clone();
+    let position = app.derived("pagerPosition").clone();
+    assert_eq!(
+        app.frame("date-popup-backdrop"),
+        Frame {
+            x: 0.0,
+            y: 0.0,
+            width: WIDTH,
+            height: HEIGHT,
+        }
+    );
+    assert!(
+        app.runner
+            .kernel()
+            .node_by_key(app.key("date-popup-backdrop"))
+            .unwrap()
+            .style
+            .z_index
+            > app
+                .runner
+                .kernel()
+                .node_by_key(app.key("calendar-pages"))
+                .unwrap()
+                .style
+                .z_index
+    );
+    let backdrop = app
+        .runner
+        .kernel()
+        .node_by_key(app.key("date-popup-backdrop"))
+        .unwrap()
+        .id;
+    assert!(matches!(
+        app.runner.dispatch(backdrop, Event::Pan(-140.0, 0.0)),
+        Err(RunnerError::NoHandler { event: "pan", .. })
+    ));
+    assert_eq!(app.derived("pagerPosition"), &position);
+    app.press("date-popup-backdrop");
+    assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+    assert_eq!(app.derived("day"), &selected);
+    assert_eq!(app.derived("month"), &month);
+    assert_eq!(app.derived("pagerPosition"), &position);
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
+
+    app.press("date-2026-09-2026-09-25");
+    app.press("popup-add");
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
+    app.press("cancel-editor");
+    assert_eq!(
+        app.runner
+            .kernel()
+            .find_by_test_id("date-popup-backdrop")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn the_sheet_handle_dismisses_downward_and_cancels_short_or_upward_gestures() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.press("date-2026-09-2026-09-25");
+    let revision = app.derived("revision").clone();
+    let popup = app.key("date-popup");
+
+    for (dx, dy, vx, vy) in [
+        (0.0, -80.0, 0.0, -1000.0),
+        (80.0, 2.0, 1000.0, 0.0),
+        (0.0, 20.0, 0.0, 0.0),
+        (0.0, 20.0, 900.0, 800.0),
+    ] {
+        app.event("date-sheet-handle", Event::Pan(dx, dy));
+        assert!(app.translation_y("date-popup") >= 0.0);
+        // A cancelled native pan is delivered with zero release velocity.
+        app.event("date-sheet-handle", Event::PanRelease(vx, vy));
+        assert_eq!(app.state("popupOpen"), &Value::Bool(true));
+        assert_eq!(app.key("date-popup"), popup);
+        assert_eq!(app.translation_y("date-popup"), 0.0);
+        assert_eq!(app.derived("revision"), &revision);
+    }
+
+    for (distance, velocity) in [(20.0, 900.0), (90.0, 0.0)] {
+        app.event("date-sheet-handle", Event::Pan(0.0, distance));
+        assert_eq!(app.translation_y("date-popup"), distance as f32);
+        app.event("date-sheet-handle", Event::PanRelease(0.0, velocity));
+        assert_eq!(app.state("popupClosing"), &Value::Bool(true));
+        let closing_position = app.translation_y("date-popup");
+        app.event("date-sheet-handle", Event::Pan(0.0, -100.0));
+        app.event("date-sheet-handle", Event::PanRelease(0.0, -900.0));
+        assert_eq!(app.state("popupClosing"), &Value::Bool(true));
+        assert_eq!(app.translation_y("date-popup"), closing_position);
+        for _ in 0..90 {
+            app.presented_frame(1000.0 / 120.0);
+        }
+        assert_eq!(app.state("popupOpen"), &Value::Bool(false));
+        assert!(app.runner.kernel().find_by_test_id("date-popup").is_empty());
+        assert_eq!(app.derived("revision"), &revision);
+        app.press("date-2026-09-2026-09-25");
+        assert_eq!(app.translation_y("date-popup"), 0.0);
+    }
 }
 
 #[test]
@@ -491,6 +639,15 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
         .map(|name| (name, app.derived(name).clone()));
     app.press("cancel-editor");
     let contact = Contact::new(&app, &id, 1);
+    let popup = app.key("date-popup");
+    let input = app.key("calendar-input");
+    assert_eq!(
+        app.runner
+            .kernel()
+            .find_by_test_id("date-popup-backdrop")
+            .len(),
+        1
+    );
     let source = app
         .runner
         .kernel()
@@ -508,6 +665,17 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     assert_eq!(app.state("contactAck"), &Value::Number(1.0));
     assert_eq!(app.state("dragPhase").as_str(), Some("held"));
     assert_eq!(app.state("dragSpan"), &Value::Number(5.0));
+    assert_eq!(app.key("date-popup"), popup);
+    assert_eq!(app.key("calendar-input"), input);
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
+    assert!(
+        app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT,
+        "the entire sheet moves below the viewport while its source stays mounted"
+    );
     assert_eq!(
         app.runner
             .kernel()
@@ -532,6 +700,12 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.event("calendar-input", contact.event(3, "end", final_point, ""));
     assert_eq!(app.state("contactAck"), &Value::Number(3.0));
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
+    assert!(app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT);
+    assert!(app
+        .runner
+        .kernel()
+        .find_by_test_id("date-popup-backdrop")
+        .is_empty());
     assert_eq!(app.derived("revision"), &Value::Number(2.0));
     let moved = items(&fields(app.runner.resource("agenda").unwrap())[3])
         .iter()
@@ -550,6 +724,16 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.runner.advance(400.0).unwrap();
     app.settle();
     assert_eq!(app.state("dragId").as_str(), Some(""));
+    assert_eq!(app.key("date-popup"), popup);
+    assert_eq!(app.key("calendar-input"), input);
+    assert_eq!(app.translation_y("date-popup"), 0.0);
+    assert_eq!(
+        app.runner
+            .kernel()
+            .find_by_test_id("date-popup-backdrop")
+            .len(),
+        1
+    );
     assert!(app
         .runner
         .kernel()
@@ -575,6 +759,7 @@ fn cancel_outside_and_same_date_drops_do_not_change_storage() {
         app.press("date-2026-09-2026-09-25");
         let id = app.agenda_id("Summer in Seoul");
         let contact = Contact::new(&app, &id, 1);
+        let popup = app.key("date-popup");
         app.event(
             "calendar-input",
             contact.event(1, "begin", contact.origin(), ""),
@@ -596,11 +781,72 @@ fn cancel_outside_and_same_date_drops_do_not_change_storage() {
             "{ending}"
         );
         assert_eq!(app.derived("revision"), &Value::Number(1.0), "{ending}");
+        assert!(app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT);
         app.runner.advance(400.0).unwrap();
         app.settle();
         assert_eq!(app.state("dragId").as_str(), Some(""));
+        assert_eq!(app.key("date-popup"), popup);
+        assert_eq!(app.translation_y("date-popup"), 0.0);
+        assert_eq!(
+            app.runner
+                .kernel()
+                .find_by_test_id("date-popup-backdrop")
+                .len(),
+            1
+        );
         assert_eq!(app.agenda_id("Summer in Seoul"), id);
     }
+}
+
+#[test]
+fn the_sheet_stays_offscreen_until_a_pending_drop_finishes() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    app.press("date-2026-09-2026-09-25");
+    let id = app.agenda_id("Summer in Seoul");
+    let contact = Contact::new(&app, &id, 1);
+    let input = app.key("calendar-input");
+    let popup = app.key("date-popup");
+    let source = app.key(&format!("agenda-item-{id}"));
+    app.event(
+        "calendar-input",
+        contact.event(1, "begin", contact.origin(), ""),
+    );
+    let destination = app.center("date-2026-09-2026-09-20");
+    app.dispatch("calendar-input", contact.event(2, "end", destination, ""));
+    app.runner.advance(app.runner.now_ms()).unwrap();
+    app.layout();
+    assert_eq!(app.state("contactAck"), &Value::Number(2.0));
+    assert_eq!(app.derived("busy"), &Value::Bool(true));
+
+    // Present frames while deliberately withholding the real storage request.
+    // Neither the finishing animation nor a stale source can restore the sheet.
+    for _ in 0..90 {
+        assert!(app
+            .runner
+            .frame(app.runner.now_ms() + 1000.0 / 120.0)
+            .error
+            .is_none());
+        app.layout();
+        assert_eq!(app.key("calendar-input"), input);
+        assert_eq!(app.key("date-popup"), popup);
+        assert_eq!(app.key(&format!("agenda-item-{id}")), source);
+        assert!(app.frame("date-popup").y + app.translation_y("date-popup") >= HEIGHT);
+    }
+    assert_eq!(app.derived("revision"), &Value::Number(1.0));
+    assert_eq!(app.derived("busy"), &Value::Bool(true));
+
+    app.settle();
+    assert_eq!(app.derived("busy"), &Value::Bool(false));
+    for _ in 0..90 {
+        app.presented_frame(1000.0 / 120.0);
+    }
+    assert_eq!(app.derived("revision"), &Value::Number(2.0));
+    assert_eq!(app.key("calendar-input"), input);
+    assert_eq!(app.key("date-popup"), popup);
+    assert_eq!(app.translation_y("date-popup"), 0.0);
+    assert_eq!(app.state("dragId").as_str(), Some(""));
+    assert_eq!(app.agenda_id("Summer in Seoul"), id);
 }
 
 #[test]
@@ -724,6 +970,16 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
         app.input("end-date", "2026-09-15");
         app.press("save-schedule");
     }
+    let popup = app.frame("date-popup");
+    assert!(
+        popup.height <= 360.0,
+        "long agenda stays within the sheet cap"
+    );
+    assert_eq!(popup.y + popup.height, HEIGHT);
+    assert!(
+        app.content_height("agenda-list") > app.frame("agenda-list").height + 600.0,
+        "the long agenda scrolls inside the bounded sheet"
+    );
     let id = fields(&items(&fields(app.runner.resource("agenda").unwrap())[3])[0])[0]
         .as_str()
         .unwrap()
