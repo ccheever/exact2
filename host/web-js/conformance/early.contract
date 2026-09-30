@@ -1,0 +1,35 @@
+// data: caltrain
+// Synthetic conformance plan: edits made before the runtime runs (LLP
+// 1048.001 D5). The page is rendered at build and loads its script at the
+// first edit (`activate=interaction`, which a text field's `input` handler
+// would make eager: the render host allows only discrete events there); the
+// capture script queues each edit
+// as the event it was, and the runtime replays it after adoption, each
+// control keeping what the reader left in it. conform.mjs makes the edits
+// (both boxes checked, a word typed, the second option picked) and reads
+// `early-state` once the runtime is up.
+routes nav
+  tab home "/" render=build activate=interaction
+
+component Early
+  state a = false
+  state b = false
+  state words = ""
+  state pick = "one"
+  action toggleA(on: bool) writes a
+    a = not a
+  action setB(value: bool) writes b
+    b = value
+  action setWords(value: string) writes words
+    words = value
+  action setPick(value: string) writes pick
+    pick = value
+  view
+    column testId="root" padding=24 gap=12
+      input type="checkbox" checked=a change=toggleA testId="early-a" aria-label="A"
+      input type="checkbox" checked=b change=setB testId="early-b" aria-label="B"
+      input value=words change=setWords testId="early-words" aria-label="Words"
+      select value=pick change=setPick testId="early-pick" aria-label="Pick"
+        option "One" value="one"
+        option "Two" value="two"
+      text `${a ? "on" : "off"} ${b ? "on" : "off"} ${words} ${pick}` testId="early-state"

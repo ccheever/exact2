@@ -116,6 +116,7 @@ fn walk<D: DataSource>(
         out: String::new(),
         links: 0,
         buttons: 0,
+        select: None,
     };
     let roots = runner.roots();
     for root in &roots {
@@ -166,6 +167,8 @@ struct Walk<'r, D: DataSource> {
     /// second starts inside it, and a button's containers are `<span>`s.
     links: u32,
     buttons: u32,
+    /// The open `select`'s value: the option that carries it is `selected`.
+    select: Option<String>,
 }
 
 impl<D: DataSource> Walk<'_, D> {
@@ -214,6 +217,7 @@ impl<D: DataSource> Walk<'_, D> {
         let element = if tag == "canvas" { "div" } else { tag };
         let children = node.children();
         self.route_children(&node, &children);
+        let chosen = (element == "select").then(|| props.get("value").cloned());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
@@ -239,7 +243,12 @@ impl<D: DataSource> Walk<'_, D> {
                 // `writeValue`: an input's value and a button's (a reflected
                 // attribute) are the element's; a textarea's is its text.
                 "value" => match element {
-                    "input" | "button" => attrs.push((name.clone(), Some(value.clone()))),
+                    "input" | "button" | "option" => {
+                        if element == "option" && self.select.as_ref() == Some(value) {
+                            attrs.push(("selected".into(), None));
+                        }
+                        attrs.push((name.clone(), Some(value.clone())));
+                    }
                     "textarea" => content = Some(value.clone()),
                     _ => {}
                 },
@@ -334,8 +343,12 @@ impl<D: DataSource> Walk<'_, D> {
         let (link, button) = (element == "a", element == "button");
         self.links += u32::from(link);
         self.buttons += u32::from(button);
+        let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         for child in children {
             self.element(child)?;
+        }
+        if let Some(outer) = outer {
+            self.select = outer;
         }
         self.links -= u32::from(link);
         self.buttons -= u32::from(button);

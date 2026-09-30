@@ -1455,6 +1455,33 @@ failure, or have the app window its data. The wasm page hanging on
 ("may block input"): it mounts every row. That is the wasm side and is not
 changed here.
 
+**Edits before the runtime** (2026-09-29, from the grid benchmark's "select
+at load"): a checkbox ticked before the JS runtime ran was lost twice over.
+The capture script queued it as `input` and replayed `input`, but a
+checkbox's handler hears `change`; then adoption wrote the state's `false`
+over the box. Now the capture script queues `input` and `change` as they
+were fired (a text field's repeated `input`s stay one entry; a checkbox's
+changes are all kept, since a toggle counts them). The runtime reads what
+each edited control shows before its adopting commit, puts that back
+afterwards, then replays the events in order. A checkbox's `change` and
+`input` carry whether it is checked, and an action that refuses snaps it
+back, as glue.js does (the JS runtime passed the text `"on"`). Selects had
+the same bug by another path: the render host (host/web/src/document.rs)
+wrote no `value` on an `option` and did not mark the select's current option,
+so a pick made before the runtime ran named an option's text, which matched
+nothing once the runtime gave each option its value. The document now
+carries each option's `value` and `selected`, which a reader without
+JavaScript sees as well. Contract has no radio input (LLP 1069.001). Cost:
+the capture script 1,212 → 1,279 B, inline in every page; `app.js` +298 B
+(+95 B brotli). Synthetic `early.contract` is a page rendered at build with
+`activate=interaction` (its text field commits on `change`: the render host
+makes a page with an `input` handler eager). conform.mjs checks both boxes,
+types a word and picks the second option before the runtime runs, then reads
+the controls and the state; before the fix the result was `off off  one`.
+The JS agent's tree also names controls as the runner does now: a checkbox,
+range, date, time or file input, or a select, is a `Control` (a checkbox
+reports no `value`), and an option is `Text`.
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**

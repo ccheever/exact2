@@ -484,7 +484,7 @@ export function P(e, name, f) {
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "checked") e.checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) e.removeAttribute(name);
     else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
   });
@@ -684,8 +684,9 @@ export function on(e, kind, f) {
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.
     case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
-    case "change": return l("change", () => f(e.value));
-    case "input": return l("input", () => f(e.value));
+    // A checkbox's value is whether it is checked; the platform flips the
+    // box at once, and an action that refuses snaps it back (glue.js).
+    case "change": case "input": return l(kind, () => { if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => f(ev.key));
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });
@@ -1040,6 +1041,11 @@ export function mount(f) {
   // Elapsed time continues from where a render's clock stopped.
   start = performance.now() - clock.now;
   const adopting = Adopt;
+  // What the reader did before the runtime ran (the capture script), and
+  // what each edited control showed then: the commit writes the state's
+  // values, which the reader had changed.
+  const early = globalThis.exact?.taps?.() ?? [];
+  const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false;
   const adopted = adopting && built;
@@ -1053,9 +1059,10 @@ export function mount(f) {
   if (adopted) say("adopted the document");
   say(`boot: ${root.getElementsByTagName("*").length} nodes`); // the runner's journal line (LLP 1012 logs)
   root.dataset.bootMs = String(Math.round(performance.now()));
-  // What the reader did before the runtime ran (the capture script),
-  // replayed once, in order, on the same elements (LLP 1048.001 D5).
-  for (const t of globalThis.exact?.taps?.() ?? []) if (t.target.isConnected) t.type === "input" ? t.target.dispatchEvent(new Event("input", { bubbles: true })) : t.target.click();
+  // Replayed once, in order, on the same elements (LLP 1048.001 D5), each
+  // edited control first showing what the reader left in it.
+  for (const [e, v, c] of shown) if (e.isConnected) { if (e.type === "checkbox" || e.type === "radio") e.checked = c; else if (e.type !== "file") e.value = v; }
+  for (const t of early) if (t.target.isConnected) t.type === "click" ? t.target.click() : t.target.dispatchEvent(new Event(t.type, { bubbles: true }));
 }
 
 /** The page's checkpoint (LLP 1048.000 D4): the answers its document used,

@@ -108,6 +108,13 @@ async function target(t, report) {
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
   const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve(out, 'dist', t.name))]);
   await drive(t, report, fail, dir, ws, js);
+  // A page rendered at build that loads its script at the first input: the
+  // reader's first press or edits, before the runtime (below).
+  if (/data-activate="interaction"/.test(readFileSync(resolve(out, 'dist', t.name, 'index.html'), 'utf8'))) {
+    const page = await serve(resolve(out, 'dist', t.name));
+    await activation(t, report, fail, page.url);
+    page.close();
+  }
 }
 
 async function drive(t, report, fail, dir, ws, js) {
@@ -203,7 +210,7 @@ async function drive(t, report, fail, dir, ws, js) {
 // `interaction` page fetches no script until a press, which it replays.
 async function activation(t, report, fail, url) {
   const step = `activation ${url}`;
-  let S;
+  let S, early = null;
   try {
     S = await open({ host: 'web', app: t.app, url });
     const ev = S.carrier.evaluate, page = new URL(url);
@@ -225,7 +232,15 @@ async function activation(t, report, fail, url) {
       r = await read();
       if (r.boot != null || r.fetched) out.push(`interaction: runtime up (${r.boot}) or ${r.fetched} script(s) fetched before any input`);
       if (r.preload) out.push('interaction: the head preloads the entry');
-      await ev(`document.querySelector('[data-exact-on~=press]:not(a)')?.click()`);
+      // early.contract's controls, edited as a reader would (the script
+      // loads at the first); else the first press.
+      early = await ev(`(() => { const q = id => document.querySelector('[data-testid="' + id + '"]');
+        if (!q('early-state')) return document.querySelector('[data-exact-on~=press]:not(a)')?.click(), null;
+        q('early-a').click(); q('early-b').click();
+        const w = q('early-words'), p = q('early-pick');
+        w.value = 'early'; for (const k of ['input', 'change']) w.dispatchEvent(new Event(k, { bubbles: true }));
+        p.value = 'two'; for (const k of ['input', 'change']) p.dispatchEvent(new Event(k, { bubbles: true }));
+        return 'on on early two'; })()`);
     } else if (!r.preload) out.push(`${r.policy}: the head does not preload ./app.js`);
     r = await until(x => x.boot != null, 10000);
     if (r.boot == null) out.push(`${r.policy}: the runtime never came up${r.policy === 'interaction' ? ' after a press' : ' without input'}`);
@@ -233,6 +248,13 @@ async function activation(t, report, fail, url) {
       if (!r.adopted) out.push(`${r.policy}: the document was built afresh, not adopted`);
       if (r.paint == null || r.boot < r.paint) out.push(`${r.policy}: runtime up at ${r.boot} ms, before first paint (${r.paint})`);
       if (r.policy === 'idle' && r.boot < r.load) out.push(`idle: runtime up at ${r.boot} ms, before load (${r.load})`);
+      if (early) {
+        await new Promise(z => setTimeout(z, 300));
+        const got = await ev(`(() => { const q = id => document.querySelector('[data-testid="' + id + '"]');
+          return [q('early-state').textContent, q('early-a').checked, q('early-b').checked, q('early-words').value, q('early-pick').value].join('|'); })()`);
+        const want = `${early}|true|true|early|two`;
+        if (got !== want) out.push(`early edits: ${got}, not ${want} (state|boxes|text|select)`);
+      }
     }
     out.forEach(x => fail(step, x));
     report.steps.push({ target: t.name, step, policy: r.policy, paint: r.paint, boot: r.boot, differences: out.length });
