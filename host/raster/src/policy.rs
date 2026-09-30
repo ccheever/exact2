@@ -676,7 +676,13 @@ impl RasterSession {
     /// or in-flight decoder charges. A shrink drops cold images; surviving
     /// charges can exceed the new budget until their owners release them.
     pub fn set_budget(&self, budget: u64) {
-        if self.owner.account.set_budget(budget.max(SESSION_BYTES)) {
+        // Admission checks capacity and reserves all decode allocations while
+        // holding this gate. A shrink must not split that transaction.
+        let shrunk = {
+            let _state = self.owner.gate.inner.state.lock().unwrap();
+            self.owner.account.set_budget(budget.max(SESSION_BYTES))
+        };
+        if shrunk {
             self.trim();
         }
     }

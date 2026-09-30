@@ -810,3 +810,33 @@ fn viewport_budget_shrink_preserves_backings_and_growth_wakes_queued_decodes() {
     session.trim();
     assert!(session.reserve_allocation(1).is_ok());
 }
+
+#[test]
+fn concurrent_budget_changes_keep_decode_admission_atomic() {
+    let gate = Gate::new();
+    let session = gate.session_with_budget(64 * MIB);
+    // This retained allocation leaves 40 MiB at the larger capacity, but
+    // only 8 MiB after shrinking: a 24 MiB decode fits in just one state.
+    let held = session.reserve_allocation(24 * MIB).unwrap();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            for _ in 0..5000 {
+                session.set_budget(32 * MIB);
+                session.set_budget(64 * MIB);
+            }
+        });
+        for source in 1..=5000 {
+            let request = session.request(demand(1, source, 16, 8)).unwrap();
+            let permit = gate.next_decode();
+            session.cancel(request);
+            drop(permit);
+        }
+    });
+    drop(held);
+    session.set_budget(32 * MIB);
+    let request = session.request(demand(1, 5001, 16, 8)).unwrap();
+    let permit = gate.next_decode().expect("the gate remains usable");
+    session.cancel(request);
+    drop(permit);
+    assert_eq!(total(&session), 0);
+}
