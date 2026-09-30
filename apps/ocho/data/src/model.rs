@@ -5,6 +5,8 @@
 mod exec;
 mod keys;
 mod menus;
+#[cfg(test)]
+mod tests;
 
 use crate::keymap::Keystroke;
 use crate::palette::Command;

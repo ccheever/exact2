@@ -15,6 +15,7 @@ component Overlays
     t: Theme
     hoverId: string
     windowWidth: number
+    windowHeight: number
     press: action
     hover: action
     typed: action
@@ -32,7 +33,7 @@ component Overlays
               text "↑ ↓ choose · Enter open · Esc close" font-size=11 line-height="18px" color=t.muted white-space="nowrap"
             when model.status != ""
               text model.status padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
-            scroll id="picker-list" max-height=440 padding-top=4 padding-bottom=4
+            scroll id="picker-list" max-height=(min(440, windowHeight - 200)) padding-top=4 padding-bottom=4
               column
                 each r in model.rows key=r.id
                   button press=press(`pick:${r.id}`) testId=`pick-${r.id}` hover=hover(`pick:${r.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=12 margin-left=4 margin-right=4 padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 border-radius=6 background-color=(r.selected ? t.selected : (hoverId == `pick:${r.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="calc(100% - 8px)" box-sizing="border-box"
@@ -68,18 +69,18 @@ component Overlays
               text model.title flex=1 font-weight=600 class=Ellipsis
               text model.hint font-size=12 line-height="19px" color=t.muted
             text model.subtitle padding-left=16 padding-right=16 padding-top=4 font-size=12 line-height="19px" color=t.muted
-            scroll max-height=420 padding-left=16 padding-right=16 padding-top=8 padding-bottom=12
+            scroll max-height=(min(420, windowHeight - 200)) padding-left=16 padding-right=16 padding-top=8 padding-bottom=12
               text model.body font-size=14 line-height="22px" white-space="pre-wrap"
           // ---- Help (ui.rs:3891): sections from the keymap, keys in Menlo at 200 wide ----
           when model.kind == "help"
             row align-items="center" padding-left=16 padding-right=16 padding-top=12
               text model.title flex=1 font-weight=600
               text model.hint font-size=12 line-height="19px" color=t.muted
-            scroll id="help-body" max-height=560 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
-              column gap=12
+            scroll id="help-body" max-height=(min(560, windowHeight - 140)) padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+              column gap=2
                 each r in model.rows key=r.id
                   when r.chip == "section"
-                    text r.label padding-top=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
+                    text r.label padding-top=(r.id == "section-Everywhere" ? 0 : 10) font-size=11 line-height="18px" font-weight=700 color=t.accent
                   else
                     row gap=12
                       text r.label width=200 flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="19px"
@@ -126,7 +127,42 @@ component Overlays
                   text b.label
                   when b.hint != ""
                     text b.hint font-size=11 line-height="18px" color=t.muted
-          when model.kind == "settings" or model.kind == "form" or model.kind == "quick" or model.kind == "machine-picker" or model.kind == "project-picker" or model.kind == "add-folder" or model.kind == "pair"
+          when model.kind == "settings"
+            row align-items="center" padding-left=16 padding-right=16 padding-top=12 padding-bottom=4 flex-shrink=0
+              text model.title flex=1 font-weight=600
+              text model.subtitle font-size=12 line-height="19px" color=t.muted
+            scroll flex=1 min-height=0 max-height=(min(520, windowHeight - 200)) padding-left=8 padding-right=8 padding-top=8 padding-bottom=8
+              column
+                each f in model.fields key=f.id
+                  row align-items="flex-start" gap=16 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 background-color=(f.focused and f.kind != "text" ? t.selected : (hoverId == `setting:${f.id}` ? t.hover : "rgba(0,0,0,0)")) border-style="solid" border-width=1 border-color=(f.focused and f.kind == "text" ? `${t.accent}66` : "rgba(0,0,0,0)") hover=hover(`setting:${f.id}`) box-sizing="border-box"
+                    button press=press(`field:${f.id}`) class=Reset display="flex" flex-direction="column" gap=2 flex=1 min-width=0 color=t.text
+                      row align-items="center" gap=8
+                        text f.label font-weight=500
+                        when f.hint != ""
+                          button press=press(`reset:${f.id}`) testId=`reset-${f.id}` hover=hover(`reset:${f.id}`) class=Reset padding-left=4 padding-right=4 border-radius=2 font-size=11 line-height="18px" color=(hoverId == `reset:${f.id}` ? t.text : t.muted) background-color=(hoverId == `reset:${f.id}` ? t.hover : "rgba(0,0,0,0)") aria-label="Reset to default  ·  ⌫"
+                            text "↺"
+                      text f.placeholder font-size=12 line-height="19px" color=t.muted white-space="pre-wrap"
+                    when f.kind == "picker"
+                      button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 margin-top=2 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=(hoverId == `field:${f.id}` ? t.hover : t.bg) color=t.text flex-shrink=0
+                        text f.value class=Ellipsis max-width=224
+                        text "▾" color=t.muted
+                    when f.kind == "stepper"
+                      row align-items="center" margin-top=2 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg flex-shrink=0
+                        button press=press(`step-down:${f.id}`) testId=`step-down-${f.id}` hover=hover(`step-down:${f.id}`) class=Reset padding-left=8 padding-right=8 border-radius=6 color=(hoverId == `step-down:${f.id}` ? t.text : t.muted) background-color=(hoverId == `step-down:${f.id}` ? t.hover : "rgba(0,0,0,0)")
+                          text "−"
+                        text f.value width=56 text-align="center" font-family="ui-monospace" font-size=12 line-height="19px"
+                        button press=press(`step-up:${f.id}`) testId=`step-up-${f.id}` hover=hover(`step-up:${f.id}`) class=Reset padding-left=8 padding-right=8 border-radius=6 color=(hoverId == `step-up:${f.id}` ? t.text : t.muted) background-color=(hoverId == `step-up:${f.id}` ? t.hover : "rgba(0,0,0,0)")
+                          text "+"
+                    when f.kind == "toggle"
+                      button press=press(`toggle:${f.id}`) testId=`toggle-${f.id}` hover=hover(`toggle:${f.id}`) class=Reset padding-left=12 padding-right=12 padding-top=2 padding-bottom=2 margin-top=2 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=(hoverId == `toggle:${f.id}` ? t.hover : (f.value == "On" ? t.selected : t.bg)) color=(f.value == "On" ? t.accent : t.muted) flex-shrink=0
+                        text f.value
+                    when f.kind == "text"
+                      column width=352 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 margin-top=2 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg flex-shrink=0 box-sizing="border-box"
+                        input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder="Instructions…" focus=press(`focus:${f.id}`) aria-label=f.label width="100%" min-height=22 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
+            when model.status != ""
+              text model.status padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="19px" color=t.warn flex-shrink=0
+            text model.footer padding-left=16 padding-right=16 padding-bottom=12 font-size=11 line-height="18px" color=t.muted flex-shrink=0
+          when model.kind == "form" or model.kind == "quick" or model.kind == "machine-picker" or model.kind == "project-picker" or model.kind == "add-folder" or model.kind == "pair"
             row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=12
               text model.title flex=1 font-weight=600 class=Ellipsis
               when model.pill != ""
@@ -135,7 +171,7 @@ component Overlays
                 text model.subtitle font-size=12 line-height="19px" color=t.muted
             when model.status != ""
               text model.status padding-left=16 padding-right=16 padding-top=8 font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
-            scroll max-height=520 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+            scroll max-height=(min(520, windowHeight - 200)) padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
               column gap=8
                 each f in model.fields key=f.id
                   column gap=4
@@ -201,7 +237,8 @@ component Overlays
     // ---- The popup menu card (ui.rs:1376): min 208, max 416, py_1; items px_3 py_1 ----
     when popup.kind != ""
       button press=press("popup-close") testId="popup-scrim" class=Reset position="absolute" top=0 left=0 right=0 bottom=0 width="100%" height="100%" aria-label="Close menu"
-      column testId="popup-card" position="absolute" left=(popup.right > 0 ? "auto" : `${popup.x}px`) right=(popup.right > 0 ? `${windowWidth - popup.right}px` : "auto") top=popup.y min-width=208 max-width=416 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=t.elevated box-shadow="0 10px 15px rgba(0,0,0,0.1)" role="menu" z-index=2
+      // Snapped to the window with an 8 px margin (GPUI `snap_to_window_with_margin`): a card that would overflow hangs from the far edge instead.
+      column testId="popup-card" position="absolute" left=(popup.right > 0 or popup.x + 224 > windowWidth ? "auto" : `${popup.x}px`) right=(popup.right > 0 ? `${max(8, windowWidth - popup.right)}px` : (popup.x + 224 > windowWidth ? "8px" : "auto")) top=(popup.y + length(popup.items) * 27 + 16 > windowHeight ? "auto" : `${popup.y}px`) bottom=(popup.y + length(popup.items) * 27 + 16 > windowHeight ? "8px" : "auto") min-width=208 max-width=416 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=t.elevated box-shadow="0 10px 15px rgba(0,0,0,0.1)" role="menu" z-index=2
         when popup.title != ""
           text popup.title padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
         when length(popup.items) == 0

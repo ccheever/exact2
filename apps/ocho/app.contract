@@ -337,48 +337,91 @@ component Ocho
             when vm.toast.dismissible
               button press=press("toast-dismiss") testId="toast-dismiss" hover=hover("toast-dismiss") class=Reset color=(hoverId == "toast-dismiss" ? t.text : t.muted) padding-left=4 padding-right=4
                 text "×"
-      Overlays(model=vm.overlay, popup=vm.popup, t=t, hoverId=hoverId, windowWidth=media.width, press=press, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
+      Overlays(model=vm.overlay, popup=vm.popup, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
       // ⌘ chords the app declares reach the model as `key:` presses: the
       // key handler above sees bare keys only (LLP 1005 §5).
-      column width=0 height=0 overflow="hidden"
-        button press=press("key:meta+p") aria-keyshortcuts="Meta+P" aria-label="Command palette" width=1 height=1
-        button press=press("key:meta+shift+p") aria-keyshortcuts="Meta+Shift+P" aria-label="Command palette" width=1 height=1
-        button press=press("key:meta+alt+p") aria-keyshortcuts="Meta+Alt+P" aria-label="Open session for PR" width=1 height=1
-        button press=press("key:meta+shift+f") aria-keyshortcuts="Meta+Shift+F" aria-label="Find session by topic" width=1 height=1
-        button press=press("key:meta+n") aria-keyshortcuts="Meta+N" aria-label="Launch session" width=1 height=1
-        button press=press("key:meta+shift+n") aria-keyshortcuts="Meta+Shift+N" aria-label="Quick launch" width=1 height=1
-        button press=press("key:meta+w") aria-keyshortcuts="Meta+W" aria-label="Close tab" width=1 height=1
-        button press=press("key:meta+shift+t") aria-keyshortcuts="Meta+Shift+T" aria-label="Reopen closed tab" width=1 height=1
-        button press=press("key:meta+r") aria-keyshortcuts="Meta+R" aria-label="Refresh" width=1 height=1
-        button press=press("key:meta+shift+]") aria-keyshortcuts="Meta+Shift+]" aria-label="Next tab" width=1 height=1
-        button press=press("key:meta+shift+[") aria-keyshortcuts="Meta+Shift+[" aria-label="Previous tab" width=1 height=1
-        button press=press("key:meta+0") aria-keyshortcuts="Meta+0" aria-label="Manager" width=1 height=1
-        button press=press("key:meta+1") aria-keyshortcuts="Meta+1" aria-label="Terminal 1" width=1 height=1
-        button press=press("key:meta+2") aria-keyshortcuts="Meta+2" aria-label="Terminal 2" width=1 height=1
-        button press=press("key:meta+3") aria-keyshortcuts="Meta+3" aria-label="Terminal 3" width=1 height=1
-        button press=press("key:meta+4") aria-keyshortcuts="Meta+4" aria-label="Terminal 4" width=1 height=1
-        button press=press("key:meta+5") aria-keyshortcuts="Meta+5" aria-label="Terminal 5" width=1 height=1
-        button press=press("key:meta+6") aria-keyshortcuts="Meta+6" aria-label="Terminal 6" width=1 height=1
-        button press=press("key:meta+7") aria-keyshortcuts="Meta+7" aria-label="Terminal 7" width=1 height=1
-        button press=press("key:meta+8") aria-keyshortcuts="Meta+8" aria-label="Terminal 8" width=1 height=1
-        button press=press("key:meta+9") aria-keyshortcuts="Meta+9" aria-label="Terminal 9" width=1 height=1
-        button press=press("key:meta+alt+t") aria-keyshortcuts="Meta+Alt+T" aria-label="Toggle transcript" width=1 height=1
-        button press=press("key:meta+k") aria-keyshortcuts="Meta+K" aria-label="Clear scrollback" width=1 height=1
-        button press=press("key:meta+.") aria-keyshortcuts="Meta+." aria-label="Interrupt" width=1 height=1
-        button press=press("key:meta+,") aria-keyshortcuts="Meta+," aria-label="Settings" width=1 height=1
-        button press=press("key:meta+z") aria-keyshortcuts="Meta+Z" aria-label="Undo" width=1 height=1
-        button press=press("key:meta+/") aria-keyshortcuts="Meta+/" aria-label="Help" width=1 height=1
-        button press=press("key:meta+shift+e") aria-keyshortcuts="Meta+Shift+E" aria-label="Enter NAV" width=1 height=1
-        button press=press("key:meta+f") aria-keyshortcuts="Meta+F" aria-label="Search" width=1 height=1
-        button press=press("key:ctrl+d") aria-keyshortcuts="Control+D" aria-label="Half page down" width=1 height=1
-        button press=press("key:ctrl+u") aria-keyshortcuts="Control+U" aria-label="Half page up" width=1 height=1
-        button press=press("key:shift+tab") aria-keyshortcuts="Shift+Tab" aria-label="Previous page" width=1 height=1
-        button press=press("key:meta+alt+1") aria-keyshortcuts="Meta+Alt+1" aria-label="Profile 1" width=1 height=1
-        button press=press("key:meta+alt+2") aria-keyshortcuts="Meta+Alt+2" aria-label="Profile 2" width=1 height=1
-        button press=press("key:meta+alt+3") aria-keyshortcuts="Meta+Alt+3" aria-label="Profile 3" width=1 height=1
-        button press=press("key:meta+alt+4") aria-keyshortcuts="Meta+Alt+4" aria-label="Profile 4" width=1 height=1
-        button press=press("key:meta+alt+5") aria-keyshortcuts="Meta+Alt+5" aria-label="Profile 5" width=1 height=1
-        button press=press("key:meta+alt+6") aria-keyshortcuts="Meta+Alt+6" aria-label="Profile 6" width=1 height=1
-        button press=press("key:meta+alt+7") aria-keyshortcuts="Meta+Alt+7" aria-label="Profile 7" width=1 height=1
-        button press=press("key:meta+alt+8") aria-keyshortcuts="Meta+Alt+8" aria-label="Profile 8" width=1 height=1
-        button press=press("key:meta+alt+9") aria-keyshortcuts="Meta+Alt+9" aria-label="Profile 9" width=1 height=1
+      // A 1 px transparent button each, in a strip under the traffic lights, so a
+      // drive can press the chords too (`tap key-meta-p`); nothing paints.
+      row position="absolute" bottom=8 left=8 flex-wrap="wrap" width=96 gap=0
+        button press=press("key:meta+p") testId="key-meta-p" aria-keyshortcuts="Meta+P" aria-label="Command palette" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+p") testId="key-meta-shift-p" aria-keyshortcuts="Meta+Shift+P" aria-label="Command palette" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+p") testId="key-meta-alt-p" aria-keyshortcuts="Meta+Alt+P" aria-label="Open session for PR" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+f") testId="key-meta-shift-f" aria-keyshortcuts="Meta+Shift+F" aria-label="Find session by topic" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+n") testId="key-meta-n" aria-keyshortcuts="Meta+N" aria-label="Launch session" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+n") testId="key-meta-shift-n" aria-keyshortcuts="Meta+Shift+N" aria-label="Quick launch" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+w") testId="key-meta-w" aria-keyshortcuts="Meta+W" aria-label="Close tab" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+t") testId="key-meta-shift-t" aria-keyshortcuts="Meta+Shift+T" aria-label="Reopen closed tab" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+r") testId="key-meta-r" aria-keyshortcuts="Meta+R" aria-label="Refresh" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+]") testId="key-meta-shift-rbracket" aria-keyshortcuts="Meta+Shift+]" aria-label="Next tab" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+[") testId="key-meta-shift-lbracket" aria-keyshortcuts="Meta+Shift+[" aria-label="Previous tab" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+0") testId="key-meta-0" aria-keyshortcuts="Meta+0" aria-label="Manager" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+1") testId="key-meta-1" aria-keyshortcuts="Meta+1" aria-label="Terminal 1" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+2") testId="key-meta-2" aria-keyshortcuts="Meta+2" aria-label="Terminal 2" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+3") testId="key-meta-3" aria-keyshortcuts="Meta+3" aria-label="Terminal 3" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+4") testId="key-meta-4" aria-keyshortcuts="Meta+4" aria-label="Terminal 4" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+5") testId="key-meta-5" aria-keyshortcuts="Meta+5" aria-label="Terminal 5" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+6") testId="key-meta-6" aria-keyshortcuts="Meta+6" aria-label="Terminal 6" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+7") testId="key-meta-7" aria-keyshortcuts="Meta+7" aria-label="Terminal 7" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+8") testId="key-meta-8" aria-keyshortcuts="Meta+8" aria-label="Terminal 8" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+9") testId="key-meta-9" aria-keyshortcuts="Meta+9" aria-label="Terminal 9" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+t") testId="key-meta-alt-t" aria-keyshortcuts="Meta+Alt+T" aria-label="Toggle transcript" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+k") testId="key-meta-k" aria-keyshortcuts="Meta+K" aria-label="Clear scrollback" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+.") testId="key-meta-period" aria-keyshortcuts="Meta+." aria-label="Interrupt" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+,") testId="key-meta-comma" aria-keyshortcuts="Meta+," aria-label="Settings" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+z") testId="key-meta-z" aria-keyshortcuts="Meta+Z" aria-label="Undo" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+/") testId="key-meta-slash" aria-keyshortcuts="Meta+/" aria-label="Help" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+shift+e") testId="key-meta-shift-e" aria-keyshortcuts="Meta+Shift+E" aria-label="Enter NAV" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+f") testId="key-meta-f" aria-keyshortcuts="Meta+F" aria-label="Search" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:ctrl+d") testId="key-ctrl-d" aria-keyshortcuts="Control+D" aria-label="Half page down" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:ctrl+u") testId="key-ctrl-u" aria-keyshortcuts="Control+U" aria-label="Half page up" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:shift+tab") testId="key-shift-tab" aria-keyshortcuts="Shift+Tab" aria-label="Previous page" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+1") testId="key-meta-alt-1" aria-keyshortcuts="Meta+Alt+1" aria-label="Profile 1" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+2") testId="key-meta-alt-2" aria-keyshortcuts="Meta+Alt+2" aria-label="Profile 2" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+3") testId="key-meta-alt-3" aria-keyshortcuts="Meta+Alt+3" aria-label="Profile 3" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+4") testId="key-meta-alt-4" aria-keyshortcuts="Meta+Alt+4" aria-label="Profile 4" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+5") testId="key-meta-alt-5" aria-keyshortcuts="Meta+Alt+5" aria-label="Profile 5" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+6") testId="key-meta-alt-6" aria-keyshortcuts="Meta+Alt+6" aria-label="Profile 6" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+7") testId="key-meta-alt-7" aria-keyshortcuts="Meta+Alt+7" aria-label="Profile 7" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+8") testId="key-meta-alt-8" aria-keyshortcuts="Meta+Alt+8" aria-label="Profile 8" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
+        button press=press("key:meta+alt+9") testId="key-meta-alt-9" aria-keyshortcuts="Meta+Alt+9" aria-label="Profile 9" class=Reset width=2 height=2 flex-shrink=0
+          box width=2 height=2
