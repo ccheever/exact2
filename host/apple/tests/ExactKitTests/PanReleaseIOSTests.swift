@@ -67,5 +67,66 @@ final class PanReleaseIOSTests: XCTestCase {
         XCTAssertEqual(pans, 2)
         XCTAssertEqual(releases, 0)
     }
+    private func admits(_ node: NodeView, action: String?, velocity: CGPoint, translation: CGPoint = .zero) -> Bool {
+        node.style["touch_action"] = action.map(BatchValue.string)
+        let pan = Pan()
+        pan.speed = velocity; pan.moved = translation
+        node.layoutPanRecognizer = pan
+        return node.gestureRecognizerShouldBegin(pan)
+    }
+
+    func testPanYLeavesVerticalContactsToNativeScrolling() {
+        let (presenter, node) = host(["pan", "panrelease"])
+        withExtendedLifetime(presenter) {
+            for y: CGFloat in [-200, 200] {
+                XCTAssertFalse(admits(node, action: "pan-y", velocity: CGPoint(x: 12, y: y)))
+                XCTAssertTrue(admits(node, action: "pan-y", velocity: CGPoint(x: y, y: 12)))
+            }
+        }
+    }
+
+    func testPanXLeavesHorizontalContactsToNativeScrolling() {
+        let (presenter, node) = host(["pan", "panrelease"])
+        withExtendedLifetime(presenter) {
+            for x: CGFloat in [-200, 200] {
+                XCTAssertFalse(admits(node, action: "pan-x", velocity: CGPoint(x: x, y: 12)))
+                XCTAssertTrue(admits(node, action: "pan-x", velocity: CGPoint(x: 12, y: x)))
+            }
+        }
+    }
+
+    func testDirectionalAndCombinedTouchActionsKeepTheirNativeDirections() {
+        let (presenter, node) = host(["pan", "panrelease"])
+        withExtendedLifetime(presenter) {
+            for (action, native) in [("pan-left", CGPoint(x: 200, y: 0)), ("pan-right", CGPoint(x: -200, y: 0)),
+                                     ("pan-up", CGPoint(x: 0, y: 200)), ("pan-down", CGPoint(x: 0, y: -200))] {
+                XCTAssertFalse(admits(node, action: action, velocity: native), action)
+                XCTAssertTrue(admits(node, action: action, velocity: CGPoint(x: -native.x, y: -native.y)), action)
+            }
+            XCTAssertFalse(admits(node, action: "pan-x pan-y", velocity: CGPoint(x: 200, y: 0)))
+            XCTAssertFalse(admits(node, action: "pan-y pinch-zoom", velocity: CGPoint(x: 0, y: 200)))
+            XCTAssertTrue(admits(node, action: "pan-y pinch-zoom", velocity: CGPoint(x: 200, y: 0)))
+        }
+    }
+
+    func testDefaultAndNoNativePanRetainExistingLayoutPanAdmission() {
+        let (presenter, node) = host(["pan", "panrelease"])
+        withExtendedLifetime(presenter) {
+            for action: String? in [nil, "auto", "manipulation", "none", "pinch-zoom"] {
+                XCTAssertTrue(admits(node, action: action, velocity: CGPoint(x: 200, y: 0)))
+                XCTAssertTrue(admits(node, action: action, velocity: CGPoint(x: 0, y: 200)))
+            }
+        }
+    }
+
+    func testZeroVelocityUsesTranslationAndUnknownDirectionDoesNotFail() {
+        let (presenter, node) = host(["pan", "panrelease"])
+        withExtendedLifetime(presenter) {
+            XCTAssertFalse(admits(node, action: "pan-y", velocity: .zero, translation: CGPoint(x: 0, y: 20)))
+            XCTAssertTrue(admits(node, action: "pan-y", velocity: .zero, translation: CGPoint(x: 20, y: 0)))
+            XCTAssertTrue(admits(node, action: "pan-y", velocity: .zero))
+        }
+    }
+
 }
 #endif
