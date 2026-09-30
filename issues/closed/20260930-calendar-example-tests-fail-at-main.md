@@ -1,6 +1,7 @@
 # The calendar example's 12 XCTest-free Rust tests fail at origin/main
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Updated stale tests to drive the sticker calendar buttons, single-date todos, current seed event spans and scroll-relative landing geometry; cargo test -p calendar-apple passes all 32 tests (12 failed before).
 **Systems:** examples/ios/calendar
 **Severity:** P2
 **Author:** Claude (Fable 5.1) for Charlie Cheever

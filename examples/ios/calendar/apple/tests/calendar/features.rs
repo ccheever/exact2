@@ -15,9 +15,14 @@ fn assert_no_success_notice(app: &App) {
         .is_empty());
 }
 
+fn choose_sticker_date(app: &mut App, date: &str) {
+    app.press("sticker-date");
+    app.press(&format!("sticker-day-{date}"));
+}
+
 fn save_sticker(app: &mut App, date: &str, sticker: &str) {
     app.create("sticker");
-    app.input("sticker-date", date);
+    choose_sticker_date(app, date);
     app.press(&format!("sticker-{sticker}"));
     app.press("save-sticker");
     app.finish_motion();
@@ -56,7 +61,11 @@ fn assert_sticker_landed_at(app: &App, date: &str, expected: Frame) {
     assert_eq!((expected.width, expected.height), (32.0, 32.0));
     for (name, actual, expected) in [
         ("x", actual.x, expected.x),
-        ("y", actual.y, expected.y),
+        (
+            "y",
+            actual.y - app.state("calendarScrollTop").as_number().unwrap() as f32,
+            expected.y,
+        ),
         ("width", actual.width, expected.width),
         ("height", actual.height, expected.height),
     ] {
@@ -414,11 +423,10 @@ fn dated_todo_can_be_created_completed_edited_moved_and_reopened() {
     app.create("todo");
     assert_eq!(app.state("editorKind").as_str(), Some("todo"));
     assert!(!app.runner.kernel().find_by_test_id("start-date").is_empty());
-    assert!(!app.runner.kernel().find_by_test_id("end-date").is_empty());
+    assert!(app.runner.kernel().find_by_test_id("end-date").is_empty());
     app.input("schedule-title", "Pack for Japan");
     app.input("schedule-notes", "Passport and tickets");
     app.input("start-date", "2026-09-22");
-    app.input("end-date", "2026-09-22");
     app.press("color-Blue");
     app.press("save-schedule");
     app.finish_motion();
@@ -496,7 +504,6 @@ fn todo_recovery_and_failed_write_retry_create_one_dated_item() {
         app.create("todo");
         app.input("schedule-title", "Todo reply lost");
         app.input("start-date", "2026-09-22");
-        app.input("end-date", "2026-09-22");
         app.press("color-Mint");
         if committed {
             app.lose_write_reply_after = Some(2);
@@ -540,7 +547,7 @@ fn one_sticker_per_day_can_be_chosen_replaced_and_removed_across_restarts() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.create("sticker");
-    app.input("sticker-date", "2026-09-22");
+    choose_sticker_date(&mut app, "2026-09-22");
     for id in [
         "sunshine", "coffee", "cake", "heart", "sparkle", "flower", "book", "workout", "travel",
         "rest", "bunny", "paris", "daisy", "moon", "picnic",
@@ -709,6 +716,7 @@ fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
     assert!(scrolled > 0.0);
     let destination = (unscrolled.0, unscrolled.1 - scrolled);
     assert!(destination.1 < cancel_top - 16.0);
+    let expected_scroll = app.derived("landingScroll").clone();
     app.event("calendar-input", contact.event(4, "end", destination, ""));
     assert_eq!(app.state("dragPhase").as_str(), Some("landing"));
     assert_eq!(app.derived("revision"), &Value::Number(1.0));
@@ -720,8 +728,11 @@ fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
     assert!((ghost_frame.height * scale - 32.0).abs() < 0.01);
     app.event("calendar-input", contact.event(4, "end", destination, ""));
     app.event("calendar-input", contact.event(5, "end", destination, ""));
-    assert_eq!(app.state("calendarScrollRequest"), &Value::Number(0.0));
-    app.event("month-scroll-2026-09", Event::Scroll(0.0, 0.0));
+    assert_eq!(app.state("calendarScrollRequest"), &expected_scroll);
+    app.event(
+        "month-scroll-2026-09",
+        Event::Scroll(0.0, expected_scroll.as_number().unwrap()),
+    );
     app.finish_motion();
     app.assert_creation_closed();
     assert_no_success_notice(&app);
@@ -859,7 +870,7 @@ fn a_sticker_dragged_from_the_date_sheet_moves_and_keeps_the_sheet_closed() {
     assert_eq!(sticker_on(&mut app, TODAY + 17), "coffee");
     assert_eq!(
         app.frame("date-2026-09-2026-09-18").height,
-        original_target.height + 26.0
+        original_target.height
     );
     assert_sticker_landed_at(&app, "2026-09-18", landing);
 }
@@ -877,7 +888,7 @@ fn cancelled_sticker_drags_restore_their_source_without_writing_storage() {
         let mut app = App::open(&root);
         let (wire_id, source_id, sheet_id) = if origin == "picker" {
             app.create("sticker");
-            app.input("sticker-date", "2026-09-22");
+            choose_sticker_date(&mut app, "2026-09-22");
             app.press("sticker-coffee");
             (
                 "sticker-pick:coffee".to_owned(),

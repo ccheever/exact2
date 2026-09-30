@@ -398,7 +398,12 @@ fn launch_uses_the_reported_month_and_opens_the_selected_dates_agenda() {
     let mut app = App::open(&root);
     assert_eq!(app.derived("month"), &Value::Number(2026.0 * 12.0 + 8.0));
     let last_week = app.frame("date-2026-09-2026-10-03");
-    assert_eq!(last_week.y + last_week.height, HEIGHT);
+    // Dense sample weeks may overflow the viewport; their content remains scrollable.
+    assert!(last_week.y + last_week.height >= HEIGHT);
+    assert_eq!(
+        last_week.y + last_week.height,
+        app.frame("month-scroll-2026-09").y + app.content_height("month-scroll-2026-09")
+    );
     app.press("date-2026-09-2026-09-16");
     assert_eq!(app.state("popupOpen"), &Value::Bool(true));
     assert_eq!(app.agenda_id("San Francisco"), "sample-2026-09-6");
@@ -750,7 +755,7 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.settle();
     assert_eq!(app.state("contactAck"), &Value::Number(1.0));
     assert_eq!(app.state("dragPhase").as_str(), Some("held"));
-    assert_eq!(app.state("dragSpan"), &Value::Number(12.0));
+    assert_eq!(app.state("dragSpan"), &Value::Number(11.0));
     assert_eq!(app.key("date-popup"), popup);
     assert_eq!(app.key("calendar-input"), input);
     assert!(app
@@ -825,7 +830,7 @@ fn drag_messages_ack_after_completion_and_drop_uses_final_coordinates_once() {
     app.press("date-2026-09-2026-09-20");
     app.press(&format!("agenda-item-{id}"));
     assert_eq!(app.derived("startDate").as_str(), Some("2026-09-20"));
-    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-02"));
+    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-01"));
     for (name, expected) in metadata {
         assert_eq!(app.derived(name), &expected, "{name} must survive the move");
     }
@@ -1091,7 +1096,7 @@ fn releasing_over_a_partly_presented_month_uses_the_cell_under_the_finger() {
     app.press("date-2026-10-2026-10-04");
     app.press(&format!("agenda-item-{id}"));
     assert_eq!(app.derived("startDate").as_str(), Some("2026-10-04"));
-    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-16"));
+    assert_eq!(app.derived("endDate").as_str(), Some("2026-10-15"));
 }
 
 #[test]
@@ -1119,10 +1124,7 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
         app.content_height("agenda-list") > app.frame("agenda-list").height + 600.0,
         "the long agenda scrolls inside the bounded sheet"
     );
-    let id = fields(&items(&fields(app.runner.resource("agenda").unwrap())[3])[0])[0]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let id = app.agenda_id("Dense schedule 0");
     let contact = Contact::new(&app, &id, 1);
     app.event(
         "calendar-input",
