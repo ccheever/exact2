@@ -1,11 +1,14 @@
 //! The differential check (LLP 1048.004 D6): a location rendered with a
 //! kernel and without one, compared byte for byte — the document's root,
-//! head fields, checkpoint and activation.
+//! head fields, checkpoint and activation, and with a JavaScript shell the
+//! page as the server streams it (its digest aside, which the kernel-free
+//! page takes over the runtime's form of the root).
 
+use crate::page::{body_js, Js};
 use crate::{render_with, Ids, Projection, Rendered, Settled};
 use exact_plan::Plan;
 use exact_runner::DataSource;
-use exact_web::document::Site;
+use exact_web::document::{route_at, Site};
 use std::time::Duration;
 
 /// `location` rendered both ways: the JSON fields `<app>-render --compare`
@@ -19,6 +22,7 @@ pub(crate) fn location<D: DataSource + 'static, F: Fn() -> D>(
     location: &str,
     site: &Site,
     deadline: Duration,
+    shell: Option<&str>,
 ) -> String {
     let render = |projection| {
         render_with(
@@ -42,6 +46,16 @@ pub(crate) fn location<D: DataSource + 'static, F: Fn() -> D>(
     };
     if let Some(differs) = documents(&kernel, &direct) {
         return format!(",\"same\":false,\"differs\":{}", json(&differs));
+    }
+    let js = shell.and_then(|shell| crate::page::is_js(shell).then_some(shell));
+    if let Some(shell) = js {
+        match streamed(
+            plan, data, viewport, location, site, deadline, shell, &kernel,
+        ) {
+            Ok(None) => {}
+            Ok(Some(differs)) => return format!(",\"same\":false,\"differs\":{}", json(&differs)),
+            Err(e) => return format!(",\"same\":false,\"differs\":{}", json(&e)),
+        }
     }
     let settled = kernel.settled == Settled::Complete && direct.settled == Settled::Complete;
     format!(",\"same\":true,\"settled\":{settled}")
@@ -83,6 +97,53 @@ fn documents(kernel: &Rendered, direct: &Rendered) -> Option<String> {
         .then(|| "the first root's viewport policies".to_string())
 }
 
+/// The page after a flushed head, as the server streams it without a
+/// kernel, against the kernel render's (`kernel`), digests aside: `None`
+/// when the same, or when the page isn't streamed.
+#[allow(clippy::too_many_arguments)]
+fn streamed<D: DataSource + 'static, F: Fn() -> D>(
+    plan: &Plan,
+    data: &F,
+    viewport: exact_runner::Viewport,
+    location: &str,
+    site: &Site,
+    deadline: Duration,
+    shell: &str,
+    kernel: &Rendered,
+) -> Result<Option<String>, String> {
+    let js = Js::of(shell)?;
+    let preload = route_at(plan, location)
+        .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
+    let late = |activate: exact_plan::ActivatePolicy| {
+        !preload && crate::page::activate_js(activate) != "interaction"
+    };
+    let mut sent = Vec::new();
+    let mut send = |bytes: &[u8]| sent.extend_from_slice(bytes);
+    let Some((_, body)) = crate::direct::render_js(
+        plan,
+        data,
+        viewport,
+        location,
+        site,
+        deadline,
+        shell,
+        &js,
+        late,
+        usize::MAX,
+        &mut send,
+    )?
+    else {
+        return Ok(None);
+    };
+    if sent != body.as_bytes() {
+        return Ok(Some("the streamed runs are not the page".into()));
+    }
+    let expected = body_js(shell, &js, kernel, late(kernel.activate), false);
+    let (a, b) = (without_digest(&expected), without_digest(&body));
+    Ok(first_difference(&a, &b)
+        .map(|at| format!("streamed page at byte {at}: {}", around(&a, &b, at))))
+}
+
 /// `root` with its view ids blanked.
 fn without_ids(root: &str) -> String {
     const VIEW: &str = "data-view=\"";
@@ -96,6 +157,19 @@ fn without_ids(root: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// `page` with its checkpoint's digest blanked.
+fn without_digest(page: &str) -> String {
+    const DIGEST: &str = "data-digest=\"";
+    match page.find(DIGEST) {
+        Some(at) => {
+            let from = at + DIGEST.len();
+            let to = page[from..].find('"').map_or(page.len(), |end| from + end);
+            format!("{}{}", &page[..from], &page[to..])
+        }
+        None => page.to_string(),
+    }
 }
 
 fn first_difference(a: &str, b: &str) -> Option<usize> {

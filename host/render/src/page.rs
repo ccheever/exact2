@@ -382,6 +382,12 @@ pub(crate) fn body_close_js(
     out
 }
 
+/// A JavaScript document's inline style as the runtime has it, for the
+/// kernel-free writer ([`runtime_style`] over the shell's classes).
+pub(crate) fn runtime_style_of(js: &Js) -> impl Fn(&str, &mut String) -> bool + '_ {
+    move |css: &str, out: &mut String| runtime_style(&js.classes, css, out)
+}
+
 /// The head's fields without the plan's fonts, for a shell that declares
 /// them (`host/web-js/build.mjs`: its stylesheet's faces, with their
 /// `font-display`, and their preloads early in the head): a second rule for

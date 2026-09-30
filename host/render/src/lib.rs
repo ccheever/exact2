@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 
 mod compare;
+mod direct;
 mod encode;
 mod executor;
 mod files;
@@ -797,8 +798,8 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
 /// `digest`, and with `--shell` the whole `page` ([`page`]), or `error`.
 /// `--compare` renders each location with a kernel and without one (LLP
 /// 1048.004 D6) and prints `same`, or the first difference (`differs`), or
-/// why the page has no kernel-free render (`direct`); any difference fails
-/// the run.
+/// why the page has no kernel-free render (`direct`) — with `--shell` the
+/// streamed page too; any difference fails the run.
 /// `--build` renders every location the plan declares `render=build`
 /// (`exact_web::document::build_locations`) and every page a build route's
 /// `pages=` source lists. `baked` is the app's own plan; the web build
@@ -986,7 +987,15 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         let notfound = *listed || route_at(&decoded, location).is_some_and(|r| r.notfound);
         let mut line = format!("{{\"location\":{}", json(location));
         if compare {
-            let fields = compare::location(&decoded, &data, viewport, location, &site, deadline);
+            let fields = compare::location(
+                &decoded,
+                &data,
+                viewport,
+                location,
+                &site,
+                deadline,
+                shell.as_deref(),
+            );
             failed |= fields.starts_with(",\"same\":false");
             line.push_str(&fields);
             line.push('}');

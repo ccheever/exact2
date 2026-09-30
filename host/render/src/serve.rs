@@ -1153,7 +1153,32 @@ fn document<D: DataSource + 'static>(
         );
         (flush, head, at)
     });
+    // A flushed JavaScript page whose plan allows it is written from its
+    // runner's instance tree and sent as it is written (LLP 1048.004).
+    let mut streamed_body = false;
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some((out, head, at)) = flush.as_mut() {
+            let mut send = |bytes: &[u8]| out.send(bytes);
+            let late = |activate: exact_plan::ActivatePolicy| {
+                !preload && crate::page::activate_js(activate) != "interaction"
+            };
+            if let Some((rendered, body)) = crate::direct::render_js(
+                &shared.plan,
+                &data,
+                serve.viewport,
+                location,
+                &site,
+                serve.deadline,
+                &shared.shell,
+                *at,
+                late,
+                MAX_PAGE.saturating_sub(head.len()),
+                &mut send,
+            )? {
+                streamed_body = true;
+                return Ok((rendered, head.clone() + &body));
+            }
+        }
         // A JavaScript page drops the document's view ids (page::for_runtime).
         let ids = if shared.js { Ids::Any } else { Ids::Runtime };
         render_as(
@@ -1213,12 +1238,18 @@ fn document<D: DataSource + 'static>(
         rendered.state.answers.len(),
         rendered.state.pending.len(),
         html.len(),
-        if flush.is_some() { " flushed" } else { "" }
+        match (flush.is_some(), streamed_body) {
+            (true, true) => " flushed streamed",
+            (true, false) => " flushed",
+            _ => "",
+        }
     );
     let _ = std::io::stdout().flush();
     let streamed = flush.is_some();
     if let Some((mut flush, head, _)) = flush.take() {
-        flush.send(&html.as_bytes()[head.len()..]);
+        if !streamed_body {
+            flush.send(&html.as_bytes()[head.len()..]);
+        }
         flush.end();
     }
     let mut response = Response {
