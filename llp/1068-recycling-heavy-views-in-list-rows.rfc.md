@@ -997,7 +997,9 @@ fps or CPU on either device; failing that, two). On the iPad none met all
 three: no reuse lost CPU on the 19-kind feed (688 against 625 ms/s), and
 two and four reuses stayed over SwiftUI's peak (map feed 889 and 917 against
 886 MB; 19-kind 339 and 343 against 324). So two: a map serves at most three
-rows, then goes.
+rows, then goes. A row that comes back and takes the map that last showed
+it is not a use: that is cell identity, not reuse (§5.2.2, ruled
+2026-09-30).
 
 **Landing soak** at `e957fed1` (stamped builds, fling, three alternating
 rounds against the SwiftUI baseline, 2026-09-29):
@@ -1013,7 +1015,7 @@ The map feed now beats SwiftUI on all three counts on both devices. The
 19-kind feed is ahead on fps and behind on peak (+16 and +32 MB) and CPU
 (+38 and +61 ms/s). The CPU gap turned out to be maps after all (§5.2.2).
 
-### 5.2.2 A row that comes back takes its own map (2026-09-30, `perf/map-return`; measured, not landed)
+### 5.2.2 A row that comes back takes its own map (2026-09-30, `perf/map-return`; ruled and landed)
 
 The probe's fling runs down and back over the same rows at rising speeds, so
 a map row leaves and returns many times. Taking the feed's maps out settles
@@ -1041,9 +1043,11 @@ price is the map that is kept: the base has no map alive at most segment
 ends and the change keeps one, which moves the 19-kind peak by +29 to +46 MB
 a round (median +46, 13 over SwiftUI's). By §5.2.1's rule (match or beat
 SwiftUI's peak on both feeds without losing fps or CPU), neither build
-qualifies on this feed. The change is nearer SwiftUI on both counts, and
-better on the map feed. **Needs a ruling**: land it, or keep the limit
-counting returns. The iPad rounds are owed; its launches hung on 2026-09-30.
+qualifies on this feed; the change is nearer SwiftUI on both counts, and
+better on the map feed. **Ruled** (the coordinator, for Charlie's "ideal end
+state" and SwiftUI parity, 2026-09-30): land it. A returning row taking its
+own parked map is what SwiftUI's cell identity does, so an identity return
+does not count toward the reuse limit (§5.2.1).
 
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
