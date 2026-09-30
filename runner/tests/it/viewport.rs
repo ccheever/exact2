@@ -112,3 +112,31 @@ fn runner_facts_never_write_kept_answers() {
         ["exact.kept.value"]
     );
 }
+
+#[test]
+fn corrupt_unicode_kept_answers_do_not_prevent_boot() {
+    for stored in ["€x|00", "é|00", "💬|00", "0500000000|€x", "0500000000|€"] {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let number = b.primitive(TypeKind::Number);
+        let mut arg = Asm::new();
+        arg.number(0.);
+        let arg = b.code(arg);
+        let value = b.resource("value", "value", &[arg], number, Some(&Value::Number(0.)));
+        b.set_resource_initial_args(value, &[Value::Number(0.)]);
+        b.set_resource_reader(value, true);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut runner = Runner::boot_stored(
+            b.finish().unwrap(),
+            Deferred::default(),
+            Kernel::with_monospace(),
+            vec![("exact.kept.value".into(), stored.into())],
+            Viewport::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(runner.resource("value"), Some(&Value::Number(0.)));
+        runner.data().ready = true;
+        runner.data_ready().unwrap();
+        assert_eq!(runner.data().queries.len(), 1);
+    }
+}

@@ -95,9 +95,17 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+    fn digit(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    s.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Some(digit(pair[0])? * 16 + digit(pair[1])?))
         .collect()
 }
 
@@ -154,6 +162,11 @@ mod tests {
         assert_eq!(v.to_bytes(), value.to_bytes());
         assert!(decode("").is_none());
         assert!(decode("zz|00").is_none());
+        let valid_args = hex(&Value::list(vec![]).to_bytes());
+        for invalid in ["€", "€x", "é", "💬", "a💬a", "0g", "+1"] {
+            assert!(decode(&format!("{invalid}|00")).is_none());
+            assert!(decode(&format!("{valid_args}|{invalid}")).is_none());
+        }
         assert!(decode(&text[..text.len() - 1]).is_none());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
     }

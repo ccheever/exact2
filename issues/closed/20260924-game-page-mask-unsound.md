@@ -1,6 +1,7 @@
 # Replacing a public page mask exposes uninitialized components through safe Rust
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: Page mask is private with a read-only getter, renderer consumers updated; sparse owned-component tests and a compile-fail assignment regression pass.
 **Systems:** Game, ECS storage
 **Severity:** P1
 **Author:** Codex for Charlie Cheever

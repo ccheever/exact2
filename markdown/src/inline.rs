@@ -7,6 +7,8 @@ use crate::block::B;
 use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
 
 const NO_CODE: usize = usize::MAX - 1;
+// Beyond this depth a link label stays literal; source text is never discarded.
+const MAX_LABEL_DEPTH: usize = 32;
 
 pub(crate) struct Mark {
     pub range: B,
@@ -56,6 +58,7 @@ struct Scanner<'a> {
     /// Closing brackets and code runs share slots at their opening character.
     /// `usize::MAX` is unvisited; `NO_CODE` records a failed code search.
     closes: Vec<usize>,
+    destinations: Option<Vec<usize>>,
     out: &'a mut Out,
 }
 
@@ -168,9 +171,10 @@ pub(crate) fn scan(source: &str, content: &[B], out: &mut Out) {
         cs,
         end,
         closes,
+        destinations: None,
         out,
     }
-    .scan(0, hi);
+    .scan(0, hi, 0);
 }
 
 fn punctuation(c: char) -> bool {
@@ -209,7 +213,10 @@ impl Scanner<'_> {
         });
     }
 
-    fn scan(&mut self, lo: usize, hi: usize) {
+    fn scan(&mut self, lo: usize, hi: usize, depth: usize) {
+        if depth >= MAX_LABEL_DEPTH {
+            return;
+        }
         let mut delims: Vec<Delim> = Vec::new();
         let mut autolink_end = AutolinkEnd::default();
         let mut i = lo;
@@ -224,8 +231,8 @@ impl Scanner<'_> {
                 }
                 '`' => self.code(i, hi),
                 '<' => self.autolink(i, hi, &mut autolink_end),
-                '!' if i + 1 < hi && self.ch(i + 1) == '[' => self.bracket(i + 1, hi, true),
-                '[' => self.bracket(i, hi, false),
+                '!' if i + 1 < hi && self.ch(i + 1) == '[' => self.bracket(i + 1, hi, true, depth),
+                '[' => self.bracket(i, hi, false, depth),
                 'h' if i == lo || self.ch(i - 1).is_whitespace() || self.ch(i - 1) == '(' => {
                     self.bare_url(i, hi)
                 }
@@ -354,7 +361,7 @@ impl Scanner<'_> {
     }
 
     /// `[label](target)`, `![alt](src)` or `[^label]`, from the `[` at `i`.
-    fn bracket(&mut self, i: usize, hi: usize, image: bool) -> Option<usize> {
+    fn bracket(&mut self, i: usize, hi: usize, image: bool, depth: usize) -> Option<usize> {
         let j = self.closes[i];
         if j >= hi {
             return None;
@@ -372,19 +379,30 @@ impl Scanner<'_> {
         if !linked {
             return None;
         }
-        let (mut parens, mut k) = (0usize, j + 2);
-        loop {
-            if k >= hi {
-                return None;
+        // Index raw parentheses once. Code ticks are literal in destinations;
+        // escaped parentheses do not balance, exactly as in the old scan.
+        let destinations = self.destinations.get_or_insert_with(|| {
+            let mut ends = vec![usize::MAX; self.cs.len()];
+            let mut opens = Vec::new();
+            let mut at = 0;
+            while at < self.cs.len() {
+                match self.cs[at].1 {
+                    '\\' => at += 1,
+                    '(' => opens.push(at),
+                    ')' => {
+                        if let Some(open) = opens.pop() {
+                            ends[open] = at;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
             }
-            match self.ch(k) {
-                '\\' => k += 1,
-                '(' => parens += 1,
-                ')' if parens == 0 => break,
-                ')' => parens -= 1,
-                _ => {}
-            }
-            k += 1;
+            ends
+        });
+        let k = destinations[j + 1];
+        if k >= hi {
+            return None;
         }
         let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
         let target = target.split_whitespace().next().unwrap_or("");
@@ -404,7 +422,7 @@ impl Scanner<'_> {
         let href = decoded;
         let start = if image { i - 1 } else { i };
         if !image {
-            self.scan(i + 1, j);
+            self.scan(i + 1, j, depth + 1);
         }
         let outer = self.pos(start)..self.pos(k + 1);
         self.construct(

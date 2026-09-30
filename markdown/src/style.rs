@@ -4,6 +4,7 @@ use crate::block::{self, Block, BlockKind, MarkerKind, B};
 use crate::inline::{self, Construct, Mark};
 use crate::offsets::Offsets;
 use crate::{Range, LINK, MARKER};
+use std::collections::BTreeMap;
 
 /// A block's paragraph style.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,14 +198,16 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
     // labels say, and never by what the selection reveals. A definition with
     // no reference numbers after every referenced one.
     let mut footnotes: Vec<(String, Vec<B>, Option<B>)> = Vec::new();
-    fn index(footnotes: &mut Vec<(String, Vec<B>, Option<B>)>, label: &str) -> usize {
-        footnotes
-            .iter()
-            .position(|(l, _, _)| l == label)
-            .unwrap_or_else(|| {
-                footnotes.push((label.to_string(), Vec::new(), None));
-                footnotes.len() - 1
-            })
+    let mut ordinals = BTreeMap::new();
+    fn index(
+        footnotes: &mut Vec<(String, Vec<B>, Option<B>)>,
+        ordinals: &mut BTreeMap<String, usize>,
+        label: &str,
+    ) -> usize {
+        *ordinals.entry(label.to_string()).or_insert_with(|| {
+            footnotes.push((label.to_string(), Vec::new(), None));
+            footnotes.len() - 1
+        })
     }
     for block in &blocks {
         if matches!(
@@ -225,22 +228,21 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
         let mut out = inline::Out::default();
         inline::scan(source, &block.content, &mut out);
         for (range, label) in out.footnotes {
-            let at = index(&mut footnotes, &label);
+            let at = index(&mut footnotes, &mut ordinals, &label);
             footnotes[at].1.push(range);
         }
     }
     for block in &blocks {
         for (_, kind) in &block.markers {
             if let MarkerKind::FootnoteLabel(label) = kind {
-                let at = index(&mut footnotes, label);
+                let at = index(&mut footnotes, &mut ordinals, label);
                 footnotes[at].2.get_or_insert(block.range.clone());
             }
         }
     }
     let ordinal = |label: &str| -> String {
-        footnotes
-            .iter()
-            .position(|(l, _, _)| l == label)
+        ordinals
+            .get(label)
             .map_or_else(|| "?".to_string(), |at| (at + 1).to_string())
     };
 

@@ -1,6 +1,7 @@
 # `mutation … then action` runs once for several answers, and a `then` that re-sends its own mutation spins the host at the fire limit
 
-**Status:** Fixed: the analyzer refuses a `then` action that sends its own mutation, including sends in branches (compiler/runner regressions pass). Charlie ruled 2026-09-27 that a `then` runs once after the answers that landed, reading the latest, which is what the runner does; LLP 1016.001 records it.
+**Status:** Closed
+**Resolution:** Already implemented: self-sending then actions are refused and LLP 1016.001 records the coalesced-latest semantics Charlie selected; current mutation regressions pass.
 **Systems:** Runner (`runner/src/runner/commit.rs`, `runner/src/runner.rs`), Contract analyzer
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -16,6 +17,8 @@
 **Fix:**
 - Rule on the semantics: either carry each completion (with its answer) in a queue, or amend the LLP to a coalesced reaction to the latest value.
 - Have the analyzer refuse a `then` action that can send its own mutation, or have the runner not re-arm a `then` inside the commit its own action caused.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: the analyzer refuses a `then` action that sends its own mutation, including sends in branches (compiler/runner regressions pass). Charlie ruled 2026-09-27 that a `then` runs once after the answers that landed, reading the latest, which is what the runner does; LLP 1016.001 records it.
 
 Implemented in `contract/analyze/src/lib.rs`: `analyze-then-self-send` names the
 offending send, including inside `if` and `match`. Assigning `none` remains legal.

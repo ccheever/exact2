@@ -265,6 +265,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
     assert_eq!(store.staged().map(|s| s.seq), Some(1));
 
     // The next launch selects it; the same head is then Current.
+    drop(store);
     let mut next = Store::open(
         &temp.0,
         Embedded {

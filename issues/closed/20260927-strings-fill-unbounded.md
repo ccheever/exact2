@@ -1,6 +1,7 @@
 # `t()` interpolation ignores the VM's string cap, and the strings base-table lookup is case-sensitive
 
-**Status:** Fixed: interpolation checks expanded bytes before allocation and reports the VM string-limit trap; base locales resolve without case; plan and Contract regression tests pass.
+**Status:** Closed
+**Resolution:** Already implemented: bounded interpolation and case-insensitive base locale lookup; current plan/Contract string regressions pass.
 **Systems:** Plan (`plan/src/strings.rs`), runner stdlib (`runner/src/stdlib.rs`, `runner/src/vm.rs`), Contract CLI (`contract/cli/src/strings.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -16,6 +17,8 @@
 **Fix:**
 - Compute the expanded length with checked arithmetic and refuse past `MAX_STRING` before allocating.
 - Find the base table case-insensitively.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: interpolation checks expanded bytes before allocation and reports the VM string-limit trap; base locales resolve without case; plan and Contract regression tests pass.
 
 `plan/src/strings.rs` resolves borrowed pieces and sums their lengths with checked
 arithmetic before allocating the output. `runner/src/stdlib.rs` passes

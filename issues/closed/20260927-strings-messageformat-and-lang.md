@@ -1,6 +1,7 @@
 # Strings: MessageFormat 2 syntax (only `{name}` built, the rest refused), `lang`/`dir` from the resolved table, and the locale on `exactTime`
 
-**Status:** Fixed: strict MF2 variable messages and escapes, CLDR table direction on every host, and exactTime.resolvedLocale; core checks and locale regressions pass, with unrelated host-suite failures recorded below.
+**Status:** Closed
+**Resolution:** Already implemented: MF2 subset/refusals, resolvedLocale and locale direction; current root string/locale regressions pass, prior native/browser verification retained below.
 **Systems:** Contract strings (`contract/cli/src/strings.rs`, `contract_types::strings`), plan strings, web/Apple/Linux hosts, runner time facts
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -12,6 +13,8 @@
 - Set `lang` and `dir` from the resolved table: on the web, `document.documentElement.lang`/`dir` (and in the render server's document); on Apple, the accessibility language and the semantic content attribute; on Linux, whatever the painter's shaping and accessibility read. Right to left comes from the locale's script (CLDR likely-subtags for `ar`, `he`, `fa`, `ur`, …).
 - Put the resolved table's locale on `exactTime` next to `locale`, so TypeScript sources stop copying the RFC 4647 lookup. Update the apps that copied it.
 - Tests: an MF2 plural in a table is refused with its name; switching to `ar` sets `dir=rtl` on each host.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: strict MF2 variable messages and escapes, CLDR table direction on every host, and exactTime.resolvedLocale; core checks and locale regressions pass, with unrelated host-suite failures recorded below.
 
 From Charlie's rulings of 2026-09-27 on the review of Seth's PR #47.
 

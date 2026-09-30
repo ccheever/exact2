@@ -48,6 +48,7 @@ fn a_valid_head_is_staged_and_selected_at_the_next_launch() {
     assert_eq!(store.staged().map(|s| s.entry), Some(entry.clone()));
     assert_eq!(store.status().entry, None);
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let next = open(&temp);
     let selection = next.select();
     assert_eq!(selection.entry, Some(entry.clone()));
@@ -73,6 +74,7 @@ fn a_selected_plan_changed_after_staging_is_refused_before_it_counts_or_boots() 
     )
     .unwrap();
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut launch = open(&temp);
     let refusal = launch.prepare_selected().unwrap_err();
     assert_eq!(refusal.entry, entry);
@@ -109,6 +111,7 @@ fn selected_assets_are_a_complete_lazy_verified_generation() {
         panic!("the head should have staged");
     };
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut launch = open(&temp);
     let entry_dir = temp.path().join("entries").join(&entry);
     std::fs::remove_file(entry_dir.join("exact.json")).unwrap();
@@ -194,6 +197,7 @@ fn a_selected_asset_changed_before_first_resolution_is_refused_by_its_card() {
         .join("assets/mark.png");
     std::fs::write(asset, b"b mark").unwrap();
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut launch = open(&temp);
     let prepared = launch.prepare_selected().unwrap().unwrap();
     let refusal = prepared.assets.resolve("mark.png").unwrap_err();
@@ -208,6 +212,7 @@ fn the_same_head_again_is_current() {
     let mut store = open(&temp);
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut next = open(&temp);
     assert!(matches!(
         origin.check(&mut next),
@@ -225,6 +230,7 @@ fn a_refused_selection_reports_entry_zero_as_the_running_generation() {
     let mut store = open(&temp);
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut launch = open(&temp);
     launch.boot_started().unwrap();
     launch.entry_refused();
@@ -252,6 +258,7 @@ fn a_lower_seq_is_refused() {
 
     let older = Bundle::new(4, b"plan four");
     origin.serving(&older);
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut next = open(&temp);
     let refusal = origin.check(&mut next).unwrap_err();
     assert!(
@@ -277,6 +284,7 @@ fn the_embedded_and_observed_sequences_remain_rollback_floors() {
     origin.serving(&Bundle::new(5, b"plan five"));
     let mut store = open(&temp);
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+    drop(store); // The preceding launch releases its exclusive store ownership.
     boot_and_die(&temp);
     boot_and_die(&temp);
     assert_eq!(open(&temp).select().entry, None, "the bad update demoted");
@@ -304,6 +312,7 @@ fn a_signed_sequence_cannot_name_two_bundles() {
     let mut equivocation = Bundle::new(4, b"another plan");
     equivocation.signer = Some(("k1".into(), signing.clone()));
     origin.serving(&equivocation);
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut next = Store::open(temp.path(), embedded(&keys)).unwrap();
     let refusal = origin.check(&mut next).unwrap_err();
     assert!(
@@ -375,6 +384,7 @@ fn a_tampered_plan_is_refused_and_nothing_is_written() {
         entry_names(&temp)
     );
     assert_eq!(store.select().entry, None);
+    drop(store); // The preceding launch releases its exclusive store ownership.
     assert_eq!(open(&temp).select().entry, None);
 
     // A body of another length is refused before it is even hashed.
@@ -508,6 +518,7 @@ fn development_does_not_ignore_a_supplied_unverifiable_signature() {
     assert!(entry_names(&temp).is_empty());
     let mut facts = embedded(&[("k1", key(7).verifying_key().to_bytes())]);
     facts.trust = exact_update::Trust::Development;
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut store = Store::open(temp.path(), facts).unwrap();
     origin.serving(&Bundle::new(4, b"unsigned local plan"));
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
@@ -526,6 +537,7 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     };
 
     // A launch that reaches first pixel: this entry is the last good one.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut store = open(&temp);
     assert_eq!(store.select().entry.as_deref(), Some(first.as_str()));
     store.boot_started().unwrap();
@@ -538,6 +550,7 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     };
 
     // Two launches that never reach first pixel.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     assert_eq!(boot_and_die(&temp).as_deref(), Some(second.as_str()));
     assert_eq!(boot_and_die(&temp).as_deref(), Some(second.as_str()));
     let store = open(&temp);
@@ -548,6 +561,7 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     );
 
     // The same again, with nothing good left: entry zero.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     assert_eq!(boot_and_die(&temp).as_deref(), Some(first.as_str()));
     assert_eq!(boot_and_die(&temp).as_deref(), Some(first.as_str()));
     let store = open(&temp);
@@ -556,6 +570,7 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     assert_eq!(store.status().stream, "embedded");
 
     // And a bundle demoted for failing twice is not staged again.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut store = open(&temp);
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(
@@ -577,6 +592,7 @@ fn an_asset_already_in_the_store_is_reused_by_digest() {
 
     let second = Bundle::new(5, b"plan five").asset("mark.png", b"a mark");
     origin.serving(&second);
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut store = open(&temp);
     let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
         panic!("the second head should have staged");
@@ -620,6 +636,7 @@ fn the_sunset_card_passes_through() {
     assert_eq!(store.status().sunset.as_ref(), Some(&card));
 
     // And again from the entry on disk, at the next launch and on a Current.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut next = open(&temp);
     assert_eq!(next.status().sunset.as_ref(), Some(&card));
     let Ok(Check::Current { sunset }) = origin.check(&mut next) else {
@@ -680,6 +697,7 @@ fn a_record_from_another_cohort_starts_this_one_at_entry_zero() {
 
     let mut moved = embedded(&[]);
     moved.compatibility_id = "1111111111111111".into();
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let store = Store::open(temp.path(), moved).unwrap();
     assert_eq!(
         store.select().entry,
@@ -698,6 +716,7 @@ fn a_record_from_another_channel_starts_at_entry_zero() {
 
     let mut beta = embedded(&[]);
     beta.channel = "beta".into();
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let store = Store::open(temp.path(), beta).unwrap();
     assert_eq!(store.select().entry, None);
     assert_eq!(store.select().seq, EMBEDDED_SEQ);
@@ -764,6 +783,7 @@ fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
     );
 
     // The next launch still boots entry zero, and still holds it.
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut next = open(&temp);
     next.hold_staged(true);
     assert_eq!(next.select().entry, None);
@@ -774,6 +794,7 @@ fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
     assert_eq!(next.status().entry, Some(entry.clone()));
     assert_eq!(next.status().running_seq, 4);
     assert!(!next.status().staged);
+    drop(next); // The preceding launch releases its exclusive store ownership.
     let after = open(&temp);
     assert_eq!(after.select().entry, Some(entry));
     assert_eq!(after.select().seq, 4);
@@ -872,6 +893,7 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
     // asset-only update: staged.
     let update = Bundle::new(4, b"plan three").asset("mark.png", b"a mark");
     origin.serving(&update);
+    drop(store); // The preceding launch releases its exclusive store ownership.
     let mut store = Store::open(temp.path(), carried.clone()).unwrap();
     let Ok(Check::Staged { entry, .. }) =
         origin.check_embedding(&mut store, &[("mark.png", b"an older mark")])
@@ -1071,6 +1093,7 @@ fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
         panic!("the signed bundle should stage");
     };
 
+    drop(store); // The preceding launch releases its exclusive store ownership.
     for _ in 0..2 {
         let mut launch = Store::open(temp.path(), carried.clone()).unwrap();
         assert_eq!(launch.select().entry.as_deref(), Some(entry.as_str()));
@@ -1222,4 +1245,60 @@ fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
         Origin::of(&first).check(&mut store).unwrap(),
         Check::Current { .. }
     ));
+}
+
+#[test]
+fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
+    const CHILD_DIR: &str = "EXACT_UPDATE_OWNER_TEST_DIR";
+    let signing = key(73);
+    let keys = [("k1", signing.verifying_key().to_bytes())];
+    if let Some(dir) = std::env::var_os(CHILD_DIR) {
+        let result = Store::open(std::path::Path::new(&dir), embedded(&keys));
+        if std::env::var_os("EXACT_UPDATE_OWNER_RELEASED").is_some() {
+            assert_eq!(result.unwrap().select().seq, 5);
+        } else {
+            assert!(result.unwrap_err().contains("exclusive owner"));
+        }
+        return;
+    }
+    let temp = Temp::new("exclusive-signed-owner");
+    let mut store = Store::open(temp.path(), embedded(&keys)).unwrap();
+    assert!(Store::open(temp.path(), embedded(&keys))
+        .unwrap_err()
+        .contains("exclusive owner"));
+    let mut newer = Bundle::new(5, b"plan five");
+    newer.signer = Some(("k1".into(), signing.clone()));
+    let mut origin = Origin::of(&newer);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("signed stage");
+    };
+    let temporary = temp.path().join("entries/.tmp-active-download");
+    std::fs::create_dir(&temporary).unwrap();
+    let child = |released: bool| {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "store::an_exclusive_owner_protects_signed_floors_and_live_downloads",
+            ])
+            .env(CHILD_DIR, temp.path());
+        if released {
+            command.env("EXACT_UPDATE_OWNER_RELEASED", "1");
+        }
+        assert!(command.status().unwrap().success());
+    };
+    child(false);
+    assert!(
+        temporary.exists(),
+        "a rejected owner cannot sweep a live download"
+    );
+    drop(store);
+    child(true);
+    let mut reopened = Store::open(temp.path(), embedded(&keys)).unwrap();
+    let mut older = Bundle::new(4, b"plan four");
+    older.signer = Some(("k1".into(), signing));
+    origin.serving(&older);
+    assert!(origin.check(&mut reopened).is_err());
+    assert_eq!(reopened.select().seq, 5);
+    assert!(temp.path().join("entries").join(entry).exists());
 }

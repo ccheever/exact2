@@ -578,6 +578,9 @@ because it is retrofit-hostile:
   deliberate rollback is a *new* `seq` whose content is an older
   bundle's — Expo's roll-back-to-embedded directive is `seq + 1`
   pointing at entry zero.
+  The native store holds an exclusive OS file lock from before recovery until
+  its owner and active download snapshots drop. A second owner is refused
+  before it can read a stale record or sweep another owner's temporary files.
 - **Crash recovery.** A bundle that fails to reach first pixel twice
   in a row is marked bad and the last good bundle is selected, entry
   zero at worst; the failure is in `logs` and in the next envelope

@@ -1,6 +1,7 @@
 # A failed request relabels the last value as the answer for the failed arguments, and promotes a placeholder to an answer
 
-**Status:** Fixed: failed arguments have a separate rollback-safe marker, the standing answer keeps its own arguments, and store changes don't retry a failure (Contract runner regressions). Charlie's 2026-09-27 ruling (LLP 1054.000.002) is built in `issues/20260927-failed-read-in-contract.md`: `failed(x)` is readable, and a placeholder stays a placeholder after a failure.
+**Status:** Closed
+**Resolution:** Already implemented with a separate rollback-safe failure marker and failed(resource); current placeholder tests preserve standing arguments and suppress unsolicited retries.
 **Systems:** Runner (`runner/src/runner/admission.rs` `release_failed`, `runner/src/runner/settlement.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -18,6 +19,8 @@ When a request fails, `release_failed` sets `state.args = failed_args` and `stat
 - Keep the standing value's arguments, and hold a per-resource "failed for these arguments" marker that settlement consults. Don't re-ask until the arguments change or a `refresh`.
 - Let Contract read the failure, for example `failed(x)` beside `pending(x)`.
 - Keep a placeholder a placeholder.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: failed arguments have a separate rollback-safe marker, the standing answer keeps its own arguments, and store changes don't retry a failure (Contract runner regressions). Charlie's 2026-09-27 ruling (LLP 1054.000.002) is built in `issues/20260927-failed-read-in-contract.md`: `failed(x)` is readable, and a placeholder stays a placeholder after a failure.
 
 The design-neutral part is implemented in `runner/src/runner.rs` and
 `runner/src/runner/{admission,commit,settlement}.rs`. Settlement keeps evaluated

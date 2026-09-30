@@ -1,6 +1,7 @@
 # Non-ASCII text in a persisted kept answer panics during boot
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: hexadecimal decoding validates ASCII bytes without slicing UTF-8; malformed argument/value unit tests and a deferred-source boot regression pass.
 **Systems:** Runner, Persistence
 **Severity:** P2
 **Author:** Codex for Charlie Cheever

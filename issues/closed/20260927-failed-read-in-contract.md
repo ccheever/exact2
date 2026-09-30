@@ -1,11 +1,14 @@
 # Contract reads a failed request with `failed(x)`, and a placeholder stays a placeholder after a failure
 
-**Status:** Fixed: `failed(resource)` tracks request failure through Contract and incremental evaluation; failed placeholders retain provenance and stay out of checkpoint answers, verified by 14 placeholder/runner regressions and all required root checks.
+**Status:** Closed
+**Resolution:** Already implemented: failed(resource), placeholder provenance and checkpoint exclusion; current root Contract/runner regression suite passes.
 **Systems:** Contract (analyzer, lowering, roster), plan, runner (`admission.rs`, `settlement.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
 **Related:** LLP 1054.000.002 (the 2026-09-27 ruling), `issues/20260927-failed-request-relabels-answer.md` (the design-neutral half, built)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: `failed(resource)` tracks request failure through Contract and incremental evaluation; failed placeholders retain provenance and stay out of checkpoint answers, verified by 14 placeholder/runner regressions and all required root checks.
 
 The 2026-09-27 fix keeps the standing value's arguments and marks the failed arguments. What's left is Charlie's ruling:
 - `failed(x)` beside `pending(x)`: true while the resource's latest request for its current arguments failed, and false again once an answer lands or a new request goes out.

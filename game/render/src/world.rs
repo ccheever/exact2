@@ -364,10 +364,10 @@ impl Feed {
         // only at the device boundary; absent trailing slots do not refuse a valid world.
         if moved || material || batches {
             for page in w.pages::<Transform>().iter() {
-                check_page(page.first, page.mask, r.max_slots(), "transforms")?;
+                check_page(page.first, page.mask(), r.max_slots(), "transforms")?;
             }
             for page in w.pages::<Material>().iter() {
-                check_page(page.first, page.mask, r.max_slots(), "materials")?;
+                check_page(page.first, page.mask(), r.max_slots(), "materials")?;
             }
         }
         let parent_changed = next.parent != old.parent;
@@ -542,7 +542,7 @@ impl Feed {
                 {
                     if let Some(p) = page
                         .as_ref()
-                        .filter(|p| p.mask[i / 64] & (1 << (i % 64)) != 0)
+                        .filter(|p| p.mask()[i / 64] & (1 << (i % 64)) != 0)
                     {
                         let record = &p.floats()[i * 10..i * 10 + 10];
                         out[..9].copy_from_slice(&record[..9]);

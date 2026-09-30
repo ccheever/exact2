@@ -501,6 +501,7 @@ mod tests {
         );
         assert_eq!(client.status().running_seq, 2);
         assert!(!client.status().staged);
+        drop(client);
         let mut reopened =
             Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         assert_eq!(

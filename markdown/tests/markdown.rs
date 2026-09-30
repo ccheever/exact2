@@ -1160,3 +1160,67 @@ fn figure_commands_encode_url_syntax_for_inline_and_block_readers() {
         assert_eq!(plain(&source), "");
     }
 }
+
+#[test]
+fn deeply_nested_link_labels_stay_literal_after_the_bound() {
+    const CHILD: &str = "EXACT_MARKDOWN_NESTING_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let count = 20_000;
+        let source = format!("{}x{}", "[".repeat(count), "](u)".repeat(count));
+        let styled = style(&source, None);
+        assert!(styled.hidden.len() <= 64);
+        assert!(plain(&source).contains("[x](u)"));
+        return;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "deeply_nested_link_labels_stay_literal_after_the_bound",
+        ])
+        .env(CHILD, "1")
+        .status()
+        .unwrap();
+    assert!(status.success(), "nested link parser subprocess: {status}");
+    assert_eq!(plain("[**bold** and [inner](v)](u)"), "bold and inner");
+}
+
+#[test]
+fn unmatched_destinations_keep_text_and_balanced_escaped_links_work() {
+    for count in [4_000, 16_000] {
+        let source = "[x](".repeat(count);
+        let styled = style(&source, None);
+        assert!(styled.hidden.is_empty());
+        assert!(styled.spans.is_empty());
+    }
+    for (source, href) in [
+        ("[label](a(b)c)", "a(b)c"),
+        (r"[label](a\)b)", "a)b"),
+        (r"[label](a\(b)", "a(b"),
+        ("[outer [inner](v)](u)", "u"),
+    ] {
+        assert!(
+            style(source, None)
+                .spans
+                .iter()
+                .any(|span| span.href == href),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn many_distinct_footnotes_keep_first_reference_order() {
+    for count in [4_000, 16_000] {
+        let mut source = String::from("[^unused]: unused\n\n[^f0]: first\n\n");
+        for i in (0..count).rev() {
+            source.push_str(&format!("[^f{i}] "));
+        }
+        source.push_str("[^f0]\n\n[^last]: unused last");
+        let styled = style(&source, None);
+        assert_eq!(styled.footnotes.len(), count + 2);
+        assert_eq!(styled.footnotes[0].label, format!("f{}", count - 1));
+        assert_eq!(styled.footnotes[count - 1].label, "f0");
+        assert_eq!(styled.footnotes[count - 1].references.len(), 2);
+        assert_eq!(styled.footnotes[count].label, "unused");
+    }
+}

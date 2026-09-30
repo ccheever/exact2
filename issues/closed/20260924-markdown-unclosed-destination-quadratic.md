@@ -1,6 +1,7 @@
 # Unclosed Markdown link destinations repeatedly scan the remaining paragraph
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: balanced destination parentheses are indexed once per inline scan; 4,000/16,000 failed destinations and escaped/balanced link regressions pass.
 **Systems:** Markdown, Reader, Editor
 **Severity:** P2
 **Author:** Codex for Charlie Cheever

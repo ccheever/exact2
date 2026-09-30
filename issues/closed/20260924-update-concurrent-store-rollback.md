@@ -1,6 +1,7 @@
 # Concurrent update-store owners can roll back the signed sequence floor
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: a process-safe exclusive file lock is held before recovery/sweep and shared with active download snapshots; signed-floor, independent-process ownership and active-temporary regressions pass.
 **Systems:** Update store, Native delivery
 **Severity:** P1
 **Author:** Codex for Charlie Cheever

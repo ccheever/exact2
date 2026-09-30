@@ -1,6 +1,7 @@
 # Nested Markdown links overflow the stack and abort the process
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: link-label nesting stops at 32 and preserves deeper text literally; the 20,000-link public API subprocess and ordinary nested formatting pass.
 **Systems:** Markdown, Reader
 **Severity:** P1
 **Author:** Codex for Charlie Cheever

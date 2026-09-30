@@ -183,6 +183,7 @@ fn an_unchanged_asset_is_stored_once_and_old_entries_are_collected() {
             Ok(Check::Staged { .. })
         ));
         // The next launch boots it to first pixel: it becomes last-good.
+        drop(store);
         let mut store = open(&temp);
         let generation = store.prepare_selected().unwrap().unwrap().generation;
         store.boot_started().unwrap();

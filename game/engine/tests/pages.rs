@@ -57,16 +57,16 @@ fn page_masks_zero_bytes_leases_and_reallocation() {
         views.iter().map(|v| v.first).collect::<Vec<_>>(),
         [0, (2 * PAGE) as u32]
     );
-    assert_eq!(views[0].mask.len(), PAGE / 64);
-    assert_eq!(views[0].mask[0], (1 << 1) | (1 << 63));
-    assert_eq!(views[0].mask[1], 1);
-    assert_eq!(views[0].mask[PAGE / 64 - 1], 1 << 63);
-    assert_eq!(views[1].mask[0], 1 << 7);
+    assert_eq!(views[0].mask().len(), PAGE / 64);
+    assert_eq!(views[0].mask()[0], (1 << 1) | (1 << 63));
+    assert_eq!(views[0].mask()[1], 1);
+    assert_eq!(views[0].mask()[PAGE / 64 - 1], 1 << 63);
+    assert_eq!(views[1].mask()[0], 1 << 7);
     assert_eq!(views[0].as_ptr() as usize % 4, 0);
     for view in &views {
         assert_eq!(view.bytes().len(), PAGE * 40);
         for slot in 0..PAGE {
-            if view.mask[slot / 64] & (1 << (slot % 64)) == 0 {
+            if view.mask()[slot / 64] & (1 << (slot % 64)) == 0 {
                 assert!(view.bytes()[slot * 40..(slot + 1) * 40]
                     .iter()
                     .all(|&b| b == 0));
@@ -175,4 +175,23 @@ fn membership_union_is_ordered_and_does_not_require_both_columns() {
         .map(|(e, _)| e)
         .collect();
     assert_eq!(found, [es[0], es[17], es[PAGE + 9], es[PAGE * 2]]);
+}
+
+#[test]
+fn sparse_owned_components_expose_only_initialized_runs() {
+    use exact_game::Component;
+    #[derive(Default, Component)]
+    struct Owned { label: String }
+    let mut world = World::new(60, 0);
+    let entities: Vec<_> = (0..PAGE + 3).map(|_| world.spawn(())).collect();
+    for i in [1, 2, 63, 64, PAGE + 2] {
+        world.insert(entities[i], Owned { label: format!("value {i}") });
+    }
+    world.remove::<Owned>(entities[63]);
+    let pages = world.pages::<Owned>();
+    let values: Vec<_> = pages.iter().flat_map(|page| {
+        page.runs().flat_map(|(first, values)| values.iter().enumerate()
+            .map(move |(i, value)| (first + i as u32, value.label.clone()))).collect::<Vec<_>>()
+    }).collect();
+    assert_eq!(values, [1, 2, 64, PAGE + 2].map(|i| (i as u32, format!("value {i}"))));
 }

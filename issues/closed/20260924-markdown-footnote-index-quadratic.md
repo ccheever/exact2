@@ -1,6 +1,7 @@
 # Footnote numbering performs a linear label search for every reference
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: a label-to-ordinal BTreeMap replaces repeated linear searches; 4,000/16,000 labels preserve first-reference order, repeats and unused definitions.
 **Systems:** Markdown, Reader, Editor
 **Severity:** P2
 **Author:** Codex for Charlie Cheever

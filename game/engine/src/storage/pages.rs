@@ -66,6 +66,15 @@ impl<'w, C: Component> Pages<'w, C> {
 }
 
 /// One allocated page, valid while its Pages lease remains borrowed.
+/// Initialization metadata cannot be replaced by safe callers:
+/// ```compile_fail
+/// use exact_game::{World, Transform};
+/// let mut world = World::new(60, 0);
+/// world.spawn(Transform::default());
+/// let pages = world.pages::<Transform>();
+/// let mut page = pages.iter().next().unwrap();
+/// page.mask = &[u64::MAX; 8];
+/// ```
 pub struct Page<'a, C> {
     /// Entity index of the first of PAGE slots.
     pub first: u32,
@@ -73,11 +82,15 @@ pub struct Page<'a, C> {
     /// inserted or removed. Compare only within one world presentation generation.
     pub generation: u64,
     /// Presence words for the page; bit zero corresponds to `first`.
-    pub mask: &'a [u64],
+    mask: &'a [u64],
     slots: *const C,
     _life: PhantomData<&'a C>,
 }
 impl<C> Page<'_, C> {
+    /// Storage-owned initialization bits, borrowed read-only.
+    pub fn mask(&self) -> &[u64] {
+        self.mask
+    }
     /// Pointer to PAGE consecutive slots, valid while this view's lease is alive.
     /// Only present slots may be read as C; absent slots are MaybeUninit backing.
     /// Use bytes() for a Plain byte upload. The pointer cannot replace the backing
