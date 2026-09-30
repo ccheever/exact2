@@ -119,6 +119,9 @@ pub struct Host<D: DataSource> {
     /// frame request waits for them (`exact_canvas_held`, LLP 1056 D5).
     canvas_held: IdSet<ViewId>,
     canvas_kept: [Vec<exact_runner::CanvasList>; 2],
+    /// Canvas draws run in a turn of their own (`exact_canvas_draw`), not in
+    /// the turns main waits on (LLP 1072 §8.5).
+    canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
@@ -382,6 +385,7 @@ impl<D: DataSource> Host<D> {
             svg: svg::SvgState::new(cfg!(target_os = "ios")),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
+            canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),
@@ -1094,7 +1098,9 @@ impl<D: DataSource> Host<D> {
         }
         let error = self.height_layout_if_needed(&mut batch).err();
         self.runner.canvas_frame();
-        self.canvas_turn(&mut batch);
+        // A tick is never waited for where draws are deferred (LLP 1072
+        // §9): it draws in its own turn.
+        self.canvas_draw_turn(&mut batch);
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
         if self.transform_drags.mapping_pending {

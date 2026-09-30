@@ -855,6 +855,59 @@ today.
 - **Cancellation** may discard unstarted work only. It never discards a
   committed batch of a live runtime.
 
+### 8.5 Canvas draws (r6, 2026-09-30)
+
+**What was wrong.** A 2D canvas's due draws ran at the end of whatever turn
+came first in a frame (`Host::canvas_turn`, after layout). On a frame with a
+due timer that is `exact_advance`, which main waits on (§2.3), so main was
+awake for the whole draw: 150–170 ms/s of the feature bench's F2 on an iPhone,
+a draw of 1.75–2.9 ms a frame (QUEUE, the canvas lane's trace), with main
+doing almost nothing else meanwhile.
+
+**The change.** Where fills are asynchronous (iOS, off the agent), the session
+defers canvas draws (`exact_canvas_defer`):
+
+- Every turn still lays canvases out (their geometry goes with the batch that
+  moved them), but draws nothing; its batch says `canvasOwed` when
+  `Runner::canvas_owed` finds a due draw (a frame request only while the
+  canvas is not held), a fresh bitmap to announce, or lists and retired
+  generations waiting.
+- The last batch applied on main says what is owed (batches apply in the
+  owner's order). Once per main-queue turn, after that turn's calls, the
+  session posts `exact_canvas_draw` to the owner: geometry, the due draws,
+  their lists. Its batch comes back by its own publication (§3.2), like a
+  slice's. One is in flight at a time; a draw owed meanwhile is asked for
+  when it lands.
+- A frame's tick is never waited for here (§7.1), so it draws in its own turn,
+  as before. While a tick is in flight no draw is posted: the tick's batch
+  says whether one is still owed. An animating canvas on F2 is then drawn by
+  the tick each frame, and a canvas that changes for any other reason (an
+  argument, a size, an image loaded, a reply) by the draw turn.
+- Main is awake for neither. A canvas's pixels land a frame later at most:
+  the draw's lists land with the next main-queue turn and replay off main
+  (LLP 1056 §8.3), which already put its pixels a frame behind its batch.
+
+**Safety.** The draw already ran on the owner (inside the turn main waited
+on); what is new is main running while it runs. The draw's Swift callback is
+the Canvas 2D text measurer, which uses the measuring engine's `CanvasText`,
+never the painter's (§8.1). Lists cross as memory ranges into Rust
+(`Batch::canvas2d`), which `canvas_kept` keeps for two batches; with draws
+deferred only the draw turn and the tick produce lists, and neither is posted
+again before the last one's batch has landed and been read, so a list main
+reads is never the one the owner frees. `OwnerCanvasMacTests` scrolls a list
+of canvas rows down and back with slices and draws on the owner, retiring
+canvases and making new ones while main replays, under the Thread Sanitizer.
+The agent's clock and macOS keep synchronous draws (fills are synchronous
+there), so every agent read and parity capture is unchanged.
+
+**Prediction** (F2 on the iPhone 13 Pro Max, canvas lane's harness): main
+busy 167–174 ms/s → 25–40 ms/s (its own CPU, 22–29 ms/s, plus the draw's
+landing and the tick hop); process CPU within ±5 ms/s (the draw runs on the
+owner as before; the frame's tick was already a hop, and a draw turn adds one
+only when something other than a frame request is owed); 120 fps unchanged.
+The 19-kind Extra Heavy fling: its canvas rows' first draws leave the retire
+and measure reports main waits on, a few ms/s of main.
+
 ## 9. Amending LLP 1050.000 D3 (ruled, Q5)
 
 D3 today: "a row may take longer than a frame, but never mid-fling." Amended:

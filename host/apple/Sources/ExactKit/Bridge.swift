@@ -28,6 +28,8 @@ public struct Batch {
     public var canvas = false
     /// A frame task wants every display frame (LLP 1073 D5).
     public var frames = false
+    /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
+    public var canvasOwed = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -291,6 +293,15 @@ final class Runtime {
             guard !destroyed else { return }
             let n = write(bytes)
             done(read(exact_collection_feedback(rt, n, now)))
+        }
+    }
+    /// Canvas draws in a turn of their own (LLP 1072 §8.5).
+    func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
+    /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
+    func canvasDrawAsync(done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(exact_canvas_draw(rt)))
         }
     }
     /// A frame's tick on the owner, not waited for (LLP 1072 §7.1).

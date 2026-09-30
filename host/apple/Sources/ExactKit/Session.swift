@@ -411,11 +411,19 @@ public final class ExactSession {
     private(set) var fillInFlight = false
     private var afterFill: [() -> Void] = []
     private let published = NSLock()
+    /// What the owner committed without main waiting.
+    private enum Published { case fill(UInt32), tick, canvas }
     /// Batches the owner committed without main waiting, in its order: a
-    /// slice's (with its list) and a frame's tick's.
-    private var publishedQueue: [(view: UInt32?, batch: Batch, generation: Int)] = []
+    /// slice's (with its list), a frame's tick's and a canvas draw's.
+    private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
     /// A frame's tick is on the owner (LLP 1072 §7.1): the next one waits.
     private(set) var tickInFlight = false
+    /// Canvas draws run in a turn of their own on the owner (LLP 1072 §8.5):
+    /// the last batch applied says whether one is owed, one is in flight
+    /// at a time, and one is asked for once per main-queue turn.
+    private(set) var canvasInFlight = false
+    private var canvasOwed = false
+    private var canvasAsked = false
     private var landing = false
     /// Slices build off main on iOS unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
@@ -548,7 +556,7 @@ public final class ExactSession {
         fillInFlight = true
         let captured = generation
         runtime.collectionFeedbackAsync(bytes, now: now()) { [weak self] batch in
-            self?.publish(view, batch, captured)
+            self?.publish(.fill(view), batch, captured)
         }
     }
 
@@ -557,13 +565,30 @@ public final class ExactSession {
     func sendTick(now: Double) {
         tickInFlight = true
         let captured = generation
-        runtime.tickAsync(now: now) { [weak self] batch in self?.publish(nil, batch, captured) }
+        runtime.tickAsync(now: now) { [weak self] batch in self?.publish(.tick, batch, captured) }
+    }
+
+    /// The owed canvas draws, after this main-queue turn's calls and not
+    /// waited for (LLP 1072 §8.5): main is not awake for a draw. A tick in
+    /// flight draws in its own turn, so none is asked for meanwhile; its
+    /// batch says whether one is still owed.
+    private func askCanvasDraw() {
+        guard canvasOwed, !canvasAsked, !canvasInFlight else { return }
+        canvasAsked = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            canvasAsked = false
+            guard state != .destroyed, canvasOwed, !canvasInFlight, !tickInFlight else { return }
+            canvasInFlight = true
+            let captured = generation
+            runtime.canvasDrawAsync { [weak self] batch in self?.publish(.canvas, batch, captured) }
+        }
     }
 
     /// On the owner: queue a batch for main, in the owner's order.
-    private func publish(_ view: UInt32?, _ batch: Batch, _ generation: Int) {
+    private func publish(_ kind: Published, _ batch: Batch, _ generation: Int) {
         published.lock()
-        publishedQueue.append((view, batch, generation))
+        publishedQueue.append((kind, batch, generation))
         published.unlock()
         DispatchQueue.main.async { [weak self] in self?.landFill() }
     }
@@ -586,16 +611,22 @@ public final class ExactSession {
             let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
             published.unlock()
             guard let next else { return }
-            if next.view == nil { tickInFlight = false } else { fillInFlight = false }
+            switch next.kind {
+            case .fill: fillInFlight = false
+            case .tick: tickInFlight = false
+            case .canvas: canvasInFlight = false
+            }
             guard state != .destroyed, next.generation == generation else {
-                if next.view != nil { afterFill.removeAll() }
+                if case .fill = next.kind { afterFill.removeAll() }
                 continue
             }
             let batch = next.batch
-            if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue) {
+            if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed) {
                 apply(batch)
             }
-            guard let view = next.view else { continue }
+            // A draw owed while this one ran, or one a tick left owed.
+            if canvasOwed { askCanvasDraw() }
+            guard case .fill(let view) = next.kind else { continue }
             presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
             let waiting = afterFill
             afterFill.removeAll()
@@ -609,13 +640,15 @@ public final class ExactSession {
     /// Wait for the slice in flight and land it: what shows, the agent and
     /// every read that must see it (T5, T7, T9).
     public func drainFill() {
-        guard fillInFlight || tickInFlight || hasPublished else { return }
+        guard fillInFlight || tickInFlight || canvasInFlight || hasPublished else { return }
         Owner.shared.sync {}
         landFill()
     }
 
     private func wire() {
         if ExactSession.asyncFills {
+            // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
+            runtime.canvasDefer(true)
             presenter.collections.onFill = { [weak self] view, bytes in self?.sendFill(view, bytes) }
             presenter.collections.filling = { [weak self] in self?.fillInFlight ?? false }
             presenter.collections.drain = { [weak self] in self?.drainFill() }
@@ -626,7 +659,7 @@ public final class ExactSession {
             // A report inside the built window commits nothing: while a list
             // moves that is most frames. Skip the presenter's finalization
             // pass for it, unless the clock or the motion it reports is news.
-            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue { return }
+            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
@@ -833,9 +866,13 @@ public final class ExactSession {
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, fillInFlight || tickInFlight, hasPublished { landFill() }
+        if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished { landFill() }
         let outermost = !applying
         applying = true
+        // Each batch says what its turn left owed; batches apply in the
+        // owner's order, so the last one applied is the runner's now.
+        canvasOwed = batch.canvasOwed
+        if canvasOwed { askCanvasDraw() }
         for op in batch.ops where op.op == .router { routerOp = op.payload }
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
         for op in batch.ops where op.op == .title { presenter.headTitle(op.payload["title"] as? String) }

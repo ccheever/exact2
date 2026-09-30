@@ -2,6 +2,7 @@
 //! The Swift tests stay in `tests/ExactKitTests`.
 
 mod animation;
+mod canvas_defer;
 mod content_region;
 mod development;
 mod height_drag;

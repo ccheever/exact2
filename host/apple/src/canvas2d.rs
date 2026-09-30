@@ -38,8 +38,39 @@ impl<D: DataSource> Host<D> {
         ));
     }
 
-    /// This turn's canvas work, after layout: geometry, due draws, lists.
+    /// This turn's canvas work, after layout: geometry, then due draws and
+    /// their lists, unless draws are deferred (LLP 1072 §8.5): then the batch
+    /// says whether a draw is owed, and `exact_canvas_draw` runs it.
     pub(crate) fn canvas_turn(&mut self, batch: &mut Batch) {
+        if !self.canvas_deferred {
+            self.canvas_draw_turn(batch);
+            return;
+        }
+        if self.runner.plan().surfaces.is_empty() {
+            return;
+        }
+        self.runner.layout_canvases(scale());
+        let held = &self.canvas_held;
+        batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+    }
+
+    /// Where draws are deferred, a turn of canvas work alone: geometry, due
+    /// draws, their lists (`exact_canvas_draw`, LLP 1072 §8.5). Main does not
+    /// wait for it: the owner runs it after the turn that owed it.
+    pub fn canvas_draw(&mut self) -> String {
+        let mut batch = Batch::new();
+        self.canvas_draw_turn(&mut batch);
+        self.finish(batch, None)
+    }
+
+    /// Draw canvases in the turns main waits on (false), or only in their
+    /// own turn and a frame's tick (true: LLP 1072 §8.5, iOS off the agent).
+    pub fn set_canvas_deferred(&mut self, deferred: bool) {
+        self.canvas_deferred = deferred;
+    }
+
+    /// Geometry, every due draw, and the lists onto the batch.
+    pub(crate) fn canvas_draw_turn(&mut self, batch: &mut Batch) {
         if self.runner.plan().surfaces.is_empty() {
             return;
         }

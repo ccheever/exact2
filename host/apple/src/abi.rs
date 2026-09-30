@@ -82,6 +82,8 @@ pub struct Bridge<D: DataSource> {
     app_call: Option<exact_runner::NativeCall>,
     /// The pan contact's velocity samples (LLP 1057 §10.6; `crate::pan_velocity`).
     pub(crate) pan: crate::pan_velocity::PanVelocity,
+    /// Canvas draws in a turn of their own (LLP 1072 §8.5), in each host booted.
+    canvas_deferred: bool,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -117,6 +119,7 @@ impl<D: DataSource> Bridge<D> {
             app_module: None,
             app_call: None,
             pan: crate::pan_velocity::PanVelocity::new(),
+            canvas_deferred: false,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -488,9 +491,7 @@ impl<D: DataSource> Bridge<D> {
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 );
                 host.listen(executor.waker());
-                if let Some(f) = hooks.canvas_text {
-                    host.set_canvas_text(f, hooks.ctx);
-                }
+                self.canvas_hooks(&mut host, &hooks);
                 self.executor = Some(executor);
                 self.host = Some(host);
                 self.parked.clear();
@@ -822,9 +823,7 @@ impl<D: DataSource> Bridge<D> {
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
         );
         candidate.host.listen(executor.waker());
-        if let Some(f) = candidate.hooks.canvas_text {
-            candidate.host.set_canvas_text(f, candidate.hooks.ctx);
-        }
+        self.canvas_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = Some(executor);
         self.host = Some(candidate.host);
         self.adopt_app_module();

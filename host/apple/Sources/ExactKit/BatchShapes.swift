@@ -16,7 +16,7 @@ extension BatchReader {
     }
 
     mutating func batch() throws -> Batch {
-        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false
+        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
         var seen: Set<String> = []
@@ -29,6 +29,7 @@ extension BatchReader {
             case "motion": motion = try r.bool()
             case "canvas": canvas = try r.bool()
             case "frames": frames = try r.bool()
+            case "canvasOwed": canvasOwed = try r.bool()
             case "canvasImages": images = try r.array { try $0.string() }
             case "pending": pending = try r.bool()
             case "spatial": spatial = try r.bool()
@@ -42,6 +43,7 @@ extension BatchReader {
         batch.spatial = spatial
         batch.canvas = canvas
         batch.frames = frames
+        batch.canvasOwed = canvasOwed
         batch.canvasImages = images
         return batch
     }

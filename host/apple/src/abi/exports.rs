@@ -482,6 +482,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
         }
 
+        /// Canvas draws in a turn of their own (`deferred` nonzero), or in every
+        /// turn (LLP 1072 §8.5): the batch says `canvasOwed` and
+        /// `exact_canvas_draw` runs them, off the turns main waits on.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_defer(rt: u32, deferred: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_defer(deferred != 0), |_| ())
+        }
+
+        /// The canvas draws owed (LLP 1072 §8.5); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_draw(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_draw(), |n| n)
+        }
+
         /// A motion frame; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_tick(rt: u32, now_ms: f64) -> u32 {

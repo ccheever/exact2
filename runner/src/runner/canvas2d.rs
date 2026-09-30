@@ -357,6 +357,8 @@ pub trait CanvasEngine {
     fn frame(&mut self, now: f64);
     /// [`Runner::canvas_wants_frame`].
     fn wants_frame(&self) -> bool;
+    /// [`Runner::canvas_owed`].
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool;
     /// Drop the canvases `alive` denies, and take the generations retired
     /// since the last take, for the source.
     fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)>;
@@ -583,6 +585,26 @@ impl CanvasEngine for Canvases {
 
     fn wants_frame(&self) -> bool {
         self.records.values().any(|r| r.wants_frame)
+    }
+
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
+        // What `draw` would hand the host or the source: lists and retired
+        // generations waiting, a fresh bitmap, or a due draw it would run.
+        !self.out.is_empty()
+            || !self.retired.is_empty()
+            || self.records.iter().any(|(view, r)| {
+                if r.fresh {
+                    return true;
+                }
+                if !ready || r.in_flight.is_some() || r.backing.is_none_or(|b| b.empty()) {
+                    return false;
+                }
+                let mut causes = r.causes;
+                if causes.has(Causes::FRAME) && !on_screen(*view) {
+                    causes = Causes(causes.0 & !Causes::FRAME.0);
+                }
+                !causes.is_empty()
+            })
     }
 
     fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)> {
@@ -1000,6 +1022,17 @@ impl<D: DataSource> Runner<D> {
     /// source running while this holds.
     pub fn canvas_wants_frame(&self) -> bool {
         self.canvases.as_ref().is_some_and(|c| c.wants_frame())
+    }
+
+    /// Whether [`Runner::draw_canvases`] has work: a due draw (a frame
+    /// request only while `on_screen`), a fresh bitmap to announce, or
+    /// lists and retired generations waiting. A host that runs its draws
+    /// in a turn of their own (LLP 1072 §8.5) asks after every other turn.
+    pub fn canvas_owed(&self, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
+        let ready = self.data.ready();
+        self.canvases
+            .as_ref()
+            .is_some_and(|c| c.owed(ready, on_screen))
     }
 
     /// Run every due draw, in tree order, after this turn's commits and

@@ -15,6 +15,33 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// A host this bridge boots: its Canvas 2D text measurer (LLP 1056 D8)
+    /// and where its draws run (LLP 1072 §8.5).
+    pub(super) fn canvas_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
+        if let Some(f) = hooks.canvas_text {
+            host.set_canvas_text(f, hooks.ctx);
+        }
+        host.set_canvas_deferred(self.canvas_deferred);
+    }
+
+    /// Canvas draws in a turn of their own from now on, or in every turn
+    /// (`exact_canvas_defer`, LLP 1072 §8.5).
+    pub fn canvas_defer(&mut self, deferred: bool) {
+        self.canvas_deferred = deferred;
+        if let Some(h) = self.host.as_mut() {
+            h.set_canvas_deferred(deferred);
+        }
+    }
+
+    /// The deferred canvas draws (`exact_canvas_draw`, LLP 1072 §8.5).
+    pub fn canvas_draw(&mut self) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(super::not_booted, |h| h.canvas_draw());
+        self.emit(out)
+    }
+
     /// What SVG pixel work the live plan can need (`exact_svg_islands`):
     /// 1 an island, 2 a filter.
     pub fn svg_islands(&self) -> u8 {
