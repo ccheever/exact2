@@ -499,7 +499,7 @@ fn gpu_surfaces(app_dir: &Path, manifest: &Manifest) -> Result<serde_json::Value
         .arg(app_dir)
         .arg(manifest.json.to_string())
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("shader inventory: {}", crate::bun_error(e)))?;
     if !result.status.success() {
         return Err(format!(
             "shader inventory: {}",

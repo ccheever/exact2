@@ -57,7 +57,10 @@ if (target !== '--wasm' && !game && !bakeOnly) {
       manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
     process.exit(0);
   }
-  const reason = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-3).join('\n');
+  // The child's own message, not the tail of Bun's trace (a frame and its version line).
+  const lines = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l));
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  const reason = (message.length ? message : lines.slice(-3)).join('\n');
   console.error(`${reason}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
 }

@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BINARYEN_DOWNLOAD } from '../web/stages.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -17,6 +18,18 @@ const WEB = /WEB_TOOLCHAIN\s*=\s*'([^']+)'/.exec(readFileSync(resolve(root, 'scr
 // a module built from one worktree's sources is never another's.
 const MODULES = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'web-js-modules');
 const TARGET = resolve(MODULES, 'target');
+
+// `wasm-opt -Oz` from `input` to `output`, or, when binaryen is missing or
+// fails, `input` copied there unoptimized and said so, as host/web/build.mjs
+// does: a missing tool is named, never left for a later ENOENT to report.
+const OPT = ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals'];
+function optimize(input, output, label) {
+  const opt = spawnSync('wasm-opt', [...OPT, input, '-o', output], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  if (opt.status === 0) return output;
+  if (input !== output) cpSync(input, output);
+  process.stderr.write(`${label}: ${opt.error?.code === 'ENOENT' ? `wasm-opt not on PATH (binaryen: brew install binaryen, or ${BINARYEN_DOWNLOAD})` : `wasm-opt failed: ${(opt.stderr ?? '').trim().split('\n').at(-1)}`}; unoptimized\n`);
+  return output;
+}
 function cargoWasm(manifest) {
   return spawnSync('cargo', [...(WEB ? [`+${WEB}`] : []), 'build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifest,
     ...(WEB ? ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'] : [])],
@@ -59,9 +72,7 @@ function module(manifest, name, out, label) {
   if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifest])) return done;
   if (cargoWasm(manifest).status !== 0) throw new Error(`${label} did not build`);
   cpSync(wasm, done);
-  const opt = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', done, '-o', done]);
-  if (opt.status !== 0) process.stderr.write('module: wasm-opt unavailable or failed; unoptimized\n');
-  return done;
+  return optimize(done, done, 'module');
 }
 
 export function buildModule(app, out = resolve(MODULES, app), draw = false, dir = resolve(root, 'apps', app)) {
@@ -176,8 +187,7 @@ pub extern "C" fn output() -> *const u8 { unsafe { OUT.as_ptr() } }
   const r = cargoWasm(resolve(crate, 'Cargo.toml'));
   if (r.status !== 0) throw new Error('markdown.wasm did not build');
   cpSync(resolve(TARGET, 'wasm32-unknown-unknown/release/exact_js_markdown.wasm'), resolve(out, 'markdown.wasm'));
-  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', resolve(out, 'markdown.wasm'), '-o', resolve(out, 'markdown.wasm')]);
-  return resolve(out, 'markdown.wasm');
+  return optimize(resolve(out, 'markdown.wasm'), resolve(out, 'markdown.wasm'), 'markdown.wasm');
 }
 
 /** The motion capability (LLP 1071 §7): `exact-web-js-motion`'s exports,
@@ -204,8 +214,7 @@ export function buildFlow(out = resolve(MODULES, 'flow')) {
     ...(WEB ? ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'] : [])],
   { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: target, ...(WEB ? { RUSTFLAGS: '-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none' } : {}) } });
   if (r.status !== 0) throw new Error('textflow.wasm did not build');
-  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', built, '-o', wasm]);
-  return wasm;
+  return optimize(built, wasm, 'textflow.wasm');
 }
 
 // A workspace crate's exports as a size-built wasm module: `<name>.wasm`.
@@ -239,8 +248,7 @@ ${ws.slice(ws.indexOf('[workspace.dependencies]')).split('\n[workspace.package]'
   const r = cargoWasm(resolve(crate, 'Cargo.toml'));
   if (r.status !== 0) throw new Error(`${name}.wasm did not build`);
   cpSync(built, wasm);
-  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', wasm, '-o', wasm]);
-  return wasm;
+  return optimize(wasm, wasm, `${name}.wasm`);
 }
 
 if (import.meta.main) {

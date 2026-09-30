@@ -1,6 +1,7 @@
 # The JS web build ignores a failed or missing wasm-opt and dies on an unrelated ENOENT
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** module.mjs optimize() names a missing or failing wasm-opt and ships unoptimized, as host/web/build.mjs does; host/web/build.mjs prints the child's error line, not the tail of its trace
 **Systems:** web JS target, build
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

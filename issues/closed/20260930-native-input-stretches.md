@@ -1,6 +1,7 @@
 # A bare input stretches to its container on native but keeps its intrinsic width on the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** a text field takes Taffy's no-stretch exemption in block layout (kernel/src/style.rs); flex, insets and percentages still stretch it, as Chrome does; the remaining character-width difference is issues/20260930-field-character-width.md
 **Systems:** kernel, Apple host, Linux host
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

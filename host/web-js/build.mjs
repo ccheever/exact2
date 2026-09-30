@@ -62,7 +62,7 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit).
 const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug/exact-web-js');
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
-const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites'])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 for (const f of ['rt.js', 'shape.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
@@ -292,6 +292,10 @@ if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
 else if (!existsSync(resolve(out, 'app.plan'))) cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+// A development build's source map for that plan, for the agent driver only
+// (LLP 1012.001.000 D6): never in a production build, never a stale one.
+rmSync(resolve(out, 'app.plan.map.json'), { force: true });
+if (!production && !opt('--plan') && existsSync(resolve(gen, 'app.plan.map.json'))) cpSync(resolve(gen, 'app.plan.map.json'), resolve(out, 'app.plan.map.json'));
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.

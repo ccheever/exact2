@@ -848,3 +848,92 @@ fn content_sized_textarea_keeps_the_caret_line_after_return() {
         }
     }
 }
+
+#[test]
+fn a_text_field_keeps_its_own_width_in_a_block_as_the_web_does() {
+    // An `<input>` or `<textarea>` at `display: block` keeps its intrinsic
+    // width where a `<div>` stretches (issues/20260930-native-input-stretches.md):
+    // Chrome 175 px, the native hosts 352 px, for Caltrain's search field.
+    // Flex and insets still stretch it, as Chrome does.
+    struct Measurer;
+    impl TextMeasurer for Measurer {
+        fn measure(&mut self, _: &TextMeasureRequest<'_>) -> TextMetrics {
+            TextMetrics {
+                width: 80.0,
+                height: 20.0,
+                first_baseline: Some(16.0),
+            }
+        }
+    }
+    let width = |display: exact_kernel::Display, child: NodeType, absolute: bool| {
+        let mut kernel = Kernel::new(Box::new(Measurer));
+        let mut parent = size(300.0, 200.0);
+        parent.display = display;
+        parent.mask.set(StyleId::Display);
+        parent.flex_direction = exact_kernel::FlexDirection::Column;
+        parent.mask.set(StyleId::FlexDirection);
+        let mut field = StyleProps::default();
+        if absolute {
+            field.position_type = exact_kernel::PositionType::Absolute;
+            field.mask.set(StyleId::PositionType);
+            field.left = Dimension::Points(0.0);
+            field.mask.set(StyleId::Left);
+            field.right = Dimension::Points(0.0);
+            field.mask.set(StyleId::Right);
+        }
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 2,
+                        node_type: child,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: parent,
+                    },
+                    Op::SetStyle {
+                        id: 2,
+                        patch: Box::new(field),
+                    },
+                    Op::SetChildren {
+                        id: 1,
+                        children: vec![2],
+                    },
+                    Op::AttachRoot { id: 1 },
+                ],
+            )
+            .unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(300.0, 200.0))
+            .unwrap();
+        kernel.node(2).unwrap().frame.width
+    };
+    use exact_kernel::Display::{Block, Flex};
+    assert_eq!(
+        width(Block, NodeType::TextInput, false),
+        80.0,
+        "a field in a block"
+    );
+    assert_eq!(
+        width(Block, NodeType::Text, false),
+        300.0,
+        "a paragraph in a block stretches"
+    );
+    assert_eq!(
+        width(Flex, NodeType::TextInput, false),
+        300.0,
+        "a field in a flex column stretches"
+    );
+    assert_eq!(
+        width(Block, NodeType::TextInput, true),
+        300.0,
+        "a field's insets size it"
+    );
+}

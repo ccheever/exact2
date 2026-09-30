@@ -123,14 +123,17 @@ test('tiered mode inherits ordinary environment and platform overrides', async (
 // under both certificates, so only the leaf decides that case.
 test.skipIf(process.platform !== 'darwin')('a published module signature stands only for the same code and certificate', () => {
   const dir=mkdtempSync(resolve(tmpdir(),'exact-signature-test-')), keychain=resolve(dir,'test.keychain-db');
+  // macOS's own LibreSSL: OpenSSL 3 (Homebrew's, first on many PATHs) writes a
+  // PKCS#12 that `security import` rejects as a failed MAC.
+  const OPENSSL='/usr/bin/openssl';
   const sh=(cmd,args)=>{const r=spawnSync(cmd,args,{cwd:dir,encoding:'utf8'});assert.equal(r.status,0,`${cmd} ${args[0]}: ${r.stderr}`);return r.stdout;};
   try {
     sh('security',['create-keychain','-p','exact',keychain]);
     sh('security',['unlock-keychain','-p','exact',keychain]);
     for (const name of ['A','B']) {
-      sh('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',`${name}.key`,'-out',`${name}.crt`,'-subj',`/CN=Exact Test Signing ${name}`,
+      sh(OPENSSL,['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',`${name}.key`,'-out',`${name}.crt`,'-subj',`/CN=Exact Test Signing ${name}`,
         '-addext','extendedKeyUsage=critical,codeSigning','-addext','keyUsage=critical,digitalSignature','-addext','basicConstraints=critical,CA:false']);
-      sh('openssl',['pkcs12','-export','-out',`${name}.p12`,'-inkey',`${name}.key`,'-in',`${name}.crt`,'-passout','pass:exact']);
+      sh(OPENSSL,['pkcs12','-export','-out',`${name}.p12`,'-inkey',`${name}.key`,'-in',`${name}.crt`,'-passout','pass:exact']);
       sh('security',['import',`${name}.p12`,'-k',keychain,'-P','exact','-T','/usr/bin/codesign']);
     }
     sh('security',['set-key-partition-list','-S','apple-tool:,apple:,codesign:','-s','-k','exact',keychain]);

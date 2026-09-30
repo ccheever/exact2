@@ -1,6 +1,7 @@
 # The JS web target cannot name a node's source
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** a development JS build names each element's plan node (data-site) and writes the plan's source map beside dist/app.plan; production has neither; the driver stamps the served plan's digest
 **Systems:** web JS target, agent API
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

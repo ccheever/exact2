@@ -18,7 +18,7 @@ export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 const WORLD_LIMIT = 256 * 1024 * 1024;
@@ -949,6 +949,8 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
         if (await sourceMaps.refresh()) req.plan = true;
         const reply = await s.op(req);
         identifyInspectedNode(reply, target);
+        // The JS target keeps no runner to name its plan: it is the plan this carrier serves.
+        if (reply.node && carrier.host === 'web' && reply.node.site != null && !reply.node.planDigest && mapLocator && existsSync(mapLocator)) reply.node.planDigest = createHash('sha256').update(readFileSync(mapLocator)).digest('hex');
         if (reply.node) sourceMaps.attach(reply.node);
         return reply;
       }

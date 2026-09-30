@@ -1,6 +1,7 @@
 # The bake reports a missing Bun as a bare 'No such file or directory'
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** bun_error (bake/src/lib.rs) names the program and the fix at both spawn sites: 'bun: not found; the bake runs Bun (install it, put ~/.bun/bin on PATH, or name it with BUN)'
 **Systems:** bake, build
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

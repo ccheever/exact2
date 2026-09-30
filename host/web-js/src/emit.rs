@@ -218,6 +218,8 @@ struct Em<'a> {
     /// Whether a dynamic row can reference an element (`url(#…)`): nodes
     /// with an `id` then name it (`data-exact-id`, rt.js `Sr`).
     refs: bool,
+    /// A development build's `data-site`, each element's plan node (LLP 1012.001.000 D6).
+    site_attrs: bool,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -225,7 +227,7 @@ struct Em<'a> {
 /// facts.js). `exactDelivery` answers what the build baked (facts.js).
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
-pub fn emit(plan: &Plan) -> Result<Output, String> {
+pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
@@ -251,6 +253,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         reorders: Default::default(),
         press_keyframes: rows::press_keyframes(plan),
         refs: rows::can_refer(plan),
+        site_attrs,
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -966,6 +969,7 @@ impl Em<'_> {
         if let Some(id) = self.exact_id(i) {
             attrs.push(("data-exact-id".into(), id));
         }
+        attrs.extend(self.site_attrs.then(|| ("data-site".into(), i.to_string())));
         let kinds: Vec<EventKind> = row.handlers.iter().map(|h| plan.handler(h).event).collect();
         if !kinds.is_empty() {
             attrs.push((

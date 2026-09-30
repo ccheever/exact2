@@ -115,6 +115,8 @@ export function install(exact) {
     const n = record(el, 0);
     return {
       ...tags(), id: nid, type: n.type, parent, props: n.props, style,
+      // A development build names the element's plan node (emit.rs `data-site`).
+      ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
       scroll, clip,
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },

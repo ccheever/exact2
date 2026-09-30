@@ -18,10 +18,14 @@ mod style;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump]";
+const USAGE: &str = "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites]";
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--sites` (a development build): each element names its plan node, and
+    // a Contract compiled here leaves its source map beside the plan.
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    let sites = all.iter().any(|a| a == "--sites");
+    let args: Vec<String> = all.into_iter().filter(|a| a != "--sites").collect();
     let (input, out, dump) = match args.as_slice() {
         [cmd, input, o, out] if cmd == "js" && o == "-o" => (input, out, false),
         [cmd, input, o, out, d] if cmd == "js" && o == "-o" && d == "--dump" => (input, out, true),
@@ -35,6 +39,7 @@ fn main() -> ExitCode {
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     let path = std::path::Path::new(input);
+    let mut map = None;
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
@@ -50,6 +55,17 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         }
+    } else if sites {
+        match contract::compile_path_mapped(path) {
+            Ok((p, m)) => {
+                map = Some(m);
+                p
+            }
+            Err(e) => {
+                eprintln!("{input}:{e}");
+                return ExitCode::from(1);
+            }
+        }
     } else {
         match contract::compile_path(path) {
             Ok(p) => p,
@@ -62,7 +78,7 @@ fn main() -> ExitCode {
     if dump {
         emit::dump(&plan);
     }
-    match emit::emit(&plan) {
+    match emit::emit(&plan, sites) {
         Ok(out_files) => {
             let dir = std::path::Path::new(out);
             if let Err(e) = std::fs::create_dir_all(dir) {
@@ -83,9 +99,19 @@ fn main() -> ExitCode {
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
             if !input.ends_with(".plan") {
-                if let Err(e) = std::fs::write(dir.join("app.plan"), plan.encode()) {
+                let bytes = plan.encode();
+                if let Err(e) = std::fs::write(dir.join("app.plan"), &bytes) {
                     eprintln!("app.plan: {e}");
                     return ExitCode::from(1);
+                }
+                // Keyed by this plan's digest; the driver joins it (LLP 1035.002 D6).
+                let map_path = dir.join("app.plan.map.json");
+                let _ = std::fs::remove_file(&map_path);
+                if let Some(map) = &map {
+                    if let Err(e) = std::fs::write(&map_path, map.json(&bytes)) {
+                        eprintln!("app.plan.map.json: {e}");
+                        return ExitCode::from(1);
+                    }
                 }
             }
             // A file input, `saveFile` or `share` (files.js, LLP 1069.002,

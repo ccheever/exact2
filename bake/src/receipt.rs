@@ -219,7 +219,7 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
         .arg(app)
         .arg(manifest.json.to_string())
         .output()
-        .map_err(|e| format!("bake asset gate: {e}"))?;
+        .map_err(|e| format!("bake asset gate: {}", crate::bun_error(e)))?;
     if !output.status.success() {
         return Err(format!(
             "bake asset gate: {}",

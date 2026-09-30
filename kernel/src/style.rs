@@ -1200,6 +1200,14 @@ impl StyleProps {
             Direction::Rtl => taffy::style::Direction::Rtl,
         };
         s.item_is_replaced = node_type.is_replaced();
+        // A text field in a block container keeps its own width, 20
+        // characters or its content's (`field-sizing`), where a `<div>`
+        // stretches: an `<input>` or `<textarea>` at `display: block`. Flex
+        // and grid still stretch it, and insets still size it, as Chrome
+        // does. Taffy's block layout skips stretch for tables and replaced
+        // elements; a replaced element would also stop the insets, so the
+        // field takes the table's exemption (a leaf: nothing else follows).
+        s.item_is_table = node_type == NodeType::TextInput;
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,

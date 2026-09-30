@@ -1,6 +1,7 @@
 # The module-signature test fails when Homebrew's OpenSSL 3 is first on PATH
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** the test calls /usr/bin/openssl; 7 of 7 pass with Homebrew's OpenSSL 3 first on PATH
 **Systems:** tooling (scripts/rust.test.mjs)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
