@@ -1,6 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js";
-import { conforms } from "./shape.js";
-export { conforms };
+import { conforms, eq } from "./shape.js";
+export { conforms, eq };
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -19,14 +19,6 @@ export { conforms };
 // ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
-
-export function eq(a, b) {
-  if (a === b) return a !== 0 || 1 / a === 1 / b;
-  if (typeof a === "number" && typeof b === "number") return a !== a && b !== b;
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (!eq(a[i], b[i])) return false;
-  return true;
-}
 
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
@@ -345,7 +337,10 @@ function send(t, land) {
   Out.push(() => {
     inflight.n++;
     const started = performance.now();
-    const done = o => { inflight.n--; t.elapsed = Math.max(0, Math.round(performance.now() - started)); land(o); };
+    const done = o => {
+      inflight.n--; t.elapsed = Math.max(0, Math.round(performance.now() - started));
+      say(`reply ${t.id}; wall ${t.elapsed} ms`); land(o);
+    };
     if (t.req) data.fetch(t.req).then(done, e => done({ failed: 1, message: String(e?.message ?? e) }));
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });

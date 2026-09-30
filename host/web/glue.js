@@ -975,8 +975,7 @@ function surfaceGranted(op) {
   return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
 }
 function fulfill(requestIncarnation, ticket, kind, status, headersText, body, elapsedMs) {
-  // `boot` starts tickets again at one. A completion from the program that
-  // owned an old ticket must never be delivered into the new incarnation.
+  // Boot reuses ticket IDs; an old incarnation's completion must not land.
   if (!wasm || requestIncarnation !== incarnation) return;
   const h = encoder.encode(headersText);
   const ptr = wasm.exact_in(h.length + body.length);

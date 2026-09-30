@@ -22,3 +22,11 @@ export function conforms(v, t, i = [0], o) {
   return true;
 }
 function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
+/** Plan value equality: signed zero, NaN, and recursively equal lists. */
+export function eq(a, b) {
+  if (a === b) return a !== 0 || 1 / a === 1 / b;
+  if (typeof a === "number" && typeof b === "number") return a !== a && b !== b;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!eq(a[i], b[i])) return false;
+  return true;
+}
