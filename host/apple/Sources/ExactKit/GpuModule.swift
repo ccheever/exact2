@@ -376,7 +376,29 @@ struct DisplayPeriod {
 
 /// The module's callback on the thread that acquired a starved canvas's
 /// drawable (gpu/src/acquire.rs): the render belongs on the main thread.
+/// Drawables that land before the main thread gets to the first are served
+/// by that one pass: one render walk and one flush for them all (LLP 1009 D7).
 private let gpuAcquired: GpuModule.AcquiredFn = {
-    DispatchQueue.main.async { GpuModule.acquired() }
+    guard AcquiredPass.schedule() else { return }
+    DispatchQueue.main.async {
+        AcquiredPass.begin()
+        GpuModule.acquired()
+    }
+}
+
+/// Whether a starved-canvas pass is already queued on the main thread.
+private enum AcquiredPass {
+    nonisolated(unsafe) static var queued = false
+    static let lock = NSLock()
+    /// True when this call queued the pass.
+    static func schedule() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if queued { return false }
+        queued = true
+        return true
+    }
+    static func begin() {
+        lock.lock(); queued = false; lock.unlock()
+    }
 }
 

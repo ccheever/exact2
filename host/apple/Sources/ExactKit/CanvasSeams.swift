@@ -762,6 +762,9 @@ final class CanvasLifecycle: NSObject {
     }
     func refresh(excluding id: UInt32? = nil) {
         precondition(Thread.isMainThread)
+        #if !os(macOS)
+        AppBackground.invalidate()
+        #endif
         let next = !(owner?.visible ?? false)
         let becameVisible = hidden && !next
         if next { CanvasAudio.active = false }

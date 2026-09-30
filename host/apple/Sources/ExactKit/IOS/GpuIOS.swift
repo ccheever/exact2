@@ -41,6 +41,9 @@ final class Canvases {
         var id: UInt32 = 0
         var presentable = true
         var wants = false
+        /// The tick that last judged this canvas on screen and rendered it
+        /// (`Canvases.ticks`): a starved render draws that tick's frame.
+        var shownTick = 0
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
@@ -437,7 +440,7 @@ final class Canvases {
     /// without focus (`PageFacts.hidden`) — and still draws.
     var visible: Bool {
         // A backgrounded app, or an unmounted view (LLP 1031 D3), wants no frames.
-        UIApplication.shared.applicationState != .background && session?.presenter.viewport.window != nil
+        !AppBackground.now && session?.presenter.viewport.window != nil
     }
 
     /// Whether any surface has something to render — or an edit is under a
@@ -511,6 +514,7 @@ final class Canvases {
             // canvases keep what they want (and their dirty inputs) and render
             // the first frame they are seen.
             guard onScreen(metal) else { more = true; continue }
+            e.shownTick = ticks
             // No starvation guard here (the AppKit presenter pauses a canvas
             // whose render took over 200 ms, a covered window's drawable
             // wait): iOS has no occlusion of that kind — a backgrounded app
@@ -521,12 +525,15 @@ final class Canvases {
         }
         flushRecorded()
         lastTickNow = now
+        ticks += 1
         captureIfNeeded()
         return more
     }
 
     /// The frame time of the last tick: a starved canvas's late render draws that frame.
     private var lastTickNow: Double?
+    /// Ticks so far: which tick judged a canvas on screen (`Entry.shownTick`).
+    private var ticks = 1
 
     private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double) {
         let scale = Float(metal.layer.contentsScale)
@@ -551,7 +558,8 @@ final class Canvases {
         frameNow = now
         defer { frameNow = previous }
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
-            guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal, onScreen(metal) else { continue }
+            // On screen at the last tick, which rendered it: no second walk up its ancestors.
+            guard e.shownTick == ticks - 1, let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
             renderNow(m, e, metal, now)
         }
         flushRecorded()

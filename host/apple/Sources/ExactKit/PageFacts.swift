@@ -49,7 +49,7 @@ enum PageFacts {
         let windows = NSApp.windows.filter { $0.isVisible }
         return !windows.isEmpty && windows.allSatisfy { !$0.occlusionState.contains(.visible) }
         #else
-        return UIApplication.shared.applicationState == .background
+        return AppBackground.now
         #endif
     }
     static var onLine: Bool {
@@ -86,9 +86,47 @@ enum PageFacts {
         let workspace = [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification,
                          UIContentSizeCategory.didChangeNotification, agentChanged]
         #endif
-        return workspace.map { NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
+        return workspace.map {
+            NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { _ in
+                #if !os(macOS)
+                AppBackground.invalidate()
+                #endif
+                changed()
+            }
+        }
     }
     static func forget(_ tokens: [NSObjectProtocol]) {
         tokens.forEach(NotificationCenter.default.removeObserver)
     }
 }
+
+#if !os(macOS)
+/// Whether the app is in the background, read from UIKit once per change.
+/// `applicationState` crosses into the scene machinery on every read — about
+/// 5 ms/s of the iPhone's main thread when the canvases asked each frame of
+/// the Extra Heavy feed at rest — so it is read once and read again after a
+/// lifecycle notification: at it, and a main-queue turn later, since UIKit's
+/// "will" notifications precede the state's update.
+enum AppBackground {
+    nonisolated(unsafe) private static var cached: Bool?
+    nonisolated(unsafe) private static var observing = false
+    static var now: Bool {
+        if !observing { observe() }
+        if let cached { return cached }
+        let value = UIApplication.shared.applicationState == .background
+        cached = value
+        return value
+    }
+    static func invalidate() { cached = nil }
+    private static func observe() {
+        observing = true
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                     UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
+                invalidate()
+                DispatchQueue.main.async { invalidate() }
+            }
+        }
+    }
+}
+#endif
