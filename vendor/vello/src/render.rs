@@ -504,7 +504,14 @@ impl Render {
             buffer_sizes.seg_counts.size_in_bytes().into(),
             "vello.seg_counts_buf",
         );
-        let path_count = [config_buf, bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf];
+        let path_count = [
+            config_buf,
+            bump_buf,
+            lines_buf,
+            path_buf,
+            tile_buf,
+            seg_counts_buf,
+        ];
         if self.direct {
             let n = cpu_config.gpu.lines_size.div_ceil(256).max(1);
             recording.dispatch(shaders.path_count, (n, 1, 1), path_count);
@@ -536,7 +543,14 @@ impl Render {
             wg_counts.path_tiling_setup,
             [bump_buf, indirect_count_buf.into(), ptcl_buf],
         );
-        let path_tiling = [bump_buf, seg_counts_buf, lines_buf, path_buf, tile_buf, segments_buf];
+        let path_tiling = [
+            bump_buf,
+            seg_counts_buf,
+            lines_buf,
+            path_buf,
+            tile_buf,
+            segments_buf,
+        ];
         if self.direct {
             let n = cpu_config.gpu.seg_counts_size.div_ceil(256).max(1);
             recording.dispatch(shaders.path_tiling, (n, 1, 1), path_tiling);

@@ -443,7 +443,6 @@ impl Default for RendererOptions {
     }
 }
 
-
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.

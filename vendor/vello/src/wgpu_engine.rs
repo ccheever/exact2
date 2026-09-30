@@ -727,7 +727,11 @@ impl WgpuEngine {
                     name: buf.label,
                 };
                 let render = self.pool.render;
-                self.pool.bufs.entry(props).or_default().push((gpu_buf, render));
+                self.pool
+                    .bufs
+                    .entry(props)
+                    .or_default()
+                    .push((gpu_buf, render));
             }
         }
         for id in free_images {
@@ -769,7 +773,13 @@ impl WgpuEngine {
     /// EXACT: bytes of GPU memory the engine holds between renders: pooled
     /// buffers and kept textures (RGBA8).
     pub fn bytes(&self) -> u64 {
-        let pooled: u64 = self.pool.bufs.values().flatten().map(|(b, _)| b.size()).sum();
+        let pooled: u64 = self
+            .pool
+            .bufs
+            .values()
+            .flatten()
+            .map(|(b, _)| b.size())
+            .sum();
         let images: u64 = self
             .bind_map
             .image_map

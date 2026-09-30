@@ -58,11 +58,25 @@ fn room(need: u32) -> u32 {
 
 impl BumpSizes {
     fn get(&self) -> [u32; 6] {
-        [self.lines, self.binning, self.tiles, self.seg_counts, self.blend, self.ptcl]
+        [
+            self.lines,
+            self.binning,
+            self.tiles,
+            self.seg_counts,
+            self.blend,
+            self.ptcl,
+        ]
     }
 
     fn set(&mut self, v: [u32; 6]) {
-        [self.lines, self.binning, self.tiles, self.seg_counts, self.blend, self.ptcl] = v;
+        [
+            self.lines,
+            self.binning,
+            self.tiles,
+            self.seg_counts,
+            self.blend,
+            self.ptcl,
+        ] = v;
     }
 
     /// Use these sizes for a render's buffers and its config.

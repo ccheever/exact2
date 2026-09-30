@@ -216,7 +216,11 @@ pub(crate) fn full_shaders(
 
     let aa_support = &options.antialiasing_support;
     let fine_area = if aa_support.area {
-        Some(add_shader!(fine_area, area_resources, CpuShaderType::Missing))
+        Some(add_shader!(
+            fine_area,
+            area_resources,
+            CpuShaderType::Missing
+        ))
     } else {
         None
     };
