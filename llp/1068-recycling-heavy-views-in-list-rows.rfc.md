@@ -299,6 +299,49 @@ creates them as they scroll in.
 about 50 MB more peak and end footprint: one parked and a few more
 long-lived maps, each holding what it drew.
 
+## 0.4 Stage 3: the GPU canvas's layer pool, as built (2026-09-30, `perf/canvas-layer-pool`)
+
+§4.5's stage 2 profile was overtaken by a memory finding: on an iPad Pro a
+19-kind Extra Heavy fling made 37 `CAMetalLayer`s with at most three alive at
+once, and the process's purgeable non-volatile ledger held 100–121 MB at the
+peak — a dead layer's drawables (three IOSurfaces of the canvas's pixel size)
+are released late by Core Animation, so the memory grew with the rows passed,
+not with the rows alive. Letting a hidden canvas's drawables go (a 1×1
+configure and three clear frames) changed nothing: released is not freed.
+Reuse is.
+
+**Built (host/apple/Sources/ExactKit/IOS/GpuIOS.swift; the layer, never the
+instance):** `MetalView` is a plain view whose `CAMetalLayer` is a sublayer
+taken from `MetalLayerPool` — the process's spare layers, three kept, let go
+after ten seconds without a take or a give — and given back when the view
+goes. A taken layer keeps the drawables it was drawn into. It also keeps the
+last picture presented to it, so a reused layer is hidden until the module
+says the new canvas's first frame is with the compositor: `gpu_seen(id)`,
+set from a scheduled handler on the frame's command buffer (wgpu-hal patch 4,
+`vendor/wgpu-hal/EXACT-PATCHES.md`) and announced by `gpu_on_presented`, on
+which the presenter reveals every waiting layer whose canvas is seen — the
+presentation signal §4.5 asked for. A frame that is presented the ordinary
+way (a failed canvas in it) is seen when `present` returns. A new layer is
+never hidden. Entries are looked up again at the reveal, so a canvas that went
+meanwhile is not touched; no incarnation token is needed because the layer,
+not the view, is what is reused, and the view is the node's.
+`CanvasLayerPoolIOSTests` holds the take, the give, the hide, the reveal on the
+module's word and the spare cap.
+
+**Measured** (iPad Pro M1, 19-kind fling with maps, three interleaved rounds,
+`~/bench/xheavy/rest/results/mem/pool2/ipad`): peak footprint 322 → 288 MB
+(medians; 323/326/315 against 288/289/277), the purgeable ledger at the peak
+100–121 → 22–58 MB, layers made 38 → 12; the fling's CPU, main thread and
+frame rate unchanged (642–668 → 631–670 ms/s, 317–323 → 311–320, 110–111 fps).
+The simulator's shader-only fling makes 49 layers instead of 642.
+
+**Not built here:** a target lent only while the canvas is on screen
+(`Module::attach`/`detach`, `perf/canvas-pool`), which would free the
+drawables of rows mounted past the viewport (the shader-only feed keeps 12–14
+layers alive for four on screen); and the module keeping the configured
+`wgpu::Surface` with the layer (§4.5's "later"): a reused layer gets a fresh
+surface and a `configure`, as device-loss recovery does.
+
 ## 1. What the pool is today
 
 The collection's runner retires a row by destroying its nodes and creates
