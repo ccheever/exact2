@@ -42,9 +42,12 @@ fn request(catalog: u64, width: f32) -> (Kernel, RegionTextRequest) {
         StyleId::Height,
         StyleId::OverflowX,
         StyleId::OverflowY,
+        StyleId::PositionType,
     ] {
         style.mask.set(id);
     }
+    // A region's owner is positioned: it contains its placeholder (LLP 1074 T1).
+    style.position_type = PositionType::Relative;
     style.width = Dimension::Percent(100.);
     style.height = Dimension::Points(180.);
     style.overflow_x = Overflow::Hidden;

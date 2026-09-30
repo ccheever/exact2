@@ -28,7 +28,8 @@ The design round for T1 had one question to settle: the reviewers showed that "d
 
 **D1. The kernel is CSS; the compiler carries the one deviation.**
 - In the kernel and in Taffy, `position` is `static | relative | absolute`, `static` by default, and an absolute box's containing block is its nearest positioned ancestor, or the root.
-- The Contract compiler lowers `position: relative` onto a box that clips, scrolls, transforms or animates and names no position, and refuses an authored `position: static` there (`contract/lower/src/tags.rs`, `CONTAINS_ABSOLUTE`).
+- The Contract compiler lowers `position: relative` onto a box that clips, scrolls, transforms or animates and names no position, and refuses an authored `position: static` there, or a bound `position` that could take that value (`contract/lower/src/tags.rs`, `CONTAINS_ABSOLUTE`). A literal `visible` or `none` makes no containing block.
+- The kernel lowers a static root to `relative`, as the web hosts give the root element `position: relative`: it is the containing block of last resort on every host, and its insets apply.
 - So no absolute box ever escapes a box that a native host clips or scrolls, and a box a browser makes a containing block while it animates is one at rest too. The rule is decided once, at compile time, from the attributes a box has (literal or bound), so every host and the ahead-of-time JS build see the same literal row.
 - A transform or a filter makes a containing block in CSS as well. `overflow` and motion at rest do not; that is the declared deviation (LLP 1001 §5).
 
@@ -241,3 +242,7 @@ Found by Astra's review; no app has asked.
 | Smokes | Linux, web, macOS and iOS (an iPhone 18 Pro simulator) pass |
 
 Not verified: the UIKit XCTests; apps outside the repo.
+
+## 9. The code review (r4, 2026-09-30)
+
+After the landing, Astra (`gpt-6-astra`, xhigh) and Grok (`grok-4.7`, xhigh) reviewed `d8a4a0ebf` blind, from one brief, as source audits (`llp/reviews/code-2026-09-30-taffy-css.{astra,grok}.md`, each with a disposition at its end). Both found the same two defects: a hoisted absolute box under a static ancestor that becomes `display: none` was laid out again from the record its parent kept while visible (the kernel's differential now proves the fix against a fresh tree, and fails at `d8a4a0ebf`), and Apple read a static flex or grid item's `z-index` before the view had a parent. Fixed with them: a region's owner must be positioned; a bound `position` on a box that contains is refused unless every value it can take is positioned, and a literal `visible` or `none` makes no containing block; a static root is lowered `relative`; one auto margin on an over-constrained root is zero; a flex or grid root shorter than its ratio's height is laid out again at that floor (the fixtures now assert root frames); `contextTarget` contains; the stale LLP 1010 sentence and QUEUE gap line. The rest is filed under `issues/20260930-*` (nine tickets from the review, plus what §4 and §8 already owed and a pre-existing hidden-subtree bug the extended differential found).

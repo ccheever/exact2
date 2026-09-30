@@ -67,7 +67,11 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
 /// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
 /// a navigation screen or modal (which the host moves), or a context
 /// preview (which the host transforms).
-pub fn contains_absolute(name: &str) -> bool {
+pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
+    // A literal that clips nothing and transforms nothing makes no containing block.
+    if matches!(value, contract_syntax::Expr::Str(v, _) if v == "visible" || v == "none") {
+        return false;
+    }
     match attr(name) {
         Some(AttrTarget::Styles(rows)) => rows.iter().any(|row| CONTAINS_ABSOLUTE.contains(row)),
         _ => matches!(
@@ -94,7 +98,7 @@ pub(crate) fn positioned(
         |a: &contract_syntax::Attr, v: &str| matches!(&a.value, Expr::Str(s, _) if s == v);
     let contains = !in_svg
         && !tag.node_type.is_svg_element()
-        && (attrs.iter().any(|a| contains_absolute(&a.name))
+        && (attrs.iter().any(|a| contains_absolute(&a.name, &a.value))
             || tag.node_type.scrolls_by_default()
             || tag.node_type == NodeType::Canvas
             || attrs
@@ -109,9 +113,10 @@ pub(crate) fn positioned(
             "`position: static` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so it is `relative`; remove `position`",
             a.span,
         ),
-        Some(a) if !matches!(&a.value, Expr::Str(..)) => crate::err(
+        // A bound position is fine when every value it can take is positioned.
+        Some(a) if !always_positioned(&a.value) => crate::err(
             "lower-attr-value",
-            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so its position must be a literal",
+            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative` or `absolute`",
             a.span,
         ),
         Some(_) => Ok(None),
@@ -125,6 +130,18 @@ pub(crate) fn positioned(
             });
             Ok(Some(attrs))
         }
+    }
+}
+
+/// Whether every value a `position` expression can take is `relative` or
+/// `absolute`: a literal, or a choice between such expressions. Anything a
+/// value could come from at run time (a state, a field, a call) is not.
+fn always_positioned(value: &contract_syntax::Expr) -> bool {
+    use contract_syntax::Expr;
+    match value {
+        Expr::Str(v, _) => v == "relative" || v == "absolute",
+        Expr::Ternary(_, a, b, _) => always_positioned(a) && always_positioned(b),
+        _ => false,
     }
 }
 

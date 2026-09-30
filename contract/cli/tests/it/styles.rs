@@ -583,6 +583,7 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
       canvas testId="draws"
       box testId="pinned" position="absolute" overflow="hidden"
       box testId="named" position="relative"
+      box testId="open" overflow="visible"
 "#,
     )
     .unwrap();
@@ -609,6 +610,7 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
         ("draws", Relative),
         ("pinned", Absolute),
         ("named", Relative),
+        ("open", Static),
     ] {
         let key = k.find_by_test_id(id)[0];
         assert_eq!(
@@ -629,9 +631,16 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     )
     .unwrap_err();
     assert_eq!(error.id, "lower-attr-value");
-    assert!(error.message.contains("must be a literal"), "{error:?}");
+    assert!(
+        error.message.contains("must be `relative` or `absolute`"),
+        "{error:?}"
+    );
     contract::compile(
         "component App\n  state on = true\n  view\n    box position=(on ? \"relative\" : \"static\")\n",
+    )
+    .unwrap();
+    contract::compile(
+        "component App\n  state on = true\n  view\n    box position=(on ? \"relative\" : \"absolute\") overflow=\"hidden\"\n",
     )
     .unwrap();
 }
