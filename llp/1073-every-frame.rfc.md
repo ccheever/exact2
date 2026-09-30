@@ -1,7 +1,7 @@
 # LLP 1073: `every(frame, action)` — a task that fires once per presented frame
 
 **Type:** RFC
-**Status:** Accepted (Charlie, 2026-09-29: "Yeah add the every frame task"); implementing
+**Status:** Accepted (Charlie, 2026-09-29: "Yeah add the every frame task"); implemented (runner, compiler, JS target, wasm web, Apple, Linux)
 **Systems:** Contract syntax and lowering (`task … every(frame, a)`), Plan (`timers.frame`), Runner (`Runner::frame`, virtual frames on a seek), JS web target (`host/web-js/rt.js`, a `requestAnimationFrame` loop), wasm web, Apple and Linux hosts (their display links call `frame`), Agent API (the seekable clock's virtual display)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-29
@@ -142,6 +142,22 @@ while `wants_frames()` holds, next to `timer_due_ms`.
 
 ## Measured
 
-To be filled in as it lands: the grid bench's ticker scenario on
-`every(16, step)` against `every(frame, step)`, headful desktop and mobile,
-with the SSR frameworks as same-session controls.
+The grid bench's ticker scenario, 300 ticks over 1,000 rows, headful. Five
+runs, same session, load average ~17, so treat these as rough. Before is
+`every(16, step)` at exact2 79fa16ea; after is `every(frame, step)` at
+2c290515.
+
+| | frames painted | ticks | fps | dropped frames | longest frame | script ms |
+|---|---|---|---|---|---|---|
+| desktop, before | 223 | 300 | 46 | 70 | 150 | 2,289 |
+| desktop, after | 303 | 300 | 60 | 0 | 19 | 1,463 |
+| desktop, svelte-ssr / solid-ssr / react-ssr | 304 | 301 | 60 / 52 / 51 | 1 / 48 / 51 | 33 / 167 / 84 | 694 / 944 / 836 |
+| mobile (4× CPU), before | 18 | 424 | 3 | 313 | 2,817 | 53,744 |
+| mobile, after | 304 | 300 | 11 | 1,431 | 549 | 6,081 |
+| mobile, svelte-ssr / solid-ssr / react-ssr | 304 | 301 | 8 / 11 / 9 | 1,861 / 1,314 / 1,705 | 767 / 251 / 633 | 3,713 / 3,484 / 2,654 |
+
+- On mobile, the frame rate is the cost of the tick itself. The data seam's
+  per-answer conversion is another lane's work.
+- An idle frame task costs nothing on the JS target. A frame whose tasks
+  wrote nothing, sent nothing and read no clock parks the frame loop until a
+  commit writes. Skipping those frames can't be observed.
