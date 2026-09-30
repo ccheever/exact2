@@ -811,9 +811,13 @@ fn attributes(
     for (name, value) in props {
         match name.as_str() {
             "scrollFollowEnd" | "scrollTop" | "scrollLeft" => {}
+            // An authored `autofocus=false` is kept for the agent's tree
+            // (the runner reports it); the attribute would mean true.
             "autofocus" => {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
+                } else {
+                    attrs.push(("data-autofocus".into(), "false".into()));
                 }
             }
             "src" if element == "img" && value.starts_with("symbol:") => {}

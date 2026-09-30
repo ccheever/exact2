@@ -1591,6 +1591,39 @@ The JS agent's tree also names controls as the runner does now: a checkbox,
 range, date, time or file input, or a select, is a `Control` (a checkbox
 reports no `value`), and an option is `Text`.
 
+**The JS agent, and `smoke.mjs web` on the JS target** (2026-09-29): the
+Caltrain drive and every bare-plan fixture pass on JS builds (a fixture is
+`agent.mjs web --plan` over the app's JS build: a JS build of that plan); the
+router sweep keeps its wasm build beside its JS-target sweep (above).
+What the JS agent (agent.js) now reports as the wasm agent does:
+`layout <node>` — the host's half as glue.js's `nodeDetail` gives it (the
+viewport, local and capture spaces, the scroll and clip chains, visibility,
+the element, the browser's inherited values) and the rows with their sources;
+the JS target keeps no kernel, so an own row is a declaration of the element's
+class or inline style (`dynamic` when a binding wrote it), an inherited row
+comes from the nearest view declaring it, else `initial`; a stale id is refused
+by name. An iframe's `url`, `loading` (its latest src load) and same-origin
+guest outline in `tree`, `hit` in `layout`, and taps and typing into its guest
+(navigation.js's `guestTap`/`guestType`). `state`'s `navigation` and `media`
+sections; every reply tagged with an epoch (a commit is one) and incarnation 1.
+The journal's first line is `boot: N nodes, epoch E` ("adopted the document"
+follows it), and a clock jump whose timers send nothing is one advance with the
+runner's `advance → N timers fired` line (agent mode only: this journal is not
+a ring). The tree's accessibility props as element.rs writes them
+(`accessibleName` on a pressable, `accessibilityLive`, `accessibilityRole`,
+the rest of the aria group, `placeholder`, `viewportFit`, `autofocus`; an
+authored `autofocus=false` is kept as `data-autofocus`). Every operation waits
+for the after-paint pieces on their way (rt.js `pieces()`, as glue.js waits for
+`pieces.pending()`): a press before the motion piece arrived played its spring
+at once, and a swipe had no recognizer yet. Found and fixed in the runtime:
+the document's `autofocus` never ran (now once at boot, unless the reader
+already focused something); a press on a `retainFocus` node took the editor's
+focus (the glue's pointerdown rule, now rt.js's); and an iframe's `message`
+was heard from any document its guest navigated to (now only from the origin
+of the committed src, as glue.js's `guestMessageAuthorized`). Cost: rt.js
++849 B minified (+308 B brotli) before tree shaking; agent.js (agent only)
+7.7 → 12.3 KB.
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**

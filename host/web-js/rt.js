@@ -186,6 +186,7 @@ export function commit(f, what = "commit") {
   try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
   settled();
   if (!ok) return false;
+  clock.epoch++;
   Store.persist();
   for (const go of out) go();
   for (const c of cmds) command(...c);
@@ -236,7 +237,7 @@ function command(name, args) {
 }
 
 // ---------------------------------------------------------------- the clock and timers
-export const clock = { now: 0, timers: [], agent: false };
+export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // `now()` is elapsed time: the driver's clock under the agent and in a
 // render, else the page's since it started; a timer commits at its due time.
 // A reader of `now()` is re-evaluated at each commit made at a later time,
@@ -268,7 +269,11 @@ export function frames(action) {
 }
 /** Move the clock to `to`, firing each due timer at its own time, in order;
  * a seek fires frame tasks' virtual frames too, the wall clock's (`wall`) none. */
-export function advance(to, wall) {
+/** `stop()`, asked after each timer, ends the advance there (the agent's:
+ * one that sent a request): true when it stopped short of `to`. Under the
+ * agent the journal gets the runner's line for an advance that fired. */
+export function advance(to, wall, stop) {
+  let fired = 0, stopped = false;
   for (;;) {
     let next = null;
     for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
@@ -276,8 +281,14 @@ export function advance(to, wall) {
     clock.now = next.due;
     if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms;
     fire(next);
+    fired++;
+    if (stop?.()) { stopped = true; break; }
   }
-  clock.now = Math.max(clock.now, to);
+  if (!stopped) clock.now = Math.max(clock.now, to);
+  // Under the agent only: this journal is not a ring, and a page's own
+  // clock would add a line a tick.
+  if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
+  return stopped;
 }
 function fire(t) { Timing = true; try { t.action(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
@@ -771,6 +782,12 @@ export function Sm(e, prop, unit, f) {
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
+function guestOrigin(e) {
+  if (e.hasAttribute("sandbox") && !e.getAttribute("sandbox").split(/\s+/).includes("allow-same-origin")) return "null";
+  const src = e.getAttribute("src");
+  let o; try { o = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch { return undefined; }
+  return o === "null" ? undefined : o;
+}
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
@@ -786,7 +803,10 @@ export function on(e, kind, f) {
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => f(ev.key));
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });
-    case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
+    // Only from the origin of the src the app committed (glue.js
+    // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
+    // not heard; an opaque sandbox's origin is "null".
+    case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
     // The port's offsets, as the web host sends them (`glue.js` `attach`).
@@ -809,6 +829,9 @@ export function on(e, kind, f) {
 // Until the piece is here, rows jump and leave at once, as the wasm host's
 // do when it is unavailable.
 let Pres = null, Presence = null, Present = null, Leave = null;
+/** The after-paint pieces on their way (the agent waits for them before an
+ * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native].filter(Boolean)).then(() => {}, () => {});
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
@@ -1203,6 +1226,13 @@ const post = f => globalThis.scheduler?.postTask ? scheduler.postTask(f, { prior
 /** Build the view into `#exact-root` and start the clock. */
 export function mount(f) {
   const root = document.getElementById("exact-root");
+  // A press on a `retainFocus` node keeps the focus where it is (an
+  // editor's), as the web host's glue does: the browser's focus move on
+  // pointerdown is prevented, unless the contact is on an editor.
+  root?.addEventListener("pointerdown", ev => {
+    const t = ev.target;
+    if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
+  });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
   clock.agent = !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
   Store.load();
@@ -1228,8 +1258,11 @@ export function mount(f) {
     commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
   if (!built) throw new Error("boot refused: " + journal.at(-1));
+  say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
-  say(`boot: ${root.getElementsByTagName("*").length} nodes`); // the runner's journal line (LLP 1012 logs)
+  // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
+  // `autofocus` view, unless the reader already put the focus somewhere.
+  if (!document.activeElement || document.activeElement === document.body) root.querySelector("[autofocus]")?.focus({ preventScroll: true });
   // Rows waiting are in flight, for the agent's `clock settle`.
   if (Lazy.length) { inflight.n++; for (const t of LAZY_EVENTS) root.addEventListener(t, onLazy, LAZY_OPTS); LazyTask = post(slice); }
   root.dataset.bootMs = String(Math.round(performance.now()));

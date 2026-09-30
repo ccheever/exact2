@@ -3,10 +3,11 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq } from './rt.js';
-import { environment, navigation } from './navigation.js';
+import { R, eq, pieces } from './rt.js';
+import { environment, navigation, guestOutline, guestTap, guestType } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
@@ -32,9 +33,21 @@ export function install(exact) {
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
     if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
+    // The runner's props that element.rs writes as attributes, by its names.
+    for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
+    if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
+    // As glue.js's `tree` adds them: a pressable's accessible name, and an
+    // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
+    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    if (el instanceof HTMLIFrameElement) {
+      n.url = el.getAttribute('src') ?? '';
+      n.loading = loaded.get(el) !== el.getAttribute('src');
+      const guest = guestOutline(el);
+      if (guest !== null) n.guest = guest;
+    }
     return n;
   };
   const all = () => {
@@ -43,7 +56,70 @@ export function install(exact) {
     kids(document.getElementById('exact-root')).forEach(el => walk(el, 0));
     return out;
   };
-  const tags = () => ({ clock: exact.clock.now, epoch: 1 });
+  // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
+  // has one incarnation (a plan swap is a new page).
+  const tags = () => ({ clock: exact.clock.now, epoch: exact.clock.epoch, incarnation: 1 });
+  // An iframe's latest src load (glue.js `iframeLoading`): loading until the
+  // load event of the src it has now.
+  const loaded = new WeakMap();
+  // (A load event does not reach the window: the document hears it.)
+  document.addEventListener('load', e => { if (e.target instanceof HTMLIFrameElement) loaded.set(e.target, e.target.getAttribute('src')); }, true);
+  for (const f of document.querySelectorAll('#exact-root iframe')) { try { if (f.contentDocument?.readyState === 'complete' && f.contentWindow.location.href !== 'about:blank') loaded.set(f, f.getAttribute('src')); } catch {} }
+  // `layout <node>` (LLP 1035.002 D1), as glue.js `nodeDetail` gives the
+  // host's half. The JS target keeps no kernel, so the rows are the page's:
+  // an own row is a declaration of the element's class or inline style
+  // (`dynamic` when a binding wrote it), an inherited one comes from the
+  // nearest view that declares it, else `initial`; values are the browser's
+  // computed ones, under the runner's row names.
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align' };
+  const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
+  const declared = el => {
+    const out = new Set(el.style);
+    for (const c of el.classList) for (const sheet of document.styleSheets) {
+      let rules; try { rules = sheet.cssRules; } catch { continue; }
+      for (const r of rules) if (r.selectorText === '.' + c) for (const p of r.style) out.add(p);
+    }
+    return out;
+  };
+  const r2 = x => Math.round(x * 100) / 100;
+  const nodeDetail = nid => {
+    const el = views.get(nid);
+    if (!el || !el.isConnected) return { error: `stale node #${nid} (incarnation 1)` };
+    const own = declared(el), cs = getComputedStyle(el), style = {};
+    for (const p of own) if (!p.startsWith('--')) style[rowOf(p)] = { value: cs.getPropertyValue(p), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' };
+    for (const [row, prop] of Object.entries(INHERITED)) {
+      if (own.has(prop)) continue;
+      let from = null;
+      for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) if (a.style.getPropertyValue(prop) || declared(a).has(prop)) { from = id(a); break; }
+      style[row] = { value: cs.getPropertyValue(prop), ...(from != null ? { source: 'inherited', from } : { source: 'initial' }) };
+    }
+    const r = el.getBoundingClientRect(), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
+    const scroll = [], clip = [];
+    let clipped = r.width === 0 || r.height === 0, parent = null;
+    for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) {
+      const aid = id(a);
+      if (aid == null) continue;
+      parent ??= aid;
+      const ac = getComputedStyle(a);
+      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+      for (const kind of (ac.overflowX !== 'visible' || ac.overflowY !== 'visible' ? ['overflow'] : []).concat(ac.clipPath !== 'none' ? ['clip-path'] : [])) {
+        clip.unshift({ id: aid, kind });
+        const c = a.getBoundingClientRect();
+        if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
+      }
+    }
+    if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+    const n = record(el, 0);
+    return {
+      ...tags(), id: nid, type: n.type, parent, props: n.props, style,
+      space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
+      scroll, clip,
+      visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
+      native: { element: el.localName },
+      browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
+      observed: { clock: exact.clock.now, wall: Date.now() },
+    };
+  };
   // presence-glue.js `observation`, by this runtime's view ids (its elements carry no `data-view`).
   const presence = () => [...document.querySelectorAll('#exact-root [style*="--exact-layout-transition"], #exact-root [style*="--exact-exit-animation"], #exact-root [data-exiting]')].map(el => {
     const r = el.getBoundingClientRect();
@@ -97,6 +173,7 @@ export function install(exact) {
     if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
   };
   exact.agentSettled = async (req) => {
+    await pieces();
     seek();
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
     if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
@@ -116,8 +193,15 @@ export function install(exact) {
         // the wasm host's layout reports them.
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
         const r2 = x => Math.round(x * 100) / 100;
-        const nodes = all().map(n => { const el = views.get(n.id), b = el.getBoundingClientRect(); return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) }; });
-        return { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
+        const nodes = all().map(n => {
+          const el = views.get(n.id), b = el.getBoundingClientRect();
+          // An iframe says whether its centre hits it (glue.js).
+          const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
+          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
+        });
+        const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
+        if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; reply.node = node; }
+        return reply;
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
       case 'tap':
@@ -129,8 +213,13 @@ export function install(exact) {
         }
         // The browser's own traversal (LLP 1038 D11); popstate reaches the app.
         if (req.history) { history.go(req.history); await new Promise(r => setTimeout(r, 300)); return { history: req.history, delivery: 'platform' }; }
-        return {};
-      case 'type': return {};
+        {
+          const el = views.get(req.id);
+          if (el && (el.closest('[inert]') || ['hidden', 'collapse'].includes(getComputedStyle(el).visibility))) return { handled: true, error: `view ${req.id} is hidden or inert` };
+          // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
+          return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
+        }
+      case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
       case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
       case 'clock': {
         if (req.settle) {
@@ -162,13 +251,17 @@ export function install(exact) {
         // sends, and its reply lands before the next fires, as the wasm
         // host's does (Runner::advance_until_request): the runner keeps one
         // request per target, so the next tick's send would drop it.
+        // A jump that fires timers which send nothing is one advance (one
+        // journal line), as the runner's is.
         for (const end = performance.now() + 20000; ;) {
-          const next = Math.min(...exact.clock.timers.map(t => t.due));
-          if (!(next <= req.to)) break;
-          exact.advance(next);
-          while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 15));
+          const before = exact.inflight.n;
+          if (!exact.advance(req.to, false, () => exact.inflight.n > before)) break;
+          // A reply is usually a task or two away: poll at the browser's
+          // shortest timer, not a frame's worth (a 300 ms timer's minute
+          // is 200 of these).
+          while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
-        exact.advance(req.to); retime(); seek();
+        retime(); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         return { clock: exact.clock.now };
       }
@@ -184,7 +277,8 @@ export function install(exact) {
         const focus = { logical: activeId, editor: active && (active.localName === 'input' || active.localName === 'textarea' || active.exactMarkup) ? activeId : null, responder: active?.localName ?? null, pending: null };
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
-        return { slots, derives, resources, pending, focus, language, keyboard, window: { title: document.title }, navigation: navigation.observation(document.getElementById('exact-root')), ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
+        return { slots, derives, resources, pending, focus, language, keyboard, navigation: navigation.observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }

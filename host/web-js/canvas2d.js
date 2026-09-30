@@ -161,7 +161,7 @@ export function engine(rt) {
   x.canvas2dState = () => [...records].map(([view, r]) => ({ view, surface: r.c.name, context: '2d', artifact: 'data', lifetime: r.lifetime, generation: r.generation,
     pending: !r.draws || !!r.causes, animating: !!r.frames, draws: r.draws ?? 0,
     width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch, error: r.error ?? null, refused: null }));
-  if (clock.agent && x.advance) { const advance = x.advance; x.advance = to => { advance(to); frame(); }; }
+  if (clock.agent && x.advance) { const advance = x.advance; x.advance = (to, wall, stop) => { const r = advance(to, wall, stop); frame(); return r; }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
   host();
   // The module arrives after first pixel (rust-data.js); until then causes wait.

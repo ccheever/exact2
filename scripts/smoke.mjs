@@ -37,13 +37,10 @@ if (app.name === 'exact-live' && ['web', 'macos', 'linux'].includes(argv[0])) {
   streamFixture = await startStreamFixture();
 }
 let selectedWebDist = null;
-// Bare-plan host fixtures exercise every capability the host has, so on the
-// web they run on a build that links all of them (LLP 1047 D7); the app and
-// its tests run on its own build, which links only what its plan uses.
-let fixtureWebDist = null;
+let fixtureWebDist = null; // the router sweep's wasm build, linking every capability (LLP 1047 D7)
 const device = argv.includes('--device');
 const phone = argv.includes('--phone') ? argv[argv.indexOf('--phone') + 1] : undefined;
-const open = (options) => openAgent({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? (options.plan ? fixtureWebDist : null) ?? selectedWebDist });
+const open = (options) => openAgent({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist }); // a plan: its JS build (`--plan`)
 const runTests = (options) => runAgentTests({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
 
 // 0. The transcript form (LLP 1012 §7): the one text rendering of the
@@ -478,7 +475,7 @@ if (host === 'web') {
   process.on('exit', () => rmSync(webBuild, { recursive: true, force: true }));
   const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
   if (built.status !== 0) process.exit(built.status ?? 1);
-  if (!argv.includes('--app-only')) { // the bare-plan fixtures swap plans into a page: the wasm runner
+  if (!argv.includes('--app-only')) { // the router sweep swaps plans into a page: the wasm runner's
     fixtureWebDist = resolve(webBuild, 'fixtures');
     const fixtures = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: fixtureWebDist, EXACT_WEB_LINK: 'all' } });
     if (fixtures.status !== 0) process.exit(fixtures.status ?? 1);
@@ -840,7 +837,10 @@ if (!argv.includes('--app-only')) {
       if (host === 'web') {
         const attrs = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
         check(attrs.lang === lang && attrs.dir === dir, 'the document element carries lang and dir');
-        await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
+        if (jsTargetBuild(selectedWebDist)) { // a JS page (the plan compiled ahead) reloads, its launch facts in its URL
+          await f.carrier.evaluate('location.reload()').catch(() => {});
+          for (let i = 0; i < 200 && !(await f.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
+          await f.carrier.evaluate('exact.ready'); } else await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
         check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
         const attrsAfter = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
         check(attrsAfter.lang === lang && attrsAfter.dir === dir, 'web reload retains lang and dir');
