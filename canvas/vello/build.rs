@@ -56,6 +56,11 @@ fn main() {
     if !target.contains("-apple-") {
         return;
     }
+    // The dylib without its local symbols, by the linker: the release
+    // profile's strip runs Xcode 27's strip, which leaves an iOS dylib that
+    // dyld refuses ("mis-aligned LINKEDIT string pool"), so host/apple/
+    // build.mjs builds this crate with strip off.
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-x");
     // Without Xcode's Metal toolchain the module is a stub whose `ecg_abi`
     // answers 0, so the host draws with Core Graphics; host/apple/build.mjs
     // checks for the toolchain and says how to install it before it embeds

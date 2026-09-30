@@ -1103,6 +1103,10 @@ function main(args) {
   const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
   const canvasGpuBuilt = metal ? resolve(webBuildDir, canvasGpuLoadName) : null;
   if (metal) {
+    // Unstripped by strip: Xcode 27's strip leaves the iOS module unloadable
+    // ("mis-aligned LINKEDIT string pool", as it does the SVG module; found by
+    // dlopen in the simulator, 2026-09-30). The crate's build.rs has the linker
+    // omit its local symbols instead (-Wl,-x).
     runApple('cargo', ['build', '--release', '-p', 'exact-canvas-vello', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
     copyFileSync(resolve(svgTarget, target, 'release', 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
   } else {
