@@ -856,6 +856,7 @@ public final class ExactSession {
         frames.motion = batch.motion
         frames.spatial = batch.spatial
         frames.canvas2d = batch.canvas
+        frames.tasks = batch.frames
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         timerDue = batch.timerDueMs
@@ -995,8 +996,10 @@ public final class ExactSession {
     // @ref LLP 1043.000 §3 D8, §6 ruling 5 — one advance per display frame,
     // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
     func scheduleClock(due: Double?) {
-        let wake = SessionClockTimer.wake(due: due, now: now(), agent: ExactEnv.agentMode || clock != nil)
-        frames.timerSoon = wake == .frame
+        let agent = ExactEnv.agentMode || clock != nil
+        let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
+        // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
+        frames.timerSoon = wake == .frame || (frames.tasks && !agent)
         // A timer armed for this same deadline stays: most batches leave the
         // runner's next deadline where it was, and a new timer each batch
         // cost more than the batch's other bookkeeping.
@@ -1226,6 +1229,8 @@ final class Frames: NSObject {
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
     var timerSoon = false
+    /// A frame task (LLP 1073 D5): each tick is the runtime's frame at the tick's target time.
+    var tasks = false
     private var canvasRequested = false
 
     /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
@@ -1275,7 +1280,8 @@ final class Frames: NSObject {
         if !s.fillInFlight {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
-                if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
+                if tasks { s.apply(s.runtime.frame(now: frameNow)) }
+                else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }
             if motion || canvas2d {
                 if ExactSession.asyncFills {

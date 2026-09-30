@@ -1399,3 +1399,49 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     let batch = host.set_place("de", "UTC", None);
     assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
 }
+
+// @ref LLP 1073 D2, D4, D5 — a presented frame fires the frame task once, at
+// the frame's time; once frames are presented the timeout fires none; a stall
+// is not caught up; the agent's clock takes them back as virtual frames.
+#[test]
+fn a_frame_task_fires_once_per_presented_frame() {
+    let plan = contract::compile(
+        r#"component App
+  state frames = 0
+  state at = 0
+  action step writes frames, at
+    frames = frames + 1
+    at = now()
+  task ticker mount
+    every(frame, step)
+  view
+    text `${frames}`
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    assert!(first.contains("\"frames\":true"), "{first}");
+    let slot = |host: &Host<NoData>, name| host.runner().slot(name).cloned();
+    let frame = host.frame(10.0);
+    assert!(frame.contains("\"clock\":10"), "{frame}");
+    assert!(frame.contains("\"frames\":true"), "{frame}");
+    assert!(!frame.contains("timer_due_ms"), "{frame}");
+    assert_eq!(slot(&host, "frames"), Some(Value::Number(1.0)));
+    host.advance(1_000.0);
+    assert_eq!(slot(&host, "frames"), Some(Value::Number(1.0)));
+    let at = slot(&host, "at");
+    host.frame(5_000.0);
+    assert_eq!(slot(&host, "frames"), Some(Value::Number(2.0)));
+    assert_ne!(slot(&host, "at"), at);
+    // The agent's clock: a second of seek is sixty virtual frames.
+    host.present_frames(false);
+    host.advance_until_request(6_000.0);
+    assert_eq!(slot(&host, "frames"), Some(Value::Number(62.0)));
+}

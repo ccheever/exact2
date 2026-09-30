@@ -367,6 +367,12 @@ double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
+/* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
+ * every frame task once at it. The batch says "frames" while one wants it. */
+uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
+ * agent's clock takes over, whose advances then fire virtual frames. */
+uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */

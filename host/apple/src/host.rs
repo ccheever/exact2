@@ -474,6 +474,7 @@ impl<D: DataSource> Host<D> {
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
+        batch.frames = host.runner.wants_frames();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
     }
@@ -852,6 +853,21 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
+    /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
+    /// the agent's clock takes over, so its advances fire virtual frames.
+    pub fn present_frames(&mut self, on: bool) {
+        self.runner.present_frames(on);
+    }
+
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
+    /// every frame task once at it, in one batch as [`Host::advance`]'s.
+    pub fn frame(&mut self, now_ms: f64) -> String {
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
+        self.runner.present_frames(true);
+        let a = self.runner.frame(now_ms);
+        self.advanced(a)
+    }
+
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         self.runner.canvas_frame();
@@ -1111,6 +1127,7 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
+        batch.frames = self.runner.wants_frames();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),

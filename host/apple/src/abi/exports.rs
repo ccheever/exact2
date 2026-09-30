@@ -353,6 +353,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, until_request != 0), |n| n)
         }
 
+        /// A presented display frame at `now_ms` (LLP 1073 D5): timers due
+        /// by then, then every frame task once. Returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_frame(rt: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame(now_ms), |n| n)
+        }
+
+        /// Nonzero: the display drives frame tasks (`exact_frame` turns it
+        /// on); zero when the agent's clock takes over (LLP 1073 D4).
+        #[no_mangle]
+        pub extern "C" fn exact_present_frames(rt: u32, on: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.present_frames(on != 0); 0 }, |n| n)
+        }
+
         /// Publish or clear a named surface record; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {

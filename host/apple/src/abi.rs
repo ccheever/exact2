@@ -1084,6 +1084,22 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Whether the display drives frame tasks (LLP 1073 D4).
+    pub fn present_frames(&mut self, on: bool) {
+        if let Some(h) = self.host.as_mut() {
+            h.present_frames(on);
+        }
+    }
+
+    /// A presented display frame (LLP 1073 D5).
+    pub fn frame(&mut self, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.frame(now_ms));
+        self.emit(out)
+    }
+
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {

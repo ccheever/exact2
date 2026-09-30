@@ -425,6 +425,8 @@ public final class Agent {
     /// one is returned.
     func advanceStepped(to: Double, deadline: Date) -> Batch {
         var steps = 0
+        // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
+        session.runtime.presentFrames(false)
         while true {
             let waited = session.timerDue.map { $0 <= to } == true && waitForReplies(until: deadline)
             let held = waited && steps < 4096

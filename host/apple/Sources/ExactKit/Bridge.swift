@@ -26,6 +26,8 @@ public struct Batch {
     public var spatial = false
     /// A 2D canvas wants the next display frame (LLP 1056 D5).
     public var canvas = false
+    /// A frame task wants every display frame (LLP 1073 D5).
+    public var frames = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -388,6 +390,8 @@ final class Runtime {
         }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
+    func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
+    func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }

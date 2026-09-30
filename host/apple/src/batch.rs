@@ -17,6 +17,9 @@ pub struct Batch {
     /// What moves changes place or size (`Engine::spatial`): the display
     /// link asks for the panel's full rate (LLP 1061 D4).
     pub spatial: bool,
+    /// A frame task wants each display frame (LLP 1073 D5): the display
+    /// link runs and each tick is `exact_frame`.
+    pub frames: bool,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
@@ -544,6 +547,9 @@ impl Batch {
         if self.spatial {
             s.push_str(",\"spatial\":true");
         }
+        if self.frames {
+            s.push_str(",\"frames\":true");
+        }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
             for (i, src) in self.images.iter().enumerate() {
@@ -602,6 +608,11 @@ mod timer_tests {
         let empty = super::Batch::new().finish(None, false, 0.0, None);
         assert!(!empty.contains("timer_due_ms"), "{empty}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
+        assert!(!empty.contains("frames"), "{empty}");
+        let mut frames = super::Batch::new();
+        frames.frames = true;
+        let frames = frames.finish(None, false, 0.0, None);
+        assert!(frames.contains("\"frames\":true"), "{frames}");
     }
 }
 
