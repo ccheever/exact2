@@ -1004,6 +1004,22 @@ finding that `CollectionHost`'s per-report cost is the rows' boxes gathered
 again for each report, which the parked branch fixes and a later change can
 take on its own.
 
+**macOS, measured by the mac lane (2026-09-30, bones M4 at 60 Hz, 19-kind feed,
+three rounds with the order alternated, machine-state gate, table at
+`~/bench/xheavy-mac/results/ab1-bones/abtable.md`).** Fling: process CPU 815
+with the skip, 815 reporting every frame, 819 on main; main thread 393 / 393 /
+392; 58.9 fps all; the inbox fling 436/314 vs 437/316 vs 436/314 — nothing
+within noise on macOS's synchronous fills, so the unpark threshold is not
+reached there either. **At rest** (10 s, nothing moving) the branch costs +14
+ms/s of process CPU and +14 of main (178/81 against main's 164/67; 167/71 with
+reports on), in all three rounds and both orders: something in it runs at
+rest that main does not. The likely cause, from the diff and unverified: a
+travelling list whose report is skipped stays in `dirty`, and the branch's
+added `if !dirty.isEmpty { schedule() }` reserves a main-queue turn every
+turn, so at rest a continuation runs each turn and does nothing — the shape
+of the in-flight spin the spin fix (f7aa53049) removed. Whoever reopens the
+branch verifies that first.
+
 ## 9. Amending LLP 1050.000 D3 (ruled, Q5)
 
 D3 today: "a row may take longer than a frame, but never mid-fling." Amended:
