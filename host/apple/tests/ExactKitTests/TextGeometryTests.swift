@@ -76,7 +76,8 @@ final class TextGeometryTests: XCTestCase {
     func testInlineTextIsDataAndCanBecomeAParagraphAgain() {
         let presenter = Presenter()
         let clipping: [String: Any] = ["rule": "nonzero", "commands": [["M", [0.0, 0.0]], ["L", [100.0, 0.0]], ["L", [0.0, 30.0]], ["Z", [Double]()]]]
-        let style: [String: Any] = ["z_index": 3.0, "clip_path": clipping]
+        // A positioned box: CSS's used `z-index` is the row's (LLP 1074 T1).
+        let style: [String: Any] = ["position_type": "relative", "z_index": 3.0, "clip_path": clipping]
         let run: [String: Any] = ["id": 3, "parent": 2, "paint": true, "style": style,
                                   "props": ["text": "retained run", "testId": "run"], "handlers": ["press"]]
         func apply(_ ops: [[String: Any]]) {
