@@ -87,7 +87,7 @@ final class CanvasInput {
 }
 
 extension NodeView {
-    var canvasScale: CGFloat { metal?.layer.contentsScale ?? window?.screen.scale ?? traitCollection.displayScale }
+    var canvasScale: CGFloat { metal?.metalLayer.contentsScale ?? window?.screen.scale ?? traitCollection.displayScale }
     func focusCanvas() -> Bool {
         guard canvases?.wantsInput(id) == true, canBecomeFirstResponder, window != nil else { return false }
         var ancestor: UIView? = self

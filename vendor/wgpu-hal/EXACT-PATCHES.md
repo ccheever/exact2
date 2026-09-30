@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — three local patches, all in the Metal backend
+# wgpu-hal 30.0.1 — four local patches, all in the Metal backend
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature change or dependency upgrade. Every changed
@@ -83,8 +83,24 @@ only from the workspace root: an app in a workspace of its own that lacks the
 line would link the published crate. `gpu/build.rs` refuses that build and
 prints the line to add.
 
+## 4. A word when the next submit has been scheduled
+
+`src/metal/mod.rs`: `metal::Queue::on_next_submit_scheduled(f)` keeps `f`
+for the queue's next `submit`, which adds it as a scheduled handler on the
+last command buffer it commits — Metal calls it, on a thread of its own, once
+that buffer is scheduled, which is after any `presentDrawable:` riding it has
+been handed to the compositor (patch 2). With nothing to schedule it is
+called at once. One submit consumes it.
+
+`exact-gpu` uses it for a canvas's first frame: a presenter that reuses a
+`CAMetalLayer` keeps it hidden until the new canvas's picture is with the
+compositor (LLP 1068 §4.5, "a presentation signal before unhiding"), because
+the layer still shows the last picture presented to it. Not proposed
+upstream: wgpu has no presentation callbacks, and a general one would belong
+on the surface.
+
 ## Updating
 
 Take the new archive whole, reapply the marked places (`git diff` against the
-pristine archive is about 250 lines), and run `cargo test -p exact-gpu` on
+pristine archive is about 330 lines), and run `cargo test -p exact-gpu` on
 macOS: `frame.rs` fails if a frame commits more than one buffer a canvas.

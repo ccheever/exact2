@@ -384,6 +384,9 @@ struct Instance {
     answered: BTreeSet<String>,
     bound: bool,
     dirty: bool,
+    /// Its first frame has been handed to the compositor (`Module::seen`);
+    /// shared with the callback that says so.
+    seen: Arc<AtomicBool>,
     children: Option<Children>,
     children_generation: u32,
     /// Per-child textures (LLP 1014 D5), by index.
@@ -636,6 +639,7 @@ impl Module {
                 answered: BTreeSet::new(),
                 bound: false,
                 dirty: false,
+                seen: Default::default(),
                 children: None,
                 children_generation: 0,
                 each: Vec::new(),

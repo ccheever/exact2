@@ -9,24 +9,102 @@
 import QuartzCore
 import UIKit
 
-/// A canvas node's backing view: a CAMetalLayer the module renders into.
+/// A canvas node's view: the `CAMetalLayer` the module renders into, a
+/// sublayer taken from the process's spare ones and given back when the view
+/// goes (LLP 1068 §4.5: the layer is pooled, never the instance).
+///
+/// A layer allocates its drawables — three IOSurfaces of its pixel size —
+/// when it is first drawn, and Core Animation lets a dead layer's go late:
+/// in an Extra Heavy fling on an iPad Pro at most three canvas layers were
+/// alive at once, 37 were made, and the purgeable ledger climbed to 110 MB.
+/// A reused layer keeps its drawables, so rows coming and going make none.
+/// It also keeps the last picture presented to it, so it stays hidden until
+/// its new canvas's first frame is with the compositor (`reveal`).
 final class MetalView: UIView {
-    override class var layerClass: AnyClass { CAMetalLayer.self }
+    let metalLayer: CAMetalLayer
+    /// The layer served another canvas before and shows nothing until this
+    /// one's first frame has been presented (`Canvases.revealPresented`).
+    private(set) var awaitingFirstFrame: Bool
     override init(frame: CGRect) {
+        let (layer, reused) = MetalLayerPool.take()
+        metalLayer = layer
+        awaitingFirstFrame = reused
         super.init(frame: frame)
         isUserInteractionEnabled = false
         isOpaque = false
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        metalLayer.isHidden = reused
+        self.layer.addSublayer(metalLayer)
+    }
+    required init?(coder: NSCoder) { nil }
+    deinit { MetalLayerPool.give(metalLayer) }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if metalLayer.frame != bounds { metalLayer.frame = bounds }
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        metalLayer.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+    }
+    /// The canvas's first frame is with the compositor: the layer shows it.
+    func reveal() {
+        guard awaitingFirstFrame else { return }
+        awaitingFirstFrame = false
+        metalLayer.isHidden = false
+    }
+}
+
+/// The process's spare canvas layers, their drawables kept (`MetalView`).
+/// A few, for as long as canvases keep coming and going: ten seconds
+/// without one lets them go, which is about how long a dead layer's
+/// drawables stayed in the ledger anyway.
+enum MetalLayerPool {
+    /// Spare layers kept: rows turning over at a screen's edges. Each holds
+    /// up to three drawables of the last size it was drawn at.
+    static let keep = 3
+    static let idle = 10.0
+    nonisolated(unsafe) private static var spare: [CAMetalLayer] = []
+    nonisolated(unsafe) private static var lastUse = 0.0
+    nonisolated(unsafe) private static var draining = false
+    /// Layers made, for the tests and the readout.
+    nonisolated(unsafe) private(set) static var made = 0
+
+    /// A layer, and whether it served a canvas before.
+    static func take() -> (CAMetalLayer, Bool) {
+        lastUse = CACurrentMediaTime()
+        if let layer = spare.popLast() { return (layer, true) }
+        made += 1
+        let layer = CAMetalLayer()
         // Composited, never direct-to-display: a translucent layer stays in
         // the compositor, where a drawable comes back as soon as it is read
         // (LLP 1014, the app inside the sky).
-        (layer as? CAMetalLayer)?.isOpaque = false
-        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        layer.isOpaque = false
+        // Never animated: a frame set or an unhide takes effect at once.
+        layer.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "contents": NSNull(), "contentsScale": NSNull()]
+        return (layer, false)
     }
-    required init?(coder: NSCoder) { nil }
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        layer.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+
+    static func give(_ layer: CAMetalLayer) {
+        layer.removeFromSuperlayer()
+        lastUse = CACurrentMediaTime()
+        guard spare.count < keep else { return }
+        layer.isHidden = true
+        spare.append(layer)
+        drainWhenIdle()
     }
+
+    private static func drainWhenIdle() {
+        guard !draining else { return }
+        draining = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + idle) {
+            draining = false
+            if CACurrentMediaTime() - lastUse >= idle { spare.removeAll() } else if !spare.isEmpty { drainWhenIdle() }
+        }
+    }
+
+    /// The spare layers now (tests).
+    static var spares: Int { spare.count }
+    static func drain() { spare.removeAll() }
 }
 
 /// Every canvas on one session's page and its surface in the module — the
@@ -223,7 +301,8 @@ final class Canvases {
     }
 
     private func create(_ m: GpuModule, _ e: Entry) {
-        guard let metal = e.view.metal, let layer = metal.layer as? CAMetalLayer else { return }
+        guard let metal = e.view.metal else { return }
+        let layer = metal.metalLayer
         layer.contentsScale = scale(of: metal)
         let scale = Float(layer.contentsScale)
         let w = UInt32(max(1, (Float(metal.bounds.width) * scale).rounded()))
@@ -412,7 +491,7 @@ final class Canvases {
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> UIImage? {
         guard let e = live(view.id), let m = e.module, e.presentable, e.view === view, let metal = view.metal else { return nil }
-        let scale = CGFloat(metal.layer.contentsScale)
+        let scale = CGFloat(metal.metalLayer.contentsScale)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard let bitmap = Bitmap.blank(width: w, height: h), let data = bitmap.bytes else { return nil }
         let at = frameNow ?? session?.now() ?? 0
@@ -536,10 +615,13 @@ final class Canvases {
     private var ticks = 1
 
     private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double) {
-        let scale = Float(metal.layer.contentsScale)
+        let scale = Float(metal.metalLayer.contentsScale)
         let t0 = CACurrentMediaTime()
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
         recorded(m)
+        // A module that cannot say when a first frame is shown (`gpu_seen`):
+        // the frame just recorded is presented by this tick's flush.
+        if metal.awaitingFirstFrame, m.seen == nil, r < 2, m.starved?(e.id) != 1 { DispatchQueue.main.async { metal.reveal() } }
         windowRenders += 1
         windowRenderSeconds += CACurrentMediaTime() - t0
         if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
@@ -547,6 +629,15 @@ final class Canvases {
         rendered += 1
         readPlacements(m, e)
         messages(e)
+    }
+
+    /// First frames have been handed to the compositor (`gpu_on_presented`):
+    /// the reused layers that waited hidden for theirs show them.
+    func revealPresented() {
+        for e in entries.values {
+            guard let metal = e.view.metal, metal.awaitingFirstFrame, e.id != 0, let m = e.module, m.seen?(e.id) == 1 else { continue }
+            metal.reveal()
+        }
     }
 
     /// A starved canvas's drawable arrived (gpu/src/acquire.rs): the canvases

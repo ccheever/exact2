@@ -293,3 +293,38 @@ fn a_frame_with_a_failed_canvas_presents_the_others_once_and_it_never() {
     assert_eq!(after.presented_alone, before.presented_alone);
     assert!(m.sync());
 }
+
+/// A presenter that reuses a layer keeps it hidden until the canvas's first
+/// frame is with the compositor (the layer still holds the last picture
+/// presented to it): the module says when, from the thread Metal schedules
+/// the frame's command buffer on.
+#[test]
+fn a_canvas_is_seen_once_its_first_frame_is_scheduled() {
+    let Some((mut m, [a, b], _layers)) = two() else {
+        return;
+    };
+    assert!(!m.seen(a) && !m.seen(b), "nothing drawn yet");
+    assert_eq!(m.render(a, &frame()), Some(true));
+    assert!(!m.seen(a), "recorded is not shown");
+    assert!(m.flush());
+    for _ in 0..400 {
+        if m.seen(a) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(m.seen(a), "scheduled within two seconds");
+    assert!(!m.seen(b), "b has drawn nothing");
+    // A frame with a failed canvas in it is presented the ordinary way, and
+    // the healthy canvas's first frame is seen when that returns.
+    let Some((mut m, [a, f], _layers)) = on_layers(["a", "f"]) else {
+        return;
+    };
+    m.render(a, &frame());
+    assert_eq!(m.render(f, &frame()), None);
+    let _ = m.take_error();
+    assert!(m.flush());
+    assert!(m.seen(a));
+    assert!(!m.seen(f), "a frame that failed was never shown");
+    assert!(m.sync());
+}

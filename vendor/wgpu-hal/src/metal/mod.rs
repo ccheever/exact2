@@ -497,6 +497,15 @@ impl Queue {
             .store(on, atomic::Ordering::Release);
     }
 
+    /// EXACT (EXACT-PATCHES.md, 4): call `f` once, on one of Metal's threads,
+    /// when the last command buffer of this queue's next [`crate::Queue::submit`]
+    /// has been scheduled — after any presentation that rides it has been
+    /// handed to the compositor. One submit consumes it; a later call before
+    /// that submit replaces it.
+    pub fn on_next_submit_scheduled(&self, f: alloc::boxed::Box<dyn FnOnce() + Send + 'static>) {
+        *self.shared.on_scheduled.lock() = Some(OnScheduled(f));
+    }
+
     fn committed(&self) {
         self.shared
             .counters
@@ -517,6 +526,7 @@ impl Queue {
                 relay: OnceLock::new(),
                 counters: Counters::default(),
                 present_with_next_submit: atomic::AtomicBool::new(false),
+                on_scheduled: Mutex::new(None),
             }),
             timestamp_period,
         }
@@ -666,6 +676,17 @@ pub struct QueueShared {
     counters: Counters,
     /// EXACT (EXACT-PATCHES.md, 2): [`Queue::present_with_next_submit`].
     present_with_next_submit: atomic::AtomicBool,
+    /// EXACT (EXACT-PATCHES.md, 4): [`Queue::on_next_submit_scheduled`].
+    on_scheduled: Mutex<Option<OnScheduled>>,
+}
+
+/// EXACT (EXACT-PATCHES.md, 4): what [`Queue::on_next_submit_scheduled`] was given.
+struct OnScheduled(alloc::boxed::Box<dyn FnOnce() + Send + 'static>);
+
+impl fmt::Debug for OnScheduled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("OnScheduled")
+    }
 }
 
 #[derive(Debug)]
@@ -767,6 +788,23 @@ impl crate::Queue for Queue {
                                 .fetch_add(1, atomic::Ordering::Relaxed);
                         }
                     }
+                }
+            }
+            // EXACT (EXACT-PATCHES.md, 4): tell the caller when the last
+            // command buffer has been scheduled; with nothing to schedule,
+            // at once.
+            if let Some(OnScheduled(f)) = self.shared.on_scheduled.lock().take() {
+                match last_encoded {
+                    Some(last) => {
+                        let once = Mutex::new(Some(f));
+                        let block = block2::RcBlock::new(move |_cmd_buf| {
+                            if let Some(f) = once.lock().take() {
+                                f();
+                            }
+                        });
+                        unsafe { last.addScheduledHandler(block2::RcBlock::as_ptr(&block)) };
+                    }
+                    None => f(),
                 }
             }
             // Drain caller-staged waits onto a dedicated command buffer

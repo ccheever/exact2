@@ -118,6 +118,9 @@ final class GpuModule {
     /// Whether a canvas's last render went without a drawable (the module
     /// acquires off the main thread and says when one arrives).
     var starved: WantsFn?
+    /// Whether a canvas's first frame has been handed to the compositor: a
+    /// presenter that reuses a layer keeps it hidden until then.
+    var seen: WantsFn?
     typealias AcquiredFn = @convention(c) () -> Void
     typealias OnAcquireFn = @convention(c) (AcquiredFn?) -> Void
     let canvases = NSHashTable<Canvases>.weakObjects()
@@ -269,6 +272,10 @@ final class GpuModule {
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         module.starved = sym("gpu_starved", WantsFn.self)
         if module.starved != nil { sym("gpu_on_acquire", OnAcquireFn.self)?(gpuAcquired) }
+        module.seen = sym("gpu_seen", WantsFn.self)
+        #if os(iOS)
+        if module.seen != nil { sym("gpu_on_presented", OnAcquireFn.self)?(gpuPresented) }
+        #endif
         return .success(module)
     }
 
@@ -277,6 +284,16 @@ final class GpuModule {
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.childrenMode = childrenMode; self.readback = readback
         self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
+
+    #if os(iOS)
+    /// First frames are with the compositor: every session's canvases that
+    /// waited hidden on a reused layer show theirs.
+    static func presented() {
+        for case .success(let module) in shared.values {
+            for owner in module.canvases.allObjects { owner.revealPresented() }
+        }
+    }
+    #endif
 
     /// A starved canvas's drawable arrived: every session's starved canvases render.
     static func acquired() {
@@ -373,6 +390,16 @@ struct DisplayPeriod {
         }
     }
 }
+
+#if os(iOS)
+/// The module's callback when canvases' first frames have been handed to the
+/// compositor, on the thread Metal scheduled the frame on (gpu/src/frame.rs):
+/// the layers that waited hidden are shown on the main thread. Entries are
+/// looked up again there, so a canvas that went meanwhile is not touched.
+private let gpuPresented: GpuModule.AcquiredFn = {
+    DispatchQueue.main.async { GpuModule.presented() }
+}
+#endif
 
 /// The module's callback on the thread that acquired a starved canvas's
 /// drawable (gpu/src/acquire.rs): the render belongs on the main thread.

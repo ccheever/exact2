@@ -460,6 +460,18 @@ pub fn on_acquire(callback: Option<extern "C" fn()>) {
     crate::acquire::on_acquire(callback);
 }
 
+/// Whether a canvas's first frame has been handed to the compositor.
+pub fn seen(id: u32) -> bool {
+    with(|m| m.seen(id)).unwrap_or(false)
+}
+
+/// Register the presenter's callback for a canvas's first frame: on Metal it
+/// runs on the thread that scheduled the frame, and the presenter asks
+/// [`seen`] on its own thread. `None` removes it.
+pub fn on_presented(callback: Option<extern "C" fn()>) {
+    crate::frame::on_presented(callback);
+}
+
 /// Drop a canvas's surface.
 pub fn destroy(id: u32) {
     with(|m| m.destroy(id));
@@ -824,6 +836,21 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_on_acquire(callback: Option<extern "C" fn()>) {
             $crate::native::on_acquire(callback)
+        }
+
+        /// Whether a canvas's first frame has been handed to the
+        /// compositor: a presenter that reuses a layer keeps it hidden
+        /// until then (the layer still holds its last canvas's picture).
+        #[no_mangle]
+        pub extern "C" fn gpu_seen(id: u32) -> u32 {
+            u32::from($crate::native::seen(id))
+        }
+
+        /// The presenter's callback for a canvas's first frame, called on
+        /// the thread that scheduled it; null removes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_on_presented(callback: Option<extern "C" fn()>) {
+            $crate::native::on_presented(callback)
         }
 
         /// Drop a canvas's surface.

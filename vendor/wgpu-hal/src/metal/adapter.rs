@@ -120,6 +120,7 @@ impl crate::Adapter for super::Adapter {
                         relay: OnceLock::new(),
                         counters: Default::default(),
                         present_with_next_submit: atomic::AtomicBool::new(false),
+                        on_scheduled: Mutex::new(None),
                     }),
                     timestamp_period,
                 },

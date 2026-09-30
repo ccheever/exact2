@@ -9,6 +9,8 @@
 //! host sees about that canvas is what it saw with a submit per render.
 
 use crate::{shaders, Frame, Module, SurfaceError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// The tick's recorded commands and the canvases that recorded them.
 pub(crate) struct Open {
@@ -176,11 +178,22 @@ impl Module {
         // canvas frame, as an `MTKView` draw is. Not when a surface failed
         // after recording: its drawable is in the submit, and must not be
         // shown.
+        // Canvases whose first frame this is (`Module::seen`).
+        let mut first: Vec<Arc<AtomicBool>> = open
+            .canvases
+            .iter()
+            .filter(|c| c.texture.is_some())
+            .filter_map(|c| self.instances.get(&c.id))
+            .filter(|i| !i.seen.load(Ordering::Acquire))
+            .map(|i| i.seen.clone())
+            .collect();
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         let rode = {
             let ride = open.canvases.iter().all(|c| c.failed.is_none());
             let drawn = open.canvases.iter().filter(|c| c.texture.is_some()).count();
-            let before = ride.then(|| ride_next_submit(&gpu.queue)).flatten();
+            let before = ride
+                .then(|| ride_next_submit(&gpu.queue, std::mem::take(&mut first)))
+                .flatten();
             gpu.queue.submit([open.encoder.finish()]);
             // Every drawable of the frame, or none: a surface that drew
             // nothing into its target is in no command buffer, and then each
@@ -226,20 +239,68 @@ impl Module {
             #[cfg(target_arch = "wasm32")]
             let _ = c.request;
         }
+        // Presented the ordinary way, or not on Metal: shown as far as the
+        // module can tell.
+        if !first.is_empty() {
+            shown(first);
+        }
         ok
+    }
+
+    /// Whether a canvas's first frame has been handed to the compositor: a
+    /// presenter that reuses a target (a pooled `CAMetalLayer` still holds
+    /// the last picture presented to it) keeps it hidden until then.
+    pub fn seen(&self, id: u32) -> bool {
+        self.instances
+            .get(&id)
+            .is_some_and(|i| i.seen.load(Ordering::Acquire))
+    }
+}
+
+/// The presenter's callback for a canvas's first frame (`gpu_on_presented`),
+/// as an address; 0 when none is registered. On Metal it runs on the thread
+/// that scheduled the frame's command buffer.
+static SHOWN: AtomicUsize = AtomicUsize::new(0);
+
+/// Register (or, with `None`, remove) the presenter's callback.
+pub(crate) fn on_presented(callback: Option<extern "C" fn()>) {
+    SHOWN.store(callback.map_or(0, |f| f as usize), Ordering::SeqCst);
+}
+
+/// These canvases' first frames are with the compositor: say so, and tell
+/// the presenter.
+fn shown(first: Vec<Arc<AtomicBool>>) {
+    for seen in first {
+        seen.store(true, Ordering::Release);
+    }
+    let address = SHOWN.load(Ordering::SeqCst);
+    if address != 0 {
+        // SAFETY: only `on_presented` stores here, and only an `extern "C" fn()`.
+        let callback: extern "C" fn() = unsafe { std::mem::transmute(address) };
+        callback();
     }
 }
 
 /// Ask the Metal queue to present, with its next submit, what that submit
-/// draws (the patched wgpu-hal); how many it has presented that way so far.
-/// `None` off Metal.
+/// draws (the patched wgpu-hal), and to say when that command buffer has
+/// been scheduled if canvases in it draw their `first` frame; how many
+/// drawables it has presented that way so far. `None` off Metal, with
+/// `first` shown at once.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn ride_next_submit(queue: &wgpu::Queue) -> Option<usize> {
-    // SAFETY: a flag and a counter of the queue wgpu owns; nothing is encoded.
-    unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }.map(|q| {
-        q.present_with_next_submit(true);
-        q.counts().presented_with_submit
-    })
+fn ride_next_submit(queue: &wgpu::Queue, first: Vec<Arc<AtomicBool>>) -> Option<usize> {
+    // SAFETY: a flag, a callback and a counter of the queue wgpu owns;
+    // nothing is encoded.
+    let Some(q) = (unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }) else {
+        if !first.is_empty() {
+            shown(first);
+        }
+        return None;
+    };
+    q.present_with_next_submit(true);
+    if !first.is_empty() {
+        q.on_next_submit_scheduled(Box::new(move || shown(first)));
+    }
+    Some(q.counts().presented_with_submit)
 }
 
 /// How many drawables this queue has presented with the submit that drew
