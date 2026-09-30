@@ -1,11 +1,14 @@
 # iOS: a `line-clamp` paragraph in a row the list builds during a scroll paints blank
 
-**Status:** Fixed in f10253d1
+**Status:** Closed
+**Resolution:** Fixed in f10253d1 Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host (iOS `NodeView.draw(_:)`, text rasters, LLP 1044.000 §6), Scrolling (collections, LLP 1010 §6.5)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
 **Related:** the heavy list benchmark (`~/bench/heavybench/`, outside the repo; `SPEC.md`, and `exact-textfix/README.md` gap 2); 0f19ab33 (the draw's visibility gate), 0e047888 (`NodeLayer.display`), 9e06c4ea (the row pool)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in f10253d1
 
 ## What happens
 

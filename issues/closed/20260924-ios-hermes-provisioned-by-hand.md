@@ -1,11 +1,14 @@
 # An iOS TypeScript app needs Hermes provisioned by hand from an RFC paragraph
 
-**Status:** Fixed (LLP 1036.001 D5 as built). The pin is `HERMES_PIN` in `js/build.rs`; an ibex receipt naming another commit is refused.
+**Status:** Closed
+**Resolution:** Fixed (LLP 1036.001 D5 as built). The pin is `HERMES_PIN` in `js/build.rs`; an ibex receipt naming another commit is refused. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host build, exact-js, Hermes provisioning
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-24
 **Related:** LLP 1027 D6 (iOS execution); LLP 1036.001; js/build.rs
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed (LLP 1036.001 D5 as built). The pin is `HERMES_PIN` in `js/build.rs`; an ibex receipt naming another commit is refused.
 
 Seth's Crew port (report of 2026-09-24, D3) spent about 30 minutes before its first TypeScript app built for iOS:
 

@@ -1,6 +1,7 @@
 # Apple hosts do not implement reorder, so `reorderFor`/`reorderdrop` does nothing on iOS or macOS
 
-**Status:** Fixed in b58430d2. iOS picks a row up by its grip (pan or long press) and macOS by the mouse; the lifted row follows, siblings make room, a virtualized list autoscrolls at its edges and pins the lifted row, and the drop sends the same `reorderdrop` as the web and Linux hosts. Driven on Interaction Gallery (iOS and macOS) and the listbench copy (iOS, including an autoscrolled move); XCTests on both hosts.
+**Status:** Closed
+**Resolution:** Fixed in b58430d2. iOS picks a row up by its grip (pan or long press) and macOS by the mouse; the lifted row follows, siblings make room, a virtualized list autoscrolls at its edges and pins the lifted row, and the drop sends the same `reorderdrop` as the web and Linux hosts. Driven on Interaction Gallery (iOS and macOS) and the listbench copy (iOS, including an autoscrolled move); XCTests on both hosts. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host (iOS and macOS), Runner (`runner/src/runner/event.rs` reorder events), Contract (`reorderFor`, `reorderdrop`; `contract/lower/src/tags.rs`), Scrolling (reorder inside `list virtualized=true`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -20,3 +21,5 @@ A Contract app's drag-to-reorder works on the web and Linux hosts, and nothing o
 - The listbench demo reorders within a 10,000-row virtualized list, autoscrolling past the viewport.
 - Agent-driven tests cover a drag on each host (LLP 1035.003 reproducible gestures).
 - iOS and macOS XCTests pass.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in b58430d2. iOS picks a row up by its grip (pan or long press) and macOS by the mouse; the lifted row follows, siblings make room, a virtualized list autoscrolls at its edges and pins the lifted row, and the drop sends the same `reorderdrop` as the web and Linux hosts. Driven on Interaction Gallery (iOS and macOS) and the listbench copy (iOS, including an autoscrolled move); XCTests on both hosts.

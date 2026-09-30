@@ -1,6 +1,7 @@
 # The Swift module build keeps shipping a stale archive after a source is deleted or removed from the list, or the toolchain changes
 
-**Status:** Fixed: Swift builds fingerprint ordered input paths and contents, compiler/SDK identity, target and flags, and refuse missing inputs; fingerprint and real rebuild/link tests pass (2 tests).
+**Status:** Closed
+**Resolution:** Obsolete static Swift bridge/build path removed by LLP 1067.000; native modules use a per-session dynamically loaded artifact. Historical reproduction and fix evidence retained below.
 **Systems:** JS bake (`js/bake/src/swift.rs`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -16,6 +17,8 @@
 **Fix:**
 - Treat a missing input as an error.
 - Fingerprint the ordered source list, the contents, and `swiftc --version` into the output path or a stamp file.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: Swift builds fingerprint ordered input paths and contents, compiler/SDK identity, target and flags, and refuse missing inputs; fingerprint and real rebuild/link tests pass (2 tests).
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Astra max. Verification: confirmed by reading.
 

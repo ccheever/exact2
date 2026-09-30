@@ -1,11 +1,14 @@
 # Apple motion leftovers: a removed layout-transition keeps its offset, exit colours don't show, inherited colour is cached past retirement, and more
 
-**Status:** Fixed: retire layout and inherited paint, emit exit text color, clamp Apple/Linux surfaces, clear exits and tab projections on reset, and broadcast preferences; all 13 regressions pass. Root checks and iOS pass; baseline macOS test/smoke failures and the Keychain test restriction are recorded below.
+**Status:** Closed
+**Resolution:** Fixed: retire layout and inherited paint, emit exit text color, clamp Apple/Linux surfaces, clear exits and tab projections on reset, and broadcast preferences; all 13 regressions pass. Root checks and iOS pass; baseline macOS test/smoke failures and the Keychain test restriction are recorded below. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host (`host/apple/src/presence.rs`, `style.rs`, `paragraph.rs`, `Sources/ExactKit/…`), Linux host (`host/linux/src/paint/presented.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
 **Related:** LLP 1062, LLP 1063, LLP 1059, LLP 1061
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: retire layout and inherited paint, emit exit text color, clamp Apple/Linux surfaces, clear exits and tab projections on reset, and broadcast preferences; all 13 regressions pass. Root checks and iOS pass; baseline macOS test/smoke failures and the Keychain test restriction are recorded below.
 
 Each item is confirmed by reading.
 

@@ -1,6 +1,7 @@
 # A viewport resize during a layout move: the web snaps, macOS keeps animating, Linux snaps a step late
 
-**Status:** Fixed: shared layout observation resets presentation in the resize frame, and Apple snaps every tracked box; Rust presence regressions and the web/macOS/Linux recordings verify immediate resize parity.
+**Status:** Closed
+**Resolution:** Fixed: shared layout observation resets presentation in the resize frame, and Apple snaps every tracked box; Rust presence regressions and the web/macOS/Linux recordings verify immediate resize parity. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host (`host/apple/src/presence.rs`, `host/apple/src/host.rs` resize, `Sources/ExactKit` window resize path), Linux host (`host/linux/src/presence.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -15,6 +16,8 @@
 Linux also drops exit ghosts at once, but that is declared (LLP 1063 D8) and not in scope here.
 
 **Fix:** on Apple and Linux, a resize retires every running `Property::Layout` animation and presents the new boxes in the same frame. The recorder's resize steps should then match on all three hosts. Sweep iOS when a simulator is available.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: shared layout observation resets presentation in the resize frame, and Apple snaps every tracked box; Rust presence regressions and the web/macOS/Linux recordings verify immediate resize parity.
 
 Implemented on `fix/review-resize`:
 

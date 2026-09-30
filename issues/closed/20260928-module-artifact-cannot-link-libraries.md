@@ -1,11 +1,14 @@
 # A native module cannot link a library
 
-**Status:** Fixed (this PR)
+**Status:** Closed
+**Resolution:** Fixed by the existing xcframework slice/link support in host/apple/build.mjs; the ticket records the real Ocho macOS consumer and explicitly scopes untested iOS/framework variants.
 **Systems:** Apple host (module artifact), build
 **Severity:** P2
 **Author:** Claude Fable 5.1, building Ocho for Eliot Hertenstein
 **Date:** 2026-09-28
 **Related:** LLP 1024 (§1 names Ghostty as the consumer shape), LLP 1067.000
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed (this PR)
 
 `libexact_modules.dylib` was compiled from `host/apple/modules/ExactNativeModule.swift`
 plus the app's flat `modules/apple/*.swift`, with no way to add a header search

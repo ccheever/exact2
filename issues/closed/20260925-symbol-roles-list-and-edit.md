@@ -1,6 +1,7 @@
 # Symbol roles lack a list's common glyphs: bookmark, document, check circle, reorder handle, sort, filters
 
-**Status:** Fixed in a96e8094
+**Status:** Closed
+**Resolution:** Fixed in a96e8094 Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Kernel (`kernel/tables/schema.json` `symbols`), every host's symbol rendering (SF Symbols on Apple, the SVG path elsewhere), Contract (`symbol:<role>`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -28,3 +29,5 @@ The table has 19 roles, each `[role, SF Symbol, SVG path]`.
 - A parity case covers at least one new role.
 
 **Fixed (a96e8094):** roles `bookmark`, `bookmark-fill`, `document`, `select`, `select-fill` (`checkmark.circle`, `.fill`), `reorder`, `sort`, `filter`. The fill convention: a filled state is its own role, `<role>-fill` exactly for Apple's `<name>.fill` and beside `<role>` (build.rs refuses either half alone); its browser path is a filled even-odd silhouette, marked `data-symbol-fill` on the web. Apple renders the SF Symbol, the web the path (`~/bench/listbench/symbols-web-gallery*.png`); listbench on iOS matches the Expo capture's glyph ink to the pixel (`~/bench/listbench/symbols-ios-{top,saved,edit}.png`). Still open: Linux paints no symbol for any role (LLP 1015 §7), and Done's `checkmark` has no role.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in a96e8094

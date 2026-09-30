@@ -1,11 +1,14 @@
 # iOS node views all draw, so every view carries a bitmap and a collection's spacers ask for gigabytes
 
-**Status:** Fixed in 0e047888
+**Status:** Closed
+**Resolution:** Fixed in 0e047888 Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host (iOS `NodeView`), Scrolling (the collection's spacers, LLP 1010 §6.5)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
 **Related:** LLP 1050.000 (found while benchmarking the fill policy against Expo PR 49975); the macOS host's `wantsUpdateLayer` split (`host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:1046–1073`); the benchmark harness `~/bench/listbench/` on Charlie's Mac (outside the repo; `diag.m` is the probe below)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in 0e047888
 
 ## What happens
 

@@ -1,6 +1,7 @@
 # A Swift native module is one object per process, so a second session takes over the first one's announcements and data directories
 
-**Status:** Fixed (2026-09-27): the data seam and the view dylib are one artifact (LLP 1067.000's working direction, (A)). The host makes one module instance per session; two sample-host sessions of `apps/recorder` each keep their own. The static bridge this issue was about is deleted.
+**Status:** Closed
+**Resolution:** Obsolete static Swift bridge/build path removed by LLP 1067.000; native modules use a per-session dynamically loaded artifact. Historical reproduction and fix evidence retained below.
 **Systems:** Native executor (`js/native/ExactNative.swift`, `js/src/swift.rs`, `js/bake/src/swift.rs`), Apple sample host (LLP 1031 D10)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -21,6 +22,8 @@
 - Name the Swift module and symbols per app.
 
 **Decision owed:** this sits under the design question of whether 1067's data-module seam and 1024's view-module dylib become one artifact.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed (2026-09-27): the data seam and the view dylib are one artifact (LLP 1067.000's working direction, (A)). The host makes one module instance per session; two sample-host sessions of `apps/recorder` each keep their own. The static bridge this issue was about is deleted.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Astra max (code and design). Verification: confirmed by reading; the two-session case has not been driven.
 

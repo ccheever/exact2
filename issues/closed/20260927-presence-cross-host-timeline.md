@@ -1,6 +1,7 @@
 # Hold presence motion to one recorded timeline across hosts
 
-**Status:** Fixed: one 17-step recorded timeline now compares presented surfaces, opacity and ghost lifetime on web/macOS/Linux; the sweep reproduces resize and Linux exit divergences below, and regression tests pass (iOS unavailable here).
+**Status:** Closed
+**Resolution:** Fixed: one 17-step recorded timeline now compares presented surfaces, opacity and ghost lifetime on web/macOS/Linux; the sweep reproduces resize and Linux exit divergences below, and regression tests pass (iOS unavailable here). Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** `scripts/smoke.mjs` or the motion parity corpus, web/Apple/Linux
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -10,6 +11,8 @@
 With the web running `layout-transition` and `exit-animation` by FLIP, Chrome can't serve as the oracle. Charlie ruled that parity is one recorded timeline compared across hosts.
 
 **Do:** drive the same fixture on each host with the agent clock (`clock +N` steps through a move, a resize-during-move, a retarget, and an exit), record each moving node's presented box and opacity per step (`layout`/`state`), and compare hosts within a tolerance. Extend the existing motion parity cases (`host/web/src/parity.rs`) rather than adding a new tool.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: one 17-step recorded timeline now compares presented surfaces, opacity and ghost lifetime on web/macOS/Linux; the sweep reproduces resize and Linux exit divergences below, and regression tests pass (iOS unavailable here).
 
 From Charlie's rulings of 2026-09-27 on the review of Seth's PR #47.
 

@@ -1,6 +1,7 @@
 # Measure a 1,000-row list whose rows declare `transition: all`
 
-**Status:** Fixed: Native paint adopts each transition target on its first change, eliminating 9,000 idle slots for 1,000 `all` rows; Chrome/macOS measured before and after, first-transition and lifecycle regressions plus all required checks verified.
+**Status:** Closed
+**Resolution:** Fixed: Native paint adopts each transition target on its first change, eliminating 9,000 idle slots for 1,000 `all` rows; Chrome/macOS measured before and after, first-transition and lifecycle regressions plus all required checks verified. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Heavy-list harness, `exact-motion`, Apple/web hosts
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -10,6 +11,8 @@
 LLP 1062 D2 says only a node that names paint owns it, so 1,000 coloured rows cost nothing. But `all` names every property, so rows that declare `transition: all`, as web authors routinely do, each become paint owners, with engine slots per property (about 104 B each) and whole-style re-sends on Apple.
 
 **Do:** measure memory and frame time for 1,000 rows with `transition: all` on the heavy-list harness, on iOS and the web. If the cost is real, adopt ownership lazily, at the first change of a paint target, rather than at declaration.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: Native paint adopts each transition target on its first change, eliminating 9,000 idle slots for 1,000 `all` rows; Chrome/macOS measured before and after, first-transition and lifecycle regressions plus all required checks verified.
 
 From Charlie's rulings of 2026-09-27 on the review of Seth's PR #47.
 

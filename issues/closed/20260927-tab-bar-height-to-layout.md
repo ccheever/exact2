@@ -1,6 +1,7 @@
 # The projected iOS tab bar reports its height to layout instead of drawing outside its box
 
-**Status:** Fixed: projected tab bars report intrinsic height to kernel layout and fill its box; kernel regressions, 53 UIKit tests, and an iOS simulator drive pass (root build/test/Clippy remain blocked by unrelated Contract test compile errors).
+**Status:** Closed
+**Resolution:** Fixed: projected tab bars report intrinsic height to kernel layout and fill its box; kernel regressions, 53 UIKit tests, and an iOS simulator drive pass (root build/test/Clippy remain blocked by unrelated Contract test compile errors). Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** iOS host (`SegmentsIOS.swift`), kernel measure seam
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -14,6 +15,8 @@
 - Remove LLP 1059 D2a's overflow.
 - Add the three projection shapes to LLP 1035.001's table.
 - XCTest: the bar's frame equals the kernel's box.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: projected tab bars report intrinsic height to kernel layout and fill its box; kernel regressions, 53 UIKit tests, and an iOS simulator drive pass (root build/test/Clippy remain blocked by unrelated Contract test compile errors).
 
 From Charlie's rulings of 2026-09-27 on the review of Seth's PR #47.
 

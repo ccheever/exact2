@@ -1,6 +1,7 @@
 # The Swift `native.later` seam double-frees when an app calls `done` twice, and a Swift module is called from two threads unguarded
 
-**Status:** Fixed: Swift completions consume their Rust reply once or abort on drop, and module entries serialize; Rust ownership tests and the real Swift concurrency fixture pass (3 tests).
+**Status:** Closed
+**Resolution:** Obsolete static Swift bridge/build path removed by LLP 1067.000; native modules use a per-session dynamically loaded artifact. Historical reproduction and fix evidence retained below.
 **Systems:** Native executor (`js/src/swift.rs`, `js/native/ExactNative.swift`), Apple host (`host/apple/src/executor_core.rs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -17,6 +18,8 @@
 - Make `done` one-shot on the Swift side (atomically swap out the context; log and ignore a second call).
 - Have Rust own the reply through a handle that fails as aborted when the Swift side drops it unanswered.
 - Serialize calls into one module (a serial queue, or actor isolation), or state and enforce a `Sendable` requirement.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: Swift completions consume their Rust reply once or abort on drop, and module entries serialize; Rust ownership tests and the real Swift concurrency fixture pass (3 tests).
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Grok 4.7 xhigh, Astra max (code and design). Verification: confirmed by reading the code path end to end.
 

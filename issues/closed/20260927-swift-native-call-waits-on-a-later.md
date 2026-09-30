@@ -1,6 +1,7 @@
 # A Swift module's `native.call` can hold the main thread while a `later` runs on an I/O worker
 
-**Status:** Fixed by removal (2026-09-27): the static Swift bridge and its lock are deleted. An app's Swift is its module artifact, whose every entry runs on the main thread, and a long call's start is dispatched there asynchronously (LLP 1067.000 Q5, `host/apple/Sources/ExactKit/NativeModule.swift`).
+**Status:** Closed
+**Resolution:** Obsolete static Swift bridge/build path removed by LLP 1067.000; native modules use a per-session dynamically loaded artifact. Historical reproduction and fix evidence retained below.
 **Systems:** Native executor (`js/native/ExactNative.swift`, `js/src/swift.rs`), Apple host (`host/apple/src/executor_core.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -29,5 +30,7 @@ short-held mutexes and the agent's deliberate run-loop spins.
 host dispatches `later`'s start there asynchronously, so no lock is needed.
 If that direction is dropped, the minimum is to run the default `later`'s
 `call` outside the lock and to document that `later` must return promptly.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed by removal (2026-09-27): the static Swift bridge and its lock are deleted. An app's Swift is its module artifact, whose every entry runs on the main thread, and a long call's start is dispatched there asynchronously (LLP 1067.000 Q5, `host/apple/Sources/ExactKit/NativeModule.swift`).
 
 Verification: confirmed by reading the code path; not driven.

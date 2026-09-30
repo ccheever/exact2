@@ -1,11 +1,14 @@
 # Apple hosts paint fallback glyphs with vertical offsets upside down, so a line ending in Arabic is clipped
 
-**Status:** Fixed in 83e363c3
+**Status:** Closed
+**Resolution:** Fixed in 83e363c3 Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host text (`TextEngine.draw`, `TextRasterJob`, `RegionRaster`; LLP 1008 §3)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
 **Related:** the heavy list benchmark (`~/bench/heavybench/`, outside the repo; `exact-textfix/README.md` gap 8)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in 83e363c3
 
 ## What happens
 

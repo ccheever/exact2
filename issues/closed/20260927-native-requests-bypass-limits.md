@@ -1,6 +1,7 @@
 # The web's `native.later` skips the request scope check and the 1 MiB response bound, and a Swift module never receives its grants
 
-**Status:** Fixed: web native requests share scope admission and bounded response handling, and each Swift factory receives its effective grants; UTF-8 success/error limits and per-session grant regressions pass.
+**Status:** Closed
+**Resolution:** Fixed: web native requests share scope admission and bounded response handling, and each Swift factory receives its effective grants; UTF-8 success/error limits and per-session grant regressions pass. Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Web host (`host/web/glue.js`), JS prelude (`js/src/prelude.js`), native executor (`js/src/swift.rs`, `js/src/native.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -12,6 +13,8 @@ On the web, the `exact-native:` branch of the request path returns before `scope
 Separately, the Swift factory discards its grants (`native_module(_grants)`, `js/src/swift.rs:154`), although the native-module contract says the implementation enforces them (`js/src/native.rs:41`). A Swift module therefore cannot enforce grants it never receives.
 
 **Fix:** route native requests through the same admission and response-limit path as other requests on every host, and pass the effective grants into the module instance.
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed: web native requests share scope admission and bounded response handling, and each Swift factory receives its effective grants; UTF-8 success/error limits and per-session grant regressions pass.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max (design). Verification: confirmed by reading.
 

@@ -1,11 +1,14 @@
 # Apple hosts never paint an inline run's `background-color`
 
-**Status:** Fixed in 15e47aa9
+**Status:** Closed
+**Resolution:** Fixed in 15e47aa9 Closure audit 2026-09-30: archive the already-landed fix; its reproduction and verification evidence remain below.
 **Systems:** Apple host text (`Run`, the batch's inline rows, `TextLinePaint`; LLP 1044.000 §6 S1)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
 **Related:** the heavy list benchmark (`~/bench/heavybench/`, outside the repo; `exact-textfix/README.md` gap 1)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): Fixed in 15e47aa9
 
 ## What happens
 
