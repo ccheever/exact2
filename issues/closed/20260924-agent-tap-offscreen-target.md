@@ -27,3 +27,11 @@ fixture driven on macOS rejects a button at y=1150 in a 420×900 viewport; the
 full macOS smoke passes, including opening the deck and activating its card.
 UIKit reports 101 tests passed, including the new tests, though this run's
 xcodebuild remained waiting after XCTest printed its completed suite.
+
+Review follow-up: inline IDs now use the requested run's shaped fragments,
+converted through presentation and canvas placement, instead of the paragraph
+owner's midpoint. A visible fragment is chosen for wrapped runs. Regression
+coverage reproduces and fixes both a visible run in an offscreen-centred
+paragraph and an offscreen run in an onscreen-centred paragraph, and verifies
+that a presentation translation moves the tap target. The three focused
+context/tap tests pass on both macOS and UIKit.

@@ -129,20 +129,21 @@ extension Agent {
     /// origin — every enclosing scroll node's offset folded in — with the
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: NSView) -> NSRect {
+    func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
+        let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
         // where it is seen, through the placement, not the kernel's.
         if let n = v as? NodeView, let placed = n.placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView {
-            let corners = [NSPoint(x: 0, y: 0), NSPoint(x: v.bounds.width, y: 0), NSPoint(x: v.bounds.width, y: v.bounds.height), NSPoint(x: 0, y: v.bounds.height)]
+            let corners = [NSPoint(x: bounds.minX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.maxY), NSPoint(x: bounds.minX, y: bounds.maxY)]
                 .map { NodeView.map(h, placed.convert($0, from: v)) }
             let xs = corners.map { $0.x }, ys = corners.map { $0.y }
             let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
             let r = canvas.convert(inCanvas, to: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
-        let r = v.convert(v.bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
+        let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
 
@@ -380,8 +381,9 @@ extension Agent {
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node) {
-            let bounds = box(node)
-            let point = CGPoint(x: req["x"] as? Double ?? bounds.midX, y: req["y"] as? Double ?? bounds.midY)
+            guard let point = tapPoint(req, node: node) else {
+                return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
+            }
             if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }

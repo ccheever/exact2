@@ -31,6 +31,21 @@ public final class Agent {
         if ExactEnv.agentMode { systemScheme(dark: false) }
     }
 
+    /// Inline IDs name shaped fragments, not their paragraph owner's box.
+    /// Pick a visible fragment's midpoint; a wrapped link can have an earlier
+    /// fragment offscreen while a later one is reachable. `box` carries canvas
+    /// placement and presentation transforms into the viewport coordinates.
+    func tapPoint(_ request: [String: Any], node: NodeView) -> CGPoint? {
+        let bounds: CGRect
+        if let id = request["id"] as? UInt32, let run = presenter.inlineText(id) {
+            let fragments = node.inlineRects(run).filter { !$0.isEmpty }.map { box(node, region: $0) }
+            let viewport = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
+            guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
+            bounds = fragment
+        } else { bounds = box(node) }
+        return CGPoint(x: request["x"] as? Double ?? bounds.midX, y: request["y"] as? Double ?? bounds.midY)
+    }
+
     /// The one contact the driver may hold across requests (LLP 1035.003
     /// D1): where it is, in the viewport's space, while the button is down.
     /// `nil` between contacts. AppKit holds it as a real mouse button; UIKit
