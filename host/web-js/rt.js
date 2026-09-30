@@ -247,10 +247,12 @@ export function every(ms, action, once) {
 }
 // A frame task (LLP 1073): once per presented frame, never caught up; on the
 // agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
-const FRAME = 1000 / 60;
+// The kth virtual frame after `base`, the product first, as the runner's
+// `virtual_frame`: sixty frames are exactly a second.
+const vf = (base, k) => base + k * 1000 / 60;
 /** `every(frame, action)`. */
 export function frames(action) {
-  clock.timers.push({ due: clock.now + FRAME, frame: true, action });
+  clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
   if (!clock.agent) paint();
 }
 /** Move the clock to `to`, firing each due timer at its own time, in order;
@@ -261,7 +263,7 @@ export function advance(to, wall) {
     for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
     if (!next) break;
     clock.now = next.due;
-    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due += next.frame ? FRAME : next.ms;
+    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms;
     fire(next);
   }
   clock.now = Math.max(clock.now, to);
@@ -285,7 +287,7 @@ function paint() {
     painting = requestAnimationFrame(frame);
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now;
-    for (const t of clock.timers) if (t.frame) { t.due = at + FRAME; fire(t); }
+    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t); }
     drive();
   });
 }

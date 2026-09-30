@@ -296,6 +296,8 @@ pub struct Runner<D: DataSource> {
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
+    /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4).
+    presenting: bool,
     batch: u64,
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
@@ -744,6 +746,7 @@ impl<D: DataSource> Runner<D> {
             ids: Ids::default(),
             now_ms: 0.0,
             timers: Vec::new(),
+            presenting: false,
             batch: 0,
             commands: Vec::new(),
             into_view: Vec::new(),
@@ -1133,13 +1136,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
-    /// Frame tasks are the frame source's, not a deadline's (LLP 1073 D4).
+    /// A frame task's next virtual frame counts only while the host doesn't
+    /// present frames: then its frame source wakes it (LLP 1073 D4).
     /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
     pub fn timer_due_ms(&self) -> Option<f64> {
         self.timers
             .iter()
             .zip(&self.plan.timers)
-            .filter(|(_, row)| !row.frame)
+            .filter(|(_, row)| !(row.frame && self.presenting))
             .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
             .filter(|ms| ms.is_finite())

@@ -78,9 +78,9 @@ one:
 
 - A seek to *T* fires each virtual frame due at or before *T* at its own
   time, interleaved with timers in time order. Ties go to the plan's
-  earlier row, frame tasks among timers. The next frame is at the time the
-  task fired plus P, as an f64 sum, so every host computes the same times
-  bit for bit.
+  earlier row, frame tasks among timers. The kth frame after the last
+  firing base is `base + k·1000/60`, the product first (D4), so every host
+  computes the same times bit for bit.
 - `clock +1000` fires sixty frames on every host, and `now()` reads the
   same values on each. The agent sees the same thing a 60 Hz display that
   never drops a frame would show.
@@ -94,19 +94,24 @@ one:
 
 ### D4 — The runner's API
 
+- `Runner::present_frames(on)`: whether the host presents frames. It is
+  off by default, which is the case for tests and the agent. A host turns it
+  on when its own display drives the clock, and off when the agent's clock
+  takes over. While it is off, every advance (`advance`, `advance_timed`,
+  `advance_until_request`) fires virtual frames as timers (D3), and
+  `timer_due_ms()` reports the next one. While it is on, no advance fires a
+  frame task and `timer_due_ms()` leaves them out; the host's frame source
+  wakes it instead.
 - `Runner::frame(now_ms) -> Advanced`: a presented frame. It advances timers
-  to `now_ms` as `advance_timed` does, then fires every frame task once at
-  `now_ms` and sets each task's next virtual frame to `now_ms` + P. Like
-  `advance_timed`, it returns the commits with their times and any refusal,
-  so hosts handle it the same way.
-- `advance_timed(now_ms)` is the wall-clock timeout's path, and fires no
-  frame task: display frames are `frame`'s job. `advance` (tests) and
-  `advance_until_request` (the agent's jump) are seeks, and fire virtual
-  frames (D3).
-- `timer_due_ms()` leaves frame tasks out: a host wakes for them by its
-  frame source, not by a deadline. The new `wants_frames()` is true while
-  the plan has a frame task, and a host keeps its frame source running
-  while it holds.
+  to `now_ms` (no virtual frames), then fires every frame task once at
+  `now_ms` and restarts each task's virtual frames from `now_ms`. It returns
+  the commits with their times and any refusal, as `advance_timed` does.
+- `wants_frames()` is true while the plan has a frame task; a host keeps its
+  frame source running while it holds.
+- A virtual frame's time is `base + k·1000/60` (`virtual_frame`), the
+  product first, where `base` is the mount or the last presented frame. So
+  sixty frames are exactly a second, and the JS runtime computes the same
+  f64 values.
 - **Plan:** `timers` gains `frame: bool`. A frame row has `interval_ms` 0
   and `once` false (`PlanError::FrameTimer`). Every other row still needs
   `interval_ms` ≥ 1 (`ZeroInterval`). The format digest changes, so an older
@@ -116,10 +121,10 @@ one:
 
 | host | presented frames | seeks |
 |---|---|---|
-| JS web target | `rt.js`: a `requestAnimationFrame` loop while a frame task exists and the clock isn't the agent's, calling `frame` (timers, then frame tasks) | `rt.js` `advance` and `agent.js`'s stepped jump, virtual frames as D3 |
-| wasm web | `timer-glue.js`: while the batch says `frames`, `exact_frame(now)` each animation frame | the runner (`advance_until_request`) |
-| Apple | `Frames` (`CADisplayLink`) runs while the batch says `frames`; each tick calls `frame(now)` | the runner |
-| Linux | the display loop asks for a frame while `wants_frames()` and calls `frame(now)` | the runner |
+| JS web target | `rt.js`: a `requestAnimationFrame` loop while a frame task exists and the clock isn't the agent's (timers, then frame tasks) | `rt.js` `advance` and `agent.js`'s stepped jump, virtual frames as D3 |
+| wasm web | `present_frames(true)` outside the agent; while the batch says `frames`, `exact_frame(now)` each animation frame | the runner, not presenting |
+| Apple | `present_frames(true)` outside the agent; `Frames` (`CADisplayLink`) runs while the batch says `frames`, each tick calls `frame(now)` | the runner, not presenting |
+| Linux | `present_frames(true)` outside the agent; the display loop asks for a frame while `wants_frames()` and calls `frame(now)` | the runner, not presenting |
 
 The batch each Rust host sends its view layer carries `"frames": true`
 while `wants_frames()` holds, next to `timer_due_ms`.

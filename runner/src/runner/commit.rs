@@ -123,7 +123,7 @@ impl<D: DataSource> Runner<D> {
     /// uses [`Runner::advance_timed`], which keeps the commits before a
     /// refusal and the time each was made.
     pub fn advance(&mut self, now_ms: f64) -> Result<Vec<CommitReceipt>, RunnerError> {
-        let a = self.advance_within(now_ms, false, true);
+        let a = self.advance_timed(now_ms);
         match a.error {
             Some(e) => Err(e),
             None => Ok(a.receipts.into_iter().map(|t| t.receipt).collect()),
@@ -133,10 +133,20 @@ impl<D: DataSource> Runner<D> {
     /// Move the clock to `now_ms`, firing every timer due, in order, each at
     /// its own due time. A refusal stops the advance there: the commits so
     /// far are returned with their times, the clock stays at the refusing
-    /// timer's due time, and the refusal rides along. The wall clock's
-    /// path: no frame task fires here, only at [`Runner::frame`].
+    /// timer's due time, and the refusal rides along. Frame tasks fire their
+    /// virtual frames here unless the host presents frames
+    /// ([`Runner::present_frames`]; LLP 1073 D3).
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false, false)
+        self.advance_within(now_ms, false)
+    }
+
+    /// Whether the host presents frames (LLP 1073 D4): while it does, frame
+    /// tasks fire only at [`Runner::frame`]; while it doesn't (the default:
+    /// tests, and the agent's seekable clock), every advance fires their
+    /// virtual frames. A host turns it on when its display drives the clock
+    /// and off when the agent's clock takes over.
+    pub fn present_frames(&mut self, on: bool) {
+        self.presenting = on;
     }
 
     /// A presented frame at `now_ms` (LLP 1073 D2, D4): timers due by then
@@ -144,7 +154,9 @@ impl<D: DataSource> Runner<D> {
     /// once, at `now_ms`, in plan order; a frame missed is never caught up.
     /// Each task's virtual frames restart from `now_ms` (`super::virtual_frame`).
     pub fn frame(&mut self, now_ms: f64) -> Advanced {
+        let presenting = std::mem::replace(&mut self.presenting, true);
         let mut a = self.advance_timed(now_ms);
+        self.presenting = presenting;
         if a.error.is_some() || !self.wants_frames() {
             return a;
         }
@@ -184,12 +196,13 @@ impl<D: DataSource> Runner<D> {
     /// send would drop it. An agent's clock jump advances this way (LLP
     /// 1012); on the wall clock, replies land between ticks by themselves.
     pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true, true)
+        self.advance_within(now_ms, true)
     }
 
-    /// `frames`: a seek, whose virtual display fires each frame task's
-    /// frames as timers (LLP 1073 D3); else the wall clock's, which fires none.
-    fn advance_within(&mut self, now_ms: f64, until_request: bool, frames: bool) -> Advanced {
+    fn advance_within(&mut self, now_ms: f64, until_request: bool) -> Advanced {
+        // A host that presents frames fires frame tasks at `frame`; else
+        // their virtual frames are timers (LLP 1073 D3).
+        let frames = !self.presenting;
         let mut receipts = Vec::new();
         if !now_ms.is_finite() {
             return Advanced {

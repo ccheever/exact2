@@ -121,7 +121,8 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
 
 // @ref LLP 1073 D2–D4 — a frame task fires once per presented frame, at the
 // frame's time and after the timers due by then, and is never caught up; the
-// wall clock's timeout fires none; a seek fires each virtual frame, every
+// timeout of a host that presents frames fires none; any other advance fires
+// each virtual frame, every
 // 1000/60 ms after the task last fired, as a timer.
 #[test]
 fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek() {
@@ -143,7 +144,11 @@ fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek(
     )
     .unwrap();
     assert!(r.wants_frames());
-    // The frame source wakes a host for it, not a deadline.
+    // Not presenting frames (tests, the agent): the next virtual frame is a deadline.
+    assert_eq!(r.timer_due_ms(), Some(virtual_frame(0.0, 1)));
+    // A host that presents frames: its frame source wakes it, not a deadline,
+    // and its timeouts fire no frame task.
+    r.present_frames(true);
     assert_eq!(r.timer_due_ms(), Some(interval));
     assert!(r.advance_timed(interval / 2.0).receipts.is_empty());
     // A stall: one frame, at its time.
@@ -154,7 +159,9 @@ fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek(
     let f = r.frame(interval + 16.0);
     assert_eq!(at(&f), vec![interval, interval + 16.0]);
     assert_eq!(r.now_ms(), interval + 16.0);
-    // A seek: every virtual frame from the last presented one, as an f64 sum.
+    // The agent takes the clock: every virtual frame from the last presented
+    // one, each at base + k·1000/60.
+    r.present_frames(false);
     let seek = r.advance_until_request(interval + 120.0);
     let want = (1..)
         .map(|k| virtual_frame(interval + 16.0, k))

@@ -1015,10 +1015,12 @@ fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
     )
     .unwrap();
     assert!(r.wants_frames());
+    r.present_frames(true);
     assert_eq!(r.timer_due_ms(), None);
     assert!(r.advance_timed(5_000.0).receipts.is_empty());
     assert_eq!(r.frame(5_000.0).receipts.len(), 1);
     assert_eq!(text_of(&r, "n").as_deref(), Some("1"));
+    r.present_frames(false);
     assert_eq!(r.advance(6_000.0).unwrap().len(), 60);
     assert_eq!(text_of(&r, "n").as_deref(), Some("61"));
 }
