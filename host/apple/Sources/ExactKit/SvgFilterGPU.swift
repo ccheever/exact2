@@ -58,9 +58,14 @@ enum SvgFilterGPU {
         }
     }
 
-    /// Whether `run` takes this chain: a dry run over an empty source.
+    /// Whether `run` takes this chain: a dry run over an empty source. A
+    /// chain the Metal steps say (`SvgFilterMetal.steps`, a subset of what
+    /// this runs) is answered by that parse: the dry run makes Core Image's
+    /// contexts and filters, 5–6 ms a launch on the main thread (33 on the
+    /// first after an install) that a live picture drawn in Metal never uses.
     static func runs(_ program: [Float]) -> Bool {
-        chain(program, source: nil, w: 1, h: 1, origin: .zero, scale: CGSize(width: 1, height: 1)).ok
+        if metal != nil, SvgFilterMetal.steps(program, scale: 1) != nil { return true }
+        return chain(program, source: nil, w: 1, h: 1, origin: .zero, scale: CGSize(width: 1, height: 1)).ok
     }
 
     /// The chain `program` (`Filter::encode`) over `source` (premultiplied
