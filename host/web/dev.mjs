@@ -67,6 +67,13 @@ const source = resolve(app.dir, 'app.contract');
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
   await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
 }
+// Behind the JS loop (`--serve-as`) an app's resident loop is its producers
+// alone: nothing loads its page, so its builds are the web crate's bake
+// without the wasm (`host/web/build.mjs --bake`), and a program is named by
+// the bake's receipt rather than its wasm bytes (LLP 1071 §7, "Retiring the
+// wasm target on the web"). A game's is the wasm loop.
+const producersOnly = servedAs != null && app.manifest.game === undefined;
+const hostBuild = producersOnly ? '--bake' : '--wasm';
 let typescript = existsSync(resolve(app.dir, 'app.ts'));
 let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
 let rebuildOn = rebuildPolicy(app.manifest);
@@ -80,7 +87,7 @@ const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
 async function currentWebBuild() {
-  if (!await builtAppMatches(dist, app)) return false;
+  if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
     return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
@@ -88,7 +95,7 @@ async function currentWebBuild() {
   } catch { return false; }
 }
 if (!await currentWebBuild()) {
-  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 // The last complete cdylib links name their transitive source files, including
@@ -176,7 +183,7 @@ function gameRuntimeInputs(inputs) {
   }));
 }
 readGpuInputs();
-const gpuOnly = files => files.length > 0 && appInputs.size > 0
+const gpuOnly = files => !producersOnly && files.length > 0 && appInputs.size > 0
   && files.every(path => path.endsWith('.rs') && gpuInputs.has(path) && !appInputs.has(path));
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
 
@@ -288,6 +295,7 @@ let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
 // A changed program stays terminal even when its compatibility metadata agrees.
 const programIdentity = () => {
+  if (producersOnly) return JSON.parse(readFileSync(graphPath, 'utf8')).binary.sha256;
   const files = ['app.wasm', 'gpu_bg.wasm', ...gpuModules(app.manifest).map(({ name }) => `gpu/${name}_bg.wasm`), 'markup-editor.wasm', 'textflow.wasm'].map((name) => {
     const encoded = filesystem({ op: 'get', root: dist, path: name });
     if (encoded === null && name === 'app.wasm') throw new Error('the app wasm is missing');
@@ -931,8 +939,8 @@ function rebuild() { buildPending = true; drainBuilds(); }
 function rebuildNow(files) {
   building = true;
   const t = Date.now();
-  console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), '--wasm'], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the ${producersOnly ? "bake" : "wasm"}`);
+  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });
@@ -961,7 +969,7 @@ function rebuildNow(files) {
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
-      push({ error: `the wasm did not build:\n${errors}` });
+      push({ error: `the ${producersOnly ? "bake" : "wasm"} did not build:\n${errors}` });
       lastFailed = new Set(files);
       // A file only this failure names — added by the failing edit — is not in
       // any receipt; watch it until a build succeeds. Diagnostics are remapped

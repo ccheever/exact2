@@ -11,10 +11,21 @@ impl DataSource for Empty {
     }
 }
 
-/// Real Chrome sweep, run by `bun scripts/smoke.mjs web`.
+/// Real Chrome sweep, run by `bun scripts/smoke.mjs web`: the wasm host.
 #[test]
 #[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
 fn browser_session_history_and_published_deep_locations() {
+    sweep(false);
+}
+
+/// The same sweep on the JS target (LLP 1071): each plan a JS build.
+#[test]
+#[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
+fn browser_session_history_on_the_js_target() {
+    sweep(true);
+}
+
+fn sweep(js: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
@@ -25,7 +36,10 @@ fn browser_session_history_and_published_deep_locations() {
         Path::new(&chrome).exists(),
         "Chrome is required: set CHROME"
     );
-    assert!(dist.join("app.wasm").exists(), "build the web dist first");
+    assert!(
+        js || dist.join("app.wasm").exists(),
+        "build the web dist first"
+    );
     // The history fixture retains the corpus's route value, actions and
     // projection. Its data is constant so the Caltrain carrier needs no app
     // sources; the Back counter and refusal are authored Contract state.
@@ -75,7 +89,11 @@ fn browser_session_history_and_published_deep_locations() {
             "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          when e.name == \"home\"",
         );
     let plan = contract::bake(contract::compile(&source).unwrap(), Empty).unwrap();
-    let dir = std::env::temp_dir().join(format!("exact-router-browser-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "exact-router-browser-{}{}",
+        std::process::id(),
+        if js { "-js" } else { "" }
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.plan"), plan.encode()).unwrap();
     let no_handler = contract::bake(
@@ -94,6 +112,7 @@ fn browser_session_history_and_published_deep_locations() {
         .env("EXACT_ROUTER_DIST", dist)
         .env("CHROME", chrome)
         .env("EXACT_ROUTER_TEST", &dir)
+        .env("EXACT_ROUTER_TARGET", if js { "js" } else { "wasm" })
         .current_dir(root)
         .output()
         .unwrap();

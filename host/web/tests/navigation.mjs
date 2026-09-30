@@ -1,16 +1,31 @@
 // @ref LLP 1038 D7/D11 — real Chrome driver invoked by the web smoke.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { cpSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
-import { serveStatic, readWebRequest } from '../serve.mjs';
+import { serveStatic, serveBuildTree, readWebRequest } from '../serve.mjs';
 import { publishRoot } from '../../../scripts/deploy.mjs';
 import { DirectoryOrigin, appDocumentPath } from '../../../scripts/origin.mjs';
 const dir = process.env.EXACT_ROUTER_TEST, dist = resolve(dir, 'dist');
-cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
-for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
+// `EXACT_ROUTER_TARGET=js` (host/web/tests/it/navigation.rs): the JS target
+// (LLP 1071), each plan a JS build (the Caltrain carrier; the plans read no
+// sources), its fixture a script ahead of the runtime; else the wasm host,
+// the plan substituted at its boot.
+const js = process.env.EXACT_ROUTER_TARGET === 'js';
+const jsBuild = (plan, out) => {
+  const b = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', resolve(dir, plan), '--out', out, '--render', 'none'], { encoding: 'utf8' });
+  if (b.status !== 0) throw new Error(`${plan}: its JS build failed: ${b.stderr}`);
+  const page = readFileSync(out + '/index.html', 'utf8');
+  writeFileSync(out + '/index.html', page.replace('<script type="module" src="./app.js"></script>', `<script>(${jsFixture})()</script><script type="module" src="./app.js"></script>`));
+  cpSync('host/web/navigation.js', out + '/navigation.js'); // the host-seam cases import it
+  // A bare plan has no bake to copy `manifest.json` from; the link-file case needs a file there.
+  writeFileSync(out + '/manifest.json', '{}\n');
+};
+if (js) jsBuild('app.plan', dist);
+else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
+if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
 // Only substitute the baked plan at the actual wasm's boot ABI. All
@@ -48,22 +63,44 @@ function fixture(plan) {
     } } } };
   };
 }
-let html = readFileSync(dist + '/index.html', 'utf8');
-html = html.replace('<script type="module" src="./glue.js"></script>', `<script>(${fixture})(${JSON.stringify(bytes)})</script><script type="module" src="./glue.js"></script>`);
-writeFileSync(dist + '/index.html', html);
+// The JS target's fixture, before the runtime: agent mode, as the wasm
+// fixture sets it (the runtime reads it from the query, which the fixture
+// answers for), a clean location, as the wasm fixture leaves one at boot,
+// and the same History recorders.
+function jsFixture() {
+  globalThis.fixtureBoot = crypto.randomUUID();
+  const Params = URLSearchParams;
+  globalThis.URLSearchParams = class extends Params { constructor(init) { super(init); if (init === location.search) this.set('agent', '1'); } };
+  history.replaceState(null, '', location.origin + location.pathname);
+  globalThis.historyCalls = [];
+  for (const name of ['pushState', 'replaceState', 'go']) {
+    const original = history[name].bind(history);
+    history[name] = (...args) => {
+      if (name !== 'go' && args[2] !== location.origin + args[0].url) throw new Error('History API needs an origin-prefixed URL');
+      historyCalls.push({ name, args }); return original(...args);
+    };
+  }
+  globalThis.popEvents = [];
+  addEventListener('popstate', e => popEvents.push({ state: e.state, url: location.pathname + location.search }));
+}
+if (!js) {
+  let html = readFileSync(dist + '/index.html', 'utf8');
+  html = html.replace('<script type="module" src="./glue.js"></script>', `<script>(${fixture})(${JSON.stringify(bytes)})</script><script type="module" src="./glue.js"></script>`);
+  writeFileSync(dist + '/index.html', html);
+}
 const published = resolve(dir, 'origin');
 await publishRoot({ origin: new DirectoryOrigin(published), row: {}, web: dist });
 let served = dist;
 const server = createServer((req, res) => {
   if (req.url === '/__test-mirror') { res.setHeader('content-type', 'text/html'); res.end('<main id="host"></main>'); return; }
-  serveStatic(served, req, res);
+  (js && served !== published ? serveBuildTree : serveStatic)(served, req, res);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}`;
 const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('Chrome closed'); r(); }));
-const rows = [], failures = [], consoleLines = [], consoleErrors = [];
+const rows = [], failures = [], consoleLines = [], consoleErrors = [], skipped = [];
 try {
   const { targetInfos } = await cdp.send('Target.getTargets');
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: (targetInfos.find(t => t.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId, flatten: true });
@@ -88,8 +125,10 @@ try {
   const fresh = async (path = '/') => {
     const before = await evaluate('globalThis.fixtureBoot ?? null');
     await call('Page.navigate', { url: url + path + '?agent=1' });
-    await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && globalThis.exact?.root?.dataset.bootMs && globalThis.exact?.agent`);
+    await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && document.getElementById('exact-root')?.dataset.bootMs && globalThis.exact?.${js ? 'ready' : 'agent'}`);
     await evaluate('exact.ready');
+    // The JS target's agent answers the same requests (agent.js `agentSettled`).
+    if (js) await evaluate(`(exact.agent = exact.agentSettled, exact.root = document.getElementById('exact-root'), true)`);
     return evaluate('history.length');
   };
   const state = () => evaluate(`exact.agent({op:'state'})`);
@@ -115,10 +154,15 @@ try {
     assert.equal(r.delivery, 'platform');
     await until(`popEvents.length > ${before}`);
   };
-  const run = async (name, fn) => { try { since = 0; await fn(); } catch (error) { failures.push(name + ': ' + error.stack); } };
+  // A case the JS target has no seam for says why, and is not run there.
+  const run = async (name, fn, wasmOnly = null) => {
+    if (js && wasmOnly) { skipped.push({ name, why: wasmOnly }); console.log(JSON.stringify({ name, skipped: wasmOnly })); return; }
+    try { since = 0; await fn(); } catch (error) { failures.push(name + ': ' + error.stack); }
+  };
+  // The runner journals each dispatch (`navigate view N (followLink)`); the JS runtime journals none.
   const followed = row => {
     assert.equal(row.navigatePresses, 1, 'followLink ran once');
-    assert.equal(row.logs.lines.filter(l => l.includes('navigate view') && l.includes('(followLink)')).length, 1);
+    if (!js) assert.equal(row.logs.lines.filter(l => l.includes('navigate view') && l.includes('(followLink)')).length, 1);
     assert.equal(row.stamp.url, row.navigation.url);
     assert.equal(String(row.stamp.id), row.navigation.route);
   };
@@ -198,14 +242,14 @@ try {
     await evaluate(`document.activeElement.blur()`);
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
-  });
+  }, 'a URL typed into the root (the runner\'s URL event) and the root\'s aria-busy are the wasm host\'s');
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
     await tap('push-post'); await record('push post', '/post/42', n + 1, 2, 0);
     await historyTap(-1); await until(`location.pathname==='/'`);
     const back = await record('browser Back', '/', n + 1, 1, 1);
-    assert.equal(back.logs.lines.filter(l => l.includes('(back)')).length, 1);
+    if (!js) assert.equal(back.logs.lines.filter(l => l.includes('(back)')).length, 1);
     assert.equal(back.calls.filter(c => c.name === 'go').length, 1, 'completed pop emits no second go');
     await historyTap(1); await until(`location.pathname==='/post/42'`);
     const forward = await record('Forward follows link', '/post/42', n + 1, 2, 1);
@@ -273,7 +317,7 @@ try {
     const freshBoot = await record('fresh document starts at index zero', '/post/42', m, 2, 0);
     assert.equal(freshBoot.stamp.exact, 0);
     assert.equal(freshBoot.calls.filter(c => c.name === 'pushState').length, 0);
-  });
+  }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
   await run('Forward whose handler pushes /other', async () => {
     const n = await fresh(); await tap('push-post'); await tap('push-person');
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
@@ -345,7 +389,8 @@ try {
     await tap('push-post'); await record('nondeclared stack before reload', '/post/42', n + 1, 4, 0);
     await tap('open-write'); n = await evaluate('history.length');
     const before = await evaluate('fixtureBoot');
-    await call('Page.reload'); await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && globalThis.exact?.root?.dataset.bootMs`); await evaluate('exact.ready');
+    await call('Page.reload'); await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && ${js ? "document.getElementById('exact-root')?.dataset.bootMs && globalThis.exact?.ready" : 'globalThis.exact?.root?.dataset.bootMs'}`); await evaluate('exact.ready');
+    if (js) await evaluate(`(exact.agent = exact.agentSettled, exact.root = document.getElementById('exact-root'), true)`);
     since = 0;
     const reloaded = await record('reload /prompt/5/write', '/prompt/5/write', n, 3, 0);
     assert.deepEqual(reloaded.navigation.stack, ['1','5','6']);
@@ -445,17 +490,19 @@ try {
     served = published;
     const n = await fresh('/post/42'); await record('published /post/42', '/post/42', n, 2, 0);
     await fresh('/prompt/5/write'); const s = await state(); assert.deepEqual(s.navigation.stack, ['1','5','6']);
-    for (const path of ['/post/42', '/prompt/5/write', '/.exact/install/', '/missing.png', '/__dev/missing', '/.exact/missing', '/.git/config']) {
+    // A JS-target build carries no install pages or envelope: a deploy's root takes the bake's (deploy.mjs).
+    for (const path of ['/post/42', '/prompt/5/write', ...(js ? [] : ['/.exact/install/']), '/missing.png', '/__dev/missing', '/.exact/missing', '/.git/config']) {
       const response = await fetch(url + path), body = await response.text();
       const entry = { name: 'published HTTP', path, status: response.status, type: response.headers.get('content-type'), vary: response.headers.get('vary') }; rows.push(entry); console.log(JSON.stringify(entry));
       assert.equal(response.status, path === '/post/42' || path === '/prompt/5/write' || path === '/.exact/install/' ? 200 : 404);
       if (response.status === 200) assert.equal(entry.type, 'text/html');
       if (path.startsWith('/.exact/install')) assert.ok(body.includes('Install') && !body.includes('exact-root'));
     }
-    for (const path of ['/__dev/missing/index.html', '/.exact/missing/index.html', '/absent/index.html']) {
+    if (!js) for (const path of ['/__dev/missing/index.html', '/.exact/missing/index.html', '/absent/index.html']) {
       const absent = await readWebRequest(dist, path, 'application/vnd.exact.envelope+json');
       assert.equal(absent.index, false); assert.equal(absent.found, null);
     }
+    if (!js) {
     const envelope = await fetch(url + '/post/42', { headers: { accept: 'application/vnd.exact.envelope+json' } });
     assert.equal(envelope.headers.get('vary'), 'Accept'); assert.equal(envelope.headers.get('content-type'), 'application/vnd.exact.envelope+json');
     const payload = await envelope.json();
@@ -470,6 +517,7 @@ try {
       const native = await readWebRequest(dist, path, 'application/vnd.exact.envelope+json');
       assert.equal(new URL(JSON.parse(native.found.body).plan.url, url + path).pathname, '/app.plan');
       assert.ok(found.body.toString().includes('href="/exact.json"'));
+    }
     }
     // The public session API's form runs the same page path.
     served = dist;
@@ -505,7 +553,7 @@ try {
     await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
     assert.equal(await first(), 'other');
     assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
-  });
+  }, 'autofocus and its focus controller (navigation.js `focusController`) are not carried by the JS runtime yet (QUEUE)');
 
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }
@@ -513,5 +561,5 @@ try {
   server.close(); server.closeAllConnections();
 }
 assert.deepEqual(failures, []);
-console.log('router browser: all session-history and serving cases passed');
+console.log(`router browser${js ? ' (the JS target)' : ''}: all session-history and serving cases passed${js ? `; ${skipped.length} not the JS target's: ${skipped.map(s => s.name).join('; ')}` : ''}`);
 process.exit(0);

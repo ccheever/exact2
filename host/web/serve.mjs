@@ -595,7 +595,10 @@ export function buildTreeFile(dist, pathname) {
   return null;
 }
 export function serveBuildTree(dist, req, res) {
-  const found = buildTreeFile(dist, new URL(req.url, 'http://exact.invalid').pathname);
+  // The raw target is refused as serveStatic refuses it (an encoded dot
+  // segment); a parsed URL would resolve one into another route.
+  const target = webRequestURL(req.url);
+  const found = target && buildTreeFile(dist, target.pathname);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }

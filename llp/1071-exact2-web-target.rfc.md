@@ -1350,23 +1350,18 @@ client depends on is deleted before its replacement runs.
 1. *Conformance's oracle* (`conform.mjs`): the wasm page is the reference
    every JS step is compared to (state, tree, layout, pixels). It stays as
    the internal reference build (`host/web/build.mjs --wasm`, called only by
-   `conform.mjs`). A reference without the wasm page is the Rust runner
-   headless under the agent (the Linux host, `agent.mjs linux`), which
-   gives the runner's state and tree but its own layout and pixels (Taffy
-   and its own text, not the browser's); so it replaces the state and tree
-   comparisons, while layout and pixels need a pinned JS baseline per app
-   (the JS run of a green commit, compared thereafter). The wasm build is
-   deleted from the web host only when both run in the lane.
+   `conform.mjs`). A reference without the wasm page is designed below
+   (*A conformance reference without the wasm page*); it is not built, and
+   the wasm build stays deleted from nothing until it runs in the lane.
 2. *Native clients' live reload* (`build.mjs --url`, `/__dev/open`, `exact
    run`): they read the resident loop's envelope and generations, made by
    its producers — the app's `dev` bin (the resident compiler), the
    TypeScript producer (Hermes bytecode) and the Rust module producer —
-   none of which is the wasm. The page is the only wasm part, and
-   `programIdentity` hashes `app.wasm`. The replacement is the resident
-   loop's producers and envelope server beside a JS page that reloads at
-   each generation (the JS build of the generation's plan), with the
-   program identity the JS build's files. Until it lands a native client
-   opens `dev.mjs --wasm`, and the JS loop's 404 says so.
+   none of which is the wasm. Landed: the JS loop forwards a native
+   client's requests to the resident loop (order (d)), and that loop, run
+   behind the JS page for an app, builds the bake (`--bake`) rather than
+   the wasm, with the bake receipt's `binary.sha256` as its program
+   identity. A game's resident loop still builds its wasm page.
 3. *The parity tools.* `canvasparity` now takes the JS build as the web
    (landed with this plan: the JS agent reports `state.canvas`, whose
    records for every fixture — draws, pending, generation, backing, the
@@ -1410,9 +1405,10 @@ build's minutes cold). (d) The resident producers beside the JS page
 `/__dev` and its generations, `/__dev/open` — to the resident loop on a
 loopback port, `host/web/dev.mjs --wasm --serve-as <port>`, started at the
 first such request; the page's own reload stream is `/__dev/page`; an edit
-reaches both, the page rebuilt and generation 2 announced. The resident
-loop still makes its wasm page, internal and unserved; its producers
-without that build are the next cut). (e) The bare-plan fixtures as
+reaches both, the page rebuilt and generation 2 announced. Behind the JS
+page the resident loop builds no wasm (landed after: `--bake`; the
+Caltrain web crate edited, "rebuilding the bake… rebuilt in 9.1 s", no
+`app.wasm` in its dist; a contract edit announces generation 2). (e) The bare-plan fixtures as
 per-plan JS builds: `agent.mjs web --plan` on a JS dist builds that plan
 (`host/web-js/build.mjs --plan`, over the dist's Rust module) and serves
 it, and the share and document-picker fixtures pass that way. The smoke's
@@ -1421,9 +1417,23 @@ JS agent does not report yet (`layout <node>`'s detail, an iframe's
 outline and load state, a host section in `state`, the tree's
 accessibility props, gesture and key deliveries), the same gaps that fail
 the smoke's Caltrain drive on the JS target (QUEUE). The router sweep
-(`host/web/tests/navigation.mjs`) drives the wasm host's boot ABI and
-stays its test; the JS target's router is held by conformance's
-synthetic `router` plan, step by step against the runner. `motionparity`
+runs on both targets (landed): `navigation.rs`'s
+`browser_session_history_on_the_js_target` builds the sweep's corpus plan
+as one JS build (`host/web-js/build.mjs --plan`) served as a build tree,
+with the same fixture's history journal, and runs every case the JS
+target has a seam for; three are named as not the JS target's and
+skipped with their reason (the focused route teardown and the autofocus
+case drive the runner's focus controller; the in-document reboot is
+`exact.reload`). `smoke.mjs web`'s `navigation::` filter runs both. The
+sweep found and fixed four JS faults: a same-origin link to a declared
+route opened a new document instead of navigating in place (LLP 1038
+§7; rt.js now follows it in place, and a link that is also a press
+target is the press's alone); an iframe `src` or link `href` bound to a
+script URL was written (now refused by the navigable-URL policy the
+wasm host applies: http, https, mailto, tel); `serveBuildTree` served an
+encoded dot segment (`/.exact/%2e%2e/…`, now `webRequestURL`'s refusal);
+and the JS agent's `state` had no `navigation` section (now
+`navigation.js`'s observation, as the wasm agent reports). `motionparity`
 (landed): the JS agent holds animated images to its clock with the web
 host's own `image-glue.js`; JS and wasm captures of Motion Gallery at
 every parity time agree (105 of 105 crops in the band), conformance's
@@ -1432,6 +1442,60 @@ Linux-host state/tree oracle and pinned JS baselines in the lane; then
 (g) the wasm web host (`host/web/glue.js`, the web crate's wasm entry,
 `stages.mjs`) is deleted from everything but games and conformance's
 reference, which it stays for until (f).
+
+### A conformance reference without the wasm page (design, 2026-09-29; not built)
+
+What was asked: the Linux host headless (`agent.mjs linux`) as the
+reference for state and tree, and the JS results of a green commit, saved,
+as the reference for layout and pixels.
+
+*Measured.* The Linux host runs on this Mac (`cargo build --release -p
+caltrain-linux`, 83 s warm). Caltrain and every synthetic plan whose web
+drive boots, driven as `conform.mjs` drives (boot, the first ten
+presses, `clock +60000`), against the wasm page:
+
+- Tree: equal at every step of Caltrain and of clock, document, dst,
+  early, locale, press, regions, rows, styles, time and timers.
+- Differences, all the host's and not the runner's: the web page's
+  location in the route stack (`url` carries `?agent=1&seed=…`, and the
+  boot entry's `id` is 1 or 3 on the web, 0 on Linux), which the router
+  plan prints into its tree at every step; and Caltrain's deck screen,
+  loaded on the web and not on Linux (the web crate's deck loader).
+- Not comparable: a plan needing a capability the Caltrain Linux binary
+  does not link (the collection plans) and any web-only step (`back`,
+  `wheel`, links, a TypeScript module, files).
+
+*Design.* `conform.mjs --reference linux` keeps every step and the JS
+side as they are and replaces the wasm session with two references:
+
+1. State and tree from `open({ host: 'linux', app, plan })`, the data
+   app's release binary (built once per data app). Compared with the
+   route stack's `url` read as the path alone and `id`s renumbered from
+   the stack's first; a step whose op the Linux host has no delivery for
+   (`back`, `wheel`, a link) takes the pinned JS result below for state
+   and tree as well. A plan whose data app's Linux binary does not link
+   its capabilities is pinned wholly.
+2. Layout and pixels from a pinned JS run: `conform.mjs --pin <commit>`
+   at a green commit (strict pass against the wasm page) saves each
+   step's layout boxes and screenshot under the lane's cache, keyed by
+   the step and the Chrome build; later runs compare to it with the same
+   tolerances.
+
+*Why it is not built.* It is sound for the runner's own semantics (state
+and tree: no difference in twelve plans). It is not yet sound as the
+lane's only reference, for three reasons. The path-only `url` and
+renumbered `id`s hide exactly what the router plan checks, the web
+location; so routing moves to the router sweep, which now runs on the JS
+target (above), and that move should be ruled, not assumed. A pinned
+result is a regression check, not a reference: it cannot say a change is
+wrong, only that it is a change, and the startup and runtime agents are
+changing the JS page's rendering now; each intended change would need a
+re-pin that nothing checks against the runner. And the collection plans
+and the web-only steps would be held by pins alone. The step before it
+that is sound on its own: run the Linux state/tree comparison beside the
+wasm one (a second oracle in the same run), so a disagreement between
+the two references shows before the wasm page is removed. Order (f)
+waits on that and on a ruling that pins may stand for layout and pixels.
 
 **The rest of the dynamic rows** (landed 2026-09-29, measured; brotli):
 every dynamic style row is now carried (rows.rs). `box-shadow` is one
@@ -1568,3 +1632,9 @@ reports no `value`), and an option is `Text`.
 6. **New apparatus.** The spike adds a backend, a runtime and a runner mode for
    `agent.mjs`, on its branch. Landing any of them on main needs your yes
    under RULES §Agents.
+7. **Conformance without the wasm page.** May a JS run saved at a green
+   commit stand as the reference for layout and pixels, and may routing be
+   held by the router sweep (now on the JS target) rather than compared
+   against a runner, so that the Linux host can be the reference for state
+   and tree? (§7, "A conformance reference without the wasm page": designed,
+   not built; until then the wasm page stays conformance's reference.)

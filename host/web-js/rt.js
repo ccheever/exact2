@@ -525,11 +525,16 @@ const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|pla
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
+const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
 export function P(e, name, f) {
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
+    // A URL that navigates is written only if the web host's policy takes it
+    // (navigation.js `navigableURL`: http, https, mailto, tel): a refused
+    // link loses its `href`, an iframe shows about:blank.
+    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.value !== (v ?? "")) e.value = v ?? ""; }
@@ -1423,6 +1428,26 @@ let RouterSlot = null, Shown = null, Navigate = null;
 export function router(slot, history) {
   RouterSlot = slot;
   history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
+  // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
+  // route stays in this document, as input-glue.js's rule for the wasm host:
+  // a link with its own `press` navigates by it; any other goes to the
+  // root's `navigate` handler, as popstate does. A modified click, a
+  // `target` or `download`, another origin, this page's fragment or an
+  // undeclared path (a file) is the browser's alone.
+  document.addEventListener("click", ev => {
+    const a = ev.target.closest?.("a[href]"), root = document.getElementById("exact-root");
+    if (!a || !root?.contains(a) || ev.defaultPrevented) return;
+    const press = (a.dataset.exactOn ?? "").split(" ").includes("press");
+    if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) ev.stopPropagation(); return; }
+    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search, m = matchRoute(canonical(to));
+    if (url.origin !== location.origin || (here && url.hash) || !m || Routes[m[0]].notfound) return;
+    if (!press && !Navigate) return;
+    ev.preventDefault();
+    if (press || here) return;
+    const before = RouterSlot.n?.v;
+    Navigate(to);
+    if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
+  }, true);
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;
     const top = x_top(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0])));

@@ -105,7 +105,8 @@ Markdown build) — LLP 1071 §7, "Files and storage";
 and press feedback, and every dynamic style row (shadows, font stacks, line clamp,
 numeric variants, backdrop blur, press scale, a pressed node's animation and
 transition, an SVG `transform`, markers and `url(#…)` references); and native
-clients on the dev URL (the JS loop forwards them to the resident loop's producers),
+clients on the dev URL (the JS loop forwards them to the resident loop's producers,
+which build the bake, not the wasm), the router sweep on the JS target,
 delivery's bake without `app.wasm`, and animated images on the agent's clock — LLP
 1071 §7, "Retiring the wasm target on the web". Games stay on the wasm target
 (Charlie, 2026-09-29).
