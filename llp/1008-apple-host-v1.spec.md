@@ -1091,11 +1091,13 @@ screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 
 **A contact on the simulator** (LLP 1035.003 §3 candidate 1, 2026-09-10):
 the app synthesizes no touch. The driver posts a real mouse into the
-Simulator's window (`host/apple/pointer.swift`), calibrated by hovering at
+simulator's window (`host/apple/pointer.swift`: Simulator.app's, or under
+Xcode 27, which ships none, the window Device Hub opens for the device,
+2026-09-30), calibrated by hovering at
 two desktop points and reading where the viewport saw the pointer
 (`layout.pointer`, a hover recognizer the presenter installs only under the
-agent), and refuses — naming the covering app — when the Simulator's window
-is not the topmost at the point. `layout` also reports `screen` (the
+agent), and refuses — naming the covering app — when the simulator's window
+is not the topmost at the point, or saying so when the Mac's screen is locked. `layout` also reports `screen` (the
 device's size and scale, and the viewport's origin on it).
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so

@@ -644,31 +644,31 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     });
     // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
     // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
-    // mouse on the Mac's desktop, posted into the Simulator's window by
+    // mouse on the Mac's desktop, posted into the simulator's window by
     // `host/apple/pointer.swift` (built here with swiftc on first use). The
     // window-to-device mapping lives in this one place: the app reports its
     // screen and where its viewport sits on it (`layout.screen`), the helper
-    // reports the Simulator window's frame, and a viewport point maps
+    // reports the simulator window's frame, and a viewport point maps
     // through both. The app receives whatever UIKit delivers from that
     // input; nothing is activated in its place. What this needs from the
-    // machine — Accessibility for this terminal, the Simulator window on
+    // machine — Accessibility for this terminal, the simulator's window on
     // screen and unobscured — is reported as `unsupported` with the reason
     // when it is missing, never faked.
     let pointer = null;
     let contact = null;
     let contactDesktop = null;
     // The mapping from a viewport point to the desktop, found by observation
-    // — a Simulator window carries a bezel and a scale of its own that no
+    // — a simulator window carries a bezel and a scale of its own that no
     // frame arithmetic knows: the Mac's pointer is hovered at two desktop
     // points inside the window and the app reports where its viewport saw
     // each (`layout.pointer`); the uniform scale and offset follow. Redone
     // whenever the window's frame changes.
     let mapping = null;
     const calibrate = async (p) => {
-      const w = await p.ask({ op: 'window', title: dev.name });
-      if (w.error) return { error: w.error };
-      const key = `${w.x},${w.y},${w.w},${w.h}`;
-      if (mapping?.key === key) return mapping;
+      const found = await p.ask({ op: 'window', title: dev.name });
+      if (found.error) return { error: found.error };
+      const keyOf = (w) => `${w.x},${w.y},${w.w},${w.h}`;
+      if (mapping && found.windows.some((w) => keyOf(w) === mapping.key)) return mapping;
       const probe = async (x, y) => {
         const r = await p.ask({ op: 'hover', x, y });
         if (r.error) return { error: r.error };
@@ -676,18 +676,30 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         const l = await ask({ op: 'layout' });
         return l.pointer ?? null;
       };
-      const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
-      const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
-      const pa = await probe(a.x, a.y);
-      if (pa?.error) return pa;
-      const pb = await probe(b.x, b.y);
-      if (pb?.error) return pb;
-      if (!pa || !pb || pa.x === pb.x || pa.y === pb.y) return { error: 'the app saw no pointer hover; is the Simulator window on screen and unobscured?' };
-      const sx = (b.x - a.x) / (pb.x - pa.x), sy = (b.y - a.y) / (pb.y - pa.y);
-      if (!(sx > 0 && sy > 0) || Math.abs(sx - sy) / sx > 0.1) return { error: `calibration disagrees between axes (${sx.toFixed(3)} vs ${sy.toFixed(3)})` };
-      const scale = (sx + sy) / 2;
-      mapping = { key, scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
-      return mapping;
+      const against = async (w) => {
+        const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
+        const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
+        const pa = await probe(a.x, a.y);
+        if (pa?.error) return pa;
+        const pb = await probe(b.x, b.y);
+        if (pb?.error) return pb;
+        if (!pa || !pb || pa.x === pb.x || pa.y === pb.y) return { error: `the app saw no pointer hover in the simulator window ${JSON.stringify(w.title)}; is it on screen and unobscured?` };
+        const sx = (b.x - a.x) / (pb.x - pa.x), sy = (b.y - a.y) / (pb.y - pa.y);
+        if (!(sx > 0 && sy > 0) || Math.abs(sx - sy) / sx > 0.1) return { error: `calibration disagrees between axes (${sx.toFixed(3)} vs ${sy.toFixed(3)})` };
+        const scale = (sx + sy) / 2;
+        return { key: keyOf(w), scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
+      };
+      // The helper cannot tell which simulator window is this device's when
+      // titles are unreadable, and Device Hub's main window is titled with a
+      // device too: the one the app sees a hover in is it. The first
+      // candidate's refusal is the one reported.
+      let refused = null;
+      for (const w of found.windows) {
+        const m = await against(w);
+        if (!m.error) return (mapping = m);
+        refused ??= m;
+      }
+      return refused;
     };
     const helper = async () => {
       if (pointer) return pointer;
@@ -712,8 +724,12 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         if (contact) throw new Error('a contact is already down; use `tap up` first');
         const trusted = await p.ask({ op: 'trusted' });
         if (!trusted.trusted) return unsupported('the desktop pointer needs Accessibility permission for this terminal (System Settings › Privacy & Security › Accessibility)');
-        await p.ask({ op: 'activate' });
-        await sleep(200);
+        if (trusted.locked) return unsupported("the Mac's screen is locked: a desktop pointer reaches no window until it is unlocked");
+        // The device's window to the front: Simulator.app's, or the one
+        // Device Hub opens for this device, which takes a moment to appear.
+        showSimulator(dev);
+        for (let i = 0; i < 10 && (await p.ask({ op: 'window', title: dev.name })).named !== true; i++) await sleep(150);
+        await sleep(300);
       } else if (!contact) throw new Error('no contact is down');
       if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
       if (kind === 'cancel') return { phase: 'cancel', at: [contact.x, contact.y], delivery: 'unsupported', reason: 'a desktop pointer has no cancel; the contact is still down — send up' };
