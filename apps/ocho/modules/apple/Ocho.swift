@@ -40,6 +40,7 @@ final class OchoModule: ExactModule {
         jobs = JobRunner(binary: binary)
         super.init(context: context)
         fleet.onEvents = { [weak self] in self?.context.changed("feed") }
+        Notifier.feed = fleet
         desktop.onChange = { [weak self] in self?.context.changed("desktop") }
         fleet.start()
         desktop.start()
@@ -567,11 +568,16 @@ final class JobRunner {
 /// required, threaded by `machine:session`.
 enum Notifier {
     private static var asked = false
+    /// Where a clicked notification's session is sent (main.rs: a click
+    /// opens the session, `open_notification_session`).
+    static weak var feed: FleetFeed?
+    private static let clicks = NotificationClicks()
 
     static func post(title: String, body: String, thread: String) {
         let center = UNUserNotificationCenter.current()
         if !asked {
             asked = true
+            center.delegate = clicks
             center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
         let content = UNMutableNotificationContent()
@@ -715,5 +721,18 @@ final class OchoMenu: NSObject {
             bar.addItem(develop)
         }
         return bar
+    }
+}
+
+/// A click on a turn notification: the app comes forward and the model
+/// shows the session its thread names (`machine:session`).
+final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler done: @escaping () -> Void) {
+        let thread = response.notification.request.content.threadIdentifier
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            if !thread.isEmpty { Notifier.feed?.inject(["type": "notification", "thread": thread]) }
+        }
+        done()
     }
 }

@@ -483,3 +483,12 @@ fn a_fresh_install_opens_welcome_and_its_steps_run_commands() {
     w.apply_desktop(&serde_json::json!({"text": r#"{"windows":[{"tabs":[]}]}"#}));
     assert!(!matches!(w.overlay, Overlay::Welcome));
 }
+
+#[test]
+fn a_clicked_notification_shows_its_sessions_tab() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.tabs.select_manager();
+    w.apply_feed(&serde_json::json!({"events": [{"type": "notification", "thread": "m1:s1"}]}));
+    assert_eq!(w.active_source(), Some(("m1".into(), "s1".into())));
+}

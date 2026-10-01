@@ -1120,6 +1120,14 @@ impl Workspace {
                 }
             }
             "error" if !event.error.is_empty() => self.set_error(event.error),
+            // A clicked turn notification: show its session.
+            "notification" => {
+                if let Some((machine, session)) = event.thread.split_once(':') {
+                    if self.open_notification_session(machine, session) {
+                        self.persist_tabs();
+                    }
+                }
+            }
             // A menu bar item (main.rs `set_menus`), relayed by the host.
             "menu" => {
                 if let Some(cmd) = crate::palette::Command::from_id(&event.command) {

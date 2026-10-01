@@ -529,6 +529,9 @@ pub struct FleetEvent {
     /// sends the menu through the feed.
     #[serde(default)]
     pub command: String,
+    /// A clicked notification's thread (`machine:session`), on `notification`.
+    #[serde(default)]
+    pub thread: String,
     /// A machine event whose sessions are the same as last time: the
     /// snapshot arrives without them and the ones shown count as observed.
     #[serde(default)]
