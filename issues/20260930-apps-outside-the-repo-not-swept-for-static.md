@@ -29,3 +29,6 @@ changes: `app.contract:76` fails inference for the unused `setPassword(value)`
 parameter. This is outside the exact2 ticket sweep; the external work was
 preserved. Keep this issue open until that app builds and both external apps
 can be driven against the integrated exact2 change.
+
+**Static audit (2026-09-30, Claude, the follow-up lane):** a script over the Contract source (the parent of each `position="absolute"` element or `dialog`, resolved through `when`/`each`/`match`/`otherwise` regions; insets on a box with no position; `z-index` on a static box under a block parent) finds nothing in `~/projects/weird-castle/app.contract` or `~/projects/interview/app.contract`. The same script finds 35 boxes in Messages before LLP 1074 (`d8a4a0ebf~1`) and 0 after, so it sees what the hand sweep saw. The drive of both apps above is still owed.
+

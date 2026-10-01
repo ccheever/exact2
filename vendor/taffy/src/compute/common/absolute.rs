@@ -117,10 +117,16 @@ impl AbsolutePass {
         #[cfg(feature = "content_size")]
         let (overflow, contain) = (absolute.overflow, absolute.contain);
         #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
+        // CSS 2.1 §10.3.7: the inset is the static position before the box is sized, so the
+        // space runs from the static edge to the containing block's far edge; for a centred
+        // position, twice the distance to the nearer edge (as Chrome measures it).
         let static_inline_space = match position.align.x {
             StaticAlignment::Start => area_size.width - (position.rect.left + origin.x - area_offset.x),
             StaticAlignment::End => position.rect.right + origin.x - area_offset.x,
-            StaticAlignment::Center => area_size.width,
+            StaticAlignment::Center => {
+                let centre = (position.rect.left + position.rect.right) / 2.0 + origin.x - area_offset.x;
+                2.0 * crate::util::sys::f32_min(centre, area_size.width - centre)
+            }
         };
         let placed = absolute.layout(
             tree,

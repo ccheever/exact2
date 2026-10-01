@@ -137,3 +137,71 @@ fn containing_blocks_and_static_positions_match_chrome() {
     let fixture = include_str!("fixtures/browser_containing_block.tsv");
     check(failures(fixture, false), NOT_IN_THE_KERNEL);
 }
+
+/// An absolutely positioned root is sized and placed in its offer by the
+/// solver every absolute box uses. Chrome 154, 2026-09-30: a `position:
+/// absolute` box in a `position: relative` 800×600 box.
+#[test]
+fn an_absolute_root_is_placed_in_its_offer_as_chrome_places_it() {
+    let cases: &[(&str, [f32; 4])] = &[
+        ("left:10px;top:20px;width:30px;height:40px", [10., 20., 30., 40.]),
+        ("left:10px;right:30px;top:5px;height:40px", [10., 5., 760., 40.]),
+        ("left:10px;right:30px;top:5px;bottom:15px", [10., 5., 760., 580.]),
+        ("right:10px;bottom:20px;width:30px;height:40px", [760., 540., 30., 40.]),
+        ("margin-left:7px;margin-top:9px;width:30px;height:40px", [7., 9., 30., 40.]),
+        (
+            "left:0px;right:0px;top:0px;bottom:0px;width:100px;height:50px;margin-left:auto;margin-right:auto;margin-top:auto;margin-bottom:auto",
+            [350., 275., 100., 50.],
+        ),
+        ("left:10%;top:10%;width:50%;height:50%", [80., 60., 400., 300.]),
+        ("left:100px;right:100px;top:0px;aspect-ratio:2", [100., 0., 600., 300.]),
+        ("direction:rtl;width:30px;height:40px", [0., 0., 30., 40.]),
+    ];
+    let mut wrong = Vec::new();
+    for (css, want) in cases {
+        let root = props(&css_rows(&format!("position:absolute;{css}")));
+        let k = lay_out_with(root, vec![], &[], &[]);
+        wrong.extend(mismatches(css, &k, &[(1, *want)]));
+    }
+    // With no insets and no size it is its content's size at the origin, and a
+    // child's percentages are of the root.
+    let k = lay_out_with(
+        props(&css_rows("position:absolute")),
+        vec![(2, 1, css_rows("width:60px;height:25px"))],
+        &[],
+        &[],
+    );
+    wrong.extend(mismatches("content size", &k, &[(1, [0., 0., 60., 25.])]));
+    let k = lay_out_with(
+        props(&css_rows(
+            "position:absolute;left:10px;top:20px;width:200px;height:100px",
+        )),
+        vec![(2, 1, css_rows("width:50%;height:50%"))],
+        &[],
+        &[],
+    );
+    wrong.extend(mismatches(
+        "a child that fills",
+        &k,
+        &[(1, [10., 20., 200., 100.]), (2, [10., 20., 100., 50.])],
+    ));
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The containing-block fixture again with `position: static` authored on
+/// the root: the kernel positions a static root itself (the containing block
+/// of last resort), so every frame is the same.
+#[test]
+fn an_authored_static_root_is_the_last_containing_block() {
+    let fixture = include_str!("fixtures/browser_containing_block.tsv");
+    let rooted: String = fixture
+        .lines()
+        .filter(|line| !line.is_empty() && !line.split('\t').nth(1).unwrap().contains("position:"))
+        .map(|line| {
+            let mut field: Vec<String> = line.split('\t').map(str::to_string).collect();
+            field[1] = format!("position:static;{}", field[1]);
+            field.join("\t") + "\n"
+        })
+        .collect();
+    check(failures(&rooted, false), NOT_IN_THE_KERNEL);
+}

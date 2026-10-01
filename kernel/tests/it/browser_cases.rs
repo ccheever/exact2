@@ -47,6 +47,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "box-sizing" => &[BoxSizing],
             "direction" => &[Direction],
             "flex-direction" => &[FlexDirection],
+            "flex-wrap" => &[FlexWrap],
             "align-items" => &[AlignItems],
             "align-content" => &[AlignContent],
             "justify-items" => &[JustifyItems],
