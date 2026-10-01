@@ -56,7 +56,7 @@ final class TextRasterizer {
         return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
-                   box: key.box, size: key.size, scale: key.scale, clamped: geometry.clamped)
+                   box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped)
     }
 
     /// Only first pixels may rasterize synchronously. A replacement uses the
@@ -190,12 +190,16 @@ extension NodeView {
         // Cheapest first: this is asked of every visible paragraph on every
         // text refresh, and the ancestor walk and the paragraph's spec are
         // the costly questions.
+        // `text-overflow: ellipsis` truncates in the raster job, as `draw(_:)`
+        // does, and a `line-clamp`'s last line is made again from the range
+        // it broke at (`LineGeometry.clamped`), as on iOS (873cec46e): a
+        // clamped or ellipsized label no longer paints on the main thread.
         guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
-              number("line_clamp") == 0, window != nil, readerParagraph == nil, let presenter else { return false }
+              window != nil, readerParagraph == nil, let presenter else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
         if presenter.session?.regions.owns(self) == true { return false }
-        return canvasAbove == nil && !paragraphSpec().ellipsis
+        return canvasAbove == nil
     }
 
     /// Too few pixels to repay a surface. Such text draws whole rather than in

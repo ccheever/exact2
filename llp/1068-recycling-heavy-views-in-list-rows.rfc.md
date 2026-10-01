@@ -1109,6 +1109,40 @@ exact2 238–297, SwiftUI 229–321). So the 19-kind feed now beats SwiftUI on
 CPU and fps and matches it on peak. The iPad was down for the soak (its
 launches hang); its rounds are owed.
 
+### 5.2.3 The macOS host holds heavy leaves too (2026-09-30, `perf/mac2`)
+
+The macOS host embedded a row's map, video and web view at `NodeView.init`,
+so every row the lead built one to three viewports ahead made its
+`MKMapView`, `AVPlayer` or `WKWebView` at once. Counted by a probe hook over
+the Extra Heavy fling on bones (M4, 60 Hz): 31 `MKMapView`s to SwiftUI's
+22, each loading to completion; MapKit was 158 of the 264 ms/s of process
+CPU by which exact2 exceeded SwiftUI (tile decode and meshes off main 249
+vs 124, its render on main 62 vs 29).
+
+`Mac/HeavyLeavesMac.swift` is §5.1 and §5.2 as the iOS host has them,
+applied unchanged: made within a quarter viewport of what shows, one a
+frame, visible first, never while the list travels faster than a viewport
+a second once the kind has cost more than a frame; a click on the box,
+focus into it, the agent's settle and a reset make them at once; far module
+views hide beyond the margin (§5.2.1's hide only: macOS has no parked reuse,
+so nothing is released by distance). One difference: macOS has no pool to
+name the list building a node at its init, so every held kind waits at init
+and the batch's end makes those in no collection's row, within the same
+apply.
+
+Measured on bones, main at eb898ad64 against the hold, three rounds
+interleaved with the order alternated (`~/bench/xheavy-mac/results/ab2-bones`):
+
+| 19-kind fling | fps | busy ms/frame | process CPU ms/s | main ms/s | peak MB |
+|---|---|---|---|---|---|
+| SwiftUI | 55.6 | 6.83 | 549 | 347 | 1043 |
+| main | 59.2 | 7.90 | 815 | 393 | 1488 |
+| the hold | 59.4 | 7.06 | 595 | 354 | 807 |
+
+At 24k pt/s process CPU 1504/1611 → 855/801 and main 650/648 → 548/538;
+rest and the inner fling unchanged. Predicted before measuring: process
+−90 to −150, main −25 to −40, peak −50 to −100 MB.
+
 ## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
 **Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about

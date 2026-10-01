@@ -360,10 +360,8 @@ public final class Agent {
         // twenty seconds, not sixteen times that.
         let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
         if settle { waitForReplies(until: deadline) }
-        #if os(iOS)
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
-        #endif
         waitForImages()
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }

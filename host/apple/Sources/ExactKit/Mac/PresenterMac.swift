@@ -44,6 +44,8 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
+    lazy var leaves = HeavyLeaves(self)
     lazy var selection = TextSelection(self)
     let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
@@ -379,6 +381,7 @@ final class Presenter {
         // there is nothing to report, and nothing here reads or writes the
         // scroll view again until AppKit next calls in.
         sampleListTravel()
+        leaves.scrolled()
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
         if textPending {
@@ -450,6 +453,8 @@ final class Presenter {
     /// a half-filled window (LLP 1012: an agent never waits).
     func settlePump() {
         pumpSchedule.cancel()
+        // The agent reads the tree right after: every held leaf is made (LLP 1068 §5.1).
+        leaves.settle()
         // Match the previous bounded native-feedback depth while keeping
         // background admission out of this synchronous agent boundary.
         for _ in 0..<8 {
@@ -526,6 +531,7 @@ final class Presenter {
         mouseReorder.cancel()
         reorder?.abandon()
         collections.reset()
+        leaves.reset()
         autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
@@ -711,6 +717,7 @@ final class Presenter {
     /// host), and never while a batch is being applied — it waits for the
     /// batch to finish, then goes if its view survived it.
     private var applying = false
+    var isApplying: Bool { applying }
     private var resetting = false
     private var pendingGeometry: (() -> Void)?
 
@@ -781,6 +788,8 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
+        // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).
+        let moved = batch.ops.contains { [.create, .frame, .content].contains($0.op) }
         defer {
             collections.endBatch()
             collections.observeKnobDrags()
@@ -796,6 +805,7 @@ final class Presenter {
                 for (id, f) in q where textHost(id) != nil { f() }
                 batchApplied()
                 if !boxFilters.isEmpty { boxFilters.render() }
+                leaves.batchApplied(moved: moved)
             }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
@@ -837,6 +847,7 @@ final class Presenter {
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
+                if v.kind == "video" { leaves.created(v) }
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
