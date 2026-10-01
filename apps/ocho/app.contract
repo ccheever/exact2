@@ -409,6 +409,13 @@ shape SecretRequests
   busy: bool
   reset: string
   alert: SecretAlert
+shape Welcome
+  visible: bool
+  claudeOn: bool
+  accountHint: string
+  machineHint: string
+  launchHint: string
+  quickHint: string
 shape PhoneChip
   id: string
   label: string
@@ -444,6 +451,7 @@ shape View
   whatsNew: WhatsNew
   pairing: IMessagePair
   phone: PhonePair
+  welcome: Welcome
   secrets: SecretRequests
 shape Media
   prefersColorScheme: string
@@ -542,7 +550,7 @@ component Ocho
             when vm.toast.dismissible
               button press=press("toast-dismiss") testId="toast-dismiss" hover=hover("toast-dismiss") class=Reset color=(hoverId == "toast-dismiss" ? t.text : t.muted) padding-left=4 padding-right=4
                 text "×"
-      Overlays(model=vm.overlay, popup=vm.popup, whatsNew=vm.whatsNew, pairing=vm.pairing, phone=vm.phone, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, pressAt=pressAt, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
+      Overlays(model=vm.overlay, popup=vm.popup, whatsNew=vm.whatsNew, pairing=vm.pairing, phone=vm.phone, welcome=vm.welcome, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, pressAt=pressAt, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
       // ⌘ chords the app declares reach the model as `key:` presses: the
       // key handler above sees bare keys only (LLP 1005 §5).
       // A 1 px transparent button each, in a strip under the traffic lights, so a

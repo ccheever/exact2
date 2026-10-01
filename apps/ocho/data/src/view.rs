@@ -39,6 +39,7 @@ pub fn render(ws: &Workspace, _versions: &[f64]) -> Value {
         "whatsNew": ws.whats_new.view(),
         "pairing": pairing,
         "phone": ws.phone_view(),
+        "welcome": ws.welcome_view(),
         "secrets": ws.secrets_view(),
         "region": match ws.region() {
             Region::Rail => "rail",
@@ -516,6 +517,7 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
         Overlay::WhatsNew => card("whats-new", crate::whats_new::WIDTH, false),
         Overlay::PairIMessage => card("pair-imessage", crate::imessage_pair::WIDTH, false),
         Overlay::PairPhone(_) => card("pair-phone", 460.0, false),
+        Overlay::Welcome => card("welcome", 600.0, false),
         Overlay::Launch(launch) => {
             let v = if launch.quick.is_some() {
                 crate::quick::view(launch, &ws.state)

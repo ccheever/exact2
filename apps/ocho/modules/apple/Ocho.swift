@@ -68,7 +68,8 @@ final class OchoModule: ExactModule {
             if let message = fleet.failure { answer["failure"] = message }
             reply.send(answer)
         case "desktop":
-            reply.send(["text": desktop.text, "mtime": desktop.mtime, "home": FleetHome.path, "now": Date().timeIntervalSince1970])
+            reply.send(["text": desktop.text, "mtime": desktop.mtime, "home": FleetHome.path, "now": Date().timeIntervalSince1970,
+                        "read": true, "exists": FileManager.default.fileExists(atPath: desktop.url.path)])
         case "io":
             let jobs = request["jobs"] as? [[String: Any]] ?? []
             self.jobs.run(jobs, fleet: fleet, desktop: desktop, terminals: terminals) { replies in reply.send(["replies": replies, "now": Date().timeIntervalSince1970]) }
@@ -669,6 +670,7 @@ final class OchoMenu: NSObject {
             .separator(),
             item("Check for Updates…", "check-for-updates"),
             item("What’s New…", "whats-new"),
+            item("Welcome to Ocho…", "welcome"),
             item("Settings…", "settings", ","),
             .separator(),
             item("Quit Ocho", "quit", "q"),

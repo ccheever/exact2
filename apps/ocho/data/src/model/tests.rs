@@ -467,3 +467,19 @@ fn a_menu_bar_item_runs_its_command() {
     w.apply_feed(&serde_json::json!({"events": [{"type": "menu", "command": "tab-0"}]}));
     assert_eq!(w.tabs.active, 0);
 }
+
+#[test]
+fn a_fresh_install_opens_welcome_and_its_steps_run_commands() {
+    let mut w = Workspace::new();
+    w.apply_desktop(&serde_json::json!({"text": "", "read": true, "exists": false}));
+    assert!(w.desktop_loaded);
+    assert!(matches!(w.overlay, Overlay::Welcome));
+    w.dispatch(Event::Press("welcome-claude-toggle".into()));
+    assert_eq!(w.welcome_view()["claudeOn"], true);
+    w.dispatch(Event::Press("welcome-account".into()));
+    assert!(matches!(w.overlay, Overlay::Form(_)), "{:?}", w.overlay);
+    // An upgrade with saved windows does not.
+    let mut w = Workspace::new();
+    w.apply_desktop(&serde_json::json!({"text": r#"{"windows":[{"tabs":[]}]}"#}));
+    assert!(!matches!(w.overlay, Overlay::Welcome));
+}

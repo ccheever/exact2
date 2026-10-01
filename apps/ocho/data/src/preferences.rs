@@ -136,7 +136,7 @@ pub const ITEMS: &[SettingSpec] = &[
     SettingSpec {
         item: SettingItem::RemoteClaudeNative,
         title: "Local client for remote Claude (experimental)",
-        description: "Patch a separate verified Claude 2.1.274–2.1.278 or 2.1.280–2.1.286 Apple Silicon binary on demand; installed Claude stays untouched. New and resumed remote sessions use Anthropic's service with the same subscription account on both machines. Automatically trusts launch workspaces in Fleet-managed profiles; tool approvals stay unchanged. Requires updated Fleet, a verified Claude build, and Remote Control consent on the worker. Fork and read-only viewing are not supported.",
+        description: "Patch a separate verified Claude 2.1.274–2.1.278 or 2.1.280–2.1.287 Apple Silicon binary on demand; installed Claude stays untouched. New and resumed remote sessions use Anthropic's service with the same subscription account on both machines. Automatically trusts launch workspaces in Fleet-managed profiles; tool approvals stay unchanged. Requires updated Fleet, a verified Claude build, and Remote Control consent on the worker. Fork and read-only viewing are not supported.",
         kind: SettingKind::Toggle,
     },
     SettingSpec {
@@ -692,7 +692,7 @@ mod tests {
         assert!(setting.description.contains("2.1.274"));
         assert!(setting.description.contains("2.1.278"));
         assert!(setting.description.contains("2.1.280"));
-        assert!(setting.description.contains("2.1.286"));
+        assert!(setting.description.contains("2.1.287"));
     }
 
     #[test]

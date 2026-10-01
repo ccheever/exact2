@@ -212,6 +212,12 @@ impl DesktopSettings {
     }
 
     /// The settings in `text`, or why they could not be read.
+    /// Nothing has been saved yet: a fresh install, not an upgrade
+    /// (settings.rs `is_first_launch`).
+    pub fn is_first_launch(&self) -> bool {
+        self.windows.is_none() && self.tabs.is_empty()
+    }
+
     pub fn try_parse(text: &str) -> Result<DesktopSettings, String> {
         serde_json::from_str(&strip_jsonc(text)).map_err(|e| e.to_string())
     }

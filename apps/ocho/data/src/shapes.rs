@@ -467,6 +467,15 @@ pub const PHONE_PAIR: Shape = Record(&[
     ("note", Str),
 ]);
 
+pub const WELCOME: Shape = Record(&[
+    ("visible", Bool),
+    ("claudeOn", Bool),
+    ("accountHint", Str),
+    ("machineHint", Str),
+    ("launchHint", Str),
+    ("quickHint", Str),
+]);
+
 pub const VIEW: Shape = Record(&[
     ("theme", THEME),
     ("windowTitle", Str),
@@ -486,6 +495,7 @@ pub const VIEW: Shape = Record(&[
     ("whatsNew", WHATS_NEW),
     ("pairing", IMESSAGE_PAIR),
     ("phone", PHONE_PAIR),
+    ("welcome", WELCOME),
     ("secrets", SECRETS),
 ]);
 

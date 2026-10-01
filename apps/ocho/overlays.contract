@@ -16,6 +16,7 @@ component Overlays
     whatsNew: WhatsNew
     pairing: IMessagePair
     phone: PhonePair
+    welcome: Welcome
     t: Theme
     hoverId: string
     windowWidth: number
@@ -147,6 +148,58 @@ component Overlays
               button press=press("pair-close") testId="pair-close" hover=hover("pair-close") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=(hoverId == "pair-close" ? t.selected : t.accent12) color=t.text
                 text "Close"
                 text "Esc" font-size=11 line-height="18px" color=t.muted
+          // ---- Welcome to Ocho (ui/welcome_ui.rs, 600 wide): the steps to
+          // a first session, and where to find this again ----
+          when model.kind == "welcome"
+            row align-items="center" padding-left=16 padding-right=16 padding-top=16 padding-bottom=4 flex-shrink=0
+              text "Welcome to Ocho" flex=1 font-size=18 line-height="27px" font-weight=600
+              button press=press("welcome-close") testId="welcome-close" hover=hover("welcome-close") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "welcome-close" ? t.selected : t.element) color=t.text
+                text "Close"
+                text "Esc" font-size=11 line-height="18px" color=t.muted
+            text "Run Codex, Claude and other coding agents as persistent sessions on this Mac or your other machines, and pick any of them back up from here." padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="19px" color=t.muted flex-shrink=0
+            scroll testId="welcome-steps" flex=1 min-height=0
+              column padding-left=16 padding-right=16 padding-bottom=8
+              column gap=4 padding-left=8 padding-right=8 padding-top=12 padding-bottom=12 flex-shrink=0
+                row align-items="baseline" gap=8
+                  text "Add an account" font-weight=600
+                text "Sign in to Codex, Claude, or another provider. Sessions run under an account, and you can add several and switch between them." font-size=12 line-height="19px" color=t.muted
+                row flex-wrap="wrap" gap=8 padding-top=4 font-size=12 line-height="19px"
+                  button press=press("welcome-account") testId="welcome-account" hover=hover("welcome-account") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "welcome-account" ? t.selected : t.accent15) color=t.text
+                    text "Add account…"
+                    when welcome.accountHint != ""
+                      text welcome.accountHint font-size=11 line-height="18px" color=t.placeholder
+              column gap=4 padding-left=8 padding-right=8 padding-top=12 padding-bottom=12 flex-shrink=0
+                row align-items="baseline" gap=8
+                  text "Add a machine" font-weight=600
+                  text "Optional" font-size=11 line-height="18px" color=t.muted
+                text "Sessions can run right here on this Mac. Add a machine over SSH to run them somewhere else and reach them from anywhere." font-size=12 line-height="19px" color=t.muted
+                row flex-wrap="wrap" gap=8 padding-top=4 font-size=12 line-height="19px"
+                  button press=press("welcome-machine") testId="welcome-machine" hover=hover("welcome-machine") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "welcome-machine" ? t.selected : t.element) color=t.text
+                    text "Add machine…"
+                    when welcome.machineHint != ""
+                      text welcome.machineHint font-size=11 line-height="18px" color=t.placeholder
+              column gap=4 padding-left=8 padding-right=8 padding-top=12 padding-bottom=12 flex-shrink=0
+                row align-items="baseline" gap=8
+                  text "Launch a session" font-weight=600
+                text "⌘N opens the launch dialog to pick a machine, account, folder and model. ⌘⇧N quick-launches from your saved shortcuts — the fast way to start the same kind of session again." font-size=12 line-height="19px" color=t.muted
+                row flex-wrap="wrap" gap=8 padding-top=4 font-size=12 line-height="19px"
+                  button press=press("welcome-launch") testId="welcome-launch" hover=hover("welcome-launch") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "welcome-launch" ? t.selected : t.accent15) color=t.text
+                    text "Launch session…"
+                    when welcome.launchHint != ""
+                      text welcome.launchHint font-size=11 line-height="18px" color=t.placeholder
+                  button press=press("welcome-quick") testId="welcome-quick" hover=hover("welcome-quick") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "welcome-quick" ? t.selected : t.element) color=t.text
+                    text "Quick launch…"
+                    when welcome.quickHint != ""
+                      text welcome.quickHint font-size=11 line-height="18px" color=t.placeholder
+              column gap=4 padding-left=8 padding-right=8 padding-top=12 padding-bottom=12 flex-shrink=0
+                row align-items="baseline" gap=8
+                  text "Try the local Claude client" font-weight=600
+                  text "Optional" font-size=11 line-height="18px" color=t.muted
+                text "Experimental: remote Claude sessions run the Claude interface on this Mac, so typing stays instant over a slow connection. You can change this any time in Settings." font-size=12 line-height="19px" color=t.muted
+                row flex-wrap="wrap" gap=8 padding-top=4 font-size=12 line-height="19px"
+                  button press=press("welcome-claude-toggle") testId="welcome-claude-toggle" hover=hover("welcome-claude-toggle") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(welcome.claudeOn ? t.accent : t.border) background-color=(hoverId == "welcome-claude-toggle" ? t.hover : (welcome.claudeOn ? t.selected : t.element)) color=(welcome.claudeOn ? t.accent : t.text)
+                    text (welcome.claudeOn ? "Local Claude client: On" : "Enable local Claude client")
+            text "Reopen this from the command palette (⌘P) or Ocho › Welcome to Ocho…" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 border-top-style="solid" border-top-width=1 border-color=t.border font-size=11 line-height="18px" color=t.muted flex-shrink=0
           // ---- Confirm (ui.rs:3689): title in warn, body muted, Cancel n / Yes y ----
           when model.kind == "confirm"
             text model.title padding-left=16 padding-right=16 padding-top=12 font-weight=600 color=t.warn

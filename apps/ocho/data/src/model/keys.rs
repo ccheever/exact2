@@ -19,6 +19,9 @@ impl Workspace {
         if id.starts_with("pair-") && self.phone_press(id) {
             return;
         }
+        if id.starts_with("welcome-") && self.extras_press(id) {
+            return;
+        }
         // A click anywhere else takes the keyboard from the secret entry
         // (ui.rs: a terminal click; the entry is the only focus Ocho tracks).
         if !id.starts_with("key:") {
@@ -509,7 +512,8 @@ impl Workspace {
             | Overlay::Themes(_)
             | Overlay::WhatsNew
             | Overlay::PairIMessage
-            | Overlay::PairPhone(_) => return false,
+            | Overlay::PairPhone(_)
+            | Overlay::Welcome => return false,
             Overlay::None => {}
         }
         if self.searching || at == "search" {

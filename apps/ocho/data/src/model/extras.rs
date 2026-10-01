@@ -3,6 +3,7 @@
 //! ui.rs `render_whats_new`, `render_pair_imessage`).
 
 use super::{Overlay, Reply, Workspace};
+use crate::palette::Command;
 use crate::picker::Mods;
 use crate::whats_new::WhatsNewKey;
 
@@ -26,6 +27,30 @@ impl Workspace {
                 Reply::WhatsNewHistory,
             );
         }
+    }
+
+    /// Welcome to Ocho (workspace.rs `show_welcome`): Settings closes
+    /// first, as for What's New.
+    pub fn show_welcome(&mut self) {
+        if let Overlay::Settings(page) = &mut self.overlay {
+            let effect = page.close();
+            self.apply_settings_effect(effect);
+        }
+        self.overlay = Overlay::Welcome;
+    }
+
+    /// The Welcome panel's fields (ui/welcome_ui.rs): the step buttons' key
+    /// hints and the local Claude client's state.
+    pub fn welcome_view(&self) -> serde_json::Value {
+        use crate::preferences::{setting_bool, SettingItem};
+        serde_json::json!({
+            "visible": matches!(self.overlay, Overlay::Welcome),
+            "claudeOn": setting_bool(&self.settings, SettingItem::RemoteClaudeNative),
+            "accountHint": self.hint(Command::AddAccount),
+            "machineHint": self.hint(Command::AddMachine),
+            "launchHint": self.hint(Command::New),
+            "quickHint": self.hint(Command::QuickLaunch),
+        })
     }
 
     /// The history text arrived.
@@ -82,8 +107,8 @@ impl Workspace {
                 }
                 true
             }
-            // workspace.rs: Esc, Enter or q closes the pairing card.
-            Overlay::PairPhone(_) => {
+            // workspace.rs: Esc, Enter or q closes the pairing and Welcome cards.
+            Overlay::PairPhone(_) | Overlay::Welcome => {
                 let key = crate::picker::canon(name);
                 if matches!(key.as_str(), "escape" | "enter") || (key == "q" && !mods.meta) {
                     self.overlay = Overlay::None;
@@ -97,6 +122,28 @@ impl Workspace {
     /// A press on What's New or the pairing card; `true` when it was one.
     pub(super) fn extras_press(&mut self, id: &str) -> bool {
         match id {
+            "welcome-close" => {
+                self.overlay = Overlay::None;
+                true
+            }
+            "welcome-account" | "welcome-machine" | "welcome-launch" | "welcome-quick" => {
+                self.overlay = Overlay::None;
+                self.execute(match id {
+                    "welcome-account" => Command::AddAccount,
+                    "welcome-machine" => Command::AddMachine,
+                    "welcome-launch" => Command::New,
+                    _ => Command::QuickLaunch,
+                });
+                true
+            }
+            "welcome-claude-toggle" => {
+                use crate::preferences::{set_bool, setting_bool, SettingItem};
+                let on = setting_bool(&self.settings, SettingItem::RemoteClaudeNative);
+                set_bool(&mut self.settings, SettingItem::RemoteClaudeNative, !on);
+                let text = self.settings.to_json_pretty();
+                self.host(vec!["save-desktop".into()], text);
+                true
+            }
             "whats-new-close" | "imessage-close" => {
                 self.whats_new.close();
                 self.imessage.close();

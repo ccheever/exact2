@@ -1130,6 +1130,23 @@ impl Workspace {
         self.stamp_wall(json);
         let text = json.get("text").and_then(|t| t.as_str()).unwrap_or("");
         if text.is_empty() {
+            // No desktop.json at all (the module read and found none): a
+            // fresh install starts from the defaults, as settings::load does,
+            // and greets with Welcome (main.rs `is_first_launch`).
+            let missing = json.get("read").and_then(|r| r.as_bool()) == Some(true)
+                && json.get("exists").and_then(|e| e.as_bool()) == Some(false);
+            if missing && !self.desktop_loaded {
+                self.desktop_loaded = true;
+                self.desktop_broken = false;
+                self.settings = DesktopSettings::default();
+                self.queue(
+                    "host",
+                    vec!["theme-files".into()],
+                    String::new(),
+                    Reply::ThemeFiles(true),
+                );
+                self.show_welcome();
+            }
             return;
         }
         // A file this parser cannot read is left alone: nothing is restored
@@ -1145,6 +1162,9 @@ impl Workspace {
         self.desktop_broken = false;
         if !self.desktop_loaded {
             self.desktop_loaded = true;
+            if settings.is_first_launch() {
+                self.show_welcome();
+            }
             // The bundled theme now; the saved one (or FLEET_THEME, or Zed's)
             // once the host lists the theme files (`initial_theme`).
             self.theme = match settings.theme.as_deref() {

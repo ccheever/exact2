@@ -87,6 +87,8 @@ pub enum Overlay {
     WhatsNew,
     /// The iMessage pairing card (state on `Workspace::imessage`).
     PairIMessage,
+    /// First-launch getting started steps (ui/welcome_ui.rs).
+    Welcome,
     /// Pair Phone (workspace.rs `Overlay::Pair`).
     PairPhone(Box<super::phone::PhonePair>),
 }
@@ -242,6 +244,7 @@ impl Workspace {
             }
             Command::Themes => self.open_themes(false),
             Command::WhatsNew => self.open_whats_new(),
+            Command::Welcome => self.show_welcome(),
             Command::PairIMessage => self.open_pair_imessage(),
             Command::PairPhone => self.pair_open(None),
             Command::UpdateDesktop => {
