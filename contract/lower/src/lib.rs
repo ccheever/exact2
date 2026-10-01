@@ -734,6 +734,7 @@ impl<'a> Lowerer<'a> {
                     in_svg,
                     *span,
                     self.host_transforms.contains(&(*span, *instance)),
+                    !self.may_hold_absolute(children),
                 )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
                 let has =
