@@ -365,6 +365,10 @@ pub struct Update<'a> {
     /// 1048.004): bindings are evaluated and kept, and no style or prop op
     /// is built. The document is written from the tree ([`Tree::document`]).
     pub discard: bool,
+    /// A discarded update changed a text row (`StyleMask::TEXT`), which a
+    /// kept update would have written as a style op: what tells a list its
+    /// rows' typography changed ([`Tree::update`]).
+    text_styled: bool,
 }
 
 impl<'a> Update<'a> {
@@ -385,6 +389,7 @@ impl<'a> Update<'a> {
             on_path: true,
             notes: Vec::new(),
             discard: false,
+            text_styled: false,
         }
     }
 
@@ -772,6 +777,13 @@ impl NodeInst {
                 continue;
             }
             if u.discard {
+                if binding.kind == BindingKind::Style
+                    && !matches!(value, Value::Option(None))
+                    && exact_kernel::StyleId::from_bit(binding.id as u32)
+                        .is_some_and(|style| exact_kernel::StyleMask::TEXT.has(style))
+                {
+                    u.text_styled = true;
+                }
                 self.last[i] = Some(value);
                 continue;
             }
@@ -1019,7 +1031,7 @@ impl Tree {
         if roots? {
             self.emit_roots(u);
         }
-        if self.has_collections && u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT))) {
+        if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;
             }

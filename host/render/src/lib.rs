@@ -188,10 +188,9 @@ pub fn render_as<D: DataSource + 'static>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Projection {
     /// From the runner's instance tree, with no kernel, where the page's
-    /// ids are nobody's ([`Ids::Any`]) and the plan allows it
-    /// ([`exact_web::document::writes_without_a_kernel`]); else from a
-    /// kernel's nodes. `EXACT_RENDER_DIRECT=off` keeps every render on a
-    /// kernel.
+    /// ids are nobody's ([`Ids::Any`]); else, or when the tree holds what
+    /// the fold doesn't cover, from a kernel's nodes.
+    /// `EXACT_RENDER_DIRECT=off` keeps every render on a kernel.
     Auto,
     /// From a kernel's nodes.
     Kernel,
@@ -216,8 +215,7 @@ pub(crate) fn direct_for(plan: &Plan, ids: Ids, projection: Projection) -> Resul
         if !projects_as_booted(plan) {
             return Err("a slot's initializer reads a resource".into());
         }
-        exact_web::document::writes_without_a_kernel(plan)
-            .map_err(|what| format!("the plan has {what}"))
+        Ok(())
     };
     match projection {
         Projection::Kernel => Ok(false),
