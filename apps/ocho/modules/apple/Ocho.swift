@@ -336,7 +336,7 @@ final class JobRunner {
                 }
             case "clear-terminal", "reconnect-terminal":
                 DispatchQueue.main.async {
-                    if argv.count > 1 { argv[0] == "clear-terminal" ? terminals.clear(tab: argv[1]) : terminals.close(tab: argv[1]) }
+                    if argv.count > 1 { argv[0] == "clear-terminal" ? terminals.clear(tab: argv[1]) : terminals.reconnect(tab: argv[1]) }
                     finish(["status": 0, "stderr": "", "stdout": ""])
                 }
             case "save-desktop":

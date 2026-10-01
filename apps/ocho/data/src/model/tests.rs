@@ -308,7 +308,7 @@ fn a_retryable_transport_reconnects_in_place_and_the_strip_says_so() {
     let strip = w.connection_strip(false);
     assert_eq!(strip["stripLabel"], "Disconnected");
     assert_eq!(strip["stripRetry"], true);
-    assert_eq!(w.connection_scrim(), (true, false));
+    assert_eq!(w.tab_chrome()["overlay"], "disconnected");
     w.dispatch(Event::Press("tab:retry".into()));
     let jobs = w.take_jobs();
     assert_eq!(jobs[0].argv, ["retry-connection", "m1:s1:false"]);
@@ -339,4 +339,51 @@ fn an_exit_status_is_kept_and_reconnect_clears_it() {
     assert!(jobs
         .iter()
         .any(|j| j.argv == ["reconnect-terminal", "m1:s1:false"]));
+}
+
+#[test]
+fn reconnect_hints_match_the_exit_banner() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.dispatch(Event::Press("terminal:exited:0".into()));
+    let buttons = w.tab_view_exit_buttons();
+    let ids: Vec<_> = buttons
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids, ["reconnect", "close", "manager"]);
+    assert_eq!(buttons[0]["hint"], w.hint(Command::ReconnectTab));
+    assert_eq!(buttons[2]["hint"], w.hint(Command::SelectTab(0)));
+}
+
+#[test]
+fn an_exited_managed_tab_is_assessed_and_its_card_stays_on_the_tab() {
+    let mut w = ws();
+    w.apply_feed(&serde_json::json!({"events": [{"type": "machine", "machine": {
+        "id": "m1", "name": "box", "local": true,
+        "last": {"live_inventory": true, "sessions": [{"id": "s1", "title": "t", "provider": "claude",
+            "managed": true, "state": "exited", "pid": 0, "tmux_pane": "%1"}]}}}]}));
+    with_session_tab(&mut w, "m1", "s1");
+    w.dispatch(Event::Press("terminal:exited:1".into()));
+    let jobs = w.take_jobs();
+    let assess = jobs
+        .iter()
+        .find(|j| j.argv[0] == "recovery")
+        .expect("assessed");
+    assert_eq!(assess.argv, ["recovery", "m1", "s1"]);
+    w.apply_io(&serde_json::json!({"replies": [{"id": assess.id, "kind": "recovery", "status": 0,
+        "stdout": r#"{"status":"agent-uncertain","reason":"why","launch":{"provider":"claude","resume":"r"}}"#,
+        "stderr": ""}]}));
+    assert_eq!(w.tab_chrome()["overlay"], "recovery");
+    w.dispatch(Event::Press("tab:recovery-details".into()));
+    assert_eq!(w.tabs.active, 1, "the card's buttons act on the tab");
+    assert_eq!(w.tab_chrome()["overlayReason"], "why");
+    w.dispatch(Event::Press("tab:recovery-fork".into()));
+    assert!(matches!(
+        w.overlay,
+        Overlay::Confirm {
+            action: super::exec::ConfirmAction::ForkRecovery,
+            ..
+        }
+    ));
 }

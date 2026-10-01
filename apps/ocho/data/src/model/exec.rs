@@ -14,7 +14,7 @@ use crate::tab_tree::{ClosedTab, Reopened, Tab};
 use crate::types::{Machine, Session};
 
 /// A session with its machine (workspace.rs `SessionItem`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionItem {
     /// The machine the session runs on.
     pub machine: Machine,
@@ -31,6 +31,8 @@ pub enum ConfirmAction {
     Delete,
     /// `fleet interrupt`.
     Interrupt,
+    /// Relaunch an uncertain or restorable conversation as a fork.
+    ForkRecovery,
 }
 
 /// The one open overlay (workspace.rs `Overlay`).
@@ -141,6 +143,12 @@ impl Workspace {
             Command::Palette => self.overlay = Overlay::Palette(PickerState::new()),
             Command::ToggleSecrets => self.toggle_secrets(),
             Command::ToggleTranscript => self.toggle_transcript(),
+            Command::RefreshSessionTheme => self.refresh_active_session_theme(),
+            Command::CheckForUpdates => {
+                // Nothing runs outside a bundle; the rail shows why.
+                let _ = self.updater.check(true);
+            }
+            Command::SwitchClaudeWorkerTerminal => self.switch_claude_worker_terminal(),
             Command::AttachIMessage => {
                 match self.tab_target().as_ref().and_then(imessage_attach_command) {
                     Some(args) => self.run_cli(args, "iMessage attached to this conversation"),
@@ -206,6 +214,28 @@ impl Workspace {
                         "No profile assigned to ⌘⌥{slot}. Use Add profile… in the command palette to create one."
                     )),
                 }
+            }
+            Command::RecoveryContinue
+            | Command::RecoveryRestore
+            | Command::RecoveryFork
+            | Command::RecoveryReplace
+            | Command::RecoveryDetails => {
+                self.recovery_command(cmd);
+            }
+            Command::NewFolder => self.open_form(crate::forms::Form::folder(None)),
+            Command::PullRequests => self.open_pull_requests(),
+            Command::Conversations => self.open_conversations(),
+            Command::IndexConversations => {
+                self.topics.index_conversations(true, self.now);
+                self.poll_topics();
+            }
+            Command::Themes => self.open_themes(false),
+            Command::WhatsNew => self.open_whats_new(),
+            Command::PairIMessage => self.open_pair_imessage(),
+            Command::UpdateDesktop => {
+                // A ready update would install; outside a bundle this checks
+                // and says why it cannot.
+                let _ = self.updater.install();
             }
             _ if self.tabs.active > 0 && !palette::TAB_SESSION.iter().any(|i| i.command == cmd) => {
                 // Manager-only commands leave the terminal tab first.
@@ -386,16 +416,7 @@ impl Workspace {
                     }
                 }
             }
-            Command::UnpauseTab => {
-                let target = self.tab_target().filter(|i| i.session.state == "paused");
-                match target {
-                    Some(item) => self.run_cli(
-                        vec!["unpause".into(), item.machine.id, item.session.id],
-                        "Session resumed",
-                    ),
-                    None => self.set_message("This session is not paused"),
-                }
-            }
+            Command::UnpauseTab => self.unpause_tab(),
             Command::Stop => {
                 if let Some(item) = self.selected_session() {
                     self.overlay = Overlay::Confirm {
@@ -436,16 +457,6 @@ impl Workspace {
                     }
                 }
             }
-            Command::NewFolder => self.open_form(crate::forms::Form::folder(None)),
-            Command::PullRequests => self.open_pull_requests(),
-            Command::Conversations => self.open_conversations(),
-            Command::IndexConversations => {
-                self.topics.index_conversations(true, self.now);
-                self.poll_topics();
-            }
-            Command::Themes => self.open_themes(false),
-            Command::WhatsNew => self.open_whats_new(),
-            Command::PairIMessage => self.open_pair_imessage(),
             Command::BackupRecovery => self.open_form(crate::forms::Form::recovery_backup()),
             Command::ConnectEAS => {
                 let args = vec!["eas".to_string(), "connect".into()];
@@ -517,6 +528,12 @@ impl Workspace {
                 "{} is not available yet in this client",
                 palette::label(other)
             )),
+        }
+        if matches!(
+            cmd,
+            Command::NextTab | Command::PrevTab | Command::SelectTab(_)
+        ) {
+            self.recover_active_exited_session();
         }
         self.refresh_account_usage(false);
     }
@@ -623,19 +640,6 @@ impl Workspace {
         self.nav = false;
         self.set_message("");
         self.persist_tabs();
-    }
-
-    /// Spawn the terminal again (workspace.rs `reconnect_tab`).
-    pub fn reconnect_tab(&mut self, pos: usize) {
-        let key = self.tabs.tabs[pos].key.clone();
-        // A retryable transport reconnects in place.
-        if self.retry_connection(&key) {
-            return;
-        }
-        self.exited.remove(&key);
-        self.exit_codes.remove(&key);
-        self.connections.remove(&key);
-        self.host(vec!["reconnect-terminal".into(), key], String::new());
     }
 
     /// Close a tab (workspace.rs `close_tab`): its rows are promoted, the
@@ -768,8 +772,13 @@ impl Workspace {
     /// Yes on a confirmation (workspace.rs `confirm_yes`).
     pub fn confirm_yes(&mut self) {
         match std::mem::replace(&mut self.overlay, Overlay::None) {
+            Overlay::Confirm {
+                action: ConfirmAction::ForkRecovery,
+                ..
+            } => self.confirm_fork_recovery(),
             Overlay::Confirm { action, item } => {
                 let (verb, done) = match action {
+                    ConfirmAction::ForkRecovery => return,
                     ConfirmAction::Stop => ("terminate", "Session stopped"),
                     ConfirmAction::Delete => ("delete", "Session stopped and removed"),
                     ConfirmAction::Interrupt => ("interrupt", "Interrupt sent"),
@@ -1065,6 +1074,7 @@ impl Workspace {
             let text = self.settings.to_json_pretty();
             self.host(vec!["save-desktop".into()], text);
             self.set_message(format!("Theme: {} (default)", self.theme.name));
+            self.refresh_remote_theme_tabs();
         }
         if effect.open_themes {
             self.open_themes(true);
@@ -1229,15 +1239,31 @@ pub fn machine_at(ws: &Workspace, index: usize) -> Option<Machine> {
     machine_rows(&ws.state).nth(index).cloned()
 }
 
-/// A confirmation's title and yes label (ui.rs `render_overlay`'s confirms).
-pub fn exec_confirm_texts(action: ConfirmAction, name: &str) -> (String, &'static str) {
+/// A confirmation's title, body and yes label (ui.rs `render_overlay`'s
+/// confirms) for the session `name` on `machine` (`session` its id).
+pub fn exec_confirm_texts(
+    action: ConfirmAction,
+    name: &str,
+    machine: &str,
+    session: &str,
+) -> (String, String, &'static str) {
     match action {
-        ConfirmAction::Stop => (format!("Terminate {name}?"), "Terminate"),
         ConfirmAction::Delete => (
             format!("Stop and remove {name} from Ocho?"),
+            format!("{machine} · Files and native conversation history are kept."),
             "Stop and remove",
         ),
-        ConfirmAction::Interrupt => (format!("Interrupt {name}?"), "Interrupt"),
+        ConfirmAction::Stop => (
+            format!("Terminate {name}?"),
+            format!("{machine} · {session}"),
+            "Terminate",
+        ),
+        ConfirmAction::Interrupt => (
+            format!("Interrupt {name}?"),
+            format!("{machine} · The agent stops its current turn and waits for your next message, like Ctrl+C in its terminal."),
+            "Interrupt",
+        ),
+        ConfirmAction::ForkRecovery => crate::recovery::fork_confirm_texts(name, machine),
     }
 }
 

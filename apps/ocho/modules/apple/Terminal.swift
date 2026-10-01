@@ -540,6 +540,12 @@ final class TerminalStore {
     /// ⌘K: the scrollback goes (`clear` through the shell would need a prompt).
     func clear(tab: String) { views[tab]?.paste("\u{0C}") }
 
+    /// Reconnect: the terminal goes, and the tab showing it attaches again.
+    func reconnect(tab: String) {
+        close(tab: tab)
+        NotificationCenter.default.post(name: .ochoTerminalReplaced, object: tab)
+    }
+
     /// The connection strip's Retry while the transport can retry.
     func retryConnection(tab: String) { feeds[tab]?.retry() }
 
@@ -560,6 +566,7 @@ final class TerminalStore {
 extension Notification.Name {
     static let ochoTerminalExited = Notification.Name("ocho.terminal.exited")
     static let ochoTerminalConnection = Notification.Name("ocho.terminal.connection")
+    static let ochoTerminalReplaced = Notification.Name("ocho.terminal.replaced")
     static let ochoTerminalColors = Notification.Name("ocho.terminal.colors")
 }
 
@@ -570,8 +577,11 @@ final class TerminalInstance: ExactNativeInstance {
     private weak var module: OchoModule?
     private let container = TerminalContainer(frame: .zero)
     private var tabId = ""
+    private var argvJson = ""
+    private var props: [String: String] = [:]
     private var observer: NSObjectProtocol?
     private var connectionObserver: NSObjectProtocol?
+    private var replacedObserver: NSObjectProtocol?
 
     /// "exited", or "exited:CODE" when libghostty reported the status.
     private func exitMessage() -> String {
@@ -594,6 +604,12 @@ final class TerminalInstance: ExactNativeInstance {
             guard let self, (note.object as? String) == self.tabId else { return }
             self.reportConnection()
         }
+        // Reconnect closed this tab's terminal: attach again with the same props.
+        replacedObserver = NotificationCenter.default.addObserver(forName: .ochoTerminalReplaced, object: nil, queue: .main) { [weak self] note in
+            guard let self, (note.object as? String) == self.tabId else { return }
+            self.tabId = ""
+            try? self.setProps(self.props)
+        }
         try setProps(props)
     }
 
@@ -602,11 +618,17 @@ final class TerminalInstance: ExactNativeInstance {
     override func setProps(_ props: [String: String]) throws {
         let next = props["tab"] ?? ""
         let appearance = props["scheme"] ?? "light"
-        if next == tabId {
+        let nextArgv = props["argv"] ?? ""
+        self.props = props
+        if next == tabId && nextArgv == argvJson {
             (container.subviews.first as? SurfaceView)?.scheme = appearance
             return
         }
+        // The same tab with a new command (the Claude worker terminal):
+        // the old terminal goes and a new one starts.
+        if next == tabId, !next.isEmpty { module?.terminals.close(tab: next) }
         tabId = next
+        argvJson = nextArgv
         container.subviews.forEach { $0.removeFromSuperview() }
         guard let module, !next.isEmpty else { return }
         // `argv` is a JSON array of the arguments after `fleet`.
@@ -629,6 +651,7 @@ final class TerminalInstance: ExactNativeInstance {
     override func destroy() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         if let connectionObserver { NotificationCenter.default.removeObserver(connectionObserver) }
+        if let replacedObserver { NotificationCenter.default.removeObserver(replacedObserver) }
         container.subviews.forEach { $0.removeFromSuperview() }
     }
 }

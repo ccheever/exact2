@@ -9,6 +9,7 @@ mod exec;
 mod extras;
 mod keys;
 mod menus;
+mod recover;
 mod secrets;
 #[cfg(test)]
 mod tests;
@@ -238,6 +239,15 @@ pub enum Reply {
         /// What was sent.
         draft: String,
     },
+    /// `fleet recovery M S` for the tab that was `key`.
+    Recovery {
+        /// The tab's key when asked.
+        key: String,
+        /// The tab's machine.
+        machine: String,
+        /// The tab is read-only.
+        read_only: bool,
+    },
     /// A host job; nothing to apply.
     Host,
 }
@@ -327,6 +337,14 @@ pub struct Workspace {
     pub exited: std::collections::HashSet<String>,
     /// Each exited terminal's status, when the host reported one.
     pub exit_codes: HashMap<String, i32>,
+    /// Ocho's own updates (updater.rs). This build is not a released
+    /// Ocho.app with `fleet` inside, so it never updates itself; a manual
+    /// check says so, as upstream's development builds do.
+    pub updater: crate::updater::Updater,
+    /// Each terminal tab's recovery, by tab key.
+    pub recoveries: HashMap<String, crate::recovery::Recovery>,
+    /// Tabs whose unpause is under way (`resuming_tabs`).
+    pub resuming_tabs: std::collections::HashSet<String>,
     /// Each terminal's transport, as `fleet attach` reports it.
     pub connections: HashMap<String, connection::Connection>,
     /// The drop target while a tab is dragged.
@@ -440,6 +458,9 @@ impl Workspace {
             exited: Default::default(),
             exit_codes: HashMap::new(),
             connections: HashMap::new(),
+            recoveries: HashMap::new(),
+            resuming_tabs: Default::default(),
+            updater: crate::updater::Updater::new(false),
             tab_drop: None,
             drag: None,
             rail_width: 236.0,
@@ -707,6 +728,11 @@ impl Workspace {
             | Reply::SecretAction
             | Reply::SecretLink(_) => self.secret_reply(what, result),
             Reply::Transcript { key, request } => self.transcript_arrived(&key, request, result),
+            Reply::Recovery {
+                key,
+                machine,
+                read_only,
+            } => self.recovery_arrived(&key, &machine, read_only, result),
             Reply::TranscriptSent { key, draft } => self.transcript_sent(&key, &draft, result),
             Reply::Cli {
                 done,
@@ -922,6 +948,7 @@ impl Workspace {
                 let Some(mut update) = event.machine.take() else {
                     return;
                 };
+                let id = update.id.clone();
                 if let Some(last) = update.last.as_mut() {
                     stamp(&mut last.sessions);
                 }
@@ -957,9 +984,13 @@ impl Workspace {
                 } else {
                     self.state.machines.push(update);
                 }
+                if let Some(machine) = self.state.machines.iter().find(|m| m.id == id).cloned() {
+                    self.settle_resuming(&machine);
+                }
                 self.loading = false;
                 self.reapply_pending_flags();
                 self.clamp_index();
+                self.recover_active_exited_session();
             }
             "session-indicators" => {
                 let Some(mut update) = event.indicators.take() else {

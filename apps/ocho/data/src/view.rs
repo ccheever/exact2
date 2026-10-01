@@ -86,8 +86,8 @@ fn rail(ws: &Workspace, theme: &Theme) -> Json {
         "pages": pages,
         "tabs": tabs,
         "hint": "Enter attaches a session · c opens a shell",
-        "updateLabel": "",
-        "updateTip": "",
+        "updateLabel": ws.updater.state.label().unwrap_or(""),
+        "updateTip": ws.updater.state.detail(),
         "selectedTab": ws.tabs.active_tab().map(|t| t.key.clone()).unwrap_or_default(),
         "resizing": ws.rail_resizing,
     })
@@ -328,7 +328,9 @@ fn tab_view(ws: &Workspace, _theme: &Theme) -> Json {
         "conversation": ws.transcript_view(),
         "dropTarget": false,
     });
-    merge(base, ws.connection_strip(false))
+    let mut base = merge(base, ws.tab_chrome());
+    base["exitButtons"] = json!(ws.tab_view_exit_buttons());
+    merge(base, ws.connection_strip(ws.active_recovering()))
 }
 
 /// The message dialog with no observed reply (ui.rs).
@@ -418,16 +420,17 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
             )
         }
         Overlay::Confirm { action, item } => {
-            let (title, yes) = exec_confirm_texts(*action, &session::clean(&item.session.title));
-            confirm(
-                title,
-                format!("{} on {}.", item.session.cwd, item.machine.name),
-                yes,
-            )
+            let (title, body, yes) = exec_confirm_texts(
+                *action,
+                &session::clean(&item.session.title),
+                &item.machine.name,
+                &item.session.id,
+            );
+            confirm(title, body, yes)
         }
         Overlay::MachineDelete(machine) => confirm(
-            format!("Remove {} from Ocho?", machine.name),
-            "Its sessions keep running on the machine; Ocho stops listing them.".into(),
+            format!("Remove {} from Ocho?", session::clean(&machine.name)),
+            "Ocho will not contact this machine. Its helper, running sessions, files, and authorized SSH key will be left untouched.".into(),
             "Remove from Ocho",
         ),
         Overlay::ProviderUpdate { machine, provider } => confirm(

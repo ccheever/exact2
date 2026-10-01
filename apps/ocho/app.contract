@@ -48,6 +48,12 @@ shape Theme
   selectedBg: string
   hoverBg: string
   accent09: string
+  bg55: string
+  bg72: string
+  bg78: string
+  elevated94: string
+  warn08: string
+  warn35: string
   accent12: string
   accent15: string
   accent16: string
@@ -305,6 +311,8 @@ shape TabView
   overlayDetail: string
   overlayButtons: list<Button>
   overlayNote: string
+  overlayReason: string
+  exitButtons: list<Button>
   panelOpen: bool
   panelArgv: list<string>
   panelCwd: string

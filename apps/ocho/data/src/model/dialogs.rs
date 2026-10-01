@@ -294,17 +294,23 @@ impl Workspace {
                 self.host(vec!["save-desktop".into()], text);
                 self.set_message(themes::kept_message(&self.theme.name));
                 self.overlay = Overlay::None;
+                // A theme file can change without its name: recreate remote
+                // viewers once a theme is kept, not for every preview.
+                self.refresh_remote_theme_tabs();
                 if from_settings {
                     self.open_settings();
                 }
             }
             ThemeKey::Revert {
                 theme,
+                changed,
                 from_settings,
-                ..
             } => {
                 self.theme = theme;
                 self.overlay = Overlay::None;
+                if changed {
+                    self.refresh_remote_theme_tabs();
+                }
                 if from_settings {
                     self.open_settings();
                 }
@@ -313,7 +319,6 @@ impl Workspace {
         }
     }
 
-    /// Open a session a finder chose: attach it, or show it in the list.
     /// Open a finder's choice; `true` when it attached (a conversation hit
     /// then shows its transcript at the matching turn).
     fn open_found(&mut self, machine_id: &str, session_id: &str, gone: String) -> bool {

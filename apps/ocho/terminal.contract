@@ -29,36 +29,28 @@ component TabBody
         Conversation(model=model.conversation, t=t, hoverId=hoverId, press=press, hover=hover, typed=typed, scrolled=scrolled, composerKeyDown=composerKeyDown)
       column flex=1 min-height=0 min-width=0 position="relative" display=(model.transcript ? "none" : "flex")
         ghostty-terminal testId="terminal" tab=model.key argv=model.argvJson cwd=model.cwd scheme=appearance flex=1 min-height=0 width="100%" key=terminalKeyDown message=exited
-        // The disconnected scrim (ui.rs:3115): the last healthy frame stays under it.
+        // The disconnected scrim (ui.rs `disconnected_overlay`): bg at 55 %,
+        // a card at 94 % with only its title.
         when model.overlay == "disconnected" or model.overlay == "reconnecting"
-          column position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" background-color=t.backdrop
-            column padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 gap=12 border-radius=8 background-color=t.elevated border-style="solid" border-width=1 border-color=t.border box-shadow="0 10px 15px rgba(0,0,0,0.1)" max-width=512
-              text model.overlayTitle font-weight=600
-              text model.overlayDetail font-size=12 line-height="19px" color=t.muted
-        // Paused (ui.rs:3435): "Paused to free memory", Unpause, and the note.
-        when model.overlay == "paused"
-          column position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" background-color=t.backdrop
-            column padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 gap=12 border-radius=8 background-color=t.elevated border-style="solid" border-width=1 border-color=t.border box-shadow="0 10px 15px rgba(0,0,0,0.1)" max-width=512
-              text model.overlayTitle font-weight=600
-              text model.overlayDetail font-size=12 line-height="19px" color=t.muted
-              row gap=8
-                each b in model.overlayButtons key=b.id
-                  button press=press(`tab:${b.id}`) testId=`tab-${b.id}` hover=hover(`tab:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `tab:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
-                    text b.label
+          column testId="disconnected-overlay" position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" background-color=t.bg55
+            column align-items="center" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 border-radius=8 background-color=t.elevated94 border-style="solid" border-width=1 border-color=t.border box-shadow="0 10px 15px rgba(0,0,0,0.1)"
+              text model.overlayTitle font-size=18 line-height="27px" font-weight=600 color=t.text
+        // Paused (ui.rs `paused_overlay`) and recovery (`recovery_overlay`):
+        // bg at 72 % / 78 %, a centred card (recovery 512 wide).
+        when model.overlay == "paused" or model.overlay == "recovery"
+          column testId=`${model.overlay}-overlay` position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" background-color=(model.overlay == "paused" ? t.bg72 : t.bg78)
+            column width=(model.overlay == "recovery" ? 512 : "auto") max-width="100%" align-items="center" gap=12 padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 border-radius=8 background-color=t.elevated border-style="solid" border-width=1 border-color=t.border box-shadow="0 10px 15px rgba(0,0,0,0.1)" box-sizing="border-box"
+              text model.overlayTitle font-size=18 line-height="27px" font-weight=600 color=t.text text-align="center"
+              when model.overlayDetail != ""
+                text model.overlayDetail font-size=12 line-height="19px" color=t.muted text-align="center"
+              when length(model.overlayButtons) > 0
+                row gap=8 flex-wrap="wrap" justify-content="center"
+                  each b in model.overlayButtons key=b.id
+                    TabButton(b=b, t=t, hoverId=hoverId, press=press, hover=hover)
               when model.overlayNote != ""
-                text model.overlayNote font-size=11 line-height="18px" color=t.muted
-        // Recovery (ui.rs:3210): a 512 wide card with the state's title, detail and buttons.
-        when model.overlay == "recovery"
-          column position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" background-color=t.backdrop
-            column width=512 padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 gap=12 border-radius=8 background-color=t.elevated border-style="solid" border-width=1 border-color=t.border box-shadow="0 10px 15px rgba(0,0,0,0.1)" box-sizing="border-box"
-              text model.overlayTitle font-weight=600
-              text model.overlayDetail font-size=12 line-height="19px" color=t.muted
-              row gap=8 flex-wrap="wrap"
-                each b in model.overlayButtons key=b.id
-                  button press=press(`tab:${b.id}`) testId=`tab-${b.id}` hover=hover(`tab:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `tab:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
-                    text b.label
-              when model.overlayNote != ""
-                text model.overlayNote font-size=11 line-height="18px" color=t.muted
+                text model.overlayNote font-size=11 line-height="18px" color=t.muted text-align="center"
+              when model.overlayReason != ""
+                text model.overlayReason width="100%" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 background-color=t.bg font-size=11 line-height="18px" color=t.muted box-sizing="border-box" overflow-wrap="anywhere"
       // The connection strip (ui.rs:3029): 30 tall, a 5 px dot, the label, the detail, Retry.
       when model.strip != ""
         row height=30 align-items="center" gap=8 padding-left=12 padding-right=12 background-color=t.elevated border-top-style="solid" border-top-width=1 border-top-color=t.border font-size=11 line-height="18px" box-sizing="border-box" flex-shrink=0
@@ -70,25 +62,35 @@ component TabBody
               text "Retry"
       // The exit banner (ui.rs:2917): the text in warn, the note, Reconnect / Close tab / Ocho manager.
       when model.exitBanner != ""
-        row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=6 padding-bottom=6 background-color=t.elevated border-top-style="solid" border-top-width=1 border-top-color=t.border flex-shrink=0
-          column flex=1 min-width=0
-            text model.exitBanner font-size=12 line-height="19px" color=t.warn
-            text "The agent keeps running on its machine." font-size=12 line-height="19px" color=t.muted
-          button press=press("tab:reconnect") testId="tab-reconnect" hover=hover("tab:reconnect") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=(hoverId == "tab:reconnect" ? t.selected : t.accent12) color=t.text
-            text "Reconnect"
-            text "r" font-size=11 line-height="18px" color=t.muted
-          button press=press("tab:close") testId="tab-close" hover=hover("tab:close") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "tab:close" ? t.selected : t.element) color=t.text
-            text "Close tab"
-            text "x" font-size=11 line-height="18px" color=t.muted
-          button press=press("tab:manager") testId="tab-manager" hover=hover("tab:manager") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "tab:manager" ? t.selected : t.element) color=t.text
-            text "Ocho manager"
-            text "⌘0" font-size=11 line-height="18px" color=t.muted
+        // ui.rs: a row gap_2, px_4 py_1p5 on elevated with a top border.
+        row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=6 padding-bottom=6 background-color=t.elevated border-top-style="solid" border-top-width=1 border-top-color=t.border flex-shrink=0
+          text model.exitBanner color=t.warn flex-shrink=0
+          text "The agent keeps running on its machine." color=t.muted class=Ellipsis
+          box flex=1
+          each b in model.exitButtons key=b.id
+            TabButton(b=b, t=t, hoverId=hoverId, press=press, hover=hover)
       // LIMITED (ui.rs:3160): warn at 8% with a warn top border at 35%.
       when model.limited
-        row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 background-color=`${t.warn}14` border-top-style="solid" border-top-width=1 border-top-color=`${t.warn}59` flex-shrink=0
+        row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 background-color=t.warn08 border-top-style="solid" border-top-width=1 border-top-color=t.warn35 flex-shrink=0
           text "LIMITED" font-size=11 line-height="18px" font-weight=700 color=t.warn
           column flex=1 min-width=0
             text model.limitedStatus font-size=12 line-height="19px" class=Ellipsis
             text `Start a fresh agent here with another ${model.limitedProvider} account.` font-size=12 line-height="19px" color=t.muted
-          button press=press("tab:handoff") testId="tab-handoff" hover=hover("tab:handoff") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=(hoverId == "tab:handoff" ? t.selected : t.accent12) color=t.text
+          button press=press("tab:handoff") testId="tab-handoff" hover=hover("tab:handoff") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == "tab:handoff" ? t.selected : t.accent15) color=t.text
             text "Hand off…"
+
+// ui.rs `button`: row gap_1p5, px_2 py_0p5, rounded_md, bg accent 15 % if
+// primary else element, hover selected; the label, then the hint (11 px
+// placeholder) if any.
+component TabButton
+  props
+    b: Button
+    t: Theme
+    hoverId: string
+    press: action
+    hover: action
+  view
+    button press=press(`tab:${b.id}`) testId=`tab-${b.id}` hover=hover(`tab:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 background-color=(hoverId == `tab:${b.id}` ? t.selected : (b.primary ? t.accent15 : t.element)) color=t.text
+      text b.label
+      when b.hint != ""
+        text b.hint font-size=11 line-height="18px" color=t.placeholder

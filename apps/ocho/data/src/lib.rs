@@ -31,6 +31,7 @@ mod permissions;
 mod picker;
 mod preferences;
 mod quick;
+pub mod recovery;
 mod rows;
 mod secret_requests;
 mod session;

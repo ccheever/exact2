@@ -39,6 +39,11 @@ impl Workspace {
                     self.persist_tabs();
                 }
             }
+            "tab" if crate::recovery::press_command(rest).is_some() => {
+                if let Some(cmd) = crate::recovery::press_command(rest) {
+                    self.execute(cmd);
+                }
+            }
             "tab"
                 if rest == "reconnect"
                     || rest == "close"
@@ -64,6 +69,7 @@ impl Workspace {
                         self.tabs.select(pos);
                         self.tabs.reveal_active();
                         self.persist_tabs();
+                        self.recover_active_exited_session();
                     }
                 }
             }

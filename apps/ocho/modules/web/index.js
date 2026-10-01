@@ -165,6 +165,10 @@ function job(argv, stdin) {
         { kind: 'tools', count: 2, seconds: 12 },
       ] }));
     }
+    case 'recovery':
+      // fleet recovery M S [--continue]: the agent's state is uncertain.
+      return ok(JSON.stringify({ status: 'agent-uncertain', reason: 'The provider exited while a tool call was running; its last turn may not have finished.',
+        launch: { provider: 'claude', account: 'eliot@eliot.sh', cwd: '~/.local/share/fleet/workspaces/fleet-aa31c17c', model: 'claude-opus-5-5', effort: 'high', permissions: '', resume: 'c0ffee', claude_remote: false } }));
     case 'search': {
       if (rest[0] === 'index') return ok(JSON.stringify({ sessions: 5, indexed: 1, chunks: 4, skipped: 0, errors: {}, elapsed: '0.2s' }));
       const hits = [
@@ -217,7 +221,8 @@ export function setProps(h, json) {
   try { argv = JSON.parse(props.argv || '[]'); } catch { argv = []; }
   h.pane.innerHTML = `<div class="muted">ocho · ${h.tab}</div><div>$ fleet ${argv.join(' ')}</div><div class="muted">The terminal runs in the macOS app (libghostty). This is the web preview.</div><div><span class="cursor"></span></div>`;
   // A remote tab's transport (FLEET_TERMINAL_EVENTS): redwood is mid-reconnect.
-  if (h.tab.startsWith('m-redwood:')) h.event?.(8, 'connection:{"transport":"ssh","state":"reconnecting","retryable":true}');
+  // The redwood tab's agent ends with an error: Ocho asks fleet how to recover.
+  if (h.tab.startsWith('m-redwood:s2')) h.event?.(8, 'exited:1');
 }
 
 export function destroy(h) { h.root.innerHTML = ''; }

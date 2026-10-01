@@ -129,6 +129,7 @@ impl Workspace {
             if let Some(code) = message.strip_prefix("exited:").and_then(|c| c.parse().ok()) {
                 self.exit_codes.insert(key.to_string(), code);
             }
+            self.terminal_exited(key);
         } else if let Some(json) = message.strip_prefix("connection:") {
             let Ok(event) = serde_json::from_str::<Event>(json) else {
                 return;
@@ -227,27 +228,111 @@ impl Workspace {
             "stripRetry": self.terminal_can_reconnect(&tab.key),
         })
     }
+}
 
-    /// The disconnected scrim covers the grid (ui.rs `render_tab_body`):
-    /// SSH dropped, or a remote session's terminal exited with an error.
-    /// Returns (covered, reconnecting).
-    pub fn connection_scrim(&self) -> (bool, bool) {
-        let Some(tab) = self.tabs.active_tab() else {
-            return (false, false);
+impl Workspace {
+    /// Managed Codex app-server and Claude Remote viewers learn the theme
+    /// only when they start: start them again (workspace.rs
+    /// `refresh_remote_theme_tabs`). Worker terminals answer theme reports
+    /// themselves.
+    pub fn refresh_remote_theme_tabs(&mut self) {
+        let keys: Vec<String> = self
+            .tabs
+            .tabs
+            .iter()
+            .filter(|tab| matches!(tab.session, Some((_, _, false))))
+            .filter(|tab| !tab.reconnect.iter().any(|arg| arg == "--worker-terminal"))
+            .filter(|tab| !self.exited.contains(&tab.key))
+            .filter(|tab| {
+                let (machine, session, _) = tab.session.as_ref().unwrap();
+                self.session_item(machine, session).is_some_and(|item| {
+                    item.session.managed
+                        && (item.session.claude_remote || !item.session.codex_socket.is_empty())
+                })
+            })
+            .map(|tab| tab.key.clone())
+            .collect();
+        for key in keys {
+            self.host(vec!["reconnect-terminal".into(), key], String::new());
+        }
+    }
+
+    /// RefreshSessionTheme (workspace.rs `refresh_active_session_theme`).
+    pub fn refresh_active_session_theme(&mut self) {
+        let item = self.tabs.active_tab().and_then(|tab| {
+            let (machine, session, read_only) = tab.session.as_ref()?;
+            if *read_only {
+                return None;
+            }
+            self.session_item(machine, session)
+        });
+        let Some(item) = item else {
+            self.set_error("This session is not available for a theme refresh");
+            return;
         };
-        let connection = self.connections.get(&tab.key);
-        let remote_machine = tab
-            .machine
-            .as_deref()
-            .and_then(|id| self.state.machines.iter().find(|m| m.id == id))
-            .is_some_and(|m| !m.local);
-        let remote = connection.is_some() || remote_machine;
-        let failed = self.exit_codes.get(&tab.key).is_some_and(|code| *code != 0);
-        let covered = connection.is_some_and(Connection::conceals_terminal)
-            || (remote && tab.session.is_some() && failed);
-        (
-            covered,
-            connection.is_some_and(|c| c.state == "reconnecting"),
-        )
+        if item.session.managed
+            && (item.session.claude_remote || !item.session.codex_socket.is_empty())
+        {
+            let tab = self.tabs.active_tab().cloned().unwrap_or_default();
+            if self.exited.contains(&tab.key) {
+                self.set_error("Reconnect the terminal before refreshing its theme");
+            } else if tab.reconnect.iter().any(|arg| arg == "--worker-terminal") {
+                self.set_message("Worker terminal theme refreshed");
+            } else {
+                self.host(vec!["reconnect-terminal".into(), tab.key], String::new());
+                self.set_message("Session theme refreshed");
+            }
+            return;
+        }
+        if item.session.provider != "codex" || !item.session.managed {
+            self.set_error("Theme refresh is only available for Ocho-managed Codex sessions");
+            return;
+        }
+        if item.session.state != "idle" {
+            self.set_error(
+                "Theme refresh is available when the current turn is idle, so it cannot interrupt the agent.",
+            );
+            return;
+        }
+        self.run_cli(
+            vec![
+                "refresh-theme".into(),
+                item.machine.id,
+                item.session.id,
+                "--yes".into(),
+            ],
+            "Session theme refreshed",
+        );
+    }
+
+    /// SwitchClaudeWorkerTerminal: the tab attaches to Claude Remote's worker
+    /// pane instead (workspace.rs `switch_claude_worker_terminal`).
+    pub fn switch_claude_worker_terminal(&mut self) {
+        let Some(pos) = self.tabs.active.checked_sub(1) else {
+            return;
+        };
+        let Some((machine, session, false)) =
+            self.tabs.tabs.get(pos).and_then(|t| t.session.clone())
+        else {
+            return;
+        };
+        let Some(item) = self.session_item(&machine, &session) else {
+            return;
+        };
+        if !item.session.claude_remote || !item.session.managed || item.session.tmux_pane.is_empty()
+        {
+            self.set_error("This tab has no Claude Remote Control worker terminal");
+            return;
+        }
+        let mut args = crate::tab_tree::session_attach_command(&machine, &session, false);
+        args.push("--worker-terminal".into());
+        let key = self.tabs.tabs[pos].key.clone();
+        self.tabs.tabs[pos].reconnect = args;
+        // The view hands the terminal its new argv, which starts it again.
+        self.exited.remove(&key);
+        self.exit_codes.remove(&key);
+        self.connections.remove(&key);
+        self.set_message("Attached to the Claude worker terminal");
+        self.persist_tabs();
     }
 }
