@@ -421,6 +421,18 @@ box was a containing block:
   (`usedZIndex`); the Linux painter does not read it. CSS orders a whole
   stacking context.
 - **`position: fixed` and `sticky` are not rows.**
+A text field (`input`, `textarea`) lays out as the web's (2026-09-30): it keeps
+its own width in a block container, where a `<div>` stretches, and stretches in
+flex, under insets and at a percentage. At `field-sizing: fixed` its width is
+HTML's 20 characters (a textarea's 20 columns). How wide a character is, the
+web leaves to the browser, and browsers differ: Blink takes the font's OS/2
+average width plus a margin, or the width of `0` for fonts on its own list.
+Declared: the kernel takes the width of `0` in the field's font, for every
+font, since no two hosts share font metrics (Caltrain's search field, in the
+same face, is 175 px in Chrome on macOS and 195 px on the macOS host). The web
+is the standard, not one browser's metrics (Charlie, 2026-09-30); an app that
+needs a field's width sets it
+(`issues/closed/20260930-field-character-width.md`).
 `text_align` is CSS's (`start` initially;
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
@@ -710,7 +722,7 @@ ordered `TextRun`s: a `Text` with its own `text` prop is one run; otherwise its
 (`NodeArena::text_runs`), the WS-I `text_fragments()` IR. Inline runs are measured
 with their owning paragraph and have no geometry of their own; editing a run marks
 the owner dirty (`measure_owner`). Content-sized `TextInput` measures its `value`
-or `placeholder`; fixed fields use their preferred character/row size. A
+or `placeholder`; fixed fields measure 20 `0`s, a textarea two rows of them (declared above). A
 content-sized textarea ending in a newline includes its final caret line
 (2026-09-10): a zero-width measurement run preserves the empty paragraph that
 CoreText omits. The stored value is untouched; ordinary text keeps the shaper's

@@ -1,6 +1,7 @@
 # A text field's 20 characters are wider on native than on the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** declared, not matched (Charlie: the web is the standard, not Chrome): a field's character is the width of 0 in its font on every host; LLP 1001's declared deviations
 **Systems:** kernel, Apple host, Linux host
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -62,3 +63,11 @@ Retained open. The average/maximum-width mismatch and the recorded three-round
 stop still apply; no guessed formula or host ABI change was made during the
 ticket cleanup. This needs the resolved Chrome face/metrics experiment named
 above before an implementation can be justified.
+
+## Decided (Charlie, 2026-09-30)
+
+Not matched: "the web is the standard not chrome". The web leaves a
+character's width to the browser, and browsers and platforms differ, so the
+kernel keeps its rule (twenty `0`s, Blink's own fallback, for every font) and
+LLP 1001's declared deviations say so. What made layouts differ, a field
+stretching in a block on native, was fixed in 90d967b3.
