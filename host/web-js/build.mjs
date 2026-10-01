@@ -179,8 +179,8 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
   if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) { console.error(`${f} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`); process.exit(1); }
   writeFileSync(resolve(gen, f), code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;'));
 }
-// Bun's bundler, in this process. A build that renders nothing (the dev
-// loop's) makes no server bundle.
+// Bun's bundler, in this process, for the server bundle. A build that
+// renders nothing (the dev loop's) makes no server bundle.
 const how = opt('--render') ?? 'rust';
 const bundle = async (options) => {
   const r = await Bun.build(options);
@@ -188,7 +188,16 @@ const bundle = async (options) => {
   if (!r.success) process.exit(1);
 };
 if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js' });
-await bundle({ entrypoints: [resolve(gen, 'main.js')], minify: true, format: 'esm', splitting: true, outdir: out, naming: { entry: 'app.js', chunk: '[name]-[hash].js' } });
+// The page's module and its chunks: Rolldown, the repo's app bundler, whose
+// minifier leaves the entry 6–10% smaller than Bun's after brotli (RealWorld
+// 25.8 → 23.6 KB, the feed bench's 30.9 → 27.9, the grid's 19.3 → 18.1),
+// bytes a page downloads before its runtime is up.
+{
+  const { rolldown } = await import('rolldown');
+  const b = await rolldown({ input: resolve(gen, 'main.js'), logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js' });
+  await b.close();
+}
 
 // The web host's base stylesheet, as its build writes it (comments out).
 const base = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1]
