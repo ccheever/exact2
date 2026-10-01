@@ -16,6 +16,9 @@ impl Workspace {
         if id.starts_with("transcript-") && self.transcript_press(id) {
             return;
         }
+        if id.starts_with("pair-") && self.phone_press(id) {
+            return;
+        }
         // A click anywhere else takes the keyboard from the secret entry
         // (ui.rs: a terminal click; the entry is the only focus Ocho tracks).
         if !id.starts_with("key:") {
@@ -91,6 +94,14 @@ impl Workspace {
             // The active tab's terminal view reported: "exited[:CODE]" when
             // its process ended, "connection:{json}" for its transport,
             // "missing"/"unavailable" when it could not show one.
+            // The docked shell: its view's reports, its "×", and clicks
+            // that move typing between it and the agent.
+            "panel" => match rest {
+                "close" => self.close_terminal_panel(),
+                "focus" => self.focus_panel(true),
+                "blur" => self.focus_panel(false),
+                other => self.panel_report(other),
+            },
             "terminal" => {
                 if let Some(tab) = self.tabs.active_tab() {
                     let key = tab.key.clone();
@@ -497,7 +508,8 @@ impl Workspace {
             | Overlay::Conversations
             | Overlay::Themes(_)
             | Overlay::WhatsNew
-            | Overlay::PairIMessage => return false,
+            | Overlay::PairIMessage
+            | Overlay::PairPhone(_) => return false,
             Overlay::None => {}
         }
         if self.searching || at == "search" {
@@ -565,6 +577,10 @@ impl Workspace {
 
     /// A pan: the rail's resize handle, or a tab being dragged.
     pub(super) fn pan(&mut self, id: &str, dx: f64, dy: f64) {
+        if id == "panel-resize" {
+            self.resize_panel(dy);
+            return;
+        }
         if id == "rail-resize" {
             self.rail_resizing = true;
             self.rail_width = super::clamp_rail(self.rail_width + dx, self.window.0);

@@ -129,6 +129,7 @@ function job(argv, stdin) {
     case 'clipboard-write': navigator.clipboard?.writeText(stdin).catch(() => {}); return ok();
     case 'clipboard-read': return ok('');
     case 'submit-terminal': return ok('sent');
+    case 'serve-running': return ok('');
     case 'notify': case 'notify-remove': case 'close-terminal': case 'write-terminal': case 'refresh-feed': case 'clear-terminal': case 'reconnect-terminal': case 'save-title-prompt': return ok();
     case 'theme-files': return ok('[]');
     case 'whats-new-history': return ok("e6adfa8a6cc7a9cd99b26347cc7da8467f0b5631\t2026-10-01\tRun local Grok directly and allow verified mixed remote versions (#266)\nc03ff04e0320b8015d550df7e4d0373219799e13\t2026-10-01\tRemove Profiles manager tab (#267)\nb8139a71efddd2f703d8f7ffcda89c37657df148\t2026-10-01\tAdd Google OAuth accounts to Ocho (#260)\n134c1723c26f10212d9e8bc7b4510e2f3e95ab24\t2026-10-01\tRun Fleet and Ocho Codex sessions on EAS with DO and R2 persistence (#258)\n7847256dcfe2ee3f50e30a177f72e5a04131fb04\t2026-10-01\tFix transcript math layout, sharpness, and scrolling (#264)\nde58802d6faa7ab08ed14015a49119405f11c708\t2026-10-01\tBridge legacy fleet services to owner identity (#265)");
@@ -169,6 +170,13 @@ function job(argv, stdin) {
       // fleet recovery M S [--continue]: the agent's state is uncertain.
       return ok(JSON.stringify({ status: 'agent-uncertain', reason: 'The provider exited while a tool call was running; its last turn may not have finished.',
         launch: { provider: 'claude', account: 'eliot@eliot.sh', cwd: '~/.local/share/fleet/workspaces/fleet-aa31c17c', model: 'claude-opus-5-5', effort: 'high', permissions: '', resume: 'c0ffee', claude_remote: false } }));
+    case 'serve': {
+      // fleet serve --describe | --on M --json | --peer M=on|off.
+      if (rest[0] === '--peer') return ok('');
+      const name = rest[0] === '--on' ? (rest[1] === 'm-redwood' ? 'redwood' : rest[1]) : 'Eliots-MacBook-Pro';
+      const qr = Array.from({ length: 29 }, (_, i) => Array.from({ length: 29 }, (_, j) => ((i * 7 + j * 3 + i * j) % 5 < 2 || (i < 7 && j < 7 && (i % 6 === 0 || j % 6 === 0 || (i > 1 && i < 5 && j > 1 && j < 5)))) ? '1' : '0').join(''));
+      return ok(JSON.stringify({ relay: 'relay.fleet.dev', name, qr, peer_config: { 'm-redwood': true } }));
+    }
     case 'search': {
       if (rest[0] === 'index') return ok(JSON.stringify({ sessions: 5, indexed: 1, chunks: 4, skipped: 0, errors: {}, elapsed: '0.2s' }));
       const hits = [

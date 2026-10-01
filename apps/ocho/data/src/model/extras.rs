@@ -82,6 +82,14 @@ impl Workspace {
                 }
                 true
             }
+            // workspace.rs: Esc, Enter or q closes the pairing card.
+            Overlay::PairPhone(_) => {
+                let key = crate::picker::canon(name);
+                if matches!(key.as_str(), "escape" | "enter") || (key == "q" && !mods.meta) {
+                    self.overlay = Overlay::None;
+                }
+                true
+            }
             _ => false,
         }
     }

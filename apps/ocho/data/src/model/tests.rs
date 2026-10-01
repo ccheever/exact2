@@ -387,3 +387,74 @@ fn an_exited_managed_tab_is_assessed_and_its_card_stays_on_the_tab() {
         }
     ));
 }
+
+#[test]
+fn the_docked_panel_opens_in_the_sessions_folder_and_closes() {
+    let mut w = ws();
+    w.apply_feed(&serde_json::json!({"events": [{"type": "machine", "machine": {
+        "id": "m1", "name": "box", "local": true,
+        "last": {"live_inventory": true, "sessions": [{"id": "s1", "title": "t", "provider": "codex",
+            "managed": true, "state": "idle", "pid": 4, "cwd": "~/src"}]}}}]}));
+    with_session_tab(&mut w, "m1", "s1");
+    w.execute(Command::ToggleTerminalPanel);
+    let view = w.panel_view();
+    assert_eq!(view["panelKey"], "m1:s1:false#panel");
+    assert_eq!(view["panelLabel"], "Terminal · ~/src");
+    assert_eq!(
+        view["panelArgv"],
+        serde_json::json!(["connect", "m1", "--cwd", "~/src", "--persistent", "s1"])
+    );
+    // A click on the agent takes typing back; FocusTerminalPanel gives it again.
+    w.dispatch(Event::Press("terminal:focus".into()));
+    assert_eq!(w.panel_view()["panelFocused"], false);
+    w.execute(Command::FocusTerminalPanel);
+    assert_eq!(w.panel_view()["panelFocused"], true);
+    // Dragging the handle up makes it taller, within the window.
+    w.dispatch(Event::Tick(0.0, 1200.0, 800.0));
+    w.dispatch(Event::Pan("panel-resize".into(), 0.0, -100.0));
+    assert_eq!(w.panel_height, 360.0);
+    w.dispatch(Event::Pan("panel-resize".into(), 0.0, -1000.0));
+    assert_eq!(w.panel_height, 640.0);
+    // The shell exiting takes the panel with it.
+    w.take_jobs();
+    w.dispatch(Event::Press("panel:exited:0".into()));
+    assert_eq!(w.panel_view()["panelOpen"], false);
+    assert!(w
+        .take_jobs()
+        .iter()
+        .any(|j| j.argv == ["close-terminal", "m1:s1:false#panel"]));
+}
+
+#[test]
+fn pair_phone_prefers_the_running_server_and_falls_back_to_describe() {
+    let mut w = ws();
+    w.execute(Command::PairPhone);
+    let jobs = w.take_jobs();
+    let running = jobs
+        .iter()
+        .find(|j| j.argv == ["serve-running"])
+        .unwrap()
+        .id;
+    assert!(jobs
+        .iter()
+        .any(|j| j.argv == ["serve", "--describe", "--no-qr"]));
+    w.apply_io(&serde_json::json!({"replies": [{"id": running, "kind": "host", "status": 0, "stdout": "", "stderr": ""}]}));
+    let describe = w
+        .take_jobs()
+        .into_iter()
+        .find(|j| j.argv[0] == "serve")
+        .unwrap();
+    w.apply_io(
+        &serde_json::json!({"replies": [{"id": describe.id, "kind": "serve", "status": 0,
+        "stdout": r#"{"relay":"r.dev","name":"mac","qr":["101","010"]}"#, "stderr": ""}]}),
+    );
+    let view = w.phone_view();
+    assert_eq!(view["address"], "mac · r.dev");
+    assert_eq!(view["qr"][0]["cells"][0]["dark"], true);
+    assert_eq!(
+        view["note"],
+        "The server this Mac started is not running; pairing uses the saved token and the relay."
+    );
+    key(&mut w, "Escape");
+    assert!(matches!(w.overlay, Overlay::None));
+}

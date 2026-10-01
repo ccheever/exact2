@@ -38,6 +38,7 @@ pub fn render(ws: &Workspace, _versions: &[f64]) -> Value {
         "termFontSize": ws.settings.terminal_font_size.unwrap_or(13.0),
         "whatsNew": ws.whats_new.view(),
         "pairing": pairing,
+        "phone": ws.phone_view(),
         "secrets": ws.secrets_view(),
         "region": match ws.region() {
             Region::Rail => "rail",
@@ -330,6 +331,7 @@ fn tab_view(ws: &Workspace, _theme: &Theme) -> Json {
     });
     let mut base = merge(base, ws.tab_chrome());
     base["exitButtons"] = json!(ws.tab_view_exit_buttons());
+    let base = merge(base, ws.panel_view());
     merge(base, ws.connection_strip(ws.active_recovering()))
 }
 
@@ -482,6 +484,7 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
         // These two draw from their own shapes (`whatsNew`, `pairing`); the overlay names the card.
         Overlay::WhatsNew => card("whats-new", crate::whats_new::WIDTH, false),
         Overlay::PairIMessage => card("pair-imessage", crate::imessage_pair::WIDTH, false),
+        Overlay::PairPhone(_) => card("pair-phone", 460.0, false),
         Overlay::Launch(launch) => {
             let v = if launch.quick.is_some() {
                 crate::quick::view(launch, &ws.state)

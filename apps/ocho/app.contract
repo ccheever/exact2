@@ -318,6 +318,9 @@ shape TabView
   panelCwd: string
   panelHeight: number
   panelFocused: bool
+  panelKey: string
+  panelArgvJson: string
+  panelLabel: string
   transcript: bool
   conversation: Transcript
   dropTarget: bool
@@ -406,6 +409,22 @@ shape SecretRequests
   busy: bool
   reset: string
   alert: SecretAlert
+shape PhoneChip
+  id: string
+  label: string
+  selected: bool
+shape PhonePair
+  visible: bool
+  chips: list<PhoneChip>
+  toggle: string
+  toggleLabel: string
+  toggleOn: bool
+  error: string
+  help: string
+  qr: list<QrRow>
+  hint: string
+  address: string
+  note: string
 shape View
   theme: Theme
   windowTitle: string
@@ -424,6 +443,7 @@ shape View
   region: string
   whatsNew: WhatsNew
   pairing: IMessagePair
+  phone: PhonePair
   secrets: SecretRequests
 shape Media
   prefersColorScheme: string
@@ -471,6 +491,8 @@ component Ocho
     send ui = dispatch("key-at", name, "overlay", 0, 0)
   action terminalKeyDown(name: string) writes ui
     send ui = dispatch("key-at", name, "terminal", 0, 0)
+  action panelMessage(message: string) writes ui
+    send ui = dispatch("press", `panel:${message}`, "", 0, 0)
   action terminalExited(message: string) writes ui
     send ui = dispatch("press", `terminal:${message}`, "", 0, 0)
   action transcriptScrolled(left: number, top: number) writes ui
@@ -504,7 +526,7 @@ component Ocho
         Rail(model=vm.rail, t=t, hoverId=hoverId, press=press, hover=hover, panned=panned, doubleClick=doubleClick, contextMenu=contextMenu)
         column flex=1 min-width=0 min-height=0
           when vm.onTab
-            TabBody(model=vm.tab, t=t, appearance=(t.dark ? "dark" : "light"), hoverId=hoverId, press=press, hover=hover, terminalKeyDown=terminalKeyDown, exited=terminalExited, typed=typed, scrolled=transcriptScrolled, composerKeyDown=composerKeyDown)
+            TabBody(model=vm.tab, t=t, appearance=(t.dark ? "dark" : "light"), hoverId=hoverId, press=press, hover=hover, terminalKeyDown=terminalKeyDown, exited=terminalExited, panelMessage=panelMessage, panned=panned, typed=typed, scrolled=transcriptScrolled, composerKeyDown=composerKeyDown)
           else
             Manager(model=vm.manager, t=t, hoverId=hoverId, press=press, pressAt=pressAt, hover=hover, typed=typed, searchKeyDown=searchKeyDown, doubleClick=doubleClick, contextMenu=contextMenu)
         when vm.secrets.visible
@@ -520,7 +542,7 @@ component Ocho
             when vm.toast.dismissible
               button press=press("toast-dismiss") testId="toast-dismiss" hover=hover("toast-dismiss") class=Reset color=(hoverId == "toast-dismiss" ? t.text : t.muted) padding-left=4 padding-right=4
                 text "×"
-      Overlays(model=vm.overlay, popup=vm.popup, whatsNew=vm.whatsNew, pairing=vm.pairing, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, pressAt=pressAt, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
+      Overlays(model=vm.overlay, popup=vm.popup, whatsNew=vm.whatsNew, pairing=vm.pairing, phone=vm.phone, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, pressAt=pressAt, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
       // ⌘ chords the app declares reach the model as `key:` presses: the
       // key handler above sees bare keys only (LLP 1005 §5).
       // A 1 px transparent button each, in a strip under the traffic lights, so a

@@ -130,6 +130,9 @@ impl Workspace {
                 self.exit_codes.insert(key.to_string(), code);
             }
             self.terminal_exited(key);
+        } else if message == "focus" {
+            // A click on the agent takes typing back from the docked panel.
+            self.focus_panel(false);
         } else if let Some(json) = message.strip_prefix("connection:") {
             let Ok(event) = serde_json::from_str::<Event>(json) else {
                 return;

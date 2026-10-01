@@ -9,6 +9,8 @@ mod exec;
 mod extras;
 mod keys;
 mod menus;
+mod panel;
+mod phone;
 mod recover;
 mod secrets;
 #[cfg(test)]
@@ -248,6 +250,21 @@ pub enum Reply {
         /// The tab is read-only.
         read_only: bool,
     },
+    /// `serve-running`: the pairing details of the server this app started.
+    ServeRunning(u64),
+    /// `fleet serve --describe | --on M`: pairing details.
+    ServeInfo(u64),
+    /// `fleet serve --describe`: which machines keep a mobile API.
+    ServePeers(u64),
+    /// `fleet serve --peer M=on|off`.
+    ServePeer {
+        /// The open it was asked from.
+        request: u64,
+        /// The machine.
+        machine: String,
+        /// What was asked.
+        on: bool,
+    },
     /// A host job; nothing to apply.
     Host,
 }
@@ -341,6 +358,12 @@ pub struct Workspace {
     /// Ocho.app with `fleet` inside, so it never updates itself; a manual
     /// check says so, as upstream's development builds do.
     pub updater: crate::updater::Updater,
+    /// Each tab's docked shell, by tab key.
+    pub panels: HashMap<String, panel::Panel>,
+    /// The last Pair Phone open's number.
+    phone_requests: u64,
+    /// The docked shells' height, px.
+    pub panel_height: f64,
     /// Each terminal tab's recovery, by tab key.
     pub recoveries: HashMap<String, crate::recovery::Recovery>,
     /// Tabs whose unpause is under way (`resuming_tabs`).
@@ -459,6 +482,9 @@ impl Workspace {
             exit_codes: HashMap::new(),
             connections: HashMap::new(),
             recoveries: HashMap::new(),
+            panels: HashMap::new(),
+            phone_requests: 0,
+            panel_height: panel::DEFAULT_PANEL_HEIGHT,
             resuming_tabs: Default::default(),
             updater: crate::updater::Updater::new(false),
             tab_drop: None,
@@ -728,6 +754,10 @@ impl Workspace {
             | Reply::SecretAction
             | Reply::SecretLink(_) => self.secret_reply(what, result),
             Reply::Transcript { key, request } => self.transcript_arrived(&key, request, result),
+            Reply::ServeRunning(_)
+            | Reply::ServeInfo(_)
+            | Reply::ServePeers(_)
+            | Reply::ServePeer { .. } => self.phone_reply(what, result),
             Reply::Recovery {
                 key,
                 machine,

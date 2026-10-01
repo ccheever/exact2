@@ -208,6 +208,8 @@ final class SurfaceView: NSView {
     var onTitle: ((String) -> Void)?
     /// A ⌘-clicked `ocho://secret/NAME`; the tab's instance forwards it.
     var onSecretLink: ((String) -> Void)?
+    /// A click took the keyboard (the docked panel or the agent above it).
+    var onFocus: (() -> Void)?
     var mouseShape = GHOSTTY_MOUSE_SHAPE_DEFAULT { didSet { window?.invalidateCursorRects(for: self) } }
     private var trackingArea: NSTrackingArea?
     private var strings: [UnsafeMutablePointer<CChar>] = []
@@ -443,6 +445,7 @@ final class SurfaceView: NSView {
     }
     override func mouseDown(with event: NSEvent) {
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        onFocus?()
         position(event)
         button(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, event)
     }
@@ -582,6 +585,16 @@ final class TerminalInstance: ExactNativeInstance {
     private var observer: NSObjectProtocol?
     private var connectionObserver: NSObjectProtocol?
     private var replacedObserver: NSObjectProtocol?
+    private var focused = false
+
+    /// `focused="true"` moves the keyboard here when it turns on (the model's
+    /// FocusTerminalPanel); a click moves it natively.
+    private func takeFocus(_ props: [String: String], _ surface: SurfaceView?) {
+        let wants = props["focused"] == "true"
+        defer { focused = wants }
+        guard wants, !focused, let surface, let window = surface.window else { return }
+        window.makeFirstResponder(surface)
+    }
 
     /// "exited", or "exited:CODE" when libghostty reported the status.
     private func exitMessage() -> String {
@@ -621,7 +634,9 @@ final class TerminalInstance: ExactNativeInstance {
         let nextArgv = props["argv"] ?? ""
         self.props = props
         if next == tabId && nextArgv == argvJson {
-            (container.subviews.first as? SurfaceView)?.scheme = appearance
+            let surface = container.subviews.first as? SurfaceView
+            surface?.scheme = appearance
+            takeFocus(props, surface)
             return
         }
         // The same tab with a new command (the Claude worker terminal):
@@ -640,11 +655,14 @@ final class TerminalInstance: ExactNativeInstance {
         }
         surface.scheme = appearance
         surface.onSecretLink = { [weak self] url in self?.events.message("secret:\(url)") }
+        surface.onFocus = { [weak self] in self?.events.message("focus") }
         surface.applyScheme()
         surface.frame = container.bounds
         container.addSubview(surface)
         if module.terminals.exited.contains(next) { events.message(exitMessage()) }
         reportConnection()
+        focused = false
+        takeFocus(props, surface)
         events.load()
     }
 

@@ -349,6 +349,9 @@ pub const TAB_VIEW: Shape = Record(&[
     ("panelCwd", Str),
     ("panelHeight", Num),
     ("panelFocused", Bool),
+    ("panelKey", Str),
+    ("panelArgvJson", Str),
+    ("panelLabel", Str),
     ("transcript", Bool),
     ("conversation", TRANSCRIPT),
     ("dropTarget", Bool),
@@ -448,6 +451,22 @@ pub const SECRETS: Shape = Record(&[
     ("alert", SECRET_ALERT),
 ]);
 
+pub const PHONE_CHIP: Shape = Record(&[("id", Str), ("label", Str), ("selected", Bool)]);
+
+pub const PHONE_PAIR: Shape = Record(&[
+    ("visible", Bool),
+    ("chips", List(&PHONE_CHIP)),
+    ("toggle", Str),
+    ("toggleLabel", Str),
+    ("toggleOn", Bool),
+    ("error", Str),
+    ("help", Str),
+    ("qr", List(&QR_ROW)),
+    ("hint", Str),
+    ("address", Str),
+    ("note", Str),
+]);
+
 pub const VIEW: Shape = Record(&[
     ("theme", THEME),
     ("windowTitle", Str),
@@ -466,6 +485,7 @@ pub const VIEW: Shape = Record(&[
     ("region", Str),
     ("whatsNew", WHATS_NEW),
     ("pairing", IMESSAGE_PAIR),
+    ("phone", PHONE_PAIR),
     ("secrets", SECRETS),
 ]);
 

@@ -80,6 +80,8 @@ pub enum Overlay {
     WhatsNew,
     /// The iMessage pairing card (state on `Workspace::imessage`).
     PairIMessage,
+    /// Pair Phone (workspace.rs `Overlay::Pair`).
+    PairPhone(Box<super::phone::PhonePair>),
 }
 
 /// An entry on the undo stack (workspace.rs `UndoAction`).
@@ -143,6 +145,8 @@ impl Workspace {
             Command::Palette => self.overlay = Overlay::Palette(PickerState::new()),
             Command::ToggleSecrets => self.toggle_secrets(),
             Command::ToggleTranscript => self.toggle_transcript(),
+            Command::ToggleTerminalPanel => self.toggle_terminal_panel(),
+            Command::FocusTerminalPanel => self.focus_terminal_panel(),
             Command::RefreshSessionTheme => self.refresh_active_session_theme(),
             Command::CheckForUpdates => {
                 // Nothing runs outside a bundle; the rail shows why.
@@ -232,6 +236,7 @@ impl Workspace {
             Command::Themes => self.open_themes(false),
             Command::WhatsNew => self.open_whats_new(),
             Command::PairIMessage => self.open_pair_imessage(),
+            Command::PairPhone => self.pair_open(None),
             Command::UpdateDesktop => {
                 // A ready update would install; outside a bundle this checks
                 // and says why it cannot.
@@ -1124,8 +1129,7 @@ impl Workspace {
         let imessage_target = tab_session
             .as_ref()
             .is_some_and(|item| can_attach_imessage(&item.session));
-        // The docked shell panel is not ported: FocusTerminalPanel never shows.
-        let has_panel = false;
+        let has_panel = self.active_panel().is_some();
         if self.tabs.active != 0 && self.tabs.active_tab().is_some_and(|tab| !tab.is_folder()) {
             items.extend(palette::TAB_TERMINAL.iter());
         }

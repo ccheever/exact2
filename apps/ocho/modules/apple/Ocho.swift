@@ -119,28 +119,39 @@ final class FleetFeed {
     private var stopping = false
     private var backoff: Double = 2
     private var startedAt = Date()
+    /// The mobile API this app started (serve.rs `Running`): what it
+    /// announced, while it runs. The feed follows its event stream.
+    private(set) var serveInfo: String?
+    private var server: Process?
+    /// The followed process, readable off the main thread.
+    private let followLock = NSLock()
+    private var followedId: ObjectIdentifier?
+    private func follow(_ p: Process?) {
+        followLock.lock(); followedId = p.map(ObjectIdentifier.init); followLock.unlock()
+    }
     var onEvents: (() -> Void)?
 
     init(binary: String?) { self.binary = binary }
 
+    /// main.rs: the mobile API starts with the app, and the watcher covers
+    /// the windows until it announces itself.
     func start() {
-        guard let binary else {
-            failure = "The fleet CLI wasn't found. Install Ocho or set FLEET_BIN."
-            DispatchQueue.main.async { self.onEvents?() }
-            return
-        }
+        startServer()
+        startWatcher()
+    }
+
+    private func spawn(_ arguments: [String], firstLine: ((Data) -> Bool)? = nil, onExit: @escaping (Process) -> Void) -> (Process, FileHandle)? {
+        guard let binary else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: binary)
-        p.arguments = ["snapshot", "--watch"]
+        p.arguments = arguments
         var env = ProcessInfo.processInfo.environment
         env["FLEET_HOME"] = FleetHome.path
         p.environment = env
         let out = Pipe(), inp = Pipe(), err = Pipe()
         p.standardOutput = out; p.standardInput = inp; p.standardError = err
-        stdin = inp.fileHandleForWriting
-        process = p
-        startedAt = Date()
         var buffer = Data()
+        var first = firstLine
         out.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard let self else { return }
@@ -149,35 +160,107 @@ final class FleetFeed {
             while let nl = buffer.firstIndex(of: 0x0A) {
                 let line = buffer.subdata(in: buffer.startIndex..<nl)
                 buffer.removeSubrange(buffer.startIndex...nl)
-                self.queue.async { self.consume(line) }
+                if let check = first {
+                    first = nil
+                    if check(line) { continue }
+                }
+                self.queue.async { self.consume(line, from: p) }
             }
         }
         err.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
-        p.terminationHandler = { [weak self] _ in
-            guard let self, !self.stopping else { return }
-            // feed.rs:58-67: 2, 2, 4, 8 … capped at 60 s; 30 s healthy resets.
-            if Date().timeIntervalSince(self.startedAt) > 30 { self.backoff = 2 }
-            let wait = self.backoff
-            self.backoff = min(60, self.backoff * 2)
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.start() }
-        }
-        do { try p.run(); failure = nil } catch {
-            failure = "Couldn't start fleet: \(error.localizedDescription)"
+        p.terminationHandler = { proc in DispatchQueue.main.async { onExit(proc) } }
+        do { try p.run() } catch { return nil }
+        return (p, inp.fileHandleForWriting)
+    }
+
+    /// `fleet snapshot --watch`, restarted with feed.rs's backoff.
+    private func startWatcher() {
+        guard binary != nil else {
+            failure = "The fleet CLI wasn't found. Install Ocho or set FLEET_BIN."
             DispatchQueue.main.async { self.onEvents?() }
+            return
+        }
+        startedAt = Date()
+        guard let (p, input) = spawn(["snapshot", "--watch"], onExit: { [weak self] proc in
+            guard let self, !self.stopping, self.process === proc else { return }
+            self.restart()
+        }) else {
+            failure = "Couldn't start fleet."
+            DispatchQueue.main.async { self.onEvents?() }
+            return
+        }
+        process = p
+        follow(p)
+        stdin = input
+        failure = nil
+    }
+
+    /// serve.rs `start`: `fleet serve` dials the relay; its first line says
+    /// what a phone needs, and its events then replace the watcher's. Without
+    /// a relay secret, or with the port taken, it exits and the watcher stays.
+    private func startServer() {
+        guard server == nil else { return }
+        let spawned = spawn(["serve", "--json", "--no-qr", "--follow-stdin", "--events"], firstLine: { [weak self] line in
+            guard let self, let text = String(data: line, encoding: .utf8),
+                  (try? JSONSerialization.jsonObject(with: line)) is [String: Any] else { return false }
+            DispatchQueue.main.async { self.adopt(info: text) }
+            return true
+        }, onExit: { [weak self] proc in
+            guard let self, !self.stopping, self.server === proc else { return }
+            let wasFollowed = self.process === proc
+            self.server = nil
+            self.serveInfo = nil
+            // feed.rs: the server was our watcher; bring both back.
+            if wasFollowed { self.restart() }
+        })
+        if let (p, input) = spawned {
+            server = p
+            serverStdin = input
+        }
+    }
+    private var serverStdin: FileHandle?
+
+    /// feed.rs `adopt`: follow the server and retire the watcher.
+    private func adopt(info: String) {
+        guard let server, server.isRunning else { return }
+        serveInfo = info
+        let old = process
+        process = server
+        follow(server)
+        stdin = serverStdin
+        startedAt = Date()
+        if let old, old !== server { old.terminate() }
+    }
+
+    private func restart() {
+        // feed.rs:58-67: 2, 2, 4, 8 … capped at 60 s; 30 s healthy resets.
+        if Date().timeIntervalSince(startedAt) > 30 { backoff = 2 }
+        let wait = backoff
+        backoff = min(60, backoff * 2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self, !self.stopping else { return }
+            self.startServer()
+            self.startWatcher()
         }
     }
 
     func stop() {
         stopping = true
         try? stdin?.close()
+        try? serverStdin?.close()
         process?.terminate()
+        server?.terminate()
     }
 
     /// Ask for a fresh round now (a `\n` on stdin wakes the watcher).
     func refresh() { try? stdin?.write(contentsOf: Data("\n".utf8)) }
 
-    private func consume(_ line: Data) {
-        guard !line.isEmpty, let event = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+    private func consume(_ line: Data, from source: Process) {
+        // Only the followed process feeds the model; a retiring one is ignored.
+        followLock.lock()
+        let current = followedId == ObjectIdentifier(source)
+        followLock.unlock()
+        guard current, !line.isEmpty, let event = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         pending.append(event)
         if !announced {
             announced = true
@@ -274,6 +357,9 @@ final class JobRunner {
                 group.leave()
             }
             switch argv.first {
+            case "serve-running":
+                // serve.rs `info`: the server this app started, when it runs.
+                DispatchQueue.main.async { finish(["status": 0, "stderr": "", "stdout": fleet.serveInfo ?? ""]) }
             case "whats-new-history":
                 // The history this port follows: Fleet's first-parent log at
                 // $OCHO_FLEET_COMMIT (default origin/main) in $OCHO_FLEET_REPO
