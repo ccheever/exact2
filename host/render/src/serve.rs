@@ -214,18 +214,29 @@ impl Server {
             Mutex::new((VecDeque::<TcpStream>::new(), 0usize)),
             Condvar::new(),
         ));
+        // Closing a connection waits on its peer: one thread does that for
+        // every connection, and no worker or accept loop does (crate::linger).
+        let closing = crate::linger::Linger::start()?;
         for _ in 0..shared.serve.renders.max(1) {
             let (shared, waiting, stop) = (shared.clone(), waiting.clone(), self.stop.clone());
+            let closer = closing.closer();
             std::thread::spawn(move || {
                 let (state, ready) = &*waiting;
                 let mut answered = None;
                 // Its first render's realm, before any request.
                 crate::make_realm(data);
                 loop {
-                    // Free for the next request while the last one closes.
-                    state.lock().unwrap().1 += 1;
-                    if let Some(stream) = answered.take() {
-                        close(stream);
+                    // Free for the next request, and the last one's
+                    // connection handed off to close, under one lock: a
+                    // client that reads the end of its answer finds the
+                    // worker free, and a drain that finds every worker free
+                    // finds every answer handed off.
+                    {
+                        let mut state = state.lock().unwrap();
+                        if let Some(stream) = answered.take() {
+                            closer.close(stream);
+                        }
+                        state.1 += 1;
                     }
                     let stream = {
                         let mut state = state.lock().unwrap();
@@ -278,8 +289,15 @@ impl Server {
         // idle macOS process's timer coalescing stretched to 60–70 ms before
         // a request was even accepted (measured, 2026-09-28).
         self.listener.set_nonblocking(false)?;
+        // What a full queue answers, made once.
+        let mut busy = Vec::new();
+        Response::text(503, "busy\n")
+            .header("Cache-Control", "no-store")
+            .header("Retry-After", "1")
+            .write(&mut busy, false, &shared.csp, &shared.permissions, false);
+        let closer = closing.closer();
         while !self.stop.load(Ordering::SeqCst) {
-            let mut stream = match self.listener.accept() {
+            let stream = match self.listener.accept() {
                 Ok((stream, _)) => stream,
                 Err(_) => continue,
             };
@@ -295,16 +313,9 @@ impl Server {
             let mut state = state.lock().unwrap();
             if state.0.len() >= state.1 + shared.serve.queue {
                 drop(state);
-                let busy = Response::text(503, "busy\n")
-                    .header("Cache-Control", "no-store")
-                    .header("Retry-After", "1");
-                // Read what was sent first: closing on unread bytes resets
-                // the connection before the client reads the answer.
-                let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-                let _ = read_request(&mut stream);
-                busy.write(&mut stream, false, &shared.csp, &shared.permissions, false);
-                close(stream);
+                // Answered without reading its request: this thread never
+                // waits on a peer, or a slow one would hold every accept.
+                closer.refuse(stream, &busy);
                 continue;
             }
             state.0.push_back(stream);
@@ -323,9 +334,10 @@ impl Server {
             drop(state);
             std::thread::sleep(Duration::from_millis(10));
         }
-        // A worker is free while it closes its last connection.
-        std::thread::sleep(Duration::from_millis(250));
         waiting.1.notify_all();
+        // Every answer is handed off: the closing thread takes each to its
+        // end, within its hold, before the server returns.
+        drop(closing);
         Ok(())
     }
 }
@@ -379,7 +391,7 @@ impl Response {
         self
     }
 
-    fn write(&self, stream: &mut TcpStream, head: bool, csp: &str, permissions: &str, keep: bool) {
+    fn write(&self, stream: &mut impl Write, head: bool, csp: &str, permissions: &str, keep: bool) {
         let connection = if keep { "keep-alive" } else { "close" };
         // Header values can contain app data; refuse the entire response before
         // writing anything, including on the 304 path.
@@ -458,20 +470,9 @@ fn invalid_header(value: &str) -> bool {
         .any(|byte| byte == 0 || byte == b'\r' || byte == b'\n')
 }
 
-/// Close gracefully: nothing more to send, and whatever the client still
-/// sends is read and dropped, so an answer isn't lost to a reset.
-fn close(mut stream: TcpStream) {
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
-    let mut sink = [0u8; 4096];
-    let mut drained = 0;
-    while let Ok(n) = stream.read(&mut sink) {
-        drained += n;
-        if n == 0 || drained > 64 << 10 {
-            break;
-        }
-    }
-}
+/// How long a request's head may take to arrive, from its worker's first
+/// read of it.
+const HEAD: Duration = Duration::from_secs(5);
 
 /// Answer one request on a connection: the stream, and whether it stays
 /// open for the client's next request ([`idle`]); the worker closes it.
@@ -480,9 +481,8 @@ fn handle<D: DataSource + 'static>(
     shared: &Shared,
     data: fn() -> D,
 ) -> (TcpStream, bool) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
-    let Ok(request) = read_request(&mut stream) else {
+    let Ok(request) = read_request(&mut stream, HEAD) else {
         Response::text(400, "bad request\n").write(
             &mut stream,
             false,
@@ -613,10 +613,19 @@ fn indexed<D: DataSource + 'static>(
     kept
 }
 
-fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
+/// Read a request's head, `within` that long of now however its bytes are
+/// paced: a timeout on each read alone lets a peer that sends a byte at a
+/// time hold a worker for hours, and no render's deadline has begun.
+fn read_request(stream: &mut TcpStream, within: Duration) -> Result<Request, ()> {
+    let until = Instant::now() + within;
     let mut bytes = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
     while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(());
+        }
+        let _ = stream.set_read_timeout(Some(left));
         let n = stream.read(&mut chunk).map_err(|_| ())?;
         if n == 0 || bytes.len() + n > 16 << 10 {
             return Err(());

@@ -24,6 +24,7 @@ mod encode;
 mod executor;
 mod files;
 mod generations;
+mod linger;
 mod page;
 mod pages;
 mod serve;

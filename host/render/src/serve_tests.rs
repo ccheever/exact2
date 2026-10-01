@@ -94,3 +94,47 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
         );
     }
 }
+
+#[test]
+fn a_request_head_that_drips_is_refused_at_its_bound() {
+    // A hang bound, never a deadline.
+    const BOUND: Duration = Duration::from_secs(60);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (mut server, _) = listener.accept().unwrap();
+    // The start of a head, then a byte of it every 20 ms: each read gets
+    // one long before any idle timeout, and the head never ends.
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = stop.clone();
+    client.write_all(b"GET / HTTP/1.1\r\nX-Slow: ").unwrap();
+    let dripping = std::thread::spawn(move || {
+        let mut sent = 0;
+        while !stopped.load(Ordering::SeqCst) && client.write_all(b"a").is_ok() {
+            sent += 1;
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        sent
+    });
+    let (done, read) = std::sync::mpsc::channel();
+    let reading = std::thread::spawn(move || {
+        let _ = done.send(read_request(&mut server, Duration::from_millis(300)).is_err());
+        server
+    });
+    let refused = read.recv_timeout(BOUND);
+    // The peer was still sending when the read gave up on it.
+    let still_sending = !dripping.is_finished();
+    stop.store(true, Ordering::SeqCst);
+    assert!(dripping.join().unwrap() > 0);
+    assert_eq!(refused, Ok(true), "the head was still being read");
+    assert!(still_sending);
+    // A head that arrives whole inside the bound is read as before.
+    drop(reading.join().unwrap());
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    client.write_all(b"GET /a HTTP/1.1\r\n\r\n").unwrap();
+    let (mut server, _) = listener.accept().unwrap();
+    let request = read_request(&mut server, BOUND).unwrap();
+    assert_eq!(
+        (request.method.as_str(), request.target.as_str()),
+        ("GET", "/a")
+    );
+}
