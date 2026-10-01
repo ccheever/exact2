@@ -674,6 +674,7 @@ fn established_tabs_persist_direct_attachment_without_regressing_on_a_blip() {
 fn successful_setup_terminals_refresh_saved_state_once() {
     assert!(terminal_refreshes_saved_state("login:claude"));
     assert!(terminal_refreshes_saved_state("add:studio"));
+    assert!(terminal_refreshes_saved_state("eas-connect:42"));
     assert!(!terminal_refreshes_saved_state("shell:studio"));
     assert!(!terminal_refreshes_saved_state("studio:session:false"));
     assert!(!restorable("login:claude"));

@@ -38,6 +38,10 @@ impl Workspace {
             PopupKind::FieldChoice(_) | PopupKind::LaunchAccount | PopupKind::LaunchPermissions => {
                 match &self.overlay {
                     Overlay::Launch(launch) => launch.popup_items(kind, &self.state),
+                    Overlay::Form(form) => match kind {
+                        PopupKind::FieldChoice(index) => form.popup_items(index, &self.state),
+                        _ => Vec::new(),
+                    },
                     _ => Vec::new(),
                 }
             }
@@ -201,6 +205,12 @@ impl Workspace {
                 }
             }
             PopupAction::Tab(pos, action) => self.run_tab_action(pos, action),
+            PopupAction::Choice(index, value) if matches!(self.overlay, Overlay::Form(_)) => {
+                if let Overlay::Form(form) = &mut self.overlay {
+                    form.apply_choice(index, &value, &self.state);
+                }
+                self.sync_form_io();
+            }
             PopupAction::Choice(_, _)
             | PopupAction::LaunchAccount(_)
             | PopupAction::LaunchPermissions(_) => {
@@ -227,7 +237,15 @@ impl Workspace {
             return;
         }
         match action {
-            TabAction::Rename => self.set_message("Renaming is not available yet in this client"),
+            TabAction::Rename => {
+                let tab = self.tabs.tabs[pos].clone();
+                if tab.folder {
+                    self.open_form(crate::forms::Form::folder(Some((&tab.key, &tab.title))));
+                } else if let Some((m, s, _)) = &tab.session {
+                    let form = crate::forms::Form::label_tab(&self.state, m, s, &tab.title);
+                    self.open_form(form);
+                }
+            }
             TabAction::Reconnect => {
                 if self.exited.contains(&self.tabs.tabs[pos].key) {
                     self.reconnect_tab(pos);

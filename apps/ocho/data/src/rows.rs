@@ -1,15 +1,16 @@
-//! The manager's list rows (ui.rs `rows`, 494-700), the row actions and
-//! "⋯" menus (ui.rs 347-445, workspace.rs `row_menu_items`) and the empty
-//! states (ui.rs 1611-1633), as the `ROW`, `ROW_ACTION` and `METER` shapes.
+//! The manager's list rows (ui.rs `rows`), the row actions and "⋯" menus
+//! (ui.rs `row_actions` / `row_menu` / `header_action`, workspace.rs
+//! `row_menu_items`) and the empty states (ui.rs `render_list`), as the
+//! `ROW`, `ROW_ACTION` and `METER` shapes. The Profiles page is gone
+//! upstream (#267); its arms stay only while `Page` still names it.
 
 use crate::indicator;
 use crate::model::Page;
 use crate::session::{
-    account, account_email, clean, format_usage_reset, machine, machine_rows, machine_status,
-    permissions_summary, profiles, provider_label, provider_outdated,
-    provider_update_action_available, provider_versions, session_badge,
-    session_observation_available, session_refs, session_state, session_summary,
-    stale_session_summary,
+    account, account_email, clean, format_usage_reset, machine_rows, machine_status,
+    permissions_summary, provider_label, provider_outdated, provider_update_action_available,
+    provider_versions, session_badge, session_observation_available, session_refs, session_state,
+    session_summary, stale_session_summary,
 };
 use crate::theme::{provider_usage_color, Theme};
 use crate::types::{Machine, ProviderUsage, State};
@@ -51,7 +52,7 @@ pub struct Meter {
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     /// Machines: the machine id; Sessions: `{machine id}/{session id}`;
-    /// Accounts: the account name; Profiles: the profile name.
+    /// Accounts: the account name.
     pub id: String,
     /// A group header above the row (Accounts: the provider), else "".
     pub header: String,
@@ -159,6 +160,7 @@ pub fn row_actions(page: Page) -> &'static [Action] {
     match page {
         Page::Machines => &[
             ("connect_fly", "plus", "Connect Fly.io…"),
+            ("connect_eas", "plus", "Connect EAS…"),
             ("open", "list", "Show sessions"),
             ("shell", "terminal", "Open shell"),
             ("new", "play", "Launch session here"),
@@ -173,11 +175,6 @@ pub fn row_actions(page: Page) -> &'static [Action] {
             ("open", "log-in", "Sign in / open shell"),
             ("edit", "key-round", "Reconnect"),
         ],
-        Page::Profiles => &[
-            ("open", "play", "Launch"),
-            ("edit", "pencil", "Edit"),
-            ("delete", "trash", "Remove…"),
-        ],
     }
 }
 
@@ -190,6 +187,8 @@ pub fn row_menu(page: Page) -> &'static [Action] {
             ("update_codex", "rotate-ccw", "Update Codex…"),
             ("update_claude", "rotate-ccw", "Update Claude…"),
             ("update_open_code", "rotate-ccw", "Update OpenCode…"),
+            ("update_antigravity", "rotate-ccw", "Update Antigravity…"),
+            ("update_grok", "rotate-ccw", "Install supported Grok…"),
             ("update_machine", "rotate-ccw", "Update Ocho helper"),
             ("delete", "trash", "Remove from Ocho…"),
         ],
@@ -204,7 +203,6 @@ pub fn row_menu(page: Page) -> &'static [Action] {
             ("stop", "square", "Stop…"),
             ("delete", "trash", "Stop and remove…"),
         ],
-        Page::Profiles => &[("edit", "pencil", "Edit…"), ("delete", "trash", "Remove…")],
         Page::Accounts => &[("edit", "key-round", "Reconnect")],
     }
 }
@@ -224,14 +222,13 @@ pub fn primary(page: Page) -> (&'static str, &'static str) {
         Page::Machines => ("add_machine", "Add machine"),
         Page::Sessions => ("new", "Launch session"),
         Page::Accounts => ("add_account", "Add account"),
-        Page::Profiles => ("add_profile", "Add profile"),
     }
 }
 
 /// The "⋯" menu of a row (workspace.rs `row_menu_items`): a Machines row
 /// offers "Update {provider}…" only while an update is available or the
-/// tool is not installed; a Sessions row's Archive reads Unarchive when
-/// `archived`.
+/// tool is not installed, and "Install supported Grok…" on any machine; a
+/// Sessions row's Archive reads Unarchive when `archived`.
 pub fn menu(
     page: Page,
     archived: bool,
@@ -250,6 +247,10 @@ pub fn menu(
             "update_open_code" => machine.is_some_and(|m| {
                 provider_update_action_available(m, latest_provider_versions, "opencode")
             }),
+            "update_antigravity" => machine.is_some_and(|m| {
+                provider_update_action_available(m, latest_provider_versions, "antigravity")
+            }),
+            "update_grok" => machine.is_some(),
             _ => true,
         })
         .map(|action| {
@@ -275,9 +276,8 @@ pub fn empty_text(
         return "Refreshing Ocho…".into();
     }
     match page {
-        Page::Profiles => "No launch profiles yet. Add one with the button above.",
         Page::Accounts => {
-            "No accounts connected. Add one above, choose Claude, Codex or OpenCode, and sign in."
+            "No accounts connected. Add one above, choose Claude, Codex, OpenCode or Grok, and sign in."
         }
         Page::Machines => "No machines enrolled. Add one with the button above.",
         Page::Sessions => {
@@ -296,17 +296,6 @@ pub fn empty_text(
 /// Drop blank lines (ui.rs `non_empty`).
 fn non_empty(lines: Vec<String>) -> Vec<String> {
     lines.into_iter().filter(|l| !l.trim().is_empty()).collect()
-}
-
-/// The badge color for a session state (ui.rs `badge_color`).
-fn session_badge_color(state: &str, theme: &Theme) -> String {
-    match state {
-        "RUNNING" => theme.good,
-        "IDLE" | "CLOSED" | "UNAVAILABLE" | "PAUSED" => theme.muted,
-        "BLOCKED" | "LIMITED" => theme.warn,
-        _ => theme.accent,
-    }
-    .css()
 }
 
 /// The buttons of a row: Hand off… only for a limited session, Archive
@@ -383,7 +372,8 @@ fn usage_display(ctx: &Rows, name: &str, status: &str, provider: &str) -> (Vec<M
             meters.push(Meter {
                 label: label.into(),
                 percent,
-                text: format!("{percent:.0}%"),
+                // The desktop formats the f32 it draws.
+                text: format!("{:.0}%", percent as f32),
                 reset: format_usage_reset(&window.resets_at, ctx.now_epoch_s),
                 color: color.clone(),
             });
@@ -461,7 +451,7 @@ pub fn rows(ctx: &Rows) -> Vec<Row> {
             let mut row = Row {
                 badge,
                 badge_color: if available {
-                    session_badge_color(state, t)
+                    t.badge(state).css()
                 } else {
                     t.muted.css()
                 },
@@ -543,52 +533,6 @@ pub fn rows(ctx: &Rows) -> Vec<Row> {
                 })
                 .collect()
         }
-        Page::Profiles => profiles(ctx.state)
-            .iter()
-            .map(|p| {
-                let (badge, color) = if p.profile.shortcut == 0 {
-                    ("no shortcut".to_string(), t.muted)
-                } else {
-                    (format!("⌘⌥{}", p.profile.shortcut), t.accent)
-                };
-                let machine = machine(ctx.state, &p.profile.machine_id)
-                    .map(|m| m.name.clone())
-                    .unwrap_or_else(|| "choose a machine · e to edit".into());
-                let model = if p.profile.model.is_empty() {
-                    "default model".to_string()
-                } else {
-                    p.profile.model.clone()
-                };
-                let effort = if p.profile.effort.is_empty() {
-                    "default effort".to_string()
-                } else {
-                    p.profile.effort.clone()
-                };
-                let account = account(ctx.state, &p.profile.account)
-                    .map(account_email)
-                    .unwrap_or_else(|| "machine login".into());
-                let permissions = if p.profile.permissions.is_empty() {
-                    String::new()
-                } else {
-                    format!(" · {}", p.profile.permissions)
-                };
-                let lines = vec![
-                    format!(
-                        "{machine} · {} · {model} · {effort}{permissions}",
-                        provider_label(&p.profile.provider)
-                    ),
-                    format!("{} · {account}", p.profile.cwd),
-                ];
-                Row {
-                    badge,
-                    badge_color: color.css(),
-                    title: p.name.clone(),
-                    lines: non_empty(lines),
-                    actions: actions(Page::Profiles, false, false),
-                    ..blank(p.name.clone())
-                }
-            })
-            .collect(),
     };
     for row in &mut out {
         row.badge_bg = crate::theme::Rgba::parse(&row.badge_color)
@@ -605,7 +549,7 @@ pub fn rows(ctx: &Rows) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Account, LaunchProfile, PullRequest, Session, Snapshot, UsageWindow};
+    use crate::types::{Account, PullRequest, Session, Snapshot, UsageWindow};
 
     fn fleet() -> State {
         let mut versions = HashMap::new();
@@ -614,27 +558,6 @@ mod tests {
         versions.insert("opencode".to_string(), "1.18.4".to_string());
         let mut permissions = HashMap::new();
         permissions.insert("codex".to_string(), "yolo".to_string());
-        let mut presets = HashMap::new();
-        presets.insert(
-            "daily".to_string(),
-            LaunchProfile {
-                provider: "claude".into(),
-                account: "acct".into(),
-                cwd: "~/src".into(),
-                machine_id: "m1".into(),
-                shortcut: 1,
-                ..Default::default()
-            },
-        );
-        presets.insert(
-            "spare".to_string(),
-            LaunchProfile {
-                provider: "codex".into(),
-                cwd: "/tmp".into(),
-                permissions: "auto".into(),
-                ..Default::default()
-            },
-        );
         State {
             machines: vec![
                 Machine {
@@ -737,7 +660,7 @@ mod tests {
                     ..Default::default()
                 },
             ],
-            presets,
+            ..Default::default()
         }
     }
 
@@ -796,7 +719,7 @@ mod tests {
                 .iter()
                 .map(|a| a.id.as_str())
                 .collect::<Vec<_>>(),
-            ["connect_fly", "open", "shell", "new"]
+            ["connect_fly", "connect_eas", "open", "shell", "new"]
         );
         assert_eq!(mac.actions[0].icon, "plus");
         assert_eq!(mac.actions[0].label, "Connect Fly.io…");
@@ -1010,45 +933,6 @@ mod tests {
     }
 
     #[test]
-    fn profile_rows_sort_and_describe_the_launch() {
-        let state = fleet();
-        let latest = HashMap::new();
-        let usage = HashMap::new();
-        let t = Theme::ocho_dark();
-        let rows = rows(&ctx(Page::Profiles, &state, &latest, &usage, &t));
-        assert_eq!(
-            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-            ["daily", "spare"]
-        );
-        assert_eq!(rows[0].badge, "⌘⌥1");
-        assert_eq!(rows[0].badge_color, t.accent.css());
-        assert_eq!(
-            rows[0].lines,
-            [
-                "mac · Claude · default model · default effort",
-                "~/src · me@example.com"
-            ]
-        );
-        assert_eq!(rows[1].badge, "no shortcut");
-        assert_eq!(rows[1].badge_color, t.muted.css());
-        assert_eq!(
-            rows[1].lines,
-            [
-                "choose a machine · e to edit · Codex · default model · default effort · auto",
-                "/tmp · machine login"
-            ]
-        );
-        assert_eq!(
-            rows[1]
-                .actions
-                .iter()
-                .map(|a| a.id.as_str())
-                .collect::<Vec<_>>(),
-            ["open", "edit", "delete"]
-        );
-    }
-
-    #[test]
     fn menus_hide_current_provider_updates() {
         let state = fleet();
         let mut latest = HashMap::new();
@@ -1061,6 +945,8 @@ mod tests {
                 "edit",
                 "update_codex",
                 "update_open_code",
+                "update_antigravity",
+                "update_grok",
                 "update_machine",
                 "delete"
             ]
@@ -1072,6 +958,8 @@ mod tests {
                 "update_codex",
                 "update_claude",
                 "update_open_code",
+                "update_antigravity",
+                "update_grok",
                 "update_machine",
                 "delete"
             ]
@@ -1091,10 +979,12 @@ mod tests {
             }
         );
         assert_eq!(ids(menu(Page::Accounts, false, None, &latest)), ["edit"]);
-        assert_eq!(
-            ids(menu(Page::Profiles, false, None, &latest)),
-            ["edit", "delete"]
-        );
+        let grok = menu(Page::Machines, false, state.machines.first(), &latest);
+        assert!(grok.contains(&MenuItem {
+            id: "update_grok".into(),
+            label: "Install supported Grok…".into(),
+            icon: "rotate-ccw".into()
+        }));
     }
 
     #[test]
@@ -1102,18 +992,13 @@ mod tests {
         assert_eq!(primary(Page::Machines), ("add_machine", "Add machine"));
         assert_eq!(primary(Page::Sessions), ("new", "Launch session"));
         assert_eq!(primary(Page::Accounts), ("add_account", "Add account"));
-        assert_eq!(primary(Page::Profiles), ("add_profile", "Add profile"));
         assert_eq!(
             empty_text(Page::Sessions, false, true, false, false),
             "Refreshing Ocho…"
         );
         assert_eq!(
-            empty_text(Page::Profiles, true, false, false, false),
-            "No launch profiles yet. Add one with the button above."
-        );
-        assert_eq!(
             empty_text(Page::Accounts, true, false, false, false),
-            "No accounts connected. Add one above, choose Claude, Codex or OpenCode, and sign in."
+            "No accounts connected. Add one above, choose Claude, Codex, OpenCode or Grok, and sign in."
         );
         assert_eq!(
             empty_text(Page::Machines, true, false, false, false),

@@ -76,7 +76,11 @@ impl Form {
         let mut v = overlay("form", self.title, "", "");
         picker::set(&mut v, "fields", json!(fields));
         picker::set(&mut v, "status", json!(status.0));
-        picker::set(&mut v, "statusError", json!(status.1 && !status.0.is_empty()));
+        picker::set(
+            &mut v,
+            "statusError",
+            json!(status.1 && !status.0.is_empty()),
+        );
         picker::set(&mut v, "footer", json!(self.hint()));
         let buttons = vec![
             picker::button("button:cancel", "Cancel", "Esc", false),
@@ -134,7 +138,9 @@ impl Form {
             return (
                 Vec::new(),
                 (
-                    format!("Models: {error} · Use native default or type a model ID · Ctrl+R retry"),
+                    format!(
+                        "Models: {error} · Use native default or type a model ID · Ctrl+R retry"
+                    ),
                     true,
                 ),
             );

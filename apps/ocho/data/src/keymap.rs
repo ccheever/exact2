@@ -8,7 +8,7 @@
 //! up to the window: the Sessions page sees `Sessions`, then `Manager`, then
 //! `Global`; the rail sees `Rail`, then `Global`.
 //!
-//! Ported from `fleet/desktop/src/keymap.rs` (origin/main e577272). The table
+//! Ported from `fleet/desktop/src/keymap.rs` (origin/main e6adfa8). The table
 //! keeps GPUI's keystroke syntax verbatim; keys arrive from the contract as
 //! the web's `KeyboardEvent.key` names plus a modifier list, carried by
 //! [`Keystroke`]. How the two meet:
@@ -48,7 +48,7 @@ use crate::palette::Command;
 pub enum Scope {
     /// ⌘ shortcuts that work everywhere, including over a terminal.
     Global,
-    /// The four manager pages.
+    /// The three manager pages.
     Manager,
     /// The Sessions page.
     Sessions,
@@ -56,8 +56,6 @@ pub enum Scope {
     Machines,
     /// The Accounts page.
     Accounts,
-    /// The Profiles page.
-    Profiles,
     /// The rail has focus (NAV): keys move between rail rows.
     Rail,
     /// A terminal tab whose connection ended.
@@ -76,7 +74,6 @@ impl Scope {
             Scope::Sessions => "Sessions",
             Scope::Machines => "Machines",
             Scope::Accounts => "Accounts",
-            Scope::Profiles => "Profiles",
             Scope::Rail => "Rail (NAV)",
             Scope::Disconnected => "Disconnected terminal",
             Scope::Info => "Terminal, dialogs and forms",
@@ -89,18 +86,16 @@ impl Scope {
             Page::Machines => Scope::Machines,
             Page::Sessions => Scope::Sessions,
             Page::Accounts => Scope::Accounts,
-            Page::Profiles => Scope::Profiles,
         }
     }
 
     /// The scopes the help overlay lists, in its order; `Info` last.
-    pub const HELP: [Scope; 9] = [
+    pub const HELP: [Scope; 8] = [
         Scope::Global,
         Scope::Manager,
         Scope::Sessions,
         Scope::Machines,
         Scope::Accounts,
-        Scope::Profiles,
         Scope::Rail,
         Scope::Disconnected,
         Scope::Info,
@@ -184,7 +179,6 @@ pub const BINDINGS: &[Binding] = &[
     b(Manager, "1", Command::Page(0)),
     b(Manager, "2", Command::Page(1)),
     b(Manager, "3", Command::Page(2)),
-    b(Manager, "4", Command::Page(3)),
     b(Manager, "enter", Command::Open),
     b(Manager, "/", Command::Search),
     b(Manager, "escape", Command::ClearFilter),
@@ -216,12 +210,8 @@ pub const BINDINGS: &[Binding] = &[
     // ----- accounts ---------------------------------------------------------
     b(Accounts, "n", Command::AddAccount),
     b(Accounts, "a", Command::AddAccount),
+    b(Accounts, "b", Command::BackupRecovery),
     b(Accounts, "e", Command::Edit),
-    // ----- profiles ---------------------------------------------------------
-    b(Profiles, "n", Command::AddProfile),
-    b(Profiles, "a", Command::AddProfile),
-    b(Profiles, "e", Command::Edit),
-    b(Profiles, "d", Command::Delete),
     // ----- rail (NAV) -------------------------------------------------------
     b(Rail, "j", Command::RailDown),
     b(Rail, "down", Command::RailDown),
@@ -765,14 +755,18 @@ mod tests {
             resolve(&[Accounts, Manager, Global], &typed_ks("a", false), None),
             Resolution::Command(Command::AddAccount)
         );
-        // `n` launches on Sessions and Machines but adds on Accounts and Profiles.
+        // `n` launches on Sessions and Machines but adds on Accounts.
         assert_eq!(
             resolve(&[Sessions, Manager, Global], &typed_ks("n", false), None),
             Resolution::Command(Command::New)
         );
         assert_eq!(
-            resolve(&[Profiles, Manager, Global], &typed_ks("n", false), None),
-            Resolution::Command(Command::AddProfile)
+            resolve(&[Accounts, Manager, Global], &typed_ks("n", false), None),
+            Resolution::Command(Command::AddAccount)
+        );
+        assert_eq!(
+            resolve(&[Accounts, Manager, Global], &typed_ks("b", false), None),
+            Resolution::Command(Command::BackupRecovery)
         );
     }
 
@@ -1105,6 +1099,7 @@ mod tests {
     #[test]
     fn pages_map_to_their_scopes() {
         assert_eq!(Scope::for_page(Page::Sessions), Sessions);
-        assert_eq!(Scope::for_page(Page::Profiles), Profiles);
+        assert_eq!(Scope::for_page(Page::Machines), Machines);
+        assert_eq!(Scope::for_page(Page::Accounts), Accounts);
     }
 }

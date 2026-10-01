@@ -16,10 +16,14 @@
 // kept, not pruned, until the last phase wires it (then this line goes).
 #![allow(dead_code)]
 
+mod finders;
+mod forms;
+mod imessage_pair;
 mod indicator;
 mod keymap;
 mod launch;
 mod markdown;
+mod markdown_doc;
 mod model;
 mod notifications;
 mod palette;
@@ -28,14 +32,18 @@ mod picker;
 mod preferences;
 mod quick;
 mod rows;
+mod secret_requests;
 mod session;
 mod settings;
 mod shapes;
 mod tab_tree;
 mod theme;
+mod themes;
+mod transcript;
 mod types;
 mod updater;
 mod view;
+mod whats_new;
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};

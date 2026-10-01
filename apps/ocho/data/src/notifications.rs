@@ -1,7 +1,10 @@
 //! macOS notifications (notifications.rs): a completed turn (Running →
 //! Idle) and input required (→ Blocked), one per session, removed when the
 //! session runs again. The module posts them (`notify` jobs); this keeps
-//! the phases and decides.
+//! the phases and decides. Without timers or a pane read, a completed turn
+//! posts at once (the desktop waits 400 ms for a generated title) and a
+//! blocked one says its status text (the desktop reads the prompt's
+//! question and choices from the pane).
 
 use crate::settings::DesktopSettings;
 use crate::types::{Machine, Session};
@@ -39,8 +42,8 @@ fn title_rank(source: &str) -> u8 {
         "native-custom" => 4,
         "generated" => 3,
         "native" => 2,
-        "" => 0,
-        _ => 1,
+        "prompt" => 1,
+        _ => 0,
     }
 }
 
@@ -92,6 +95,7 @@ impl KnownSession {
         self.phase = phase(&session.state);
         self.machine_id = machine.id.clone();
         self.machine_name = machine.name.clone();
+        self.session_id = session.id.clone();
         if !session.title.is_empty()
             && title_rank(&session.title_source) >= title_rank(&self.title_source)
         {
@@ -114,16 +118,33 @@ impl KnownSession {
         format!("{}:{}", self.machine_id, self.session_id)
     }
 
-    /// The title: the session's, else "{Provider} session", else "Ocho session".
+    /// The title: the session's, else "{Provider} session", else "Ocho
+    /// session" (notifications.rs `display_title`).
     pub fn display_title(&self) -> String {
-        let title = crate::session::clean(&self.title);
-        if !title.is_empty() {
-            return title;
+        if !self.title.trim().is_empty() {
+            self.title.clone()
+        } else if !self.provider.is_empty() {
+            format!("{} session", crate::session::provider_label(&self.provider))
+        } else {
+            "Ocho session".into()
         }
-        if !self.provider.is_empty() {
-            return format!("{} session", crate::session::provider_label(&self.provider));
+    }
+
+    /// The note for this session as notifications.rs `post` writes it: the
+    /// title and body as plain text, the body clipped to 320 characters and
+    /// "Ready for your next message" when nothing is left.
+    fn post(&self, kind: &'static str, body: &str) -> Note {
+        let body = clipped(&notification_text(body), 320);
+        Note::Post {
+            kind,
+            title: notification_text(&self.display_title()),
+            body: if body.is_empty() {
+                "Ready for your next message".into()
+            } else {
+                body
+            },
+            thread: self.thread(),
         }
-        "Ocho session".into()
     }
 }
 
@@ -205,17 +226,7 @@ impl Notifications {
                     });
                 }
                 known.posted = true;
-                let body = if known.last_message.trim().is_empty() {
-                    "Ready for your next message".to_string()
-                } else {
-                    clipped(&notification_text(&known.last_message), 320)
-                };
-                out.push(Note::Post {
-                    kind: "completed",
-                    title: known.display_title(),
-                    body,
-                    thread: known.thread(),
-                });
+                out.push(known.post("completed", &known.last_message));
             }
             (old, Phase::Blocked) if old != Phase::Blocked && settings.notify_input_required() => {
                 if known.posted {
@@ -224,17 +235,12 @@ impl Notifications {
                     });
                 }
                 known.posted = true;
-                let body = if known.status_text.trim().is_empty() {
-                    "The session is waiting for you".to_string()
+                let question = if known.status_text.is_empty() {
+                    "The session is waiting for you"
                 } else {
-                    clipped(&known.status_text, 320)
+                    known.status_text.as_str()
                 };
-                out.push(Note::Post {
-                    kind: "blocked",
-                    title: known.display_title(),
-                    body,
-                    thread: known.thread(),
-                });
+                out.push(known.post("blocked", question));
             }
             _ => {}
         }
@@ -242,18 +248,25 @@ impl Notifications {
     }
 }
 
-/// The first `limit` characters, with an ellipsis when cut.
+/// `text` trimmed, at most `limit` characters: a longer one keeps
+/// `limit - 1` and ends in an ellipsis.
 pub fn clipped(text: &str, limit: usize) -> String {
-    let mut out: String = text.chars().take(limit).collect();
-    if text.chars().count() > limit {
-        out.push('…');
+    let text = text.trim();
+    if text.chars().count() <= limit {
+        return text.to_string();
     }
-    out
+    let mut value: String = text.chars().take(limit.saturating_sub(1)).collect();
+    value.push('…');
+    value
 }
 
-/// Markdown reduced to words for a notification's body.
+/// Markdown reduced to its words, whitespace collapsed, for a
+/// notification's title and body.
 pub fn notification_text(markdown: &str) -> String {
-    crate::markdown::inline_text(markdown)
+    crate::markdown_doc::plain_text(&crate::markdown_doc::parse(markdown))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -311,5 +324,86 @@ mod tests {
         ));
         // An older observation is ignored.
         assert!(n.observe(&m, &session("idle", 1), &settings).is_empty());
+    }
+
+    #[test]
+    fn blocked_and_untitled_sessions_read_plainly() {
+        let m = Machine {
+            id: "m".into(),
+            ..Default::default()
+        };
+        let settings = DesktopSettings::default();
+        let mut n = Notifications::default();
+        let mut s = session("working", 1);
+        s.title = "  ".into();
+        s.provider = "grok".into();
+        s.last_message = "```\n```".into();
+        n.observe(&m, &s, &settings);
+        s.state = "idle".into();
+        s.status_observed_at = 2;
+        assert_eq!(
+            n.observe(&m, &s, &settings),
+            vec![Note::Post {
+                kind: "completed",
+                title: "Grok session".into(),
+                body: "Ready for your next message".into(),
+                thread: "m:s".into()
+            }]
+        );
+        s.state = "awaiting approval".into();
+        s.status_observed_at = 3;
+        let notes = n.observe(&m, &s, &settings);
+        assert_eq!(
+            notes[0],
+            Note::Remove {
+                thread: "m:s".into()
+            }
+        );
+        assert!(matches!(
+            &notes[1],
+            Note::Post { kind: "blocked", body, .. } if body == "The session is waiting for you"
+        ));
+    }
+
+    #[test]
+    fn notification_copy_is_plain_text() {
+        assert_eq!(
+            notification_text("## Done\n**Fixed** [the bug](https://example.com) in `app.rs`."),
+            "Done Fixed the bug in app.rs."
+        );
+        assert_eq!(
+            notification_text("- First item\n- Second *item*\n\n```rust\nlet ok = true;\n```"),
+            "First item Second item let ok = true;"
+        );
+        assert_eq!(clipped("  short  ", 320), "short");
+        assert_eq!(clipped("abcdef", 4), "abc…");
+        assert_eq!(clipped("abcd", 4), "abcd");
+    }
+
+    #[test]
+    fn higher_priority_titles_cannot_be_replaced_by_native_fallbacks() {
+        let machine = Machine {
+            id: "machine".into(),
+            ..Default::default()
+        };
+        let mk = |title: &str, source: &str| Session {
+            id: "session".into(),
+            title: title.into(),
+            title_source: source.into(),
+            ..Default::default()
+        };
+        let mut known = KnownSession::from(&machine, &mk("Secure Session Sync", "generated"));
+        known.update(&machine, &mk("old first prompt", "native"));
+        assert_eq!(known.title, "Secure Session Sync");
+        known.update(&machine, &mk("My label", "label"));
+        assert_eq!(known.title, "My label");
+        // An unknown source ranks with none; a first prompt above both.
+        known.title_source = String::new();
+        known.update(&machine, &mk("odd", "something"));
+        assert_eq!(known.title, "odd");
+        known.update(&machine, &mk("first prompt", "prompt"));
+        assert_eq!(known.title, "first prompt");
+        known.update(&machine, &mk("odd again", "something"));
+        assert_eq!(known.title, "first prompt");
     }
 }

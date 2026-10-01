@@ -14,7 +14,8 @@ fn main() {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };
-    let baked = contract::bake(plan, ocho_data::Ocho::default()).unwrap_or_else(|e| panic!("bake: {e:?}"));
+    let baked =
+        contract::bake(plan, ocho_data::Ocho::default()).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");

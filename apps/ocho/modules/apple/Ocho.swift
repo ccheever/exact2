@@ -274,6 +274,44 @@ final class JobRunner {
                 group.leave()
             }
             switch argv.first {
+            case "whats-new-history":
+                // The history this port follows: Fleet's first-parent log at
+                // $OCHO_FLEET_COMMIT (default origin/main) in $OCHO_FLEET_REPO
+                // (default ~/Developer/fleet); empty when there is no checkout.
+                queue.async {
+                    let env = ProcessInfo.processInfo.environment
+                    let repo = env["OCHO_FLEET_REPO"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Developer/fleet").path
+                    let commit = env["OCHO_FLEET_COMMIT"] ?? "origin/main"
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                    p.arguments = ["-C", repo, "log", "--first-parent", "-60", "--format=%H%x09%cs%x09%s", commit]
+                    let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+                    var text = ""
+                    if (try? p.run()) != nil {
+                        let data = out.fileHandleForReading.readDataToEndOfFile()
+                        p.waitUntilExit()
+                        if p.terminationStatus == 0 { text = String(decoding: data, as: UTF8.self) }
+                    }
+                    finish(["status": 0, "stderr": "", "stdout": text])
+                }
+            case "theme-files":
+                // themes.rs `theme_dirs`: Zed's themes, its extensions' themes, Fleet's own.
+                queue.async {
+                    let fm = FileManager.default
+                    let home = fm.homeDirectoryForCurrentUser.path
+                    var dirs = ["\(home)/.config/zed/themes", "\(FleetHome.path)/themes", "\(home)/.local/share/fleet/themes"]
+                    let extensions = "\(home)/Library/Application Support/Zed/extensions/installed"
+                    for ext in (try? fm.contentsOfDirectory(atPath: extensions)) ?? [] { dirs.append("\(extensions)/\(ext)/themes") }
+                    var files: [[String]] = []
+                    for dir in dirs {
+                        for name in ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).sorted() where name.hasSuffix(".json") {
+                            let path = "\(dir)/\(name)"
+                            if let text = try? String(contentsOfFile: path, encoding: .utf8) { files.append([path, text]) }
+                        }
+                    }
+                    let json = (try? JSONSerialization.data(withJSONObject: files)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+                    finish(["status": 0, "stderr": "", "stdout": json])
+                }
             case "refresh-feed":
                 fleet.refresh()
                 finish(["status": 0, "stderr": "", "stdout": ""])

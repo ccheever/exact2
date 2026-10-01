@@ -265,6 +265,47 @@ pub const TAB_VIEW: Shape = Record(&[
 
 pub const TOAST: Shape = Record(&[("text", Str), ("error", Bool), ("dismissible", Bool)]);
 
+pub const WHATS_NEW_ROW: Shape = Record(&[
+    ("kind", Str),
+    ("id", Str),
+    ("date", Str),
+    ("title", Str),
+    ("commit", Str),
+    ("url", Str),
+]);
+
+pub const WHATS_NEW: Shape = Record(&[
+    ("visible", Bool),
+    ("title", Str),
+    ("build", Str),
+    ("subtitle", Str),
+    ("rows", List(&WHATS_NEW_ROW)),
+    ("empty", Str),
+    ("footer", Str),
+    ("closeLabel", Str),
+    ("scrollSeq", Num),
+    ("scrollBy", Num),
+    ("scrollTo", Str),
+]);
+
+pub const QR_CELL: Shape = Record(&[("id", Str), ("dark", Bool)]);
+pub const QR_ROW: Shape = Record(&[("id", Str), ("cells", List(&QR_CELL))]);
+
+pub const IMESSAGE_PAIR: Shape = Record(&[
+    ("visible", Bool),
+    ("title", Str),
+    ("state", Str),
+    ("loading", Str),
+    ("error", Str),
+    ("instructions", Str),
+    ("qr", List(&QR_ROW)),
+    ("code", Str),
+    ("sendTo", Str),
+    ("sendFrom", Str),
+    ("url", Str),
+    ("retry", Bool),
+]);
+
 pub const VIEW: Shape = Record(&[
     ("theme", THEME),
     ("windowTitle", Str),
@@ -281,6 +322,8 @@ pub const VIEW: Shape = Record(&[
     ("uiFontSize", Num),
     ("termFontSize", Num),
     ("region", Str),
+    ("whatsNew", WHATS_NEW),
+    ("pairing", IMESSAGE_PAIR),
 ]);
 
 /// The value of `json` in `shape`, missing fields as their zero.

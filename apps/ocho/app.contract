@@ -246,6 +246,44 @@ shape Toast
   text: string
   error: bool
   dismissible: bool
+shape WhatsNewRow
+  kind: string
+  id: string
+  date: string
+  title: string
+  commit: string
+  url: string
+shape WhatsNew
+  visible: bool
+  title: string
+  build: string
+  subtitle: string
+  rows: list<WhatsNewRow>
+  empty: string
+  footer: string
+  closeLabel: string
+  scrollSeq: number
+  scrollBy: number
+  scrollTo: string
+shape QrCell
+  id: string
+  dark: bool
+shape QrRow
+  id: string
+  cells: list<QrCell>
+shape IMessagePair
+  visible: bool
+  title: string
+  state: string
+  loading: string
+  error: string
+  instructions: string
+  qr: list<QrRow>
+  code: string
+  sendTo: string
+  sendFrom: string
+  url: string
+  retry: bool
 shape View
   theme: Theme
   windowTitle: string
@@ -262,6 +300,8 @@ shape View
   uiFontSize: number
   termFontSize: number
   region: string
+  whatsNew: WhatsNew
+  pairing: IMessagePair
 shape Media
   prefersColorScheme: string
   width: number
@@ -349,7 +389,7 @@ component Ocho
             when vm.toast.dismissible
               button press=press("toast-dismiss") testId="toast-dismiss" hover=hover("toast-dismiss") class=Reset color=(hoverId == "toast-dismiss" ? t.text : t.muted) padding-left=4 padding-right=4
                 text "×"
-      Overlays(model=vm.overlay, popup=vm.popup, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
+      Overlays(model=vm.overlay, popup=vm.popup, whatsNew=vm.whatsNew, pairing=vm.pairing, t=t, hoverId=hoverId, windowWidth=media.width, windowHeight=media.height, press=press, pressAt=pressAt, hover=hover, typed=typed, overlayKeyDown=overlayKeyDown)
       // ⌘ chords the app declares reach the model as `key:` presses: the
       // key handler above sees bare keys only (LLP 1005 §5).
       // A 1 px transparent button each, in a strip under the traffic lights, so a

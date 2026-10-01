@@ -1,12 +1,12 @@
-//! What the launch dialog asks the caller to run: `fleet models` for each
-//! harness's catalog while the model popup is open (workspace.rs
-//! `schedule_launch_catalog`), and `fleet directories` for the folder being
-//! typed (`schedule_directory`). `wanted_*` say what to run, `*_requested`
+//! What the launch composer asks the caller to run: `fleet models` for each
+//! harness's catalog while the model menu is open (workspace.rs
+//! `schedule_launch_catalog`), and `fleet directories` for the path typed
+//! into the project menu (`schedule_directory`). `wanted_*` say what to run, `*_requested`
 //! mark it taken, `set_*` bring the answer back.
 
 use serde::{Deserialize, Serialize};
 
-use super::{account, default_account, machine, Launch, Outcome, PROVIDERS};
+use super::{account, default_account, machine, Launch, MenuKind, Outcome, PROVIDERS};
 use crate::quick::{self, Step};
 use crate::types::State;
 
@@ -104,12 +104,16 @@ pub struct ModelState {
 }
 
 impl Launch {
-    /// Load every harness's model catalog while the model popup is open (only
+    /// Load every harness's model catalog while the model menu is open (only
     /// the current harness under quick launch), so the whole list fills in
     /// at once. Loaded results stay visible while `force` refreshes them.
     pub fn sync_catalogs(&mut self, state: &State, force: bool) {
         let quick = self.quick.as_ref().is_some_and(|q| q.step == Step::Model);
-        if self.model_picker.is_none() && !quick {
+        let menu = self
+            .menu
+            .as_ref()
+            .is_some_and(|m| m.kind == MenuKind::Model);
+        if !menu && !quick {
             return;
         }
         let catalog_key = format!("{}\n{}\n{}", self.machine, self.account, self.cwd);
@@ -210,22 +214,32 @@ impl Launch {
         quick::finish_pending(self, state)
     }
 
-    /// The typed path is asked for again (workspace.rs `schedule_directory`).
+    /// The typed path is asked for again (workspace.rs `schedule_directory`),
+    /// when the project menu's query reads like one.
     pub(super) fn refresh_directories(&mut self) {
-        if let Some(adding) = self.picker.as_mut().and_then(|p| p.adding.as_mut()) {
-            adding.directory = DirectoryState {
+        if let Some(menu) = self.path_menu_mut() {
+            menu.directory = DirectoryState {
                 loading: true,
                 ..Default::default()
             };
         }
     }
 
+    fn path_menu_mut(&mut self) -> Option<&mut super::Menu> {
+        self.menu
+            .as_mut()
+            .filter(|m| m.kind == MenuKind::Project && m.is_path())
+    }
+
     /// The `fleet directories MACHINE PATH` to run, if a path is waiting for
     /// its completions; `directories_requested` marks it taken.
     pub fn wanted_directories(&self) -> Option<(String, String)> {
-        let adding = self.picker.as_ref()?.adding.as_ref()?;
-        if adding.directory.loading && !adding.directory.requested {
-            Some((adding.machine.clone(), adding.path.clone()))
+        let menu = self
+            .menu
+            .as_ref()
+            .filter(|m| m.kind == MenuKind::Project && m.is_path())?;
+        if menu.directory.loading && !menu.directory.requested {
+            Some((self.machine.clone(), menu.query.trim().to_string()))
         } else {
             None
         }
@@ -233,26 +247,29 @@ impl Launch {
 
     /// The caller started `fleet directories` for the path.
     pub fn directories_requested(&mut self) {
-        if let Some(adding) = self.picker.as_mut().and_then(|p| p.adding.as_mut()) {
-            adding.directory.requested = true;
+        if let Some(menu) = self.path_menu_mut() {
+            menu.directory.requested = true;
         }
     }
 
     /// `fleet directories` answered for `machine` and `path`; an answer to
-    /// an earlier path is dropped.
+    /// an earlier path or machine is dropped.
     pub fn set_directories(
         &mut self,
         machine: &str,
         path: &str,
         result: Result<DirectoryMatches, String>,
     ) {
-        let Some(adding) = self.picker.as_mut().and_then(|p| p.adding.as_mut()) else {
-            return;
-        };
-        if adding.machine != machine || adding.path != path {
+        if self.machine != machine {
             return;
         }
-        let d = &mut adding.directory;
+        let Some(menu) = self.path_menu_mut() else {
+            return;
+        };
+        if menu.query.trim() != path {
+            return;
+        }
+        let d = &mut menu.directory;
         d.loading = false;
         d.requested = false;
         match result {
@@ -269,15 +286,16 @@ impl Launch {
 mod tests {
     use super::*;
     use crate::launch::tests::{fresh, state};
+    use crate::launch::MenuKind;
 
     #[test]
-    fn catalogs_load_while_the_popup_is_open_and_answers_land_by_key() {
+    fn catalogs_load_while_the_model_menu_is_open_and_answers_land_by_key() {
         let st = state();
         let mut launch = fresh(&st);
         launch.provider = "claude".into();
         launch.account = "claude:me@example.com".into();
         assert_eq!(launch.wanted_catalog(), None);
-        launch.open_model_picker(&st);
+        launch.open_menu(MenuKind::Model, &st);
         let key = launch.wanted_catalog().unwrap();
         assert_eq!(key.provider, "codex");
         assert_eq!(
@@ -289,9 +307,7 @@ mod tests {
         assert_eq!(next.provider, "claude");
         assert_eq!(next.account, "claude:me@example.com");
         assert_eq!(next.argv(&st)[5], "me");
-        let popup = launch.popup_view(&st);
-        assert_eq!(popup["items"][0]["label"], "Codex");
-        assert_eq!(popup["items"][0]["hint"], "loading from LAPTOP…");
+        assert_eq!(launch.catalogs["codex"].machine, "LAPTOP");
         let opus = ModelOption {
             id: "opus".into(),
             name: "Opus".into(),
@@ -299,8 +315,7 @@ mod tests {
         };
         assert_eq!(launch.set_models(&next, Ok(vec![opus]), &st), Outcome::None);
         launch.set_models(&key, Err("offline".into()), &st);
-        let popup = launch.popup_view(&st);
-        assert_eq!(popup["items"][0]["hint"], "unavailable: offline");
+        assert_eq!(launch.catalogs["codex"].error, "offline");
         assert!(launch.model_rows().iter().any(|r| r.id == "opus"));
         // A stale answer for another folder is ignored; a forced refresh
         // keeps the loaded catalog visible while asking again.
@@ -313,46 +328,56 @@ mod tests {
         launch.sync_catalogs(&st, true);
         assert!(launch.catalogs["claude"].loading);
         assert_eq!(launch.catalogs["claude"].options.len(), 1);
-        // An unknown account never asks; the section says so.
+        // An unknown account never asks; the catalog says so.
         launch.account = "nobody".into();
         launch.sync_catalogs(&st, false);
         assert_eq!(launch.catalogs["claude"].error, "account nobody not found");
         assert!(launch
             .wanted_catalog()
             .is_some_and(|k| k.provider == "codex"));
+        // Every harness is asked for, the new ones included.
+        let providers: Vec<&str> = PROVIDERS
+            .iter()
+            .filter(|p| launch.catalogs.contains_key(**p))
+            .copied()
+            .collect();
+        assert_eq!(providers, PROVIDERS);
     }
 
     #[test]
     fn folder_completion_follows_the_typed_path() {
         let st = state();
         let mut launch = fresh(&st);
-        launch.open_project_picker(&st);
-        launch.start_adding_folder("studio".into(), &st);
+        launch.open_menu(MenuKind::Project, &st);
+        launch.input("launch-menu-query", "fleet");
+        assert_eq!(launch.wanted_directories(), None);
+        launch.input("launch-menu-query", "~/");
         assert_eq!(
             launch.wanted_directories(),
-            Some(("studio".into(), "~/".into()))
+            Some(("laptop".into(), "~/".into()))
         );
         launch.directories_requested();
         assert_eq!(launch.wanted_directories(), None);
-        launch.input("add-folder", "~/s");
+        launch.input("launch-menu-query", " ~/s ");
         assert_eq!(
             launch.wanted_directories(),
-            Some(("studio".into(), "~/s".into()))
+            Some(("laptop".into(), "~/s".into()))
         );
         // The answer to the earlier path is dropped; the current one lands.
-        launch.set_directories("studio", "~/", Ok(DirectoryMatches::default()));
+        launch.set_directories("laptop", "~/", Ok(DirectoryMatches::default()));
+        assert!(launch.wanted_directories().is_some());
+        launch.set_directories("studio", "~/s", Ok(DirectoryMatches::default()));
         assert!(launch.wanted_directories().is_some());
         let matches = DirectoryMatches {
             paths: vec!["~/srv/".into()],
             truncated: true,
         };
-        launch.set_directories("studio", "~/s", Ok(matches));
-        let adding = launch.picker.as_ref().unwrap().adding.as_ref().unwrap();
-        assert_eq!(adding.directory.paths, ["~/srv/"]);
-        assert!(adding.directory.truncated);
-        assert!(!adding.directory.loading);
-        launch.set_directories("studio", "~/s", Err("gone".into()));
-        let adding = launch.picker.as_ref().unwrap().adding.as_ref().unwrap();
-        assert_eq!(adding.directory.error, "gone");
+        launch.set_directories("laptop", "~/s", Ok(matches));
+        let d = &launch.menu.as_ref().unwrap().directory;
+        assert_eq!(d.paths, ["~/srv/"]);
+        assert!(d.truncated);
+        assert!(!d.loading);
+        launch.set_directories("laptop", "~/s", Err("gone".into()));
+        assert_eq!(launch.menu.as_ref().unwrap().directory.error, "gone");
     }
 }

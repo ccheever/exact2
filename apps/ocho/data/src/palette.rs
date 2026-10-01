@@ -3,7 +3,7 @@
 //! keys themselves live in `keymap`; this module only names the commands and
 //! groups them for the palette.
 //!
-//! Ported from `fleet/desktop/src/palette.rs` (origin/main e577272). Added
+//! Ported from `fleet/desktop/src/palette.rs` (origin/main e6adfa8). Added
 //! for the contract: [`Command::id`] / [`Command::from_id`], a stable text
 //! name for each command so a press id can carry one, and [`rank`], the
 //! palette's filter-and-sort step lifted out of `Workspace::palette_items`.
@@ -39,6 +39,7 @@ pub enum Command {
     New,
     QuickLaunch,
     AddAccount,
+    BackupRecovery,
     AddProfile,
     NewWindow,
     CloseWindow,
@@ -48,10 +49,13 @@ pub enum Command {
     Track,
     AddMachine,
     ConnectFly,
+    ConnectEAS,
     UpdateMachine,
     UpdateCodex,
     UpdateClaude,
     UpdateOpenCode,
+    UpdateAntigravity,
+    UpdateGrok,
     ToggleOthers,
     ToggleHistory,
     ToggleNonRunning,
@@ -92,12 +96,14 @@ pub enum Command {
     RefreshSessionTheme,
     SwitchClaudeWorkerTerminal,
     ToggleTranscript,
-    ToggleRequests,
+    ToggleSecrets,
     EnterNav,
     ExitNav,
     Themes,
     PairPhone,
+    PairIMessage,
     Settings,
+    WhatsNew,
     Quit,
     CheckForUpdates,
     UpdateDesktop,
@@ -128,6 +134,7 @@ const IDS: &[(Command, &str)] = &[
     (Command::New, "launch"),
     (Command::QuickLaunch, "quick-launch"),
     (Command::AddAccount, "add-account"),
+    (Command::BackupRecovery, "backup-recovery"),
     (Command::AddProfile, "add-profile"),
     (Command::NewWindow, "new-window"),
     (Command::CloseWindow, "close-window"),
@@ -137,10 +144,13 @@ const IDS: &[(Command, &str)] = &[
     (Command::Track, "track"),
     (Command::AddMachine, "add-machine"),
     (Command::ConnectFly, "connect-fly"),
+    (Command::ConnectEAS, "connect-eas"),
     (Command::UpdateMachine, "update-machine"),
     (Command::UpdateCodex, "update-codex"),
     (Command::UpdateClaude, "update-claude"),
     (Command::UpdateOpenCode, "update-opencode"),
+    (Command::UpdateAntigravity, "update-antigravity"),
+    (Command::UpdateGrok, "update-grok"),
     (Command::ToggleOthers, "toggle-others"),
     (Command::ToggleHistory, "toggle-history"),
     (Command::ToggleNonRunning, "toggle-non-running"),
@@ -179,12 +189,14 @@ const IDS: &[(Command, &str)] = &[
         "switch-claude-worker-terminal",
     ),
     (Command::ToggleTranscript, "toggle-transcript"),
-    (Command::ToggleRequests, "toggle-requests"),
+    (Command::ToggleSecrets, "toggle-secrets"),
     (Command::EnterNav, "enter-nav"),
     (Command::ExitNav, "exit-nav"),
     (Command::Themes, "themes"),
     (Command::PairPhone, "pair-phone"),
+    (Command::PairIMessage, "pair-imessage"),
     (Command::Settings, "settings"),
+    (Command::WhatsNew, "whats-new"),
     (Command::Quit, "quit"),
     (Command::CheckForUpdates, "check-for-updates"),
     (Command::UpdateDesktop, "update-desktop"),
@@ -247,19 +259,23 @@ const fn info(command: Command, label: &'static str) -> CommandInfo {
 /// Commands offered everywhere; the palette lists them last.
 pub const GLOBAL: &[CommandInfo] = &[
     info(Command::ConnectFly, "Connect Fly.io…"),
+    info(Command::ConnectEAS, "Connect EAS…"),
     info(Command::CheckForUpdates, "Check for Ocho updates"),
     info(Command::Undo, "Undo last action"),
     info(Command::ReopenClosedTab, "Reopen closed tab"),
     info(Command::ClearScrollback, "Clear terminal scrollback"),
     info(Command::Palette, "Command palette"),
-    info(Command::ToggleRequests, "Toggle Requests sidebar"),
+    info(Command::ToggleSecrets, "Toggle Secrets sidebar"),
     info(Command::Help, "Keyboard help"),
     info(Command::Themes, "Change theme…"),
     info(Command::PairPhone, "Pair phone…"),
+    info(Command::PairIMessage, "Pair iMessage…"),
     info(Command::Settings, "Settings…"),
+    info(Command::WhatsNew, "What’s New — recent changes"),
     info(Command::Refresh, "Refresh Ocho"),
     info(Command::New, "Launch session"),
     info(Command::QuickLaunch, "Quick launch session"),
+    info(Command::AddProfile, "Add profile…"),
     info(Command::NewWindow, "New window"),
     info(Command::CloseWindow, "Close window (agents keep running)"),
     info(Command::Search, "Search sessions"),
@@ -272,7 +288,6 @@ pub const GLOBAL: &[CommandInfo] = &[
     info(Command::Page(0), "Go to Machines"),
     info(Command::Page(1), "Go to Sessions"),
     info(Command::Page(2), "Go to Accounts"),
-    info(Command::Page(3), "Go to Profiles"),
     info(Command::NextPage, "Next page"),
     info(Command::PrevPage, "Previous page"),
     info(Command::NextTab, "Next tab"),
@@ -387,22 +402,17 @@ pub const MACHINES: &[CommandInfo] = &[
     info(Command::UpdateCodex, "Update Codex on machine"),
     info(Command::UpdateClaude, "Update Claude on machine"),
     info(Command::UpdateOpenCode, "Update OpenCode on machine"),
+    info(Command::UpdateAntigravity, "Update Antigravity on machine"),
+    info(Command::UpdateGrok, "Install supported Grok on machine"),
     info(Command::Delete, "Remove machine from Ocho…"),
 ];
 
 /// The Accounts page's commands.
 pub const ACCOUNTS: &[CommandInfo] = &[
     info(Command::AddAccount, "Add account…"),
+    info(Command::BackupRecovery, "Back up fleet recovery key…"),
     info(Command::Open, "Open account (sign in or shell)"),
     info(Command::Edit, "Reconnect account"),
-];
-
-/// The Profiles page's commands.
-pub const PROFILES: &[CommandInfo] = &[
-    info(Command::Open, "Launch profile"),
-    info(Command::AddProfile, "Add profile…"),
-    info(Command::Edit, "Edit profile…"),
-    info(Command::Delete, "Remove profile…"),
 ];
 
 /// Row movement on every manager page.
@@ -438,7 +448,6 @@ pub fn page_commands(page: Page) -> &'static [CommandInfo] {
         Page::Machines => MACHINES,
         Page::Sessions => SESSIONS,
         Page::Accounts => ACCOUNTS,
-        Page::Profiles => PROFILES,
     }
 }
 
@@ -453,7 +462,6 @@ pub fn label(command: Command) -> &'static str {
         TAB_SESSION,
         MACHINES,
         ACCOUNTS,
-        PROFILES,
         MOTION,
         UNLISTED,
     ]
@@ -555,6 +563,7 @@ mod tests {
             Command::UpdateCodex,
             Command::UpdateClaude,
             Command::UpdateOpenCode,
+            Command::UpdateAntigravity,
         ] {
             assert!(MACHINES.iter().any(|item| item.command == command));
         }
@@ -595,7 +604,7 @@ mod tests {
     #[test]
     fn every_page_can_add_its_own_kind_of_thing() {
         assert!(ACCOUNTS.iter().any(|i| i.command == Command::AddAccount));
-        assert!(PROFILES.iter().any(|i| i.command == Command::AddProfile));
+        assert!(GLOBAL.iter().any(|i| i.command == Command::AddProfile));
         assert!(MACHINES.iter().any(|i| i.command == Command::AddMachine));
         // Launching a session is global and never means "add account".
         assert_eq!(label(Command::New), "Launch session");
@@ -672,6 +681,5 @@ mod tests {
         assert_eq!(commands(page_commands(Page::Sessions)), commands(SESSIONS));
         assert_eq!(commands(page_commands(Page::Machines)), commands(MACHINES));
         assert_eq!(commands(page_commands(Page::Accounts)), commands(ACCOUNTS));
-        assert_eq!(commands(page_commands(Page::Profiles)), commands(PROFILES));
     }
 }

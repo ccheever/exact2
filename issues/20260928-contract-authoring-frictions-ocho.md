@@ -51,3 +51,16 @@ replaces.
   ancestor ignores keys while it is focused. A dispatch rule (the innermost
   `key` handler wins, or a contract-level way to stop the bubble) would make
   the two hosts agree without app state.
+- **An input's placeholder color cannot be set.** GPUI paints placeholders in
+  the theme's `muted`; exact2 has no `placeholder-color` (macOS mutes the
+  text color to 30%, the web uses the browser's default, which all but
+  vanishes on a dark card). The app layers a `text` under each empty input
+  instead. A `placeholder-color` row (CSS `::placeholder { color }`) would
+  remove that.
+- **The dev loop does not watch `use`d files.** `bun host/web/dev.mjs` rebuilds
+  when `app.contract` changes, not when a file it imports with `use` does
+  (and a `touch` of `app.contract` alone did not trigger a rebuild either);
+  edits to `overlays.contract` only showed after a restart.
+- **Lists have no membership test and strings no split.** `includes` takes
+  two strings only, so flags travel as a space-joined string; a QR code's
+  rows arrive pre-split as records because `split` does not exist.

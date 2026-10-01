@@ -1,39 +1,45 @@
 //! Markdown as a block model (markdown.rs `Markdown::parse`, without
 //! pulldown-cmark or GPUI): what the transcript view and the message overlay
-//! render. The parser is by hand and covers what agent replies use: ATX
-//! headings, paragraphs with soft and hard breaks, block quotes, bullet,
-//! ordered and task lists (nested by indentation), fenced code (a fence left
-//! open by a streaming reply still counts), pipe tables with an alignment
-//! row, thematic breaks, and inline code, bold, italic, strikethrough, links,
-//! images (`[Image: alt]`), autolinks and backslash escapes. Literal HTML
-//! stays as text, as the source's `Event::Html` did.
+//! render. The parser is by hand and covers what agent replies use: ATX and
+//! setext headings, paragraphs with soft and hard breaks, block quotes,
+//! bullet, ordered and task lists (nested by indentation), fenced code (a
+//! fence left open by a streaming reply still counts) and indented code,
+//! pipe tables with an alignment row, thematic breaks, and inline code,
+//! bold, italic, strikethrough, links, images (`[Image: alt]`), autolinks,
+//! entities, backslash escapes and LaTeX math (`$…$`, `$$…$$`, `\(…\)`,
+//! `\[…\]`; see [`math`]). Literal HTML stays as text, as the source's
+//! `Event::Html` did. Only web, mail and local-file links are clickable
+//! (`web_link` or `remote_file::path_from_link`); any other link is text.
 //!
 //! `parse` gives the nested [`Block`] tree; `to_json` flattens it into the
 //! records a Contract iterates (no recursion there), one per rendered row:
 //!
 //! ```text
 //! shape MarkdownRun
-//!   text: string      // the words
+//!   text: string      // the words; a formula's TeX source when math != ""
 //!   bold: bool
 //!   italic: bool
 //!   code: bool        // inline code: Menlo on `element`
 //!   strike: bool
-//!   url: string       // a link's target, "" for plain text
+//!   url: string       // a clickable link's target, "" for plain text
 //!   subdued: bool     // progress text: italic `muted`
+//!   math: string      // "" | inline | display (display only inside table cells)
 //! shape MarkdownCell
 //!   runs: list<MarkdownRun>
+//!   flow: bool        // the runs hold a formula: lay out with markdown_doc::flow
 //! shape MarkdownTableRow
 //!   header: bool      // the first row: bold on `elevated`
 //!   cells: list<MarkdownCell>
 //! shape MarkdownBlock
-//!   kind: string      // heading | paragraph | code | table | rule
+//!   kind: string      // heading | paragraph | code | table | rule | math
 //!   level: number     // heading level 1-4 (H4+ share a size), else 0
 //!   depth: number     // list nesting, 0 outside lists
-//!   marker: string    // "•", "3.", "☑", "☐", or "" (a list item's later blocks)
+//!   marker: string    // "•", "3.", or "" (task items and a list item's later blocks)
 //!   quote: number     // block quote nesting, 0 outside quotes
 //!   language: string  // a code block's info word
-//!   text: string      // a code block's text
+//!   text: string      // a code block's text; a math block's TeX source
 //!   subdued: bool     // the whole block is progress text
+//!   flow: bool        // runs hold an inline formula: lay out with markdown_doc::flow
 //!   runs: list<MarkdownRun>          // heading and paragraph text
 //!   rows: list<MarkdownTableRow>     // a table's rows, header first
 //!   align: list<string>              // a table's column alignment: left | center | right
@@ -41,14 +47,58 @@
 //!
 //! A list item's first block carries the marker and depth; the item's other
 //! blocks carry the depth with an empty marker, so the marker column stays
-//! blank under them. A nested list's items sit one depth deeper.
+//! blank under them. A nested list's items sit one depth deeper. A task item
+//! has an empty marker and its first paragraph starts with a "☑ " or "☐ "
+//! run (pulldown's `TaskListMarker`, which replaces the bullet). A display
+//! formula inside a paragraph or heading cuts it (upstream `math_flow`): the
+//! text before, a `math` record, the text after, each its own record (only
+//! the first carries the marker).
+//!
+//! Drawing (markdown.rs `blocks`/`block`, 1:1): records stack with `gap_3`
+//! (12 px); the base text is the surface's (transcript 15 px, line height
+//! 1.7). Paragraph: the runs. Heading: `pt_2` (8 px) above, bold, size by
+//! level 1 → 25, 2 → 21, 3 → 18, 4 → 16 px, line height size × 1.4. Quote
+//! (per nesting level): `border_l_2` in `border`, `pl_4` (16 px). List: items
+//! `gap_2` (8 px); a row of the marker column (`min_w` 24 px, `muted`) and
+//! the content, `gap_2` between. Code: `rounded_lg` (8 px) on `elevated`,
+//! clipped; a header row `px_4 py_2`, 12 px `muted`, the language left and a
+//! "Copy" button right (`px_2`, `rounded_md` 6 px; hover: `hover` bg, `text`
+//! colour; copies `text`); then the code, `px_4 pb_4`, Menlo 13 px, line
+//! height 21 px, no wrapping, scrolling sideways (`muted` italic when
+//! subdued). Table: scrolling sideways, `min_w` 140 px per column, every row
+//! `border_b_1` in `border`, the header row on `elevated` and bold; cells
+//! `flex_1`, `px_3 py_2` (12 × 8 px), aligned per column (none = left).
+//! Rule: 1 px of `border`, `my_2` (8 px above and below). Math: see
+//! [`math`]. Runs: `.SystemUIFont`, Menlo for code (on `element`), bold
+//! and italic as marked, a 1 px strikethrough; links `accent` with a 1 px
+//! underline; subdued runs `muted` italic, otherwise `text`.
 
 use serde_json::{json, Value as Json};
+
+pub mod flow;
+mod inline;
+pub mod math;
+#[cfg(test)]
+mod tests;
+
+pub use inline::inline;
+
+/// Whether a run is a formula.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MathKind {
+    /// Text.
+    #[default]
+    None,
+    /// `$…$` / `\(…\)`: on the baseline.
+    Inline,
+    /// `$$…$$` / `\[…\]`: on its own row.
+    Display,
+}
 
 /// One styled span of inline text.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Run {
-    /// The words.
+    /// The words, or a formula's TeX source.
     pub text: String,
     /// `**bold**`.
     pub bold: bool,
@@ -58,8 +108,10 @@ pub struct Run {
     pub code: bool,
     /// `~~strike~~`.
     pub strike: bool,
-    /// A link's target.
+    /// A clickable link's target.
     pub url: Option<String>,
+    /// A formula.
+    pub math: MathKind,
 }
 
 /// A table column's alignment, from its separator cell.
@@ -87,15 +139,16 @@ pub struct ListItem {
 /// One block of a document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Block {
-    /// `# Heading`, level 1-4.
+    /// `# Heading` or a setext heading, level 1-4.
     Heading(u8, Vec<Run>),
     /// Running text.
     Paragraph(Vec<Run>),
     /// `> quoted`.
+    #[allow(clippy::enum_variant_names)]
     BlockQuote(Vec<Block>),
     /// A bullet (`None`) or ordered (`Some(start)`) list.
     List(Option<u64>, Vec<ListItem>),
-    /// Fenced code: (language, text without the closing newline).
+    /// Fenced or indented code: (language, text without the closing newline).
     Code(String, String),
     /// A pipe table: alignments, the header cells, the body rows.
     Table(Vec<Align>, Vec<Vec<Run>>, Vec<Vec<Vec<Run>>>),
@@ -116,7 +169,72 @@ pub fn web_link(url: &str) -> bool {
     matches!(scheme.as_str(), "https" | "http" | "mailto")
 }
 
-/// The document's words, marks dropped, blocks joined by newlines.
+/// A link to a file on the session's machine (remote_file.rs
+/// `path_from_link`): `file://` (local host only) or a path that is
+/// absolute, `./`, `../`, `~/`, or ends in a name with an extension; the
+/// path, percent-decoded, without its `#fragment`.
+pub fn path_from_link(link: &str) -> Option<String> {
+    let link = link.split_once('#').map_or(link, |(path, _)| path);
+    let path = if link
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file://"))
+    {
+        let rest = &link[7..];
+        if rest.starts_with('/') {
+            rest
+        } else {
+            let local = rest
+                .strip_prefix("localhost")
+                .or_else(|| rest.strip_prefix("127.0.0.1"))?;
+            if !local.starts_with('/') {
+                return None;
+            }
+            local
+        }
+    } else {
+        if link.starts_with("//") || link.contains(':') {
+            return None;
+        }
+        link
+    };
+    if path.is_empty() || path.ends_with('/') || path.chars().any(char::is_control) {
+        return None;
+    }
+    if !path.starts_with('/')
+        && !path.starts_with("./")
+        && !path.starts_with("../")
+        && !path.starts_with("~/")
+        && !path.rsplit('/').next()?.contains('.')
+    {
+        return None;
+    }
+    percent_decode(path)
+}
+
+fn percent_decode(path: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(path.len());
+    let mut input = path.as_bytes().iter().copied();
+    while let Some(byte) = input.next() {
+        if byte == b'%' {
+            let hi = (input.next()? as char).to_digit(16)?;
+            let lo = (input.next()? as char).to_digit(16)?;
+            bytes.push((hi * 16 + lo) as u8);
+        } else {
+            bytes.push(byte);
+        }
+    }
+    let decoded = String::from_utf8(bytes).ok()?;
+    (!decoded.chars().any(char::is_control)).then_some(decoded)
+}
+
+/// A link the renderer makes clickable (markdown.rs `InlineText::append`
+/// with a link handler, as every block surface has).
+pub fn link_allowed(url: &str) -> bool {
+    web_link(url) || path_from_link(url).is_some()
+}
+
+/// The document's words, marks dropped, blocks joined by newlines; formulas
+/// keep their delimiters.
 pub fn plain_text(blocks: &[Block]) -> String {
     let mut out = Vec::new();
     for block in blocks {
@@ -130,9 +248,20 @@ pub fn plain_text(blocks: &[Block]) -> String {
             }
             Block::Code(_, text) => out.push(text.clone()),
             Block::Table(_, header, rows) => {
-                out.push(header.iter().map(|c| runs_text(c)).collect::<Vec<_>>().join(" | "));
+                out.push(
+                    header
+                        .iter()
+                        .map(|c| runs_text(c))
+                        .collect::<Vec<_>>()
+                        .join(" | "),
+                );
                 for row in rows {
-                    out.push(row.iter().map(|c| runs_text(c)).collect::<Vec<_>>().join(" | "));
+                    out.push(
+                        row.iter()
+                            .map(|c| runs_text(c))
+                            .collect::<Vec<_>>()
+                            .join(" | "),
+                    );
                 }
             }
             Block::Rule => {}
@@ -141,11 +270,48 @@ pub fn plain_text(blocks: &[Block]) -> String {
     out.join("\n")
 }
 
-fn runs_text(runs: &[Run]) -> String {
-    runs.iter().map(|r| r.text.as_str()).collect()
+/// The runs' text in a line, as a compact surface shows it (markdown.rs
+/// `render_inline`, `literal_math`): formulas with their delimiters.
+pub fn runs_text(runs: &[Run]) -> String {
+    runs.iter()
+        .map(|r| match r.math {
+            MathKind::None => r.text.clone(),
+            MathKind::Inline => math::literal(&r.text, false),
+            MathKind::Display => math::literal(&r.text, true),
+        })
+        .collect()
 }
 
 // ----- blocks ----------------------------------------------------------------
+
+/// Columns of leading whitespace (a tab to the next multiple of 4).
+fn indent_of(line: &str) -> usize {
+    let mut cols = 0;
+    for c in line.chars() {
+        match c {
+            ' ' => cols += 1,
+            '\t' => cols += 4 - cols % 4,
+            _ => break,
+        }
+    }
+    cols
+}
+
+/// `line` without its first `cols` columns of indentation.
+fn dedent(line: &str, cols: usize) -> &str {
+    let mut seen = 0;
+    for (i, c) in line.char_indices() {
+        if seen >= cols {
+            return &line[i..];
+        }
+        match c {
+            ' ' => seen += 1,
+            '\t' => seen += 4 - seen % 4,
+            _ => return &line[i..],
+        }
+    }
+    ""
+}
 
 fn blocks(lines: &[&str]) -> Vec<Block> {
     let mut out = Vec::new();
@@ -157,11 +323,25 @@ fn blocks(lines: &[&str]) -> Vec<Block> {
             i += 1;
             continue;
         }
+        if indent_of(line) >= 4 {
+            // Indented code, to the last indented line before a dedent.
+            let mut text: Vec<&str> = Vec::new();
+            while i < lines.len() && (lines[i].trim().is_empty() || indent_of(lines[i]) >= 4) {
+                text.push(dedent(lines[i], 4));
+                i += 1;
+            }
+            while text.last().is_some_and(|l| l.trim().is_empty()) {
+                text.pop();
+            }
+            out.push(Block::Code(String::new(), text.join("\n")));
+            continue;
+        }
         if let Some((fence, language)) = fence_open(line) {
             let mut text = Vec::new();
+            let indent = indent_of(line);
             i += 1;
-            while i < lines.len() && !fence_close(lines[i], fence) {
-                text.push(lines[i]);
+            while i < lines.len() && !fence_close(lines[i], &fence) {
+                text.push(dedent(lines[i], indent));
                 i += 1;
             }
             if i < lines.len() {
@@ -171,7 +351,7 @@ fn blocks(lines: &[&str]) -> Vec<Block> {
             continue;
         }
         if let Some((level, rest)) = heading(trimmed) {
-            out.push(Block::Heading(level, inline(rest.trim())));
+            out.push(Block::Heading(level, inline(rest)));
             i += 1;
             continue;
         }
@@ -205,7 +385,11 @@ fn blocks(lines: &[&str]) -> Vec<Block> {
             i = next;
             continue;
         }
-        if i + 1 < lines.len() && line.contains('|') && is_table_separator(lines[i + 1]) {
+        if i + 1 < lines.len()
+            && line.contains('|')
+            && is_table_separator(lines[i + 1])
+            && table_cells_raw(line).len() == table_cells_raw(lines[i + 1]).len()
+        {
             let header = table_cells(line);
             let align: Vec<Align> = table_cells_raw(lines[i + 1])
                 .iter()
@@ -222,34 +406,68 @@ fn blocks(lines: &[&str]) -> Vec<Block> {
             out.push(Block::Table(align, header, rows));
             continue;
         }
-        // A paragraph: until a blank line or another block's start.
-        let mut text = vec![line.trim_start()];
+        // A paragraph: until a blank line or another block's start; a setext
+        // underline turns it into a heading.
+        let mut text = vec![trimmed];
+        let mut level = 0;
         i += 1;
         while i < lines.len() {
             let next = lines[i].trim_start();
-            if next.is_empty() || !paragraph_continues(next) {
+            if next.is_empty() {
                 break;
             }
-            text.push(lines[i].trim_start());
+            if indent_of(lines[i]) < 4 {
+                if let Some(l) = setext(next) {
+                    level = l;
+                    i += 1;
+                    break;
+                }
+            }
+            if !paragraph_continues(next) {
+                break;
+            }
+            text.push(next);
             i += 1;
         }
-        out.push(Block::Paragraph(inline(&text.join("\n"))));
+        let joined = text.join("\n");
+        let runs = inline(joined.trim_end());
+        out.push(if level > 0 {
+            Block::Heading(level, runs)
+        } else {
+            Block::Paragraph(runs)
+        });
     }
     out
 }
 
-/// A line that does not open another block interrupts no paragraph.
+/// A setext underline: `===` (level 1) or `---` (level 2).
+fn setext(trimmed: &str) -> Option<u8> {
+    let t = trimmed.trim_end();
+    if !t.is_empty() && t.chars().all(|c| c == '=') {
+        return Some(1);
+    }
+    if !t.is_empty() && t.chars().all(|c| c == '-') {
+        return Some(2);
+    }
+    None
+}
+
+/// A line that does not open another block interrupts no paragraph. Only a
+/// bullet or an ordered list starting at 1, with content, interrupts one.
 fn paragraph_continues(trimmed: &str) -> bool {
+    let interrupting_list = list_marker(trimmed).is_some_and(|m| {
+        m.start.is_none_or(|s| s == 1) && !trimmed[m.width.min(trimmed.len())..].trim().is_empty()
+    });
     !(fence_open(trimmed).is_some()
         || heading(trimmed).is_some()
         || is_rule(trimmed)
         || trimmed.starts_with('>')
-        || list_marker(trimmed).is_some())
+        || interrupting_list)
 }
 
 fn fence_open(line: &str) -> Option<(String, String)> {
     let t = line.trim_start();
-    if line.len() - t.len() > 3 {
+    if indent_of(line) > 3 {
         return None;
     }
     let c = t.chars().next()?;
@@ -271,7 +489,7 @@ fn fence_open(line: &str) -> Option<(String, String)> {
 fn fence_close(line: &str, fence: &str) -> bool {
     let t = line.trim();
     let c = fence.chars().next().unwrap_or('`');
-    t.len() >= fence.len() && t.chars().all(|x| x == c)
+    indent_of(line) <= 3 && t.len() >= fence.len() && t.chars().all(|x| x == c)
 }
 
 fn heading(trimmed: &str) -> Option<(u8, &str)> {
@@ -283,7 +501,16 @@ fn heading(trimmed: &str) -> Option<(u8, &str)> {
     if !rest.is_empty() && !rest.starts_with(' ') && !rest.starts_with('\t') {
         return None;
     }
-    let rest = rest.trim().trim_end_matches('#').trim_end();
+    let rest = rest.trim();
+    // A closing run of `#` counts only after a space (`# C#` keeps its `#`).
+    let without = rest.trim_end_matches('#');
+    let rest = if without.is_empty() {
+        ""
+    } else if without.len() < rest.len() && without.ends_with([' ', '\t']) {
+        without.trim_end()
+    } else {
+        rest
+    };
     Some((hashes.min(4) as u8, rest))
 }
 
@@ -295,29 +522,43 @@ fn is_rule(trimmed: &str) -> bool {
             || compact.chars().all(|c| c == '_'))
 }
 
-/// A list item's marker: (indent, marker width, ordered start).
+/// A list item's marker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Marker {
+    /// Columns before the marker.
     indent: usize,
+    /// The marker and the spaces after it, to the content.
     width: usize,
+    /// An ordered list's number.
     start: Option<u64>,
+    /// The bullet, or the ordered delimiter: a change starts a new list.
+    ch: char,
 }
 
 fn list_marker(line: &str) -> Option<Marker> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
     let first = t.chars().next()?;
+    // Content after more than 4 spaces is indented code one space in.
+    let width_after = |rest: &str| {
+        let spaces = rest.len() - rest.trim_start().len();
+        if rest.trim().is_empty() || spaces > 4 {
+            1
+        } else {
+            spaces
+        }
+    };
     if matches!(first, '-' | '*' | '+') {
         let rest = &t[1..];
-        if rest.is_empty() || rest.starts_with(' ') {
+        if rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t') {
             if is_rule(t) {
                 return None;
             }
-            let spaces = rest.len() - rest.trim_start().len();
             return Some(Marker {
                 indent,
-                width: 1 + spaces.clamp(1, 4),
+                width: 1 + width_after(rest),
                 start: None,
+                ch: first,
             });
         }
         return None;
@@ -327,18 +568,19 @@ fn list_marker(line: &str) -> Option<Marker> {
         return None;
     }
     let after = &t[digits..];
-    if !(after.starts_with('.') || after.starts_with(')')) {
+    let delimiter = after.chars().next()?;
+    if delimiter != '.' && delimiter != ')' {
         return None;
     }
     let rest = &after[1..];
-    if !(rest.is_empty() || rest.starts_with(' ')) {
+    if !(rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t')) {
         return None;
     }
-    let spaces = rest.len() - rest.trim_start().len();
     Some(Marker {
         indent,
-        width: digits + 1 + spaces.clamp(1, 4),
+        width: digits + 1 + width_after(rest),
         start: t[..digits].parse().ok(),
+        ch: delimiter,
     })
 }
 
@@ -346,20 +588,19 @@ fn list_marker(line: &str) -> Option<Marker> {
 fn list(lines: &[&str], from: usize, first: Marker) -> (Block, usize) {
     let mut items = Vec::new();
     let mut i = from;
-    let ordered = first.start.is_some();
     while i < lines.len() {
         let Some(marker) = list_marker(lines[i]) else {
             break;
         };
-        if marker.indent != first.indent
-            || marker.start.is_some() != ordered
-            || marker.indent > first.indent
-        {
+        if marker.indent != first.indent || marker.ch != first.ch {
             break;
         }
         // The item's own lines, dedented by the marker's width.
         let content_indent = marker.indent + marker.width;
-        let mut body: Vec<String> = vec![lines[i][content_indent.min(lines[i].len())..].to_string()];
+        let mut body: Vec<String> = vec![lines[i]
+            .get(content_indent.min(lines[i].len())..)
+            .unwrap_or("")
+            .to_string()];
         i += 1;
         let mut blank_run = 0;
         while i < lines.len() {
@@ -370,14 +611,15 @@ fn list(lines: &[&str], from: usize, first: Marker) -> (Block, usize) {
                 i += 1;
                 continue;
             }
-            let indent = line.len() - line.trim_start().len();
-            if indent >= content_indent {
-                body.push(line[content_indent..].to_string());
+            if indent_of(line) >= content_indent {
+                body.push(dedent(line, content_indent).to_string());
                 blank_run = 0;
                 i += 1;
                 continue;
             }
-            if blank_run == 0 && list_marker(line).is_none() && paragraph_continues(line.trim_start())
+            if blank_run == 0
+                && list_marker(line).is_none()
+                && paragraph_continues(line.trim_start())
             {
                 // Lazy continuation of the item's paragraph.
                 body.push(line.trim_start().to_string());
@@ -392,17 +634,19 @@ fn list(lines: &[&str], from: usize, first: Marker) -> (Block, usize) {
         let mut task = None;
         if let Some(first_line) = body.first_mut() {
             let t = first_line.trim_start();
-            if let Some(rest) = t.strip_prefix("[ ] ").or_else(|| t.strip_prefix("[ ]")) {
-                task = Some(false);
-                *first_line = rest.to_string();
-            } else if let Some(rest) = t
-                .strip_prefix("[x] ")
-                .or_else(|| t.strip_prefix("[X] "))
-                .or_else(|| t.strip_prefix("[x]"))
-                .or_else(|| t.strip_prefix("[X]"))
-            {
-                task = Some(true);
-                *first_line = rest.to_string();
+            let checked = ["[x]", "[X]"].iter().find_map(|p| t.strip_prefix(p));
+            let open = t.strip_prefix("[ ]");
+            let found = match (open, checked) {
+                (Some(rest), _) => Some((false, rest)),
+                (_, Some(rest)) => Some((true, rest)),
+                _ => None,
+            };
+            // A task marker needs whitespace (or the line's end) after it.
+            if let Some((done, rest)) = found {
+                if rest.is_empty() || rest.starts_with([' ', '\t']) {
+                    task = Some(done);
+                    *first_line = rest.trim_start().to_string();
+                }
             }
         }
         let refs: Vec<&str> = body.iter().map(String::as_str).collect();
@@ -477,337 +721,6 @@ fn alignment(cell: &str) -> Align {
     }
 }
 
-// ----- inline ----------------------------------------------------------------
-
-#[derive(Clone, Default)]
-struct Style {
-    bold: bool,
-    italic: bool,
-    strike: bool,
-    url: Option<String>,
-}
-
-/// Parse inline marks in `text`.
-pub fn inline(text: &str) -> Vec<Run> {
-    let chars: Vec<char> = text.chars().collect();
-    let mut runs = Vec::new();
-    append(&chars, &Style::default(), &mut runs);
-    runs
-}
-
-fn push(runs: &mut Vec<Run>, text: &str, style: &Style, code: bool) {
-    if text.is_empty() {
-        return;
-    }
-    if let Some(last) = runs.last_mut() {
-        if !code
-            && !last.code
-            && last.bold == style.bold
-            && last.italic == style.italic
-            && last.strike == style.strike
-            && last.url == style.url
-        {
-            last.text.push_str(text);
-            return;
-        }
-    }
-    runs.push(Run {
-        text: text.to_string(),
-        bold: style.bold,
-        italic: style.italic,
-        code,
-        strike: style.strike,
-        url: style.url.clone(),
-    });
-}
-
-fn run_len(chars: &[char], at: usize, c: char) -> usize {
-    chars[at..].iter().take_while(|x| **x == c).count()
-}
-
-fn is_word(c: Option<&char>) -> bool {
-    c.is_some_and(|c| c.is_alphanumeric())
-}
-
-/// The closing delimiter run for an opener of `want` characters `c` starting
-/// the search at `from`: the index of the run and how many of its characters
-/// close (a 3-run closes a 2-opener with its last two, leaving one inside).
-fn closer(chars: &[char], from: usize, c: char, want: usize) -> Option<(usize, usize)> {
-    let mut i = from;
-    let mut code_ticks = 0;
-    while i < chars.len() {
-        let x = chars[i];
-        if x == '\\' {
-            i += 2;
-            continue;
-        }
-        if x == '`' {
-            let n = run_len(chars, i, '`');
-            if code_ticks == 0 {
-                code_ticks = n;
-            } else if code_ticks == n {
-                code_ticks = 0;
-            }
-            i += n;
-            continue;
-        }
-        if code_ticks == 0 && x == c {
-            let n = run_len(chars, i, c);
-            let before_ws = i == 0 || chars[i - 1].is_whitespace();
-            let after_word = is_word(chars.get(i + n));
-            let flanking = !before_ws && (c != '_' || !after_word);
-            if flanking {
-                if n == want {
-                    return Some((i, want));
-                }
-                if want == 2 && n == 3 {
-                    return Some((i + 1, 2));
-                }
-                if want == 1 && n == 3 {
-                    return Some((i + 2, 1));
-                }
-                if n > want && want == 1 {
-                    return Some((i, 1));
-                }
-            }
-            i += n;
-            continue;
-        }
-        i += 1;
-    }
-    None
-}
-
-fn append(chars: &[char], style: &Style, runs: &mut Vec<Run>) {
-    let mut text = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            '\\' if i + 1 < chars.len() => {
-                if chars[i + 1] == '\n' {
-                    text.push('\n');
-                } else if chars[i + 1].is_ascii_punctuation() {
-                    text.push(chars[i + 1]);
-                } else {
-                    text.push('\\');
-                    text.push(chars[i + 1]);
-                }
-                i += 2;
-            }
-            '\n' => {
-                // Two trailing spaces make a hard break; a soft break is a space.
-                if text.ends_with("  ") {
-                    let trimmed = text.trim_end_matches(' ').len();
-                    text.truncate(trimmed);
-                    text.push('\n');
-                } else {
-                    let trimmed = text.trim_end_matches(' ').len();
-                    text.truncate(trimmed);
-                    text.push(' ');
-                }
-                i += 1;
-                while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
-                    i += 1;
-                }
-            }
-            '`' => {
-                let n = run_len(chars, i, '`');
-                let mut j = i + n;
-                let mut found = None;
-                while j < chars.len() {
-                    if chars[j] == '`' {
-                        let m = run_len(chars, j, '`');
-                        if m == n {
-                            found = Some(j);
-                            break;
-                        }
-                        j += m;
-                    } else {
-                        j += 1;
-                    }
-                }
-                match found {
-                    Some(end) => {
-                        push(runs, &text, style, false);
-                        text.clear();
-                        let mut code: String = chars[i + n..end].iter().collect();
-                        code = code.replace('\n', " ");
-                        if code.len() > 1
-                            && code.starts_with(' ')
-                            && code.ends_with(' ')
-                            && code.trim().is_empty() == false
-                        {
-                            code = code[1..code.len() - 1].to_string();
-                        }
-                        push(runs, &code, style, true);
-                        i = end + n;
-                    }
-                    None => {
-                        text.extend(std::iter::repeat_n('`', n));
-                        i += n;
-                    }
-                }
-            }
-            '*' | '_' | '~' => {
-                let n = run_len(chars, i, c);
-                let before_word = i > 0 && is_word(chars.get(i - 1));
-                let after_ws = chars.get(i + n).is_none_or(|x| x.is_whitespace());
-                let can_open = !after_ws && (c != '_' || !before_word);
-                let want = if c == '~' {
-                    if n == 2 {
-                        2
-                    } else {
-                        0
-                    }
-                } else if n >= 2 {
-                    2
-                } else {
-                    1
-                };
-                let mut done = false;
-                if can_open && want > 0 {
-                    let inner_from = i + want;
-                    if let Some((at, len)) = closer(chars, inner_from, c, want) {
-                        push(runs, &text, style, false);
-                        text.clear();
-                        let mut next = style.clone();
-                        match (c, want) {
-                            ('~', _) => next.strike = true,
-                            (_, 2) => next.bold = true,
-                            _ => next.italic = true,
-                        }
-                        append(&chars[inner_from..at], &next, runs);
-                        i = at + len;
-                        done = true;
-                    }
-                }
-                if !done {
-                    text.push(c);
-                    i += 1;
-                }
-            }
-            '!' if chars.get(i + 1) == Some(&'[') => match link(chars, i + 1) {
-                Some((label, _url, end)) => {
-                    push(runs, &text, style, false);
-                    text.clear();
-                    push(runs, "[Image: ", style, false);
-                    append(&label, style, runs);
-                    push(runs, "]", style, false);
-                    i = end;
-                }
-                None => {
-                    text.push('!');
-                    i += 1;
-                }
-            },
-            '[' => match link(chars, i) {
-                Some((label, url, end)) => {
-                    push(runs, &text, style, false);
-                    text.clear();
-                    let mut next = style.clone();
-                    next.url = Some(url);
-                    append(&label, &next, runs);
-                    i = end;
-                }
-                None => {
-                    text.push('[');
-                    i += 1;
-                }
-            },
-            '<' => {
-                let close = chars[i + 1..].iter().position(|x| *x == '>').map(|p| p + i + 1);
-                let inner: Option<String> = close.map(|c| chars[i + 1..c].iter().collect());
-                match (close, inner) {
-                    (Some(close), Some(inner))
-                        if web_link(&inner) && !inner.contains(char::is_whitespace) =>
-                    {
-                        push(runs, &text, style, false);
-                        text.clear();
-                        let mut next = style.clone();
-                        next.url = Some(inner.clone());
-                        push(runs, &inner, &next, false);
-                        i = close + 1;
-                    }
-                    _ => {
-                        text.push('<');
-                        i += 1;
-                    }
-                }
-            }
-            _ => {
-                text.push(c);
-                i += 1;
-            }
-        }
-    }
-    push(runs, &text, style, false);
-}
-
-/// `[label](url "title")` at `chars[at] == '['`: the label's characters, the
-/// url, and the index after the closing paren.
-fn link(chars: &[char], at: usize) -> Option<(Vec<char>, String, usize)> {
-    let mut depth = 0;
-    let mut close = None;
-    let mut i = at;
-    while i < chars.len() {
-        match chars[i] {
-            '\\' => i += 1,
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    close = Some(i);
-                    break;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    let close = close?;
-    if chars.get(close + 1) != Some(&'(') {
-        return None;
-    }
-    let mut j = close + 2;
-    let url: String;
-    if chars.get(j) == Some(&'<') {
-        let end = chars[j + 1..].iter().position(|x| *x == '>')? + j + 1;
-        url = chars[j + 1..end].iter().collect();
-        j = end + 1;
-    } else {
-        let start = j;
-        let mut parens = 0;
-        while j < chars.len() {
-            match chars[j] {
-                '(' => parens += 1,
-                ')' if parens == 0 => break,
-                ')' => parens -= 1,
-                c if c.is_whitespace() => break,
-                _ => {}
-            }
-            j += 1;
-        }
-        url = chars[start..j].iter().collect();
-    }
-    // An optional title, then the closing paren.
-    while j < chars.len() && chars[j].is_whitespace() {
-        j += 1;
-    }
-    if matches!(chars.get(j), Some('"') | Some('\'')) {
-        let quote = chars[j];
-        let end = chars[j + 1..].iter().position(|x| *x == quote)? + j + 1;
-        j = end + 1;
-        while j < chars.len() && chars[j].is_whitespace() {
-            j += 1;
-        }
-    }
-    if chars.get(j) != Some(&')') {
-        return None;
-    }
-    Some((chars[at + 1..close].to_vec(), url, j + 1))
-}
-
 // ----- JSON ------------------------------------------------------------------
 
 fn run_json(run: &Run, subdued: bool) -> Json {
@@ -819,6 +732,11 @@ fn run_json(run: &Run, subdued: bool) -> Json {
         "strike": run.strike,
         "url": run.url.clone().unwrap_or_default(),
         "subdued": subdued,
+        "math": match run.math {
+            MathKind::None => "",
+            MathKind::Inline => "inline",
+            MathKind::Display => "display",
+        },
     })
 }
 
@@ -826,10 +744,14 @@ fn runs_json(runs: &[Run], subdued: bool) -> Vec<Json> {
     runs.iter().map(|r| run_json(r, subdued)).collect()
 }
 
+fn has_math(runs: &[Run]) -> bool {
+    runs.iter().any(|r| r.math != MathKind::None)
+}
+
 fn block_json(kind: &str, depth: usize, marker: &str, quote: usize, subdued: bool) -> Json {
     json!({
         "kind": kind, "level": 0, "depth": depth, "marker": marker, "quote": quote,
-        "language": "", "text": "", "subdued": subdued, "runs": [], "rows": [], "align": [],
+        "language": "", "text": "", "subdued": subdued, "flow": false, "runs": [], "rows": [], "align": [],
     })
 }
 
@@ -839,85 +761,152 @@ fn set(v: &mut Json, key: &str, value: Json) {
     }
 }
 
-fn flatten(blocks: &[Block], depth: usize, marker: &str, quote: usize, subdued: bool, out: &mut Vec<Json>) {
-    let mut marker = marker;
+/// Where flattening is: the list depth, the pending marker, the quote depth.
+struct At<'a> {
+    depth: usize,
+    marker: &'a str,
+    quote: usize,
+    subdued: bool,
+}
+
+/// A paragraph or heading, cut at its display formulas (`math_flow`).
+fn text_records(kind: &str, level: u8, runs: &[Run], at: &mut At, out: &mut Vec<Json>) {
+    let mut pieces: Vec<Result<Vec<Run>, String>> = vec![Ok(Vec::new())];
+    for run in runs {
+        if run.math == MathKind::Display {
+            pieces.push(Err(run.text.clone()));
+            pieces.push(Ok(Vec::new()));
+        } else if let Some(Ok(current)) = pieces.last_mut() {
+            current.push(run.clone());
+        }
+    }
+    let cut = pieces.len() > 1;
+    for piece in pieces {
+        let mut v = match piece {
+            Ok(runs) if cut && runs.iter().all(|r| r.text.is_empty()) => continue,
+            Ok(runs) => {
+                let mut v = block_json(kind, at.depth, at.marker, at.quote, at.subdued);
+                set(&mut v, "level", json!(level));
+                set(&mut v, "flow", json!(has_math(&runs)));
+                set(&mut v, "runs", Json::Array(runs_json(&runs, at.subdued)));
+                v
+            }
+            Err(source) => {
+                let mut v = block_json("math", at.depth, at.marker, at.quote, at.subdued);
+                set(&mut v, "text", json!(source));
+                v
+            }
+        };
+        if kind == "heading" {
+            set(&mut v, "level", json!(level));
+        }
+        out.push(v);
+        at.marker = "";
+    }
+}
+
+fn flatten(blocks: &[Block], at: &mut At, out: &mut Vec<Json>) {
     for block in blocks {
         match block {
-            Block::Heading(level, runs) => {
-                let mut v = block_json("heading", depth, marker, quote, subdued);
-                set(&mut v, "level", json!(level));
-                set(&mut v, "runs", Json::Array(runs_json(runs, subdued)));
-                out.push(v);
-            }
-            Block::Paragraph(runs) => {
-                let mut v = block_json("paragraph", depth, marker, quote, subdued);
-                set(&mut v, "runs", Json::Array(runs_json(runs, subdued)));
-                out.push(v);
-            }
+            Block::Heading(level, runs) => text_records("heading", *level, runs, at, out),
+            Block::Paragraph(runs) => text_records("paragraph", 0, runs, at, out),
             Block::BlockQuote(inner) => {
                 let before = out.len();
-                flatten(inner, depth, marker, quote + 1, subdued, out);
+                let mut inside = At {
+                    quote: at.quote + 1,
+                    marker: at.marker,
+                    ..*at
+                };
+                flatten(inner, &mut inside, out);
                 if out.len() == before {
-                    let v = block_json("paragraph", depth, marker, quote + 1, subdued);
-                    out.push(v);
+                    out.push(block_json(
+                        "paragraph",
+                        at.depth,
+                        at.marker,
+                        at.quote + 1,
+                        at.subdued,
+                    ));
                 }
             }
             Block::List(start, items) => {
                 for (index, item) in items.iter().enumerate() {
-                    let item_marker = match item.task {
-                        Some(true) => "☑".to_string(),
-                        Some(false) => "☐".to_string(),
-                        None => match start {
-                            Some(start) => format!("{}.", start.saturating_add(index as u64)),
-                            None => "•".to_string(),
-                        },
+                    let item_marker = match (item.task, start) {
+                        (Some(_), _) => String::new(),
+                        (None, Some(start)) => format!("{}.", start.saturating_add(index as u64)),
+                        (None, None) => "•".to_string(),
                     };
+                    let mut item_blocks = item.blocks.clone();
+                    if let Some(done) = item.task {
+                        // The task glyph leads the item's text, as pulldown's
+                        // TaskListMarker does.
+                        let glyph = Run {
+                            text: if done { "☑ " } else { "☐ " }.into(),
+                            ..Default::default()
+                        };
+                        match item_blocks.first_mut() {
+                            Some(Block::Paragraph(runs)) => runs.insert(0, glyph),
+                            _ => item_blocks.insert(0, Block::Paragraph(vec![glyph])),
+                        }
+                    }
                     let before = out.len();
-                    flatten(&item.blocks, depth + 1, &item_marker, quote, subdued, out);
+                    let mut inside = At {
+                        depth: at.depth + 1,
+                        marker: &item_marker,
+                        quote: at.quote,
+                        subdued: at.subdued,
+                    };
+                    flatten(&item_blocks, &mut inside, out);
                     if out.len() == before {
-                        out.push(block_json("paragraph", depth + 1, &item_marker, quote, subdued));
+                        out.push(block_json(
+                            "paragraph",
+                            at.depth + 1,
+                            &item_marker,
+                            at.quote,
+                            at.subdued,
+                        ));
                     }
                 }
             }
             Block::Code(language, text) => {
-                let mut v = block_json("code", depth, marker, quote, subdued);
+                let mut v = block_json("code", at.depth, at.marker, at.quote, at.subdued);
                 set(&mut v, "language", json!(language));
                 set(&mut v, "text", json!(text.trim_end_matches('\n')));
                 out.push(v);
             }
             Block::Table(align, header, rows) => {
-                let mut v = block_json("table", depth, marker, quote, subdued);
+                let mut v = block_json("table", at.depth, at.marker, at.quote, at.subdued);
+                let subdued = at.subdued;
                 let row = |cells: &Vec<Vec<Run>>, header: bool| {
                     json!({
                         "header": header,
-                        "cells": cells.iter().map(|c| json!({ "runs": runs_json(c, subdued) })).collect::<Vec<_>>(),
+                        "cells": cells
+                            .iter()
+                            .map(|c| json!({ "runs": runs_json(c, subdued), "flow": has_math(c) }))
+                            .collect::<Vec<_>>(),
                     })
                 };
                 let mut all = vec![row(header, true)];
                 all.extend(rows.iter().map(|r| row(r, false)));
                 set(&mut v, "rows", Json::Array(all));
-                set(
-                    &mut v,
-                    "align",
-                    Json::Array(
-                        align
-                            .iter()
-                            .map(|a| {
-                                json!(match a {
-                                    Align::Center => "center",
-                                    Align::Right => "right",
-                                    _ => "left",
-                                })
-                            })
-                            .collect(),
-                    ),
-                );
+                let align = align
+                    .iter()
+                    .map(|a| {
+                        json!(match a {
+                            Align::Center => "center",
+                            Align::Right => "right",
+                            _ => "left",
+                        })
+                    })
+                    .collect();
+                set(&mut v, "align", Json::Array(align));
                 out.push(v);
             }
-            Block::Rule => out.push(block_json("rule", depth, marker, quote, subdued)),
+            Block::Rule => out.push(block_json(
+                "rule", at.depth, at.marker, at.quote, at.subdued,
+            )),
         }
         // Only a list item's first block carries its marker.
-        marker = "";
+        at.marker = "";
     }
 }
 
@@ -925,204 +914,12 @@ fn flatten(blocks: &[Block], depth: usize, marker: &str, quote: usize, subdued: 
 /// block and run as progress text.
 pub fn to_json(blocks: &[Block], subdued: bool) -> Vec<Json> {
     let mut out = Vec::new();
-    flatten(blocks, 0, "", 0, subdued, &mut out);
+    let mut at = At {
+        depth: 0,
+        marker: "",
+        quote: 0,
+        subdued,
+    };
+    flatten(blocks, &mut at, &mut out);
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn paragraph(source: &str) -> Vec<Run> {
-        match parse(source).into_iter().next() {
-            Some(Block::Paragraph(runs)) => runs,
-            other => panic!("expected paragraph, got {other:?}"),
-        }
-    }
-
-    fn text(runs: &[Run]) -> String {
-        runs_text(runs)
-    }
-
-    #[test]
-    fn nested_emphasis_code_and_unicode_have_correct_runs() {
-        let runs = paragraph("Hello **bold *café*** and `a_b()` with ~~old~~.");
-        assert_eq!(text(&runs), "Hello bold café and a_b() with old.");
-        let cafe = runs.iter().find(|r| r.text == "café").unwrap();
-        assert!(cafe.bold && cafe.italic);
-        let code = runs.iter().find(|r| r.text == "a_b()").unwrap();
-        assert!(code.code);
-        assert!(runs.iter().find(|r| r.text == "old").unwrap().strike);
-    }
-
-    #[test]
-    fn progress_styling_applies_to_every_run() {
-        let doc = parse("**Working** on `file.rs`; see [details](https://example.com).");
-        let flat = to_json(&doc, true);
-        assert_eq!(flat.len(), 1);
-        let runs = flat[0]["runs"].as_array().unwrap();
-        assert!(!runs.is_empty());
-        for run in runs {
-            assert_eq!(run["subdued"], true);
-        }
-        assert_eq!(
-            runs.iter().filter(|r| r["url"] == "https://example.com").count(),
-            1
-        );
-    }
-
-    #[test]
-    fn links_keep_their_targets_and_only_web_or_mail_open_externally() {
-        let runs = paragraph(
-            "é [**docs**](https://example.com) [run](javascript:alert) [local](/tmp/file)",
-        );
-        assert_eq!(text(&runs), "é docs run local");
-        let docs = runs.iter().find(|r| r.text == "docs").unwrap();
-        assert!(docs.bold);
-        assert_eq!(docs.url.as_deref(), Some("https://example.com"));
-        assert_eq!(
-            runs.iter().find(|r| r.text == "local").unwrap().url.as_deref(),
-            Some("/tmp/file")
-        );
-        assert!(web_link("mailto:hello@example.com"));
-        assert!(!web_link("file:///tmp/example"));
-        assert!(!web_link("command:delete"));
-        assert!(!web_link("javascript:alert"));
-    }
-
-    #[test]
-    fn session_links_accept_paths_with_spaces() {
-        let runs = paragraph(
-            "[report](</tmp/Ocho remote report.pdf>) [binary](<file:///tmp/Ocho%20sample.bin>)",
-        );
-        let urls: Vec<&str> = runs.iter().filter_map(|r| r.url.as_deref()).collect();
-        assert_eq!(
-            urls,
-            vec!["/tmp/Ocho remote report.pdf", "file:///tmp/Ocho%20sample.bin"]
-        );
-        let runs = parse("[report](./out/report.pdf) [web](https://example.com)");
-        let Block::Paragraph(runs) = &runs[0] else {
-            panic!("paragraph");
-        };
-        assert_eq!(runs[0].url.as_deref(), Some("./out/report.pdf"));
-        assert_eq!(runs[1].text, " ");
-        assert_eq!(runs[2].url.as_deref(), Some("https://example.com"));
-    }
-
-    #[test]
-    fn preserves_nested_lists_tasks_tables_and_literal_code() {
-        let doc = parse(
-            "## Result\n\n3. First\n   - Nested\n4. Next\n\n- [x] Done\n\n> Quoted\n\n| Name | Value |\n| --- | ---: |\n| **one** | 2 |\n\n```rust\nlet x = \"**literal**\";\n```",
-        );
-        assert!(matches!(&doc[0], Block::Heading(2, _)));
-        let Block::List(Some(3), items) = &doc[1] else {
-            panic!("ordered list lost: {:?}", doc[1]);
-        };
-        assert_eq!(items.len(), 2);
-        assert!(items[0]
-            .blocks
-            .iter()
-            .any(|b| matches!(b, Block::List(None, _))));
-        let Block::List(None, items) = &doc[2] else {
-            panic!("task list lost");
-        };
-        assert_eq!(items[0].task, Some(true));
-        assert_eq!(plain_text(&items[0].blocks), "Done");
-        assert!(matches!(&doc[3], Block::BlockQuote(_)));
-        let Block::Table(align, header, rows) = &doc[4] else {
-            panic!("table lost: {:?}", doc[4]);
-        };
-        assert_eq!(align, &[Align::None, Align::Right]);
-        assert_eq!(header.len(), 2);
-        assert_eq!(rows.len(), 1);
-        assert!(rows[0][0][0].bold);
-        let Block::Code(language, code) = &doc[5] else {
-            panic!("code lost");
-        };
-        assert_eq!(language, "rust");
-        assert_eq!(code, "let x = \"**literal**\";");
-    }
-
-    #[test]
-    fn streaming_fences_breaks_and_html_preserve_visible_text() {
-        let doc = parse("```sh\necho 'hello'");
-        assert_eq!(doc[0], Block::Code("sh".into(), "echo 'hello'".into()));
-        assert_eq!(text(&paragraph("one\ntwo  \nthree")), "one two\nthree");
-        assert_eq!(
-            text(&paragraph("a <b>literal</b> tag")),
-            "a <b>literal</b> tag"
-        );
-        assert_eq!(
-            text(&paragraph("![a diagram](https://example.com/image.png)")),
-            "[Image: a diagram]"
-        );
-        assert_eq!(
-            text(&paragraph("<https://example.com> and a\\*b")),
-            "https://example.com and a*b"
-        );
-    }
-
-    #[test]
-    fn underscores_inside_words_are_text() {
-        let runs = paragraph("snake_case stays, _em_ goes, __strong__ too");
-        assert_eq!(text(&runs), "snake_case stays, em goes, strong too");
-        assert!(runs.iter().find(|r| r.text == "em").unwrap().italic);
-        assert!(runs.iter().find(|r| r.text == "strong").unwrap().bold);
-        assert_eq!(text(&paragraph("a * b * c")), "a * b * c");
-        assert_eq!(text(&paragraph("***both***")), "both");
-        let both = paragraph("***both***");
-        assert!(both[0].bold && both[0].italic);
-    }
-
-    #[test]
-    fn flat_json_carries_markers_depth_and_quotes() {
-        let doc = parse("- one\n  - two\n\n  more\n- [ ] todo\n\n> # Q\n> text\n\n---");
-        let flat = to_json(&doc, false);
-        let rows: Vec<(String, u64, String, u64)> = flat
-            .iter()
-            .map(|b| {
-                (
-                    b["kind"].as_str().unwrap().to_string(),
-                    b["depth"].as_u64().unwrap(),
-                    b["marker"].as_str().unwrap().to_string(),
-                    b["quote"].as_u64().unwrap(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            rows,
-            vec![
-                ("paragraph".into(), 1, "•".into(), 0),
-                ("paragraph".into(), 2, "•".into(), 0),
-                ("paragraph".into(), 1, "".into(), 0),
-                ("paragraph".into(), 1, "☐".into(), 0),
-                ("heading".into(), 0, "".into(), 1),
-                ("paragraph".into(), 0, "".into(), 1),
-                ("rule".into(), 0, "".into(), 0),
-            ]
-        );
-        assert_eq!(flat[4]["level"], 1);
-        assert_eq!(flat[2]["runs"][0]["text"], "more");
-        let table = to_json(&parse("| a | b |\n|:-:|--|\n| 1 | 2 |"), false);
-        assert_eq!(table[0]["kind"], "table");
-        assert_eq!(table[0]["rows"][0]["header"], true);
-        assert_eq!(table[0]["rows"][1]["cells"][1]["runs"][0]["text"], "2");
-        assert_eq!(table[0]["align"][0], "center");
-    }
-
-    #[test]
-    fn headings_rules_and_ordered_markers() {
-        let doc = parse("# One\n##### Deep\n* * *\n1) a\n2) b\n\ntext\n---");
-        assert!(matches!(&doc[0], Block::Heading(1, _)));
-        assert!(matches!(&doc[1], Block::Heading(4, _)));
-        assert_eq!(doc[2], Block::Rule);
-        let Block::List(Some(1), items) = &doc[3] else {
-            panic!("ordered list: {:?}", doc[3]);
-        };
-        assert_eq!(items.len(), 2);
-        let flat = to_json(&doc, false);
-        assert_eq!(flat[4]["marker"], "2.");
-        assert!(matches!(&doc[4], Block::Paragraph(_)));
-        assert_eq!(doc[5], Block::Rule);
-    }
 }

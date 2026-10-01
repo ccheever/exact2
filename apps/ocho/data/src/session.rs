@@ -37,6 +37,8 @@ pub fn provider_label(p: &str) -> &str {
         "claude" => "Claude",
         "codex" => "Codex",
         "opencode" => "OpenCode",
+        "antigravity" => "Antigravity",
+        "grok" => "Grok",
         other => other,
     }
 }
@@ -435,6 +437,12 @@ pub fn provider_version(m: &Machine, provider: &str) -> Option<String> {
     }
     let version = match provider {
         "codex" => raw.strip_prefix("codex-cli ").unwrap_or(raw),
+        "grok" => raw
+            .strip_prefix("grok ")
+            .unwrap_or(raw)
+            .split_whitespace()
+            .next()
+            .unwrap_or(raw),
         "claude" => raw.strip_suffix(" (Claude Code)").unwrap_or(raw),
         _ => raw,
     };
@@ -504,7 +512,9 @@ fn provider_version_status(
     installed
 }
 
-/// "Codex {v} · Claude {v} · OpenCode {v}", empty before the first snapshot.
+/// "Codex {v} · Claude {v} · OpenCode {v}", then " · Grok {v}" when the
+/// machine reported a Grok version and " · Antigravity {v}" when it reported
+/// Antigravity at all; empty before the first snapshot.
 pub fn provider_versions(m: &Machine, latest_versions: &HashMap<String, String>) -> String {
     if m.last.is_none() {
         return String::new();
@@ -512,13 +522,29 @@ pub fn provider_versions(m: &Machine, latest_versions: &HashMap<String, String>)
     let codex = provider_version_status(m, latest_versions, "codex");
     let claude = provider_version_status(m, latest_versions, "claude");
     let opencode = provider_version_status(m, latest_versions, "opencode");
-    format!("Codex {codex} · Claude {claude} · OpenCode {opencode}")
+    let mut text = format!("Codex {codex} · Claude {claude} · OpenCode {opencode}");
+    if provider_version(m, "grok").is_some() {
+        text.push_str(&format!(
+            " · Grok {}",
+            provider_version_status(m, latest_versions, "grok")
+        ));
+    }
+    if m.last
+        .as_ref()
+        .is_some_and(|snap| snap.versions.contains_key("antigravity"))
+    {
+        text.push_str(&format!(
+            " · Antigravity {}",
+            provider_version_status(m, latest_versions, "antigravity")
+        ));
+    }
+    text
 }
 
-/// permissions.rs `summary`: "Codex yolo · Claude auto", providers in a
-/// fixed order, empty when nothing is set.
+/// permissions.rs `summary`: "Codex yolo · Claude auto", providers in
+/// `launch::PROVIDERS` order, empty when nothing is set.
 pub fn permissions_summary(defaults: &HashMap<String, String>) -> String {
-    ["codex", "claude", "opencode"]
+    crate::launch::PROVIDERS
         .into_iter()
         .filter_map(|provider| {
             defaults
@@ -541,7 +567,9 @@ pub struct NamedProfile {
     pub profile: LaunchProfile,
 }
 
-/// The Profiles page order: shortcut 1–9 first, unassigned last, then name.
+/// Launch profiles in shortcut order (⌘⌥1–9 first, unassigned last, then
+/// name); they launch from ⌘⌥N and the palette now that the Profiles page
+/// is gone (#267).
 pub fn profiles(state: &State) -> Vec<NamedProfile> {
     let mut out: Vec<NamedProfile> = state
         .presets
@@ -1087,6 +1115,28 @@ mod tests {
         );
         assert!(!provider_outdated(&m, &latest, "claude"));
         assert!(provider_update_action_available(&m, &latest, "claude"));
+
+        // Grok appears once it reports a version; its banner keeps only the
+        // version word. Antigravity appears whenever it is reported at all.
+        let versions = &mut m.last.as_mut().unwrap().versions;
+        versions.insert("claude".into(), "2.1.266 (Claude Code)".into());
+        versions.insert("grok".into(), "grok 0.4.2 (build abc)".into());
+        versions.insert("antigravity".into(), "unavailable".into());
+        latest.insert("grok".into(), "0.5.0".into());
+        assert_eq!(provider_version(&m, "grok").as_deref(), Some("0.4.2"));
+        assert_eq!(
+            provider_versions(&m, &latest),
+            "Codex 0.153.4 → 0.154.0 available · Claude 2.1.266 · OpenCode 1.18.4 \
+             · Grok 0.4.2 → 0.5.0 available · Antigravity not installed"
+        );
+        let versions = &mut m.last.as_mut().unwrap().versions;
+        versions.insert("grok".into(), "".into());
+        versions.insert("antigravity".into(), "".into());
+        assert_eq!(
+            provider_versions(&m, &latest),
+            "Codex 0.153.4 → 0.154.0 available · Claude 2.1.266 · OpenCode 1.18.4 \
+             · Antigravity unknown"
+        );
     }
 
     #[test]
@@ -1250,6 +1300,8 @@ mod tests {
         };
         assert_eq!(account_email(&none), "Email unavailable");
         assert_eq!(provider_label("opencode"), "OpenCode");
+        assert_eq!(provider_label("antigravity"), "Antigravity");
+        assert_eq!(provider_label("grok"), "Grok");
         assert_eq!(provider_label("other"), "other");
 
         let state = State {

@@ -683,7 +683,7 @@ impl TabTree {
         stepped_slot(&self.folder_flags(), self.active, false)
     }
 
-    /// Rewrite launch tabs whose session now has a pane to a plain attach;
+    /// Rewrite launch tabs whose session can now attach to a plain attach;
     /// see [`promote_established_tabs`].
     pub fn promote_established(&mut self, state: &State) -> bool {
         promote_established_tabs(&mut self.tabs, state)
@@ -695,9 +695,10 @@ pub fn restorable(key: &str) -> bool {
     !terminal_refreshes_saved_state(key)
 }
 
-/// A `login:` or `add:` terminal: its success refreshes the saved fleet once.
+/// A `login:`, `add:` or `eas-connect:` terminal: its success refreshes the
+/// saved fleet once.
 pub fn terminal_refreshes_saved_state(key: &str) -> bool {
-    key.starts_with("login:") || key.starts_with("add:")
+    key.starts_with("login:") || key.starts_with("add:") || key.starts_with("eas-connect:")
 }
 
 /// Keep the exact frozen request as the fallback for a launch whose outcome
@@ -727,10 +728,11 @@ pub fn session_attach_command(machine: &str, session: &str, readonly: bool) -> V
 }
 
 /// Launch tabs (`run …`, `auto-machine …`) whose session exists on its
-/// machine with a pane are rewritten to `attach M S [--read-only]`, so the
-/// next launch reopens the session rather than replaying the launch. A
-/// machine whose snapshot is missing (a blip) changes nothing. Returns
-/// whether any tab changed, so the window gets persisted.
+/// machine and can attach (a pane, or a live EAS session) are rewritten to
+/// `attach M S [--read-only]`, so the next launch reopens the session rather
+/// than replaying the launch. A machine whose snapshot is missing (a blip)
+/// changes nothing. Returns whether any tab changed, so the window gets
+/// persisted.
 pub fn promote_established_tabs(tabs: &mut [Tab], state: &State) -> bool {
     let mut changed = false;
     for tab in tabs {
@@ -752,7 +754,7 @@ pub fn promote_established_tabs(tabs: &mut [Tab], state: &State) -> bool {
             .is_some_and(|last| {
                 last.sessions
                     .iter()
-                    .any(|s| s.id == *session && !s.tmux_pane.is_empty())
+                    .any(|s| s.id == *session && s.can_attach())
             });
         if established {
             tab.reconnect = session_attach_command(machine, session, *readonly);

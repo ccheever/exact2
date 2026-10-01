@@ -118,7 +118,9 @@ function job(argv, stdin) {
     case 'open-url': window.open(rest.join(''), '_blank'); return ok();
     case 'clipboard-write': navigator.clipboard?.writeText(stdin).catch(() => {}); return ok();
     case 'clipboard-read': return ok('');
-    case 'notify': case 'close-terminal': case 'write-terminal': return ok();
+    case 'notify': case 'notify-remove': case 'close-terminal': case 'write-terminal': case 'refresh-feed': case 'clear-terminal': case 'reconnect-terminal': case 'save-title-prompt': return ok();
+    case 'theme-files': return ok('[]');
+    case 'whats-new-history': return ok("e6adfa8a6cc7a9cd99b26347cc7da8467f0b5631\t2026-10-01\tRun local Grok directly and allow verified mixed remote versions (#266)\nc03ff04e0320b8015d550df7e4d0373219799e13\t2026-10-01\tRemove Profiles manager tab (#267)\nb8139a71efddd2f703d8f7ffcda89c37657df148\t2026-10-01\tAdd Google OAuth accounts to Ocho (#260)\n134c1723c26f10212d9e8bc7b4510e2f3e95ab24\t2026-10-01\tRun Fleet and Ocho Codex sessions on EAS with DO and R2 persistence (#258)\n7847256dcfe2ee3f50e30a177f72e5a04131fb04\t2026-10-01\tFix transcript math layout, sharpness, and scrolling (#264)\nde58802d6faa7ab08ed14015a49119405f11c708\t2026-10-01\tBridge legacy fleet services to owner identity (#265)");
     case 'models': {
       const provider = rest[rest.indexOf('--provider') + 1] ?? 'claude';
       return ok(JSON.stringify((catalogs[provider] ?? []).map(([id, name, description], i) => ({ id, name, description, default: i === 0 }))));

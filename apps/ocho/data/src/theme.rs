@@ -218,13 +218,13 @@ impl Theme {
         }
     }
 
-    /// The color of a manager badge for a session state (ui.rs:474-482).
+    /// The color of a manager badge for a session state (ui.rs `badge_color`).
     pub fn badge(&self, state: &str) -> Rgba {
         match state {
             "RUNNING" => self.good,
+            "IDLE" | "CLOSED" | "UNAVAILABLE" | "PAUSED" => self.muted,
             "BLOCKED" | "LIMITED" => self.warn,
-            "TERMINAL" => self.accent,
-            _ => self.muted,
+            _ => self.accent,
         }
     }
 }
@@ -267,12 +267,14 @@ pub struct ThemeView {
     pub backdrop: String,
 }
 
-/// Usage-bar colors by provider (ui.rs:484-491).
+/// Usage-bar colors by provider (ui.rs `provider_usage_color`); Grok and
+/// anything unknown take the theme's accent.
 pub fn provider_usage_color(provider: &str, theme: &Theme) -> String {
     match provider {
         "claude" => "#D97757".into(),
         "codex" => "#7B85FE".into(),
         "opencode" => "#5C9CF5".into(),
+        "antigravity" => "#4285F4".into(),
         _ => theme.accent.css(),
     }
 }
@@ -290,5 +292,13 @@ mod tests {
         assert_eq!(l.selected_bg, "#ebecef");
         assert_eq!(l.hover_bg, "#f0f0f3");
         assert_eq!(Rgba::parse("#5fd7d73d").unwrap().3, 61.0 / 255.0);
+    }
+
+    #[test]
+    fn usage_bars_take_the_provider_color() {
+        let t = Theme::ocho_dark();
+        assert_eq!(provider_usage_color("antigravity", &t), "#4285F4");
+        assert_eq!(provider_usage_color("opencode", &t), "#5C9CF5");
+        assert_eq!(provider_usage_color("grok", &t), t.accent.css());
     }
 }

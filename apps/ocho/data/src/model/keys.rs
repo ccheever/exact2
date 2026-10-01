@@ -139,6 +139,9 @@ impl Workspace {
                 }
             }
             "backdrop" => self.close_overlay(),
+            "button" | "pick" if self.extras_press(rest) => {}
+            "whats-new" => self.execute(Command::WhatsNew),
+            "pick" | "button" | "field" | "choice" | "dir" if self.dialog_press(kind, rest) => {}
             "button" => self.overlay_button(rest),
             "pick" => self.pick(rest),
             "field" | "toggle" | "step-up" | "step-down" | "reset" => {
@@ -155,6 +158,16 @@ impl Workspace {
         match id {
             "view-menu" => self.toggle_popup(PopupKind::ViewMenu, Some((x + 56.0, y + 28.0))),
             other => {
+                if other.starts_with("field:") {
+                    // A form's choice field: its dropdown hangs under the field.
+                    self.press(other);
+                    if let Some(popup) = self.popup.as_mut() {
+                        if popup.at.is_none() {
+                            popup.at = Some((x, y + 32.0));
+                        }
+                    }
+                    return;
+                }
                 if let Some(row) = other.strip_prefix("more:") {
                     if let Some(index) = self.row_index(row) {
                         self.toggle_popup(PopupKind::RowMenu(index), Some((x, y + 28.0)));
@@ -179,6 +192,17 @@ impl Workspace {
                 if let Overlay::Settings(page) = &mut self.overlay {
                     let effect = page.close();
                     self.apply_settings_effect(effect);
+                }
+                self.overlay = Overlay::None;
+            }
+            Overlay::Form(_) => self.close_form(),
+            Overlay::Conversations => {
+                self.topics.close();
+                self.overlay = Overlay::None;
+            }
+            Overlay::Themes(picker) => {
+                if let crate::themes::ThemeKey::Revert { theme, .. } = picker.cancel() {
+                    self.theme = theme;
                 }
                 self.overlay = Overlay::None;
             }
@@ -288,6 +312,9 @@ impl Workspace {
             return;
         }
         if self.handle_global_key(ks) {
+            return;
+        }
+        if self.dialog_key(&ks.key, &mods) || self.extras_key(&ks.key, &mods) {
             return;
         }
         if at == "terminal" && matches!(self.overlay, Overlay::None) {
@@ -425,7 +452,14 @@ impl Workspace {
                 self.apply_settings_effect(effect);
                 return true;
             }
-            Overlay::Launch(_) | Overlay::Palette(_) => return false,
+            Overlay::Launch(_)
+            | Overlay::Palette(_)
+            | Overlay::Form(_)
+            | Overlay::PullRequests(_)
+            | Overlay::Conversations
+            | Overlay::Themes(_)
+            | Overlay::WhatsNew
+            | Overlay::PairIMessage => return false,
             Overlay::None => {}
         }
         if self.searching || at == "search" {
@@ -457,6 +491,9 @@ impl Workspace {
 
     /// Text typed into an input, by id.
     pub(super) fn input(&mut self, id: &str, value: &str) {
+        if self.dialog_input(id, value) {
+            return;
+        }
         match id {
             "search" => {
                 self.query = value.to_string();

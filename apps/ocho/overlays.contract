@@ -12,11 +12,14 @@ component Overlays
   props
     model: Overlay
     popup: Popup
+    whatsNew: WhatsNew
+    pairing: IMessagePair
     t: Theme
     hoverId: string
     windowWidth: number
     windowHeight: number
     press: action
+    pressAt: action
     hover: action
     typed: action
     overlayKeyDown: action
@@ -29,7 +32,11 @@ component Overlays
           when model.kind == "picker"
             row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-bottom-color=t.border font-family="ui-monospace"
               text model.glyph color=t.accent
-              input id="query" testId="query" value=model.query input=typed("query") placeholder=model.placeholder autofocus=true aria-label=model.placeholder flex=1 min-width=0 height=21 line-height="21px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=13 color=t.text
+              // GPUI paints placeholders in `muted`; exact2 inputs have no placeholder color, so a text layer stands in.
+              box position="relative" flex=1 min-width=0
+                when model.query == ""
+                  text model.placeholder position="absolute" top=0 left=0 right=0 font-size=13 line-height="21px" font-family="ui-monospace" color=t.muted class=Ellipsis pointer-events="none"
+                input id="query" testId="query" value=model.query input=typed("query") placeholder="" autofocus=true aria-label=model.placeholder flex=1 min-width=0 height=21 line-height="21px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=13 color=t.text
               text "↑ ↓ choose · Enter open · Esc close" font-size=11 line-height="18px" color=t.muted white-space="nowrap"
             when model.status != ""
               text model.status padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
@@ -53,6 +60,59 @@ component Overlays
                       text r.hint flex-shrink=0 font-size=11 line-height="18px" color=t.muted
             when model.footer != ""
               text model.footer padding-left=16 padding-right=16 padding-top=4 padding-bottom=4 border-top-style="solid" border-top-width=1 border-top-color=t.border font-size=11 line-height="18px" color=t.muted
+          // ---- What's New (whats_new_ui.rs, 1:1) ----
+          when model.kind == "whats-new"
+            row align-items="center" padding-left=16 padding-right=16 padding-top=12 padding-bottom=8 flex-shrink=0
+              text whatsNew.title flex=1 font-weight=600
+              button press=press("button:whats-new-close") testId="whats-new-close" hover=hover("button:whats-new-close") class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "button:whats-new-close" ? t.selected : t.element) color=t.text
+                text whatsNew.closeLabel
+                text "Esc" font-size=11 line-height="18px" color=t.muted
+            column padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="19px" color=t.muted flex-shrink=0
+              when whatsNew.build != ""
+                text whatsNew.build
+              text whatsNew.subtitle
+            scroll id="whats-new-rows" flex=1 min-height=0 max-height=(windowHeight - 220) padding-left=16 padding-right=16 padding-bottom=12
+              column
+                when whatsNew.empty != ""
+                  text whatsNew.empty padding-top=16 padding-bottom=16 color=t.muted
+                each r in whatsNew.rows key=`${r.kind}-${r.id}-${r.date}`
+                  when r.kind == "date"
+                    text r.date padding-top=16 padding-bottom=8 font-size=11 line-height="18px" font-weight=600 color=t.muted
+                  else
+                    button press=press(`button:${r.id}`) testId=r.id hover=hover(`button:${r.id}`) class=Reset display="flex" flex-direction="row" align-items="flex-start" gap=12 padding-left=8 padding-right=8 padding-top=8 padding-bottom=8 border-radius=6 background-color=(hoverId == `button:${r.id}` ? t.hover : "rgba(0,0,0,0)") color=t.text width="100%" box-sizing="border-box"
+                      text r.title flex=1 font-size=12 line-height="19px"
+                      text r.commit flex-shrink=0 font-family="ui-monospace" font-size=11 line-height="18px" color=t.muted
+            text whatsNew.footer padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 border-top-style="solid" border-top-width=1 border-top-color=t.border font-size=11 line-height="18px" color=t.muted flex-shrink=0
+          // ---- Pair iMessage (ui.rs render_pair_imessage, 1:1) ----
+          when model.kind == "pair-imessage"
+            text pairing.title padding-left=16 padding-right=16 padding-top=12 padding-bottom=8 font-weight=600
+            when pairing.state == "loading"
+              text pairing.loading padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 color=t.muted
+            when pairing.state == "error"
+              text pairing.error padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 font-size=12 line-height="19px" color=t.warn
+            when pairing.state == "ready"
+              text pairing.instructions padding-left=16 padding-right=16 font-size=12 line-height="19px"
+              row justify-content="center" padding-top=12 padding-bottom=12
+                column padding=12 background-color="#ffffff" border-radius=6
+                  each line in pairing.qr key=line.id
+                    row
+                      each cell in line.cells key=cell.id
+                        box width=4 height=4 background-color=(cell.dark ? "#000000" : "#ffffff")
+              text pairing.code padding-left=16 padding-right=16 font-family="ui-monospace"
+              text pairing.sendTo padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=t.muted
+              text pairing.sendFrom padding-left=16 padding-right=16 padding-bottom=12 font-size=12 line-height="19px" color=t.muted
+              row gap=8 padding-left=16 padding-right=16 padding-bottom=8
+                button press=press("button:imessage-copy") testId="imessage-copy" hover=hover("button:imessage-copy") class=Reset padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "button:imessage-copy" ? t.selected : t.element) color=t.text
+                  text "Copy code"
+                button press=press("button:imessage-open") testId="imessage-open" hover=hover("button:imessage-open") class=Reset padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=(hoverId == "button:imessage-open" ? t.selected : t.accent12) color=t.text
+                  text "Open Messages"
+            row justify-content="flex-end" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=8
+              when pairing.retry
+                button press=press("button:imessage-retry") testId="imessage-retry" hover=hover("button:imessage-retry") class=Reset padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "button:imessage-retry" ? t.selected : t.element) color=t.text
+                  text "New code"
+              button press=press("button:imessage-close") testId="imessage-close" hover=hover("button:imessage-close") class=Reset display="flex" flex-direction="row" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=t.border background-color=(hoverId == "button:imessage-close" ? t.selected : t.element) color=t.text
+                text "Close"
+                text "Esc" font-size=11 line-height="18px" color=t.muted
           // ---- Confirm (ui.rs:3689): title in warn, body muted, Cancel n / Yes y ----
           when model.kind == "confirm"
             text model.title padding-left=16 padding-right=16 padding-top=12 font-weight=600 color=t.warn
@@ -86,50 +146,65 @@ component Overlays
                       text r.label width=200 flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="19px"
                       text r.detail font-size=12 line-height="19px" color=t.muted
           // ---- Settings and forms: fields in a column (ui.rs:5102, 5360) ----
-          // ---- The launch composer (ui.rs:4273): Project and Machine chips, the prompt, then the model pill, account and permissions chips in one row ----
+          // ---- The launch composer (ui.rs render_launch_composer, e6adfa8): a
+          // prompt, one line of controls (where · what · who) with the send
+          // button, an error, and the open menu as a panel inside the card. ----
           when model.kind == "launch"
-            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=12
-              text model.title flex=1 font-weight=600 class=Ellipsis
-              when model.pill != ""
-                text model.pill padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 font-size=11 line-height="18px" font-weight=700 color=model.pillColor background-color=`${model.pillColor}2e`
-            column gap=8 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
-              each f in filter(model.fields, x => x.id == "launch-project" or x.id == "launch-machine") key=f.id
-                button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text width="100%" box-sizing="border-box"
-                  text f.label flex-shrink=0
-                  text f.value flex=1 class=Ellipsis font-family="ui-monospace" font-size=12
-                  text "▾" font-size=11 line-height="18px" color=t.placeholder
-              each f in filter(model.fields, x => x.id == "launch-prompt") key=f.id
-                column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg
-                  input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder focus=press(`focus:${f.id}`) autofocus=f.focused aria-label=f.label width="100%" min-height=68 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
-              row gap=8 flex-wrap="wrap" align-items="center"
-                each f in filter(model.fields, x => x.id == "model-pill" or x.id == "account-chip" or x.id == "permissions-chip") key=f.id
-                  when f.kind == "pill"
-                    button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text max-width=400 box-sizing="border-box"
-                      text f.label font-size=11 line-height="18px" color=t.muted flex-shrink=0
-                      text f.value class=Ellipsis font-family="ui-monospace" font-size=12 color=(f.hint == "model" and f.focused ? t.accent : t.text)
-                      each e in f.options key=e
-                        text e font-size=12 line-height="19px" font-family="ui-monospace" color=(f.hint == "effort" and f.focused ? t.accent : t.muted)
-                      text "▾" font-size=11 line-height="18px" color=t.placeholder
-                  when f.kind == "text"
-                    column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=t.accent background-color=t.bg max-width=400
-                      input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder autofocus=true aria-label=f.label width=240 height=19 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text
-                  when f.kind == "chip"
-                    button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text max-width=(f.id == "account-chip" ? 300 : 352) box-sizing="border-box"
-                      text f.label flex-shrink=0
-                      text f.value class=Ellipsis font-family="ui-monospace" font-size=12
-                      text "▾" font-size=11 line-height="18px" color=t.placeholder
-              when model.status != ""
-                text model.status font-size=12 line-height="19px" color=(model.statusError ? t.danger : t.muted)
-            row align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=8 padding-bottom=12 border-top-style="solid" border-top-width=1 border-top-color=t.border
-              text model.footer flex=1 min-width=0 font-size=11 line-height="18px" color=t.muted
-              each b in model.buttons key=b.id
-                button press=press(`button:${b.id}`) testId=`button-${b.id}` hover=hover(`button:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `button:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
-                  text b.label
-                  when b.hint != ""
-                    text b.hint font-size=11 line-height="18px" color=t.muted
+            each f in filter(model.fields, x => x.id == "launch-prompt") key=f.id
+              column padding-left=12 padding-right=12 padding-top=12 padding-bottom=4 min-height=56
+                // GPUI paints placeholders in `muted`; exact2 inputs have no placeholder color, so a text layer stands in.
+                box position="relative" width="100%"
+                  when f.value == ""
+                    text "Do anything" position="absolute" top=0 left=0 right=0 font-size=13 line-height="21px" color=t.muted class=Ellipsis pointer-events="none"
+                  input id="field-launch-prompt" testId="field-launch-prompt" value=f.value input=typed("field:launch-prompt") placeholder="" autofocus=f.focused aria-label="Prompt" width="100%" min-height=21 line-height="21px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=13 color=t.text box-sizing="border-box"
+            row align-items="center" gap=4 padding-left=8 padding-right=8 padding-bottom=8
+              each f in filter(model.fields, x => x.kind == "control") key=f.id
+                button press=press(`pick:${f.id}`) testId=`field-${f.id}` hover=hover(`ctl:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=6 padding-right=6 padding-top=2 padding-bottom=2 min-width=0 max-width=(f.id == "launch-who" ? 176 : 9999) border-radius=6 font-size=12 line-height="19px" color=(f.focused or includes(f.placeholder, "open") ? t.text : t.muted) background-color=(f.focused or includes(f.placeholder, "open") ? t.selected : (hoverId == `ctl:${f.id}` ? t.hover : "rgba(0,0,0,0)"))
+                  when f.hint != ""
+                    box width=7 height=7 border-radius=999 flex-shrink=0 background-color=f.hint
+                  text f.label class=Ellipsis color=(includes(f.placeholder, "muted") ? t.muted : (f.focused or includes(f.placeholder, "open") ? t.text : t.muted))
+                  when f.value != ""
+                    text f.value flex-shrink=0 font-size=11 line-height="18px" color=(includes(f.placeholder, "danger") ? t.danger : t.placeholder)
+              box flex=1
+              button press=press("pick:launch-send") testId="launch-send" hover=hover("launch-send") class=Reset display="flex" align-items="center" justify-content="center" flex-shrink=0 width=26 height=26 border-radius=6 background-color=t.accent color=t.bg opacity=(hoverId == "launch-send" ? 0.9 : 1) aria-label="Launch"
+                text "↑"
+            when model.status != ""
+              text model.status padding-left=12 padding-right=12 padding-bottom=8 font-size=11 line-height="18px" color=t.danger
+            when length(model.rows) > 0 or length(filter(model.fields, x => x.kind == "search")) > 0
+              column max-height=330 border-top-style="solid" border-top-width=1 border-top-color=t.border background-color=t.surface border-bottom-left-radius=8 border-bottom-right-radius=8 overflow="hidden"
+                when length(filter(model.fields, x => x.kind == "tab")) > 1
+                  row border-bottom-style="solid" border-bottom-width=1 border-bottom-color=t.border background-color=t.surface flex-shrink=0
+                    each f in filter(model.fields, x => x.kind == "tab") key=f.id
+                      button press=press(`pick:${f.id}`) testId=`field-${f.id}` hover=hover(`tab:${f.id}`) class=Reset display="flex" align-items="center" padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 font-size=12 line-height="19px" border-bottom-style="solid" border-bottom-width=2 border-bottom-color=(f.focused ? t.accent : "rgba(0,0,0,0)") color=(f.focused ? t.text : t.muted) background-color=(not f.focused and hoverId == `tab:${f.id}` ? t.hover : "rgba(0,0,0,0)")
+                        text f.label
+                each f in filter(model.fields, x => x.kind == "search") key=f.id
+                  row align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-bottom-style="solid" border-bottom-width=1 border-bottom-color=t.border flex-shrink=0
+                    // GPUI paints placeholders in `muted`; exact2 inputs have no placeholder color, so a text layer stands in.
+                    box position="relative" flex=1 min-width=0
+                      when f.value == ""
+                        text f.placeholder position="absolute" top=0 left=0 right=0 font-size=12 line-height="19px" color=t.muted class=Ellipsis pointer-events="none"
+                      input id="field-launch-menu-query" testId="field-launch-menu-query" value=f.value input=typed("field:launch-menu-query") placeholder="" autofocus=true aria-label=f.placeholder flex=1 min-width=0 height=19 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=12 color=t.text
+                scroll id="launch-menu-list" flex=1 min-height=0 padding-top=4 padding-bottom=4
+                  column
+                    each r in model.rows key=r.id
+                      when r.hint == "group"
+                        text r.label padding-left=12 padding-right=12 padding-top=8 padding-bottom=2 font-size=11 line-height="18px" color=t.placeholder
+                      when r.hint == "note"
+                        text r.label padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=11 line-height="18px" color=t.muted
+                      when r.hint == "item" or r.hint == "folder"
+                        button press=press(`pick:${r.id}`) testId=`pick-${r.id}` hover=hover(`pick:${r.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 flex-shrink=0 margin-left=4 margin-right=4 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=(r.selected ? t.selected : (hoverId == `pick:${r.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="calc(100% - 8px)" box-sizing="border-box"
+                          text r.chip width=14 flex-shrink=0 font-size=11 line-height="18px" color=t.accent
+                          when r.swatch != ""
+                            box width=7 height=7 border-radius=999 flex-shrink=0 background-color=r.swatch
+                          text r.label flex=1 class=Ellipsis font-size=12 line-height="19px" font-family=(r.hint == "folder" ? "ui-monospace" : "system-ui") color=(r.accent ? t.danger : t.text)
+                          when r.detail != ""
+                            text r.detail flex-shrink=0 max-width=256 class=Ellipsis font-size=11 line-height="18px" color=t.muted
           when model.kind == "settings"
-            row align-items="center" padding-left=16 padding-right=16 padding-top=12 padding-bottom=4 flex-shrink=0
+            row align-items="center" gap=6 padding-left=16 padding-right=16 padding-top=12 padding-bottom=4 flex-shrink=0
               text model.title flex=1 font-weight=600
+              // ui.rs render_settings (e6adfa8): a ghost "What’s New" button.
+              button press=press("whats-new") testId="settings-whats-new" hover=hover("settings-whats-new") class=Reset padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 font-size=13 line-height="21px" background-color=(hoverId == "settings-whats-new" ? t.hover : "rgba(0,0,0,0)") color=(hoverId == "settings-whats-new" ? t.text : t.muted)
+                text "What’s New"
               text model.subtitle font-size=12 line-height="19px" color=t.muted
             scroll flex=1 min-height=0 max-height=(min(520, windowHeight - 200)) padding-left=8 padding-right=8 padding-top=8 padding-bottom=8
               column
@@ -158,7 +233,11 @@ component Overlays
                         text f.value
                     when f.kind == "text"
                       column width=352 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 margin-top=2 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg flex-shrink=0 box-sizing="border-box"
-                        input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder="Instructions…" focus=press(`focus:${f.id}`) aria-label=f.label width="100%" min-height=22 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
+                        // GPUI paints placeholders in `muted`; exact2 inputs have no placeholder color, so a text layer stands in.
+                        box position="relative" width="100%"
+                          when f.value == ""
+                            text "Instructions…" position="absolute" top=0 left=0 right=0 font-size=12 line-height="19px" font-family="ui-monospace" color=t.muted class=Ellipsis pointer-events="none"
+                          input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder="" focus=press(`focus:${f.id}`) aria-label=f.label width="100%" min-height=22 line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
             when model.status != ""
               text model.status padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="19px" color=t.warn flex-shrink=0
             text model.footer padding-left=16 padding-right=16 padding-bottom=12 font-size=11 line-height="18px" color=t.muted flex-shrink=0
@@ -175,17 +254,21 @@ component Overlays
               column gap=8
                 each f in model.fields key=f.id
                   column gap=4
-                    when f.kind == "text" or f.kind == "prompt" or f.kind == "path"
+                    when f.kind == "text" or f.kind == "prompt" or f.kind == "path" or f.kind == "model"
                       text f.label font-size=11 line-height="18px" color=(f.focused ? t.accent : t.muted)
                       column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg
-                        input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder=f.placeholder focus=press(`focus:${f.id}`) autofocus=f.focused aria-label=f.label width="100%" min-height=(f.multiline ? 68 : 19) line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
+                        // GPUI paints placeholders in `muted`; exact2 inputs have no placeholder color, so a text layer stands in.
+                        box position="relative" width="100%"
+                          when f.value == ""
+                            text f.placeholder position="absolute" top=0 left=0 right=0 font-size=12 line-height="19px" font-family="ui-monospace" color=t.muted class=Ellipsis pointer-events="none"
+                          input id=`field-${f.id}` testId=`field-${f.id}` value=f.value input=typed(`field:${f.id}`) placeholder="" focus=press(`focus:${f.id}`) autofocus=f.focused aria-label=f.label width="100%" min-height=(f.multiline ? 68 : 19) line-height="19px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-family="ui-monospace" font-size=12 color=t.text box-sizing="border-box"
                       when length(f.suggestions) > 0
                         column
                           each s in f.suggestions key=s.id
                             button press=press(`pick:${s.id}`) hover=hover(`pick:${s.id}`) class=Reset display="flex" padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 border-radius=6 background-color=(s.selected ? t.selected : (hoverId == `pick:${s.id}` ? t.hover : "rgba(0,0,0,0)")) color=t.text width="100%" box-sizing="border-box" font-family="ui-monospace" font-size=12
                               text s.label class=Ellipsis
                     when f.kind == "choice" or f.kind == "picker" or f.kind == "chip"
-                      button press=press(`field:${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text width="100%" box-sizing="border-box"
+                      button id=`field-${f.id}` press=pressAt(`field:${f.id}`, `field-${f.id}`) testId=`field-${f.id}` hover=hover(`field:${f.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 border-style="solid" border-width=1 border-color=(f.focused ? t.accent : t.border) background-color=t.bg color=t.text width="100%" box-sizing="border-box"
                         text f.label font-size=11 line-height="18px" color=(f.focused ? t.accent : t.muted) flex-shrink=0
                         text f.value flex=1 class=Ellipsis font-family="ui-monospace" font-size=12
                         text "▾" font-size=11 line-height="18px" color=t.placeholder

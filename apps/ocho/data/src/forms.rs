@@ -6,10 +6,10 @@
 //! keys, input and presses here, runs what `wanted_*` ask for, and executes
 //! the `Submission` that `submit` builds.
 //!
-//! `forms/submit.rs` builds the `fleet` argv per kind, `forms/view.rs` the
+//! `forms/submit.rs` (`submit::Submission`) builds the `fleet` argv per kind, `forms/view.rs` the
 //! `OVERLAY` JSON and the dropdown's popup items.
 
-mod submit;
+pub mod submit;
 mod view;
 
 #[cfg(test)]
@@ -27,8 +27,6 @@ use crate::session::{
 };
 use crate::types::{Account, LaunchProfile, Machine, Session, State};
 
-pub use submit::Submission;
-
 /// The profile form's model field.
 pub const MODEL_FIELD: &str = "Model (blank = native)";
 /// The profile form's effort field.
@@ -41,6 +39,15 @@ pub const CODEX_PERMISSIONS_FIELD: &str = "Codex permissions";
 pub const CLAUDE_PERMISSIONS_FIELD: &str = "Claude permissions";
 /// The machine form's OpenCode default mode.
 pub const OPENCODE_PERMISSIONS_FIELD: &str = "OpenCode permissions";
+/// The machine form's Antigravity default mode.
+pub const ANTIGRAVITY_PERMISSIONS_FIELD: &str = "Antigravity permissions";
+/// The machine form's Grok default mode.
+pub const GROK_PERMISSIONS_FIELD: &str = "Grok permissions";
+/// The Pair iMessage form's only field.
+pub const PHONE_FIELD: &str = "Your iMessage number";
+/// The Pair iMessage form's error for a number without a country code.
+pub const PHONE_ERROR: &str =
+    "Enter your phone number with country code, for example +14155552671.";
 
 /// The toast when Esc keeps what was typed.
 pub const DRAFT_KEPT: &str = "Draft kept; reopen the form to continue";
@@ -77,7 +84,9 @@ pub fn field(label: &'static str, value: impl Into<String>) -> Field {
         PERMISSIONS_FIELD
         | CODEX_PERMISSIONS_FIELD
         | CLAUDE_PERMISSIONS_FIELD
-        | OPENCODE_PERMISSIONS_FIELD => FieldKind::Choice,
+        | OPENCODE_PERMISSIONS_FIELD
+        | ANTIGRAVITY_PERMISSIONS_FIELD
+        | GROK_PERMISSIONS_FIELD => FieldKind::Choice,
         "Directory" => FieldKind::Directory,
         MODEL_FIELD => FieldKind::Model,
         _ => FieldKind::Text,
@@ -109,6 +118,8 @@ pub fn field_placeholder(label: &str) -> &'static str {
 /// Which form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum FormKind {
+    /// Ask for the phone number to pair iMessage with.
+    PairIMessage,
     /// Name a rail folder.
     Folder,
     /// Enroll a machine.
@@ -117,6 +128,8 @@ pub enum FormKind {
     MachineEdit,
     /// Sign an account in.
     Account,
+    /// Save the fleet recovery key to a file.
+    RecoveryBackup,
     /// Label a session.
     Label,
     /// Resume a native conversation.
@@ -213,6 +226,22 @@ fn permission_choices(provider: &str) -> Vec<String> {
     out
 }
 
+/// imessage_pair.rs `normalize_phone`: pasted spaces, parentheses and
+/// dashes dropped; a `+`, a country code that does not start with 0, and 7
+/// to 15 digits in all.
+pub fn normalize_phone(input: &str) -> Option<String> {
+    let phone: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '(' | ')' | '-'))
+        .collect();
+    let digits = phone.strip_prefix('+')?;
+    (digits.len() >= 7
+        && digits.len() <= 15
+        && !digits.starts_with('0')
+        && digits.bytes().all(|c| c.is_ascii_digit()))
+    .then_some(phone)
+}
+
 /// "{label} · {machine}", the session tab title a submission opens with.
 fn session_tab_title(label: &str, machine: &str) -> String {
     format!("{label} · {machine}")
@@ -244,7 +273,11 @@ pub fn choice_label(state: &State, label: &str, value: &str) -> String {
             .unwrap_or_else(|| value.to_string()),
         "Provider" => provider_label(value).to_string(),
         PERMISSIONS_FIELD => crate::permissions::label(value),
-        CODEX_PERMISSIONS_FIELD | CLAUDE_PERMISSIONS_FIELD | OPENCODE_PERMISSIONS_FIELD => {
+        CODEX_PERMISSIONS_FIELD
+        | CLAUDE_PERMISSIONS_FIELD
+        | OPENCODE_PERMISSIONS_FIELD
+        | ANTIGRAVITY_PERMISSIONS_FIELD
+        | GROK_PERMISSIONS_FIELD => {
             if value.is_empty() {
                 "Provider default".into()
             } else {
@@ -316,6 +349,8 @@ impl Form {
                 field(CODEX_PERMISSIONS_FIELD, mode("codex")),
                 field(CLAUDE_PERMISSIONS_FIELD, mode("claude")),
                 field(OPENCODE_PERMISSIONS_FIELD, mode("opencode")),
+                field(ANTIGRAVITY_PERMISSIONS_FIELD, mode("antigravity")),
+                field(GROK_PERMISSIONS_FIELD, mode("grok")),
             ],
         );
         form.editing = Some(machine.id.clone());
@@ -331,6 +366,29 @@ impl Form {
                 field("Provider", "codex"),
                 field("Authentication", "Provider sign-in"),
             ],
+        )
+    }
+
+    /// "Back up recovery key" (`Command::BackupRecovery`): where
+    /// `fleet cloud export-recovery` writes the key.
+    pub fn recovery_backup() -> Form {
+        Form::new(
+            FormKind::RecoveryBackup,
+            "Back up recovery key",
+            vec![field(
+                "Save outside Ocho state",
+                "~/Desktop/ocho-recovery.json",
+            )],
+        )
+    }
+
+    /// "Pair iMessage" (`Command::PairIMessage`): the number to pair; the
+    /// pairing code it leads to is the app's (`pairing_phone`).
+    pub fn pair_imessage() -> Form {
+        Form::new(
+            FormKind::PairIMessage,
+            "Pair iMessage",
+            vec![field(PHONE_FIELD, "")],
         )
     }
 
@@ -549,10 +607,12 @@ impl Form {
     /// The primary button's text.
     pub fn submit_label(&self) -> &'static str {
         match self.kind {
+            FormKind::PairIMessage => "Get pairing code",
             FormKind::Resume => "Launch",
             FormKind::Machine => "Add machine",
             FormKind::MachineEdit => "Save machine",
             FormKind::Account => "Sign in",
+            FormKind::RecoveryBackup => "Save recovery key",
             FormKind::Label => "Save label",
             FormKind::Folder => "Save folder",
             FormKind::Migrate => "Move session",
@@ -565,6 +625,9 @@ impl Form {
     /// The key hint line under the fields.
     pub fn hint(&self) -> &'static str {
         match self.kind {
+            FormKind::PairIMessage => {
+                "Use the number you send iMessages from, including country code (for example +14155552671). We'll show you a QR code to connect it to your Fleet."
+            }
             FormKind::Account => {
                 "Space picks the provider · Enter opens the sign-in terminal. Ocho reads your email from the provider and saves the account to Cloudflare."
             }
@@ -594,8 +657,13 @@ impl Form {
     /// a text field.
     pub fn choices(&self, state: &State, label: &str) -> Vec<String> {
         match label {
-            "Provider" => vec!["codex".into(), "claude".into(), "opencode".into()],
-            "Authentication" if self.value("Provider") == "opencode" => {
+            "Provider" => launch::PROVIDERS.iter().map(|p| (*p).into()).collect(),
+            "Authentication"
+                if matches!(
+                    self.value("Provider").as_str(),
+                    "opencode" | "antigravity" | "grok"
+                ) =>
+            {
                 vec!["Provider sign-in".into()]
             }
             "Authentication" => vec!["Provider sign-in".into(), "API key".into()],
@@ -606,6 +674,8 @@ impl Form {
             CODEX_PERMISSIONS_FIELD => permission_choices("codex"),
             CLAUDE_PERMISSIONS_FIELD => permission_choices("claude"),
             OPENCODE_PERMISSIONS_FIELD => permission_choices("opencode"),
+            ANTIGRAVITY_PERMISSIONS_FIELD => permission_choices("antigravity"),
+            GROK_PERMISSIONS_FIELD => permission_choices("grok"),
             "Account" if matches!(self.kind, FormKind::Handoff | FormKind::SwitchAccount) => self
                 .target
                 .as_ref()
@@ -651,7 +721,10 @@ impl Form {
     /// forget any draft kept for the kind.
     pub fn draft(&self) -> Option<(FormKind, Vec<String>)> {
         if self.keeps_draft() && self.has_input() {
-            Some((self.kind, self.fields.iter().map(|f| f.value.clone()).collect()))
+            Some((
+                self.kind,
+                self.fields.iter().map(|f| f.value.clone()).collect(),
+            ))
         } else {
             None
         }
@@ -1056,7 +1129,9 @@ impl Form {
     /// catalog on a known machine and account; `catalog_requested` marks it
     /// taken.
     pub fn wanted_catalog(&self, state: &State) -> Option<CatalogKey> {
-        if !self.models.loading || self.models.requested || self.catalog_unavailable(state).is_some()
+        if !self.models.loading
+            || self.models.requested
+            || self.catalog_unavailable(state).is_some()
         {
             return None;
         }

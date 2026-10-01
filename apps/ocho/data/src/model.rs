@@ -2,7 +2,9 @@
 //! entities and windows. One per app; the host has one window (LLP 1030),
 //! so there is one.
 
+mod dialogs;
 mod exec;
+mod extras;
 mod keys;
 mod menus;
 #[cfg(test)]
@@ -30,18 +32,11 @@ pub enum Page {
     Sessions,
     /// Accounts.
     Accounts,
-    /// Launch profiles.
-    Profiles,
 }
 
 impl Page {
     /// Every page, in rail order.
-    pub const ALL: [Page; 4] = [
-        Page::Machines,
-        Page::Sessions,
-        Page::Accounts,
-        Page::Profiles,
-    ];
+    pub const ALL: [Page; 3] = [Page::Machines, Page::Sessions, Page::Accounts];
 
     /// Its place in [`Page::ALL`].
     pub fn index(self) -> usize {
@@ -50,7 +45,7 @@ impl Page {
 
     /// The page at `i`, wrapping.
     pub fn from_index(i: usize) -> Page {
-        Page::ALL[i % 4]
+        Page::ALL[i % Page::ALL.len()]
     }
 
     /// The header's title.
@@ -59,7 +54,6 @@ impl Page {
             Page::Machines => "Machines",
             Page::Sessions => "Sessions",
             Page::Accounts => "Accounts",
-            Page::Profiles => "Profiles",
         }
     }
 
@@ -69,7 +63,6 @@ impl Page {
             Page::Machines => "monitor",
             Page::Sessions => "message-square",
             Page::Accounts => "key-round",
-            Page::Profiles => "rocket",
         }
     }
 
@@ -79,7 +72,6 @@ impl Page {
             Page::Machines => "machines",
             Page::Sessions => "sessions",
             Page::Accounts => "accounts",
-            Page::Profiles => "profiles",
         }
     }
 
@@ -206,6 +198,16 @@ pub enum Reply {
     Usage(String),
     /// `fleet models …`: a catalog for the launch dialog.
     Models(crate::launch::CatalogKey),
+    /// `fleet search …`: the topic finder's search or index run.
+    Topics(Box<crate::finders::TopicJob>),
+    /// The theme files the module listed.
+    ThemeFiles,
+    /// The build's change history for What's New.
+    WhatsNewHistory,
+    /// `fleet serve --describe` for an iMessage pairing request.
+    PairDescribe(u64),
+    /// `fleet machine pair-imessage …` for a pairing request.
+    Pairing(u64),
     /// `fleet directories M PATH`: folder completion for that machine and path.
     Directories(String, String),
     /// A host job; nothing to apply.
@@ -255,6 +257,8 @@ pub struct Workspace {
     pub desktop_version: u64,
     /// The first desktop.json text was applied (its windows restored).
     pub desktop_loaded: bool,
+    /// The last desktop.json text could not be parsed; the file is not written.
+    pub desktop_broken: bool,
     /// Moves when jobs' replies were applied.
     pub io_version: u64,
     /// The fleet, as the feed last showed it.
@@ -342,6 +346,18 @@ pub struct Workspace {
     pub window_title: String,
     /// The sessions watched for notifications.
     pub notifications: crate::notifications::Notifications,
+    /// Field values of forms closed without submitting, by kind.
+    pub form_drafts: HashMap<crate::forms::FormKind, Vec<String>>,
+    /// The topic finder (it keeps its index time between openings).
+    pub topics: crate::finders::TopicFinder,
+    /// Theme files the module found, parsed.
+    pub theme_files: Vec<crate::themes::ThemeEntry>,
+    /// What's New: the build's recent changes.
+    pub whats_new: crate::whats_new::WhatsNew,
+    /// The history was asked for.
+    pub whats_new_asked: bool,
+    /// The iMessage pairing card.
+    pub imessage: crate::imessage_pair::ImessagePair,
 }
 
 impl Default for Workspace {
@@ -359,6 +375,7 @@ impl Workspace {
             feed_version: 0,
             desktop_version: 0,
             desktop_loaded: false,
+            desktop_broken: false,
             io_version: 0,
             state: State::default(),
             loaded: false,
@@ -404,6 +421,12 @@ impl Workspace {
             scroll_to: String::new(),
             window_title: String::new(),
             notifications: Default::default(),
+            form_drafts: HashMap::new(),
+            topics: Default::default(),
+            theme_files: Vec::new(),
+            whats_new: Default::default(),
+            whats_new_asked: false,
+            imessage: Default::default(),
         }
     }
 
@@ -677,6 +700,15 @@ impl Workspace {
             Reply::Directories(machine, path) => {
                 exec::directories_arrived(self, &machine, &path, result)
             }
+            Reply::Topics(job) => self.topics_arrived(*job, result),
+            Reply::WhatsNewHistory => self.whats_new_arrived(result),
+            Reply::PairDescribe(request) => self.pair_describe_arrived(request, result),
+            Reply::Pairing(request) => self.imessage.set_pairing(request, result),
+            Reply::ThemeFiles => {
+                if let Ok(text) = result {
+                    self.theme_files_arrived(&text);
+                }
+            }
             Reply::Host => {}
         }
     }
@@ -876,7 +908,17 @@ impl Workspace {
         if text.is_empty() {
             return;
         }
-        let settings = DesktopSettings::parse(text);
+        // A file this parser cannot read is left alone: nothing is restored
+        // from it and, above all, nothing is written back over it.
+        let settings = match DesktopSettings::try_parse(text) {
+            Ok(settings) => settings,
+            Err(error) => {
+                self.desktop_broken = true;
+                self.set_error(format!("desktop.json could not be read: {error}"));
+                return;
+            }
+        };
+        self.desktop_broken = false;
         if !self.desktop_loaded {
             self.desktop_loaded = true;
             self.theme = match settings.theme.as_deref() {
@@ -893,6 +935,9 @@ impl Workspace {
 
     /// Save the window's tabs to desktop.json (windows.rs `persist`).
     pub fn persist_tabs(&mut self) {
+        if self.desktop_broken || !self.desktop_loaded {
+            return;
+        }
         let window = self.tabs.saved(self.rail_width);
         self.settings.set_windows(vec![window]);
         let text = self.settings.to_json_pretty();
@@ -950,7 +995,6 @@ impl Workspace {
             Page::Machines => crate::session::machine_rows(&self.state).count(),
             Page::Sessions => self.sessions().len(),
             Page::Accounts => self.state.accounts.len(),
-            Page::Profiles => self.state.presets.len(),
         }
     }
 
@@ -988,10 +1032,6 @@ impl Workspace {
                 .get(index)
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
-            Page::Profiles => crate::session::profiles(&self.state)
-                .get(index)
-                .map(|p| p.name.clone())
-                .unwrap_or_default(),
         }
     }
 
@@ -1025,16 +1065,6 @@ impl Workspace {
             return None;
         }
         self.state.accounts.get(self.index).cloned()
-    }
-
-    /// The selected profile.
-    pub fn selected_profile(&self) -> Option<crate::session::NamedProfile> {
-        if self.page != Page::Profiles {
-            return None;
-        }
-        crate::session::profiles(&self.state)
-            .into_iter()
-            .nth(self.index)
     }
 
     /// The session the active tab follows, with its machine.

@@ -1,7 +1,8 @@
 //! Quick launch (⌘⇧N): persistent, append-only account and machine
 //! assignments (quick_launch.rs), with the numbered-slot keys and card from
 //! workspace.rs and ui.rs. Missing identities keep their slots; models
-//! follow the selected CLI's current catalog instead.
+//! follow the selected CLI's current catalog instead, and can be searched
+//! by name after `/`, chosen with the arrows and started with Enter.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
@@ -11,6 +12,7 @@ use crate::launch::{
 };
 use crate::launch::{Focus, Launch, LaunchMemory, ModelOption, Outcome};
 use crate::picker::{self, canon, typed, Mods};
+use crate::session::clean;
 use crate::types::{Account, State};
 
 /// The saved slots (`launch_shortcuts` in desktop.json).
@@ -79,6 +81,51 @@ pub fn model_id(options: &[ModelOption], slot: usize) -> Option<&str> {
         .map(|model| model.id.as_str())
 }
 
+/// Filter display names and native IDs, keeping the original numbered slots.
+/// An explicit model name wins; family queries prefer the newest version.
+pub fn matching_model_rows(options: &[ModelOption], query: &str) -> Vec<(usize, String, bool)> {
+    let query = query.trim().to_lowercase();
+    let mut rows = model_rows(options);
+    if query.is_empty() {
+        return rows;
+    }
+    rows.retain(|(slot, _, _)| {
+        let model = &options[slot - 1];
+        let text = format!("{} {}", model.id, model.name).to_lowercase();
+        query.split_whitespace().all(|term| text.contains(term))
+    });
+    rows.sort_by_cached_key(|(slot, _, _)| {
+        let model = &options[slot - 1];
+        let exact = model.id.to_lowercase() == query || model.name.to_lowercase() == query;
+        let version = model_version(&model.name).or_else(|| model_version(&model.id));
+        (std::cmp::Reverse(exact), std::cmp::Reverse(version))
+    });
+    rows
+}
+
+// Compare version components numerically: 6.10 is newer than 6.9. Ignore
+// later numbers such as context sizes and release dates when ranking a family.
+fn model_version(value: &str) -> Option<Vec<u64>> {
+    let start = value.find(|c: char| c.is_ascii_digit())?;
+    let version: String = value[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if value[start + version.len()..].starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    Some(version.split('.').filter_map(|n| n.parse().ok()).collect())
+}
+
+/// A model choice entered before the current CLI catalog has loaded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingModel {
+    /// A numbered slot.
+    Slot(usize),
+    /// Whatever the search highlights once the catalog lands.
+    Search,
+}
+
 /// Account → Machine → Model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
@@ -97,8 +144,12 @@ pub struct QuickLaunch {
     pub step: Step,
     /// The digit typed so far (one at most).
     pub digits: String,
-    /// A model number typed before the current CLI catalog has loaded.
-    pub pending_model: Option<usize>,
+    /// A choice entered before the current CLI catalog has loaded.
+    pub pending_model: Option<PendingModel>,
+    /// The model search after `/`, when one is being typed.
+    pub query: Option<String>,
+    /// The highlighted model row (arrows and Enter on the model step).
+    pub index: usize,
     /// The slots frozen when the chooser opened.
     pub shortcuts: Shortcuts,
 }
@@ -110,13 +161,23 @@ impl QuickLaunch {
             step: Step::Account,
             digits: String::new(),
             pending_model: None,
+            query: None,
+            index: 0,
             shortcuts,
         }
     }
 
-    /// Backspace: cancel a queued model, erase a digit, or go back a step.
+    /// Backspace: cancel a queued model, edit or leave the search, erase a
+    /// digit, or go back a step.
     pub fn back(&mut self) {
         if self.pending_model.take().is_some() {
+            return;
+        }
+        if let Some(query) = &mut self.query {
+            if query.pop().is_none() {
+                self.query = None;
+            }
+            self.index = 0;
             return;
         }
         if self.digits.pop().is_none() {
@@ -124,7 +185,37 @@ impl QuickLaunch {
                 Step::Account | Step::Machine => Step::Account,
                 Step::Model => Step::Machine,
             };
+            self.index = 0;
         }
+    }
+
+    /// Slash explicitly starts search so digit-leading names cannot be
+    /// confused with numbered shortcuts. All later characters are query
+    /// text. False when the text was not search.
+    pub fn search(&mut self, text: &str) -> bool {
+        if self.query.is_none() && text != "/" {
+            return false;
+        }
+        let text = if self.query.is_none() { "" } else { text };
+        self.pending_model = None;
+        self.digits.clear();
+        self.query.get_or_insert_with(String::new).push_str(text);
+        self.index = 0;
+        true
+    }
+
+    /// Up / down over `count` model rows, clamped at the ends; cancels a
+    /// queued choice and any digit typed so far.
+    pub fn navigate(&mut self, down: bool, count: usize) {
+        self.pending_model = None;
+        self.digits.clear();
+        let last = count.saturating_sub(1);
+        self.index = self.index.min(last);
+        self.index = if down {
+            (self.index + 1).min(last)
+        } else {
+            self.index.saturating_sub(1)
+        };
     }
 
     /// One digit; the slot once two are in.
@@ -153,7 +244,6 @@ pub fn open(
     draft: String,
 ) -> Result<Launch, &'static str> {
     let mut launch = Launch::open(saved, state, selected, String::new())?;
-    launch.insert = false;
     launch.draft = draft;
     launch.model.clear();
     launch.effort.clear();
@@ -164,7 +254,7 @@ pub fn open(
 }
 
 /// Accounts and machines keep stable slots. Models use the selected CLI's
-/// current catalog verbatim, including its order and display names.
+/// current catalog; name searches rank matching versions newest first.
 pub fn rows(launch: &Launch, state: &State) -> Vec<(usize, String, bool)> {
     let Some(q) = &launch.quick else {
         return Vec::new();
@@ -174,7 +264,9 @@ pub fn rows(launch: &Launch, state: &State) -> Vec<(usize, String, bool)> {
             .catalogs
             .get(&launch.provider)
             .filter(|catalog| !catalog.loading && catalog.error.is_empty())
-            .map(|catalog| model_rows(&catalog.options))
+            .map(|catalog| {
+                matching_model_rows(&catalog.options, q.query.as_deref().unwrap_or_default())
+            })
             .unwrap_or_default();
     }
     let slots = if q.step == Step::Account {
@@ -225,6 +317,7 @@ pub fn key(launch: &mut Launch, key: &str, mods: &Mods, held: bool, state: &Stat
     if key == "escape" {
         return Outcome::Close;
     }
+    let rows = rows(launch, state);
     let Some(q) = launch.quick.as_mut() else {
         return Outcome::None;
     };
@@ -234,35 +327,53 @@ pub fn key(launch: &mut Launch, key: &str, mods: &Mods, held: bool, state: &Stat
         launch.prompt = std::mem::take(&mut launch.draft);
         launch.focus = Focus::Project;
         launch.error.clear();
-    } else if key == "backspace" {
+        return Outcome::None;
+    }
+    if key == "backspace" {
         q.back();
         launch.error.clear();
-    } else if key == "r" && !mods.ctrl && !mods.meta {
-        launch.sync_catalogs(state, true);
-    } else if !mods.ctrl && !mods.meta && !mods.alt {
-        let digit = typed(&key, mods)
-            .and_then(|s| s.chars().next())
-            .filter(|c| c.is_ascii_digit());
-        let Some(digit) = digit else {
-            return Outcome::None;
-        };
+        return Outcome::None;
+    }
+    if mods.ctrl || mods.meta || mods.alt {
+        return Outcome::None;
+    }
+    let catalog = launch.catalogs.get(&launch.provider);
+    let loading = q.step == Step::Model && catalog.is_none_or(|c| c.loading);
+    let failed = catalog.is_some_and(|c| !c.error.is_empty());
+    if q.step == Step::Model && matches!(key.as_str(), "up" | "down") {
+        q.navigate(key == "down", rows.len());
+    } else if q.step == Step::Model && key == "enter" {
         if q.pending_model.is_some() {
             return Outcome::None;
         }
-        if let Some(slot) = q.digit(digit) {
-            let loading = q.step == Step::Model
-                && launch
-                    .catalogs
-                    .get(&launch.provider)
-                    .is_none_or(|c| c.loading);
-            if loading {
-                q.pending_model = Some(slot);
-            } else {
-                return pick(launch, slot, state);
+        let numbered = q.digits.parse().ok();
+        if loading {
+            q.pending_model = Some(numbered.map_or(PendingModel::Search, PendingModel::Slot));
+        } else if let Some(slot) = numbered.or_else(|| highlighted(q, &rows)) {
+            return pick(launch, slot, state);
+        }
+    } else if key == "r" && q.query.is_none() && failed {
+        launch.sync_catalogs(state, true);
+    } else if let Some(text) = typed(&key, mods) {
+        if q.step == Step::Model && q.search(&text) {
+            launch.error.clear();
+        } else if q.pending_model.is_none() {
+            if let Some(slot) = text.chars().next().and_then(|digit| q.digit(digit)) {
+                if loading {
+                    q.pending_model = Some(PendingModel::Slot(slot));
+                } else {
+                    return pick(launch, slot, state);
+                }
             }
         }
     }
     Outcome::None
+}
+
+/// The slot of the highlighted model row.
+fn highlighted(q: &QuickLaunch, rows: &[(usize, String, bool)]) -> Option<usize> {
+    rows.get(q.index.min(rows.len().saturating_sub(1)))
+        .map(|row| row.0)
 }
 
 /// Choose the slot: the account, then the machine (0 for auto), then the
@@ -273,6 +384,7 @@ pub fn pick(launch: &mut Launch, slot: usize, state: &State) -> Outcome {
         return Outcome::None;
     };
     q.digits.clear();
+    q.pending_model = None;
     if !available {
         launch.error =
             "Shortcut unavailable. Choose a listed number; reserved numbers never move.".into();
@@ -359,14 +471,20 @@ pub fn pick(launch: &mut Launch, slot: usize, state: &State) -> Outcome {
     Outcome::None
 }
 
-/// Complete a model choice entered before the current CLI catalog arrived.
+/// Complete a model choice entered before the current CLI catalog arrived;
+/// a catalog that failed drops the queued choice.
 pub fn finish_pending(launch: &mut Launch, state: &State) -> Outcome {
-    let ready = launch
-        .catalogs
-        .get(&launch.provider)
-        .is_some_and(|c| !c.loading && c.error.is_empty());
+    let rows = rows(launch, state);
+    let settled = launch.catalogs.get(&launch.provider).filter(|c| !c.loading);
+    let failed = settled.is_some_and(|c| !c.error.is_empty());
+    let ready = settled.is_some();
     let slot = match launch.quick.as_mut() {
-        Some(q) if q.step == Step::Model && ready => q.pending_model.take(),
+        Some(q) if q.step == Step::Model && ready => match q.pending_model.take() {
+            _ if failed => None,
+            Some(PendingModel::Slot(slot)) => Some(slot),
+            Some(PendingModel::Search) => highlighted(q, &rows),
+            None => None,
+        },
         _ => None,
     };
     match slot {
@@ -375,7 +493,10 @@ pub fn finish_pending(launch: &mut Launch, state: &State) -> Outcome {
     }
 }
 
-/// The `OVERLAY` (kind "quick"): ui.rs `render_quick_launch`.
+/// The `OVERLAY` (kind "quick"): ui.rs `render_quick_launch`. The list's
+/// own messages (loading, a failed catalog, nothing to show) and the error
+/// share `status`; the search line `/query▏` is `hint`; the typed-number
+/// indicator is `query`.
 pub fn view(launch: &Launch, state: &State) -> Json {
     let Some(q) = &launch.quick else {
         return Json::Null;
@@ -389,44 +510,48 @@ pub fn view(launch: &Launch, state: &State) -> Json {
     let loading = q.step == Step::Model && catalog.is_none_or(|c| c.loading);
     let failed = q.step == Step::Model && catalog.is_some_and(|c| !c.error.is_empty());
     let rows = rows(launch, state);
+    let searching = q
+        .query
+        .as_ref()
+        .is_some_and(|query| !query.trim().is_empty());
     let (status, error) = if !launch.error.is_empty() {
         (launch.error.clone(), true)
     } else if loading {
         let message = match q.pending_model {
-            Some(slot) => format!("Starting {slot:02} when models are ready…"),
+            Some(PendingModel::Slot(slot)) => format!("Starting {slot:02} when models are ready…"),
+            Some(PendingModel::Search) => {
+                "Starting the matching model when models are ready…".into()
+            }
             None if catalog.is_some_and(|c| !c.options.is_empty()) => "Refreshing models…".into(),
             None => "Loading models…".into(),
         };
         (message, false)
     } else if failed {
-        (
-            format!(
-                "{} · Press R to retry",
-                catalog.map(|c| c.error.as_str()).unwrap_or("")
-            ),
-            true,
-        )
+        let error = catalog.map(|c| c.error.as_str()).unwrap_or("");
+        (format!("{error} · Clear search and press R to retry"), true)
     } else if rows.is_empty() {
-        (
-            "No options available. Tab opens the full launcher.".to_string(),
-            false,
-        )
+        let message = if searching {
+            "No matching models. Backspace to edit your search."
+        } else {
+            "No options available. Tab opens the full launcher."
+        };
+        (message.to_string(), false)
     } else {
         (String::new(), false)
     };
+    let selected = q.index.min(rows.len().saturating_sub(1));
     let rows: Vec<Json> = rows
         .iter()
-        .map(|(slot, label, available)| {
+        .enumerate()
+        .map(|(index, (slot, label, available))| {
             let prefix = format!("{slot:02}");
-            let highlighted = !q.digits.is_empty() && prefix.starts_with(&q.digits);
-            let mut r = picker::row(
-                &format!("quick-slot:{slot}"),
-                &prefix,
-                label,
-                "",
-                "",
-                highlighted,
-            );
+            let highlighted = if q.digits.is_empty() {
+                q.step == Step::Model && index == selected
+            } else {
+                prefix.starts_with(&q.digits)
+            };
+            let id = format!("quick-slot:{slot}");
+            let mut r = picker::row(&id, &prefix, &clean(label), "", "", highlighted);
             picker::set(&mut r, "accent", json!(available));
             r
         })
@@ -436,7 +561,11 @@ pub fn view(launch: &Launch, state: &State) -> Json {
         let a = account(state, &launch.account)
             .map(account_label)
             .unwrap_or_else(|| launch.account.clone());
-        body.push(format!("{a} · {}", provider_label(&launch.provider)));
+        body.push(format!(
+            "{} · {}",
+            clean(&a),
+            provider_label(&launch.provider)
+        ));
     }
     if q.step == Step::Model {
         let m = if launch.auto_machine {
@@ -446,24 +575,39 @@ pub fn view(launch: &Launch, state: &State) -> Json {
                 .map(|m| m.name.as_str())
                 .unwrap_or("Removed machine")
         };
-        body.push(format!("{m} · {}", launch.cwd));
+        body.push(format!("{} · {}", clean(m), clean(&launch.cwd)));
     }
     let input = match q.pending_model {
-        Some(slot) => format!("{slot:02} · queued"),
+        Some(PendingModel::Slot(slot)) => format!("{slot:02} · queued"),
+        Some(PendingModel::Search) => "Search queued".into(),
+        None if q.query.is_some() => "↑↓ choose · Enter launch".into(),
         None => format!("{}{}", q.digits, "_".repeat(2 - q.digits.len().min(2))),
     };
     let hints = if q.pending_model.is_some() {
         "Backspace cancel · Esc close"
+    } else if q.step == Step::Model {
+        if q.query.is_some() {
+            "Backspace edit · Esc close · Tab more"
+        } else {
+            "/ search · ↑↓ choose · Enter launch · Esc close · Tab more"
+        }
     } else {
         "Esc close · Tab more"
     };
+    let search = q
+        .query
+        .as_ref()
+        .map(|query| format!("/{}▏", clean(query)))
+        .unwrap_or_default();
     let mut v = overlay("quick", title, "CTRL N", "accent");
     picker::set(&mut v, "subtitle", json!("Account → Machine → Model"));
     picker::set(&mut v, "body", json!(body.join("\n")));
     picker::set(&mut v, "rows", json!(rows));
+    picker::set(&mut v, "index", json!(selected));
     picker::set(&mut v, "status", json!(status));
     picker::set(&mut v, "statusError", json!(error));
     picker::set(&mut v, "query", json!(input));
+    picker::set(&mut v, "hint", json!(search));
     picker::set(&mut v, "footer", json!(hints));
     v
 }
@@ -493,7 +637,7 @@ mod tests {
         assert_eq!(q.digit('1'), None);
         assert_eq!(q.digit('2'), Some(12));
         q.step = Step::Model;
-        q.pending_model = Some(4);
+        q.pending_model = Some(PendingModel::Slot(4));
         q.back();
         assert_eq!(q.step, Step::Model);
         assert_eq!(q.pending_model, None);
@@ -528,6 +672,122 @@ mod tests {
         assert_eq!(model_id(&options, 2), Some("sonnet"));
         assert_eq!(model_id(&options, 0), None);
         assert_eq!(model_id(&options, 3), None);
+    }
+
+    fn options(models: &[(&str, &str)]) -> Vec<ModelOption> {
+        models
+            .iter()
+            .map(|(id, name)| ModelOption {
+                id: (*id).into(),
+                name: (*name).into(),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn family_search_ranks_versions_numerically_and_preserves_launch_ids() {
+        let options = options(&[
+            ("gpt-6-sol", "GPT-6 Sol"),
+            ("gpt-6-astra", "GPT-6 Astra"),
+            ("gpt-6.9-sol", "GPT-6.9 Sol"),
+            ("gpt-6.10-sol", "GPT-6.10 Sol"),
+            ("gpt-5.6-sol", "GPT-5.6 Sol"),
+        ]);
+        let rows = matching_model_rows(&options, " SOL ");
+        assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), [4, 3, 1, 5]);
+        assert_eq!(model_id(&options, rows[0].0), Some("gpt-6.10-sol"));
+        assert_eq!(matching_model_rows(&options, "gpt-6-sol")[0].0, 1);
+        assert_eq!(matching_model_rows(&options, "GPT-6 Sol")[0].0, 1);
+        assert!(matching_model_rows(&options, "sonnet").is_empty());
+        assert_eq!(matching_model_rows(&options, " "), model_rows(&options));
+    }
+
+    #[test]
+    fn search_uses_display_versions_and_keeps_catalog_order_for_ties() {
+        let options = options(&[
+            ("sonnet[1m]", "Sonnet 4.5 (1M)"),
+            ("current", "Sonnet 4.6"),
+            ("current-long", "Sonnet 4.6 (1M)"),
+        ]);
+        let rows = matching_model_rows(&options, "sonnet");
+        assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), [2, 3, 1]);
+        assert_eq!(matching_model_rows(&options, "sonnet 1m")[0].0, 3);
+    }
+
+    #[test]
+    fn search_edits_reset_selection_and_backspace_cancels_before_editing() {
+        let mut q = QuickLaunch::new(Shortcuts::default());
+        q.step = Step::Model;
+        q.digit('0');
+        q.search("/");
+        q.search("sol");
+        assert!(q.digits.is_empty());
+        q.navigate(true, 3);
+        assert_eq!(q.index, 1);
+        q.search(" 6");
+        assert_eq!(q.query.as_deref(), Some("sol 6"));
+        assert_eq!(q.index, 0);
+        q.pending_model = Some(PendingModel::Search);
+        q.back();
+        assert_eq!(q.pending_model, None);
+        assert_eq!(q.query.as_deref(), Some("sol 6"));
+        for _ in 0..5 {
+            q.back();
+        }
+        assert_eq!(q.query.as_deref(), Some(""));
+        assert_eq!(q.step, Step::Model);
+        q.back();
+        assert_eq!(q.query, None);
+        assert_eq!(q.step, Step::Model);
+        q.back();
+        assert_eq!(q.step, Step::Machine);
+    }
+
+    #[test]
+    fn slash_is_required_and_digit_leading_names_remain_search_text() {
+        let mut q = QuickLaunch::new(Shortcuts::default());
+        q.step = Step::Model;
+        assert!(!q.search("s"));
+        assert!(!q.search("6"));
+        assert_eq!(q.query, None);
+        assert_eq!(q.digit('0'), None);
+        assert!(q.search("/"));
+        assert!(q.digits.is_empty());
+        for text in ["6", ".", "1", "-", "sol"] {
+            assert!(q.search(text));
+        }
+        assert_eq!(q.query.as_deref(), Some("6.1-sol"));
+        assert!(q.digits.is_empty());
+        while q.query.is_some() {
+            q.back();
+        }
+        assert!(!q.search("s"));
+        assert_eq!(q.digit('0'), None);
+        assert_eq!(q.digit('2'), Some(2));
+    }
+
+    #[test]
+    fn arrow_navigation_stays_in_bounds_and_edits_cancel_queued_search() {
+        let mut q = QuickLaunch::new(Shortcuts::default());
+        q.search("/");
+        q.search("sol");
+        q.navigate(false, 3);
+        assert_eq!(q.index, 0);
+        for _ in 0..5 {
+            q.navigate(true, 3);
+        }
+        assert_eq!(q.index, 2);
+        q.pending_model = Some(PendingModel::Search);
+        q.navigate(false, 3);
+        assert_eq!(q.pending_model, None);
+        assert_eq!(q.index, 1);
+        q.navigate(true, 0);
+        assert_eq!(q.index, 0);
+        q.pending_model = Some(PendingModel::Search);
+        q.search("jkl");
+        assert_eq!(q.pending_model, None);
+        assert_eq!(q.query.as_deref(), Some("soljkl"));
     }
 
     #[test]
@@ -601,7 +861,7 @@ mod tests {
             "draft".into(),
         )
         .unwrap();
-        assert_eq!((launch.insert, launch.cwd.as_str()), (false, "~"));
+        assert_eq!(launch.cwd, "~");
         let v = view(&launch, &st);
         assert_eq!(v["title"], "Choose account");
         assert_eq!(v["rows"][0]["label"], "Unavailable · shortcut reserved");
@@ -655,5 +915,101 @@ mod tests {
             launch.key("Escape", &Mods::NONE, false, &st),
             Outcome::Close
         );
+    }
+
+    #[test]
+    fn the_model_step_searches_by_name_and_enter_starts_the_highlight() {
+        let st = state();
+        let mut shortcuts = Shortcuts::default();
+        enroll_state(&mut shortcuts, &st);
+        let mut launch = open(
+            &LaunchMemory::default(),
+            &st,
+            None,
+            &shortcuts,
+            String::new(),
+        )
+        .unwrap();
+        for k in ["0", "1", "0", "1"] {
+            launch.key(k, &Mods::NONE, false, &st);
+        }
+        let key = launch.wanted_catalog().unwrap();
+        let v = view(&launch, &st);
+        assert_eq!(
+            v["footer"],
+            "/ search · ↑↓ choose · Enter launch · Esc close · Tab more"
+        );
+        // Enter before the catalog lands queues whatever the search will match.
+        launch.key("/", &Mods::NONE, false, &st);
+        launch.key("s", &Mods::NONE, false, &st);
+        launch.key("o", &Mods::NONE, false, &st);
+        launch.key("Enter", &Mods::NONE, false, &st);
+        let v = view(&launch, &st);
+        assert_eq!(v["query"], "Search queued");
+        assert_eq!(v["hint"], "/so▏");
+        assert_eq!(
+            v["status"],
+            "Starting the matching model when models are ready…"
+        );
+        // Backspace cancels the queued launch before it edits the search.
+        launch.key("Backspace", &Mods::NONE, false, &st);
+        let v = view(&launch, &st);
+        assert_eq!(v["query"], "↑↓ choose · Enter launch");
+        assert_eq!(v["footer"], "Backspace edit · Esc close · Tab more");
+        let models = options(&[
+            ("opus", "Opus 5.6"),
+            ("sonnet", "Sonnet 5.6"),
+            ("sonnet-old", "Sonnet 4.5"),
+        ]);
+        assert_eq!(launch.set_models(&key, Ok(models), &st), Outcome::None);
+        let v = view(&launch, &st);
+        assert_eq!(v["rows"].as_array().unwrap().len(), 2);
+        assert_eq!(v["rows"][0]["label"], "Sonnet 5.6");
+        assert_eq!(v["rows"][0]["selected"], true);
+        launch.key("ArrowDown", &Mods::NONE, false, &st);
+        assert_eq!(view(&launch, &st)["rows"][1]["selected"], true);
+        assert_eq!(
+            launch.key("Enter", &Mods::NONE, false, &st),
+            Outcome::Submit
+        );
+        assert_eq!(launch.model, "sonnet-old");
+        // A search that matches nothing says how to fix it.
+        launch.key("x", &Mods::NONE, false, &st);
+        assert_eq!(
+            view(&launch, &st)["status"],
+            "No matching models. Backspace to edit your search."
+        );
+    }
+
+    #[test]
+    fn r_retries_only_a_failed_catalog_outside_a_search() {
+        let st = state();
+        let mut shortcuts = Shortcuts::default();
+        enroll_state(&mut shortcuts, &st);
+        let mut launch = open(
+            &LaunchMemory::default(),
+            &st,
+            None,
+            &shortcuts,
+            String::new(),
+        )
+        .unwrap();
+        for k in ["0", "1", "0", "1"] {
+            launch.key(k, &Mods::NONE, false, &st);
+        }
+        let key = launch.wanted_catalog().unwrap();
+        launch.catalog_requested(&key);
+        // A queued slot is dropped when the catalog fails.
+        launch.key("0", &Mods::NONE, false, &st);
+        launch.key("1", &Mods::NONE, false, &st);
+        launch.set_models(&key, Err("offline".into()), &st);
+        assert_eq!(launch.quick.as_ref().unwrap().pending_model, None);
+        assert_eq!(
+            view(&launch, &st)["status"],
+            "offline · Clear search and press R to retry"
+        );
+        launch.key("r", &Mods::NONE, false, &st);
+        assert!(launch.catalogs["claude"].loading);
+        assert_eq!(launch.wanted_catalog(), Some(key));
     }
 }

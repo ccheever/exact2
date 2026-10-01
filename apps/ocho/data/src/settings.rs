@@ -1,7 +1,7 @@
 //! Per-viewer desktop settings in `$FLEET_HOME/desktop.json`: theme choice,
 //! the windows and terminal tabs to restore on the next launch, and the last
 //! launch dialog choices plus recently used project folders. A port of the
-//! GPUI desktop's `settings.rs` (origin/main e577272) without the file I/O:
+//! GPUI desktop's `settings.rs` (origin/main e6adfa8) without the file I/O:
 //! the app's module reads and writes the file, this parses and serializes
 //! its text.
 
@@ -184,8 +184,8 @@ pub struct DesktopSettings {
     pub notify_input_required: Option<bool>,
     /// Force SSH for remote terminals, including explicit mosh requests.
     pub disable_mosh: bool,
-    /// Missing inherits the experimental environment opt-in; an explicit UI
-    /// choice wins, including Off when the environment says On.
+    /// Missing defaults to on unless the environment explicitly disables it;
+    /// an explicit UI choice always wins.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_codex_app_server: Option<bool>,
     /// Same for the local Claude client.
@@ -259,10 +259,10 @@ impl DesktopSettings {
     }
 
     /// Whether remote Codex sessions use a local client: the explicit choice,
-    /// else the `FLEET_CODEX_APP_SERVER=1` environment opt-in.
+    /// else on unless the environment says `FLEET_CODEX_APP_SERVER=0`.
     pub fn remote_codex_app_server(&self) -> bool {
         self.remote_codex_app_server
-            .unwrap_or_else(|| std::env::var("FLEET_CODEX_APP_SERVER").as_deref() == Ok("1"))
+            .unwrap_or_else(|| std::env::var("FLEET_CODEX_APP_SERVER").as_deref() != Ok("0"))
     }
 
     /// Whether remote Claude sessions use a local client: the explicit
@@ -592,12 +592,12 @@ mod tests {
     }
 
     #[test]
-    fn remote_codex_setting_preserves_legacy_opt_in_and_explicit_choices() {
+    fn remote_codex_setting_defaults_on_and_preserves_explicit_choices() {
         let legacy: DesktopSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.remote_codex_app_server, None);
         assert_eq!(
             legacy.remote_codex_app_server(),
-            std::env::var("FLEET_CODEX_APP_SERVER").as_deref() == Ok("1")
+            std::env::var("FLEET_CODEX_APP_SERVER").as_deref() != Ok("0")
         );
         assert!(!serde_json::to_string(&legacy)
             .unwrap()

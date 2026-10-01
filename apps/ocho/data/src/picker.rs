@@ -249,9 +249,11 @@ pub enum PopupKind {
     ViewMenu,
     /// The dropdown of the form field at this index.
     FieldChoice(usize),
-    /// The launch dialog's account chip.
+    /// Retired: the launch dialog's account chip. The composer's menus open
+    /// inside its card now (`launch::Menu`); nothing opens this, and it goes
+    /// once model/menus.rs stops naming it.
     LaunchAccount,
-    /// The launch dialog's permissions chip.
+    /// Retired with `LaunchAccount`: the launch dialog's permissions chip.
     LaunchPermissions,
 }
 
@@ -314,9 +316,9 @@ pub enum PopupAction {
     Tab(usize, TabAction),
     /// Set the form field at this index to the value.
     Choice(usize, String),
-    /// Set the launch dialog's account.
+    /// Retired with `PopupKind::LaunchAccount`: set the launch account.
     LaunchAccount(String),
-    /// Set the launch dialog's permissions.
+    /// Retired with `PopupKind::LaunchPermissions`: set the launch mode.
     LaunchPermissions(String),
 }
 
@@ -552,13 +554,13 @@ mod tests {
     #[test]
     fn a_popup_opens_on_its_current_value() {
         let items = vec![
-            PopupItem::choice("a", false, PopupAction::LaunchAccount("a".into())),
-            PopupItem::choice("b", true, PopupAction::LaunchAccount("b".into())),
+            PopupItem::choice("a", false, PopupAction::Choice(0, "a".into())),
+            PopupItem::choice("b", true, PopupAction::Choice(0, "b".into())),
         ];
         assert_eq!(initial_index(&items), 1);
         let none = vec![PopupItem::command("x", String::new(), "tag", "edit")];
         assert_eq!(initial_index(&none), 0);
-        let mut popup = Popup::open(PopupKind::LaunchAccount, &items, None);
+        let mut popup = Popup::open(PopupKind::FieldChoice(0), &items, None);
         assert_eq!(popup.index, 1);
         assert_eq!(popup.key("ArrowDown", &Mods::NONE, 2), PickerKey::Moved);
         assert_eq!(popup.index, 0);

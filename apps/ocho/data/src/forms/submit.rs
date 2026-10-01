@@ -1,8 +1,9 @@
 //! What a submitted form asks the app to do (workspace.rs `submit_form`):
 //! a terminal tab running `fleet …`, a background `fleet …` with a toast, a
-//! saved profile, or a rail folder.
+//! saved profile, or a rail folder. Pair iMessage opens a pairing card
+//! instead, which the app reads from [`Form::pairing_phone`].
 
-use super::{Form, FormKind};
+use super::{normalize_phone, Form, FormKind, PHONE_ERROR};
 use crate::model::Page;
 use crate::session::{clean, machine, provider_label};
 use crate::types::{LaunchProfile, State};
@@ -39,8 +40,9 @@ pub enum Submission {
         /// in place, so the open tab keeps its terminal.
         reveal: Option<(String, String)>,
     },
-    /// `fleet profiles add …`: run it, show the Profiles page, and show the
-    /// profile as saved ahead of the state event that confirms it.
+    /// `fleet profiles add …`: run it with the toast "Profile saved", and
+    /// show the profile as saved ahead of the state event that confirms it.
+    /// The page stays where it is (#267 removed the Profiles page).
     Profile {
         /// The arguments after `fleet`.
         argv: Vec<String>,
@@ -60,7 +62,44 @@ pub enum Submission {
     },
 }
 
+/// The `--permissions` list `fleet machine edit` takes for the machine
+/// form's five modes, in `launch::PROVIDERS` order (permissions.rs
+/// `machine_spec`): every provider named, a blank one as `default`, so a
+/// cleared field removes that provider's default.
+pub fn machine_spec(modes: &[String]) -> String {
+    ["codex", "claude", "opencode", "antigravity", "grok"]
+        .into_iter()
+        .zip(
+            modes
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::repeat("")),
+        )
+        .map(|(provider, mode)| {
+            let mode = if mode.trim().is_empty() {
+                crate::permissions::NATIVE
+            } else {
+                mode.trim()
+            };
+            format!("{provider}={mode}")
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 impl Form {
+    /// The Pair iMessage form's number (workspace.rs `submit_form`'s
+    /// `FormKind::PairIMessage`): `Some(Ok(phone))` normalized, to start
+    /// `fleet machine pair-imessage LOCAL --phone PHONE` and show the
+    /// pairing card; `Some(Err(PHONE_ERROR))` to show on the form, which
+    /// stays open; `None` for every other form.
+    pub fn pairing_phone(&self) -> Option<Result<String, String>> {
+        if self.kind != FormKind::PairIMessage {
+            return None;
+        }
+        Some(normalize_phone(&self.value(super::PHONE_FIELD)).ok_or_else(|| PHONE_ERROR.into()))
+    }
+
     /// Enter on the last field (workspace.rs `submit_form`), with the request
     /// id `request` for what opens a terminal. An `Err` is the toast; it
     /// closes the form except where `retry_on_error` says otherwise.
@@ -114,7 +153,9 @@ impl Form {
                     "--provider".into(),
                     values[0].clone(),
                 ];
-                if values[0] != "opencode" && self.value("Authentication") == "API key" {
+                if matches!(values[0].as_str(), "codex" | "claude")
+                    && self.value("Authentication") == "API key"
+                {
                     args.push("--api-key".into());
                 }
                 Ok(Submission::Terminal {
@@ -126,6 +167,18 @@ impl Form {
                     replaces: None,
                 })
             }
+            FormKind::RecoveryBackup => Ok(Submission::Cli {
+                argv: vec!["cloud".into(), "export-recovery".into(), values[0].clone()],
+                done: "Recovery key backed up. Keep the file somewhere safe.".into(),
+                page: None,
+                reveal: None,
+            }),
+            // The pairing card is the app's; it asks `pairing_phone` first.
+            // Reaching here means it has none, so the form says so.
+            FormKind::PairIMessage => match self.pairing_phone() {
+                Some(Err(error)) => Err(error),
+                _ => Err("Pairing iMessage is not available in this build yet.".into()),
+            },
             FormKind::Label => {
                 let Some(item) = &self.target else {
                     return Err("No session to label".into());
@@ -320,7 +373,7 @@ impl Form {
                         "--tags".into(),
                         values[2].trim().to_string(),
                         "--permissions".into(),
-                        crate::permissions::machine_spec(&values[3], &values[4], &values[5]),
+                        machine_spec(&values[3..]),
                     ],
                     done: "Machine saved".into(),
                     page: Some(Page::Machines),
@@ -379,8 +432,9 @@ impl Form {
     }
 
     /// A submit error keeps the form open for another try (the machine edit's
-    /// missing name); every other error closes it with the toast.
+    /// missing name, a phone number without a country code); every other
+    /// error closes it with the toast.
     pub fn retry_on_error(&self) -> bool {
-        self.kind == FormKind::MachineEdit
+        matches!(self.kind, FormKind::MachineEdit | FormKind::PairIMessage)
     }
 }

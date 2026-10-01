@@ -65,8 +65,19 @@ pub enum Overlay {
     Launch(Box<Launch>),
     /// The command palette.
     Palette(PickerState),
-    /// The settings page.
     Settings(SettingsPage),
+    /// A form (add machine, label, profile, …).
+    Form(Box<crate::forms::Form>),
+    /// "Open the session for PR …".
+    PullRequests(crate::finders::PullRequestFinder),
+    /// "Find the session where I worked on …" (state on `Workspace::topics`).
+    Conversations,
+    /// The theme picker.
+    Themes(Box<crate::themes::ThemePicker>),
+    /// What's New (state on `Workspace::whats_new`).
+    WhatsNew,
+    /// The iMessage pairing card (state on `Workspace::imessage`).
+    PairIMessage,
 }
 
 /// An entry on the undo stack (workspace.rs `UndoAction`).
@@ -174,7 +185,7 @@ impl Workspace {
                 {
                     Some(p) => self.launch_profile(p),
                     None => self.set_error(format!(
-                        "No profile assigned to ⌘⌥{slot}. Press 4, then n to create one."
+                        "No profile assigned to ⌘⌥{slot}. Use Add profile… in the command palette to create one."
                     )),
                 }
             }
@@ -187,7 +198,9 @@ impl Workspace {
                 return;
             }
             Command::NextPage => self.set_page(Page::from_index(self.page.index() + 1)),
-            Command::PrevPage => self.set_page(Page::from_index(self.page.index() + 3)),
+            Command::PrevPage => {
+                self.set_page(Page::from_index(self.page.index() + Page::ALL.len() - 1))
+            }
             Command::Page(n) => self.set_page(Page::from_index(n)),
             Command::Down => self.select(self.index + 1),
             Command::Up => self.select(self.index.saturating_sub(1)),
@@ -257,11 +270,6 @@ impl Workspace {
                         }
                     }
                 }
-                Page::Profiles => {
-                    if let Some(p) = self.selected_profile() {
-                        self.launch_profile(p);
-                    }
-                }
             },
             Command::ViewReadOnly => self.attach(true),
             Command::UpdateMachine => {
@@ -276,11 +284,17 @@ impl Workspace {
                     }
                 }
             }
-            Command::UpdateCodex | Command::UpdateClaude | Command::UpdateOpenCode => {
+            Command::UpdateCodex
+            | Command::UpdateClaude
+            | Command::UpdateOpenCode
+            | Command::UpdateGrok
+            | Command::UpdateAntigravity => {
                 if let Some(machine) = self.selected_machine() {
                     let provider = match cmd {
                         Command::UpdateCodex => "codex",
                         Command::UpdateClaude => "claude",
+                        Command::UpdateAntigravity => "antigravity",
+                        Command::UpdateGrok => "grok",
                         _ => "opencode",
                     };
                     self.overlay = Overlay::ProviderUpdate {
@@ -386,11 +400,6 @@ impl Workspace {
                         };
                     }
                 }
-                Page::Profiles => {
-                    if let Some(p) = self.selected_profile() {
-                        self.overlay = Overlay::ProfileDelete(p.name);
-                    }
-                }
                 _ => {}
             },
             Command::Shell => {
@@ -409,11 +418,81 @@ impl Workspace {
                     }
                 }
             }
-            Command::NewFolder => {
-                let key = format!("folder:{}", self.request_id());
-                if let Some(pos) = self.tabs.new_folder(key, "New folder") {
-                    let _ = pos;
-                    self.persist_tabs();
+            Command::NewFolder => self.open_form(crate::forms::Form::folder(None)),
+            Command::PullRequests => self.open_pull_requests(),
+            Command::Conversations => self.open_conversations(),
+            Command::IndexConversations => {
+                self.topics.index_conversations(true, self.now);
+                self.poll_topics();
+            }
+            Command::Themes => self.open_themes(false),
+            Command::WhatsNew => self.open_whats_new(),
+            Command::PairIMessage => self.open_pair_imessage(),
+            Command::BackupRecovery => self.open_form(crate::forms::Form::recovery_backup()),
+            Command::ConnectEAS => {
+                let args = vec!["eas".to_string(), "connect".into()];
+                let key = format!("eas-connect:{}", self.request_id());
+                self.open_terminal_tab(key, "Connect EAS".into(), args.clone(), args, None);
+            }
+            Command::AddMachine => self.open_form(crate::forms::Form::machine()),
+            Command::AddAccount => self.open_form(crate::forms::Form::account()),
+            Command::AddProfile => {
+                let form = crate::forms::Form::profile(None, &self.state);
+                self.open_form_result(form);
+            }
+            Command::Edit => match self.page {
+                Page::Sessions => {
+                    if let Some(item) = self.selected_session() {
+                        self.open_form(crate::forms::Form::label(item));
+                    }
+                }
+                Page::Machines => {
+                    if let Some(m) = self.selected_machine() {
+                        self.open_form(crate::forms::Form::machine_edit(&m));
+                    }
+                }
+                Page::Accounts => {
+                    if let Some(a) = self.selected_account() {
+                        let args = vec!["accounts".to_string(), "login".into(), a.name.clone()];
+                        self.open_terminal_tab(
+                            format!("login:{}", a.name),
+                            format!("Sign in · {}", account_label(&a)),
+                            args.clone(),
+                            args,
+                            None,
+                        );
+                    }
+                }
+            },
+            Command::Resume => {
+                if let Some(item) = self.selected_session() {
+                    // An EAS conversation reattaches rather than resuming.
+                    if item.session.eas {
+                        self.attach_item(item, false);
+                    } else {
+                        self.open_form(crate::forms::Form::resume(item));
+                    }
+                }
+            }
+            Command::Handoff => {
+                if let Some(item) = self.command_session() {
+                    self.tabs.select_manager();
+                    let form = crate::forms::Form::handoff(item, &self.state);
+                    self.open_form_result(form);
+                }
+            }
+            Command::SwitchAccount => {
+                if let Some(item) = self.command_session() {
+                    self.tabs.select_manager();
+                    let form = crate::forms::Form::switch_account(item, &self.state);
+                    self.open_form_result(form);
+                }
+            }
+            Command::Move => {
+                if let Some(item) = self.command_session() {
+                    self.tabs.select_manager();
+                    let form = crate::forms::Form::migrate(item, &self.state);
+                    self.open_form_result(form);
                 }
             }
             other => self.set_message(format!(
@@ -474,7 +553,7 @@ impl Workspace {
 
     /// Open a session's terminal in a tab.
     pub fn attach_item(&mut self, item: SessionItem, read_only: bool) {
-        if item.session.tmux_pane.is_empty() {
+        if !item.session.can_attach() {
             self.set_error("No attachable terminal. Press o to explicitly resume saved history.");
             return;
         }
@@ -791,7 +870,7 @@ impl Workspace {
         ) {
             Ok(launch) => {
                 self.overlay = Overlay::Launch(Box::new(launch));
-                self.focus_id = "field-prompt".into();
+                self.focus_id = "field-launch-prompt".into();
                 self.sync_launch_catalogs(false);
             }
             Err(e) => self.set_error(e),
@@ -833,12 +912,13 @@ impl Workspace {
     /// Close the launch dialog, keeping the prompt as a draft.
     pub fn close_launch(&mut self) {
         if let Overlay::Launch(launch) = &self.overlay {
+            // workspace.rs `close_launch`: a non-blank prompt is kept and said so,
+            // from quick launch too.
             let draft = launch.close();
-            let quick = launch.quick.is_some();
             self.launch_draft = draft;
             self.overlay = Overlay::None;
-            if !quick && !self.launch_draft.is_empty() {
-                self.set_message("Prompt kept as a draft; ⌘N brings it back");
+            if !self.launch_draft.trim().is_empty() {
+                self.set_message(crate::launch::DRAFT_KEPT);
             }
         }
     }
@@ -963,15 +1043,8 @@ impl Workspace {
             self.set_message(format!("Theme: {} (default)", self.theme.name));
         }
         if effect.open_themes {
-            self.theme = if self.theme.dark {
-                crate::theme::Theme::ocho_light()
-            } else {
-                crate::theme::Theme::ocho_dark()
-            };
-            self.settings.theme = Some(self.theme.name.clone());
-            let text = self.settings.to_json_pretty();
-            self.host(vec!["save-desktop".into()], text);
-            self.set_message(format!("Theme: {}", self.theme.name));
+            self.open_themes(true);
+            return;
         }
         if effect.close {
             self.overlay = Overlay::None;
@@ -1023,10 +1096,15 @@ pub fn models_arrived(ws: &mut Workspace, key: CatalogKey, result: Result<String
         serde_json::from_str::<Vec<crate::launch::ModelOption>>(&text)
             .map_err(|e| format!("models: {e}"))
     });
-    if let Overlay::Launch(launch) = &mut ws.overlay {
-        let _ = launch.set_models(&key, parsed, &ws.state);
+    match &mut ws.overlay {
+        Overlay::Launch(launch) => {
+            let _ = launch.set_models(&key, parsed, &ws.state);
+        }
+        Overlay::Form(form) => form.set_models(&key, parsed),
+        _ => {}
     }
     ws.sync_launch_catalogs(false);
+    ws.sync_form_io();
 }
 
 /// Folder completion came back from `fleet directories`.
@@ -1040,10 +1118,13 @@ pub fn directories_arrived(
         serde_json::from_str::<crate::launch::DirectoryMatches>(&text)
             .map_err(|e| format!("directories: {e}"))
     });
-    if let Overlay::Launch(launch) = &mut ws.overlay {
-        launch.set_directories(machine, path, parsed);
+    match &mut ws.overlay {
+        Overlay::Launch(launch) => launch.set_directories(machine, path, parsed),
+        Overlay::Form(form) => form.set_directories(machine, path, parsed),
+        _ => {}
     }
     ws.sync_launch_catalogs(false);
+    ws.sync_form_io();
 }
 
 /// "{title} · {machine}" (workspace.rs `session_tab_title`), read-only marked.

@@ -20,6 +20,7 @@ pub fn render(ws: &Workspace, _versions: &[f64]) -> Value {
         Some(tab) => format!("{} — Ocho", tab.title),
         None => "Ocho".to_string(),
     };
+    let pairing = pairing_view(ws);
     let json = json!({
         "theme": theme.view(),
         "windowTitle": title,
@@ -35,6 +36,8 @@ pub fn render(ws: &Workspace, _versions: &[f64]) -> Value {
         "scrollTo": ws.scroll_to,
         "uiFontSize": ws.settings.ui_font_size.unwrap_or(13.0),
         "termFontSize": ws.settings.terminal_font_size.unwrap_or(13.0),
+        "whatsNew": ws.whats_new.view(),
+        "pairing": pairing,
         "region": match ws.region() {
             Region::Rail => "rail",
             Region::Manager => "manager",
@@ -196,7 +199,6 @@ fn page_count(ws: &Workspace, page: Page) -> String {
         Page::Machines => session::machine_rows(&ws.state).count(),
         Page::Sessions => ws.sessions().len(),
         Page::Accounts => ws.state.accounts.len(),
-        Page::Profiles => ws.state.presets.len(),
     };
     n.to_string()
 }
@@ -358,6 +360,16 @@ fn confirm(title: String, body: String, yes: &str) -> Json {
 }
 
 fn overlay(ws: &Workspace, theme: &Theme) -> Json {
+    if let Some(v) = ws.dialog_view() {
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("form")
+            .to_string();
+        let width = v.get("width").and_then(|w| w.as_f64()).unwrap_or(680.0);
+        let top = kind == "picker";
+        return merge(card(&kind, width, top), v);
+    }
     match &ws.overlay {
         Overlay::None => Json::Null,
         Overlay::Help => {
@@ -446,6 +458,13 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
             let v = crate::preferences::view(&ws.settings, &theme.name, page);
             merge(card("settings", 680.0, false), v)
         }
+        Overlay::Form(_)
+        | Overlay::PullRequests(_)
+        | Overlay::Conversations
+        | Overlay::Themes(_) => Json::Null,
+        // These two draw from their own shapes (`whatsNew`, `pairing`); the overlay names the card.
+        Overlay::WhatsNew => card("whats-new", crate::whats_new::WIDTH, false),
+        Overlay::PairIMessage => card("pair-imessage", crate::imessage_pair::WIDTH, false),
         Overlay::Launch(launch) => {
             let v = if launch.quick.is_some() {
                 crate::quick::view(launch, &ws.state)
@@ -459,6 +478,48 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
                 .to_string();
             let width = v.get("width").and_then(|w| w.as_f64()).unwrap_or(680.0);
             let mut v = merge(card(&kind, width, false), v);
+            // The composer's controls carry their flags in `options` and the
+            // provider dot as a theme name in `hint`; rows carry the dot in
+            // `swatch`. The contract reads flags from `placeholder` (a list has
+            // no membership test there) and paints resolved colors.
+            let color = |name: &str| match name {
+                "warn" => theme.warn.css(),
+                "good" => theme.good.css(),
+                "accent" => theme.accent.css(),
+                "danger" => theme.danger.css(),
+                "muted" => theme.muted.css(),
+                other => other.to_string(),
+            };
+            if let Some(fields) = v.get_mut("fields").and_then(|f| f.as_array_mut()) {
+                for f in fields.iter_mut() {
+                    if f.get("kind").and_then(|k| k.as_str()) == Some("control") {
+                        let flags: Vec<String> = f
+                            .get("options")
+                            .and_then(|o| o.as_array())
+                            .map(|o| {
+                                o.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        f["placeholder"] = Json::String(flags.join(" "));
+                        if let Some(h) = f.get("hint").and_then(|h| h.as_str()).map(String::from) {
+                            if !h.is_empty() {
+                                f["hint"] = Json::String(color(&h));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(rows) = v.get_mut("rows").and_then(|r| r.as_array_mut()) {
+                for r in rows.iter_mut() {
+                    if let Some(sw) = r.get("swatch").and_then(|h| h.as_str()).map(String::from) {
+                        if !sw.is_empty() {
+                            r["swatch"] = Json::String(color(&sw));
+                        }
+                    }
+                }
+            }
             // Pill colors come as theme names.
             if let Some(color) = v.get("pillColor").and_then(|c| c.as_str()) {
                 let resolved = match color {
@@ -472,4 +533,31 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
             v
         }
     }
+}
+
+/// The pairing card's JSON, its QR as rows of dark/light cells (Contract has no string split).
+fn pairing_view(ws: &Workspace) -> Json {
+    // The QR as rows of dark/light cells (Contract has no string split).
+    let mut v = ws.imessage.view();
+    let rows: Vec<Json> = v
+        .get("qr")
+        .and_then(|q| q.as_array())
+        .map(|q| {
+            q.iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    let cells: Vec<Json> = r
+                        .as_str()
+                        .unwrap_or("")
+                        .chars()
+                        .enumerate()
+                        .map(|(j, c)| json!({ "id": format!("{i}-{j}"), "dark": c == '1' }))
+                        .collect();
+                    json!({ "id": format!("qr-{i}"), "cells": cells })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v["qr"] = Json::Array(rows);
+    v
 }

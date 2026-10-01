@@ -3,14 +3,16 @@
 //! is written the moment it is made, so there is no Save button and Esc
 //! simply closes; an item whose value differs from the default shows a
 //! reset. A port of the GPUI desktop's `preferences.rs`, the settings logic
-//! of `workspace.rs` and `render_settings` (ui.rs:5102-5358).
+//! of `workspace.rs` and `render_settings` (ui.rs:4759-5018), origin/main
+//! e6adfa8.
 //!
 //! The page is pure over [`DesktopSettings`]: key handling and activation
 //! change the settings in memory and hand back an [`Effect`] saying what the
 //! app must do (write `desktop.json`, save the title prompt, open the theme
 //! picker, close). [`view`] answers the OVERLAY shape: each item is a FIELD
 //! row whose `placeholder` is the item's description and whose `hint` is
-//! "↺" when the value is custom.
+//! "↺" when the value is custom; the header's What's New ghost button is
+//! the overlay's one button.
 
 use crate::settings::DesktopSettings;
 use serde_json::{json, Value};
@@ -127,14 +129,14 @@ pub const ITEMS: &[SettingSpec] = &[
     },
     SettingSpec {
         item: SettingItem::RemoteCodexAppServer,
-        title: "Local client for remote Codex (experimental)",
+        title: "Local client for remote Codex",
         description: "Run the Codex interface locally with one app-server per remote session. Applies to new remote Codex sessions only. Requires updated Fleet and matching Codex versions on both machines; file completion still has limitations.",
         kind: SettingKind::Toggle,
     },
     SettingSpec {
         item: SettingItem::RemoteClaudeNative,
         title: "Local client for remote Claude (experimental)",
-        description: "Patch a separate verified Claude 2.1.274–2.1.278 or 2.1.280–2.1.285 Apple Silicon binary on demand; installed Claude stays untouched. New and resumed remote sessions use Anthropic's service with the same subscription account on both machines. Automatically trusts launch workspaces in Fleet-managed profiles; tool approvals stay unchanged. Requires updated Fleet, a verified Claude build, and Remote Control consent on the worker. Fork and read-only viewing are not supported.",
+        description: "Patch a separate verified Claude 2.1.274–2.1.278 or 2.1.280–2.1.286 Apple Silicon binary on demand; installed Claude stays untouched. New and resumed remote sessions use Anthropic's service with the same subscription account on both machines. Automatically trusts launch workspaces in Fleet-managed profiles; tool approvals stay unchanged. Requires updated Fleet, a verified Claude build, and Remote Control consent on the worker. Fork and read-only viewing are not supported.",
         kind: SettingKind::Toggle,
     },
     SettingSpec {
@@ -183,6 +185,12 @@ pub const FOOTER_EDITING: &str = "Enter saves · Shift+Enter new line · Tab nex
 pub const RESET_TOOLTIP: &str = "Reset to default  ·  ⌫";
 /// The reset glyph.
 pub const RESET_GLYPH: &str = "↺";
+/// The header's ghost button, which opens the What's New panel; its
+/// button id is [`WHATS_NEW_BUTTON`].
+pub const WHATS_NEW_LABEL: &str = "What’s New";
+/// The id of the header's What's New button: the id of
+/// `Command::WhatsNew`, so a press runs that command.
+pub const WHATS_NEW_BUTTON: &str = "whats-new";
 /// The text control's placeholder.
 pub const TEXT_PLACEHOLDER: &str = "Instructions…";
 /// The toast after the title prompt was saved.
@@ -321,9 +329,10 @@ impl SettingsPage {
             SettingItem::TurnNotifications | SettingItem::InputNotifications => {
                 !setting_bool(settings, item)
             }
-            SettingItem::DisableMosh
-            | SettingItem::RemoteCodexAppServer
-            | SettingItem::RemoteClaudeNative => setting_bool(settings, item),
+            SettingItem::RemoteCodexAppServer => !setting_bool(settings, item),
+            SettingItem::DisableMosh | SettingItem::RemoteClaudeNative => {
+                setting_bool(settings, item)
+            }
             SettingItem::AutoMachinePrompt => false,
             SettingItem::TitlePrompt => self.prompt.trim() != DEFAULT_TITLE_PROMPT.trim(),
         }
@@ -405,9 +414,11 @@ impl SettingsPage {
                 set_bool(settings, item, true);
                 effect.save_settings = true;
             }
-            item @ (SettingItem::RemoteCodexAppServer
-            | SettingItem::RemoteClaudeNative
-            | SettingItem::DisableMosh) => {
+            SettingItem::RemoteCodexAppServer => {
+                set_bool(settings, SettingItem::RemoteCodexAppServer, true);
+                effect.save_settings = true;
+            }
+            item @ (SettingItem::RemoteClaudeNative | SettingItem::DisableMosh) => {
                 set_bool(settings, item, false);
                 effect.save_settings = true;
             }
@@ -638,7 +649,13 @@ pub fn view(settings: &DesktopSettings, theme_name: &str, page: &SettingsPage) -
         "body": "",
         "bodyMarkdown": false,
         "fields": fields,
-        "buttons": [],
+        "buttons": [{
+            "id": WHATS_NEW_BUTTON,
+            "label": WHATS_NEW_LABEL,
+            "hint": "",
+            "primary": false,
+            "disabled": false,
+        }],
         "hint": if page.editing_prompt { "" } else { RESET_TOOLTIP },
         "focusId": if page.editing_prompt { format!("setting:{index}") } else { String::new() },
     })
@@ -663,7 +680,7 @@ mod tests {
     fn remote_codex_uses_the_standard_toggle() {
         let setting = spec(SettingItem::RemoteCodexAppServer);
         assert_eq!(setting.kind, SettingKind::Toggle);
-        assert!(setting.title.contains("experimental"));
+        assert_eq!(setting.title, "Local client for remote Codex");
     }
 
     #[test]
@@ -674,7 +691,7 @@ mod tests {
         assert!(setting.description.contains("2.1.274"));
         assert!(setting.description.contains("2.1.278"));
         assert!(setting.description.contains("2.1.280"));
-        assert!(setting.description.contains("2.1.285"));
+        assert!(setting.description.contains("2.1.286"));
     }
 
     #[test]
@@ -846,7 +863,17 @@ mod tests {
         s.notify_input_required = Some(false);
         assert!(page.is_custom(&s, "Ocho Light", SettingItem::InputNotifications));
         s.remote_codex_app_server = Some(true);
+        assert!(!page.is_custom(&s, "Ocho Light", SettingItem::RemoteCodexAppServer));
+        s.remote_codex_app_server = Some(false);
         assert!(page.is_custom(&s, "Ocho Light", SettingItem::RemoteCodexAppServer));
+        // Reset puts the local Codex client back on.
+        let mut reset_page = SettingsPage::new(DEFAULT_TITLE_PROMPT.into());
+        let index = ITEMS
+            .iter()
+            .position(|i| i.item == SettingItem::RemoteCodexAppServer)
+            .unwrap();
+        assert!(reset_page.reset(&mut s, index).save_settings);
+        assert_eq!(s.remote_codex_app_server, Some(true));
         assert!(!page.is_custom(&s, "Ocho Light", SettingItem::AutoMachinePrompt));
     }
 
@@ -871,6 +898,12 @@ mod tests {
         assert_eq!(v["status"], "Could not save the title prompt: boom");
         assert_eq!(v["statusError"], true);
         assert_eq!(v["focusId"], "");
+        assert_eq!(v["buttons"][0]["id"], "whats-new");
+        assert_eq!(v["buttons"][0]["label"], "What’s New");
+        assert_eq!(
+            crate::palette::Command::from_id(WHATS_NEW_BUTTON),
+            Some(crate::palette::Command::WhatsNew)
+        );
         let fields = v["fields"].as_array().unwrap();
         assert_eq!(fields.len(), ITEMS.len());
         assert_eq!(fields[0]["kind"], "picker");

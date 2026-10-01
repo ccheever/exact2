@@ -1,100 +1,52 @@
 //! Inline Markdown as one line of text (markdown.rs `render_inline`, minus
 //! the styling): the summary lines and the rail's statuses render an
 //! agent's last message, which often carries `**bold**`, `` `code` `` and
-//! `[links](url)`. The words stay; the marks go.
+//! `[links](url)`. The words stay; the marks go. Like upstream, the line is
+//! parsed as a whole document after its whitespace is collapsed, block
+//! markers (`#`, `-`, `1.`) vanish, a task shows "☑ " / "☐ ", and formulas
+//! stay literal with their delimiters (`literal_math`): `\(x\)` reads `$x$`.
+
+use crate::markdown_doc::{self, Block, Run};
 
 /// `text` with inline marks removed: emphasis and code fences dropped,
 /// links reduced to their text, autolinks kept, whitespace collapsed.
 pub fn inline_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            '\\' if i + 1 < chars.len() => {
-                out.push(chars[i + 1]);
-                i += 2;
-            }
-            '*' | '_' | '`' | '~' => {
-                // A run of marks is a mark; a lone underscore inside a word is text.
-                if c == '_'
-                    && i > 0
-                    && chars[i - 1].is_alphanumeric()
-                    && chars.get(i + 1).is_some_and(|n| n.is_alphanumeric())
-                {
-                    out.push(c);
-                }
-                i += 1;
-            }
-            '[' => {
-                // `[text](url)` → text; `[text]` alone stays.
-                if let Some(close) = chars[i + 1..]
-                    .iter()
-                    .position(|&x| x == ']')
-                    .map(|p| p + i + 1)
-                {
-                    if chars.get(close + 1) == Some(&'(') {
-                        if let Some(end) = chars[close + 2..]
-                            .iter()
-                            .position(|&x| x == ')')
-                            .map(|p| p + close + 2)
-                        {
-                            out.push_str(&inline_text(
-                                &chars[i + 1..close].iter().collect::<String>(),
-                            ));
-                            i = end + 1;
-                            continue;
-                        }
+    let doc = markdown_doc::parse(&collapse(text));
+    let mut out = String::new();
+    append(&doc, &mut out);
+    collapse(&out)
+}
+
+fn append(blocks: &[Block], out: &mut String) {
+    let runs = |runs: &[Run], out: &mut String| out.push_str(&markdown_doc::runs_text(runs));
+    for block in blocks {
+        match block {
+            Block::Heading(_, r) | Block::Paragraph(r) => runs(r, out),
+            Block::BlockQuote(inner) => append(inner, out),
+            Block::List(_, items) => {
+                for item in items {
+                    match item.task {
+                        Some(true) => out.push_str("☑ "),
+                        Some(false) => out.push_str("☐ "),
+                        None => {}
                     }
+                    append(&item.blocks, out);
                 }
-                out.push(c);
-                i += 1;
             }
-            '<' => {
-                // `<https://…>` autolinks keep their address.
-                if let Some(close) = chars[i + 1..]
-                    .iter()
-                    .position(|&x| x == '>')
-                    .map(|p| p + i + 1)
-                {
-                    let inner: String = chars[i + 1..close].iter().collect();
-                    if inner.starts_with("http://")
-                        || inner.starts_with("https://")
-                        || inner.starts_with("mailto:")
-                    {
-                        out.push_str(&inner);
-                        i = close + 1;
-                        continue;
-                    }
+            Block::Code(_, text) => out.push_str(text),
+            Block::Table(_, header, rows) => {
+                for cell in header.iter().chain(rows.iter().flatten()) {
+                    runs(cell, out);
                 }
-                out.push(c);
-                i += 1;
             }
-            '\n' | '\r' | '\t' => {
-                out.push(' ');
-                i += 1;
-            }
-            _ => {
-                out.push(c);
-                i += 1;
-            }
+            Block::Rule => {}
         }
     }
-    let mut collapsed = String::with_capacity(out.len());
-    let mut space = false;
-    for c in out.trim().chars() {
-        if c == ' ' {
-            if !space {
-                collapsed.push(' ');
-            }
-            space = true;
-        } else {
-            collapsed.push(c);
-            space = false;
-        }
-    }
-    collapsed
+}
+
+/// Every run of whitespace as one space, trimmed.
+fn collapse(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -114,5 +66,16 @@ mod tests {
         assert_eq!(inline_text("a\nb  c"), "a b c");
         assert_eq!(inline_text("<https://example.com>"), "https://example.com");
         assert_eq!(inline_text("[unlinked]"), "[unlinked]");
+    }
+
+    #[test]
+    fn compact_summaries_keep_math_literal() {
+        assert_eq!(
+            inline_text("Found $x^2$ and $$y^2$$."),
+            "Found $x^2$ and $$y^2$$."
+        );
+        assert_eq!(inline_text(r"Euler \(e^{i\pi}\)"), r"Euler $e^{i\pi}$");
+        assert_eq!(inline_text("# Title"), "Title");
+        assert_eq!(inline_text("- [x] shipped"), "☑ shipped");
     }
 }
