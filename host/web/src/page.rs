@@ -465,7 +465,19 @@ impl<D: DataSource> crate::Host<D> {
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(crate::Host<D>, String), crate::HostError> {
+        // A drive starts its clock at zero even when the document was rendered
+        // on a wall clock (the renderer's time, LLP 1048.000 D5): the glue
+        // marks the digest ` driven` under the agent, as the JS runtime starts
+        // a drive at zero. The digest still covers the page as it is.
+        let (page_digest, driven) = match page_digest.strip_suffix(" driven") {
+            Some(digest) => (digest, true),
+            None => (page_digest, false),
+        };
         let checkpoint = match read_checkpoint(page) {
+            Ok(checkpoint) if driven => Checkpoint {
+                now_ms: 0.0,
+                ..checkpoint
+            },
             Ok(checkpoint) => checkpoint,
             Err(error) => {
                 let (mut host, batch) = crate::Host::boot_linked(
