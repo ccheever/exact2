@@ -3,11 +3,14 @@
 //! `Overlay::Conversations`, `Overlay::Themes`): opening, keys, presses,
 //! and the replies of the `fleet` jobs they ask for.
 
-use super::{Overlay, Page, PopupKind, Reply, SessionItem, Workspace};
-use crate::finders::{self, FinderKey, OpenSession, TopicJob};
+use super::{Overlay, PopupKind, Reply, Workspace};
+use crate::finders::{self, FinderKey, TopicJob};
 use crate::forms::{self, submit::Submission, Form, FormOutcome};
 use crate::picker::Mods;
 use crate::themes::{self, ThemeKey, ThemePicker};
+
+/// A pull request's session left the feed between listing and choosing.
+const GONE: &str = "That session is no longer in the fleet";
 
 impl Workspace {
     /// Open a form, restoring its kind's draft (workspace.rs `open_form`).
@@ -311,48 +314,14 @@ impl Workspace {
     }
 
     /// Open a session a finder chose: attach it, or show it in the list.
-    fn open_found(&mut self, machine_id: &str, session_id: &str, open: OpenSession) {
-        self.overlay = Overlay::None;
-        let item = self
-            .state
-            .machines
-            .iter()
-            .find(|m| m.id == machine_id)
-            .and_then(|m| {
-                let s = m
-                    .last
-                    .as_ref()?
-                    .sessions
-                    .iter()
-                    .find(|s| s.id == session_id)?;
-                Some(SessionItem {
-                    machine: m.clone(),
-                    session: s.clone(),
-                })
-            });
-        let Some(item) = item else {
-            self.set_error("That session is no longer in the fleet");
+    fn open_found(&mut self, machine_id: &str, session_id: &str, gone: String) {
+        // Decide on the session as the feed has it now, not the finder's copy.
+        let Some(item) = self.session_item(machine_id, session_id) else {
+            self.set_error(gone);
             return;
         };
-        match open {
-            OpenSession::Attach => self.attach_item(item, false),
-            OpenSession::Reveal {
-                all_sessions,
-                history,
-            } => {
-                self.tabs.select_manager();
-                self.all_sessions |= all_sessions;
-                self.history |= history;
-                self.set_page(Page::Sessions);
-                if let Some(index) = self
-                    .sessions()
-                    .iter()
-                    .position(|i| i.machine.id == machine_id && i.session.id == session_id)
-                {
-                    self.select(index);
-                }
-            }
-        }
+        self.overlay = Overlay::None;
+        self.open_session_item(item);
     }
 
     /// A key while a dialog of this module is open; `true` when it was one.
@@ -380,7 +349,7 @@ impl Workspace {
                             choice.entry.machine_id.clone(),
                             choice.entry.session.id.clone(),
                         );
-                        self.open_found(&m, &s, choice.open);
+                        self.open_found(&m, &s, GONE.into());
                     }
                     FinderKey::Closed => self.overlay = Overlay::None,
                     _ => {}
@@ -391,7 +360,8 @@ impl Workspace {
                 match self.topics.key(name, mods, self.now) {
                     FinderKey::Chosen(choice) => {
                         let (m, s) = (choice.hit.machine.clone(), choice.hit.session.clone());
-                        self.open_found(&m, &s, choice.open);
+                        let gone = finders::conversation_gone(&choice.hit);
+                        self.open_found(&m, &s, gone);
                     }
                     FinderKey::Closed => {
                         self.topics.close();
@@ -459,14 +429,15 @@ impl Workspace {
                         choice.entry.machine_id.clone(),
                         choice.entry.session.id.clone(),
                     );
-                    self.open_found(&m, &s, choice.open);
+                    self.open_found(&m, &s, GONE.into());
                 }
                 true
             }
             Overlay::Conversations if kind == "pick" => {
                 if let Some(choice) = self.topics.press(rest) {
                     let (m, s) = (choice.hit.machine.clone(), choice.hit.session.clone());
-                    self.open_found(&m, &s, choice.open);
+                    let gone = finders::conversation_gone(&choice.hit);
+                    self.open_found(&m, &s, gone);
                 }
                 true
             }

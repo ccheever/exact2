@@ -119,6 +119,16 @@ impl Workspace {
     pub fn execute(&mut self, cmd: Command) {
         self.pending_keys = None;
         self.popup = None;
+        if matches!(
+            cmd,
+            Command::NextTab
+                | Command::PrevTab
+                | Command::SelectTab(_)
+                | Command::Page(_)
+                | Command::CloseTab
+        ) {
+            self.secrets.blur();
+        }
         match cmd {
             Command::Undo => self.undo(),
             Command::ReopenClosedTab => self.reopen_closed_tab(),
@@ -129,6 +139,13 @@ impl Workspace {
                 }
             }
             Command::Palette => self.overlay = Overlay::Palette(PickerState::new()),
+            Command::ToggleSecrets => self.toggle_secrets(),
+            Command::AttachIMessage => {
+                match self.tab_target().as_ref().and_then(imessage_attach_command) {
+                    Some(args) => self.run_cli(args, "iMessage attached to this conversation"),
+                    None => self.set_error("Open a live Codex app-server tab to attach iMessage"),
+                }
+            }
             Command::Help => self.overlay = Overlay::Help,
             Command::Settings => self.open_settings(),
             Command::Quit => self.host(vec!["quit".into()], String::new()),
@@ -1053,21 +1070,79 @@ impl Workspace {
 
     /// The palette's rows where the user is (workspace.rs `palette_items`).
     pub fn palette_items(&self) -> Vec<(&'static CommandInfo, i32)> {
-        let query = match &self.overlay {
-            Overlay::Palette(p) => p.query.clone(),
-            _ => String::new(),
+        let Overlay::Palette(picker) = &self.overlay else {
+            return Vec::new();
         };
+        let query = picker.query.trim();
+        let selected_machine = if self.page == Page::Machines {
+            crate::session::machine_rows(&self.state).nth(self.index)
+        } else {
+            None
+        };
+        let tab_session = self.tab_target();
         let mut items: Vec<&'static CommandInfo> = Vec::new();
         if self.tabs.active == 0 {
             items.extend(palette::page_commands(self.page).iter());
             items.extend(palette::MOTION.iter());
-        } else {
-            items.extend(palette::TERMINAL.iter());
+        } else if let Some(tab) = self.tabs.active_tab() {
+            if let (Some((_, _, false)), Some(item)) = (tab.session.as_ref(), tab_session.as_ref())
+            {
+                if item.session.managed {
+                    if item.session.provider == "codex" {
+                        items.extend(palette::TERMINAL.iter());
+                    } else if item.session.claude_remote {
+                        items.extend(palette::CLAUDE_REMOTE.iter().filter(|info| {
+                            info.command != Command::SwitchClaudeWorkerTerminal
+                                || !tab.reconnect.iter().any(|arg| arg == "--worker-terminal")
+                        }));
+                    }
+                }
+            }
+        }
+        // A session is usually moved from inside its own terminal, where the
+        // Sessions page's row keys are typed into the agent instead.
+        if self.tabs.active != 0 && tab_session.is_some() {
             items.extend(palette::TAB_SESSION.iter());
+        }
+        let imessage_target = tab_session
+            .as_ref()
+            .is_some_and(|item| can_attach_imessage(&item.session));
+        // The docked shell panel is not ported: FocusTerminalPanel never shows.
+        let has_panel = false;
+        if self.tabs.active != 0 && self.tabs.active_tab().is_some_and(|tab| !tab.is_folder()) {
             items.extend(palette::TAB_TERMINAL.iter());
         }
         items.extend(palette::GLOBAL.iter());
-        palette::rank(&items, &query)
+        let codex_target = items
+            .iter()
+            .any(|info| info.command == Command::SwitchAccount)
+            && self
+                .command_session()
+                .is_some_and(|item| crate::forms::offers_account_switch(&item.session.provider));
+        let latest = &self.latest_provider_versions;
+        let update = |provider: &str| {
+            selected_machine.is_some_and(|machine| {
+                crate::session::provider_update_action_available(machine, latest, provider)
+            })
+        };
+        let items: Vec<&'static CommandInfo> = items
+            .into_iter()
+            .filter(|info| match info.command {
+                Command::FocusTerminalPanel => has_panel,
+                Command::ToggleSecrets => {
+                    self.secrets.demo || self.tabs.active_tab().is_some_and(|t| t.session.is_some())
+                }
+                Command::SwitchAccount => codex_target,
+                Command::AttachIMessage => imessage_target,
+                Command::UpdateCodex => update("codex"),
+                Command::UpdateClaude => update("claude"),
+                Command::UpdateOpenCode => update("opencode"),
+                Command::UpdateAntigravity => update("antigravity"),
+                Command::UpdateGrok => selected_machine.is_some(),
+                _ => true,
+            })
+            .collect();
+        palette::rank(&items, query)
     }
 
     /// Run the palette's highlighted row.
@@ -1170,4 +1245,31 @@ pub fn row_command(id: &str) -> Option<Command> {
         other => other,
     };
     Command::from_id(mapped)
+}
+
+/// iMessage can attach to a live Codex app-server conversation
+/// (workspace.rs `can_attach_imessage`).
+pub fn can_attach_imessage(session: &Session) -> bool {
+    session.provider == "codex"
+        && (session.eas || (session.pid > 0 && !session.codex_socket.is_empty()))
+        && !session.historical
+        && !session.native_id.is_empty()
+        && !matches!(
+            session.state.as_str(),
+            "paused" | "exited" | "gone" | "dead"
+        )
+}
+
+/// `fleet sessions imessage M S --thread-id T` for a session that can take it.
+pub fn imessage_attach_command(item: &SessionItem) -> Option<Vec<String>> {
+    can_attach_imessage(&item.session).then(|| {
+        vec![
+            "sessions".into(),
+            "imessage".into(),
+            item.machine.id.clone(),
+            item.session.id.clone(),
+            "--thread-id".into(),
+            item.session.native_id.clone(),
+        ]
+    })
 }

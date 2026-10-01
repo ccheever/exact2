@@ -9,6 +9,15 @@ use crate::picker::{Mods, PickerKey};
 impl Workspace {
     /// A press on a node, by the id the contract gave it.
     pub(super) fn press(&mut self, id: &str) {
+        if id.starts_with("secret-") {
+            self.secrets_press(id);
+            return;
+        }
+        // A click anywhere else takes the keyboard from the secret entry
+        // (ui.rs: a terminal click; the entry is the only focus Ocho tracks).
+        if !id.starts_with("key:") {
+            self.secrets.blur();
+        }
         let (kind, rest) = id.split_once(':').unwrap_or((id, ""));
         match kind {
             // ⌘ chords the contract declares (app.contract's shortcut buttons).
@@ -79,6 +88,9 @@ impl Workspace {
                         }
                         "unavailable" => {
                             self.set_error("No terminal: libghostty is not available in this build")
+                        }
+                        link if link.starts_with("secret:") => {
+                            self.open_terminal_secret_link(&key, &link["secret:".len()..]);
                         }
                         _ => {}
                     }
@@ -311,6 +323,15 @@ impl Workspace {
         if self.popup.is_some() && self.handle_popup_key(ks, &mods) {
             return;
         }
+        // The secret entry (input_view.rs `active_input` SecretDemo).
+        if self.secrets.open
+            && self.secrets.editing.is_some()
+            && self.secrets.focused
+            && matches!(self.overlay, Overlay::None)
+            && self.secrets_key(&ks.key, &mods)
+        {
+            return;
+        }
         if self.handle_global_key(ks) {
             return;
         }
@@ -495,6 +516,7 @@ impl Workspace {
             return;
         }
         match id {
+            "secret-demo-input" => self.secrets.input(value),
             "search" => {
                 self.query = value.to_string();
                 self.index = 0;

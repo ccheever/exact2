@@ -7,6 +7,7 @@ mod exec;
 mod extras;
 mod keys;
 mod menus;
+mod secrets;
 #[cfg(test)]
 mod tests;
 
@@ -210,6 +211,14 @@ pub enum Reply {
     Pairing(u64),
     /// `fleet directories M PATH`: folder completion for that machine and path.
     Directories(String, String),
+    /// `fleet secret list M S` for the open sidebar.
+    SecretList(crate::secret_requests::Source),
+    /// `fleet secret list M S` for an alert.
+    SecretAlert(crate::secret_requests::Source),
+    /// `fleet secret provide|dismiss|revoke …`.
+    SecretAction,
+    /// `fleet secret link M S NAME` from a terminal link.
+    SecretLink(crate::secret_requests::Source),
     /// A host job; nothing to apply.
     Host,
 }
@@ -347,6 +356,10 @@ pub struct Workspace {
     /// A key an input's own handler just took: its keydown bubbles to the
     /// window's handler next and must not run twice (a web keydown bubbles).
     bubbling_key: Option<String>,
+    /// The Secrets sidebar, its entry and alerts.
+    pub secrets: crate::secret_requests::Requests,
+    /// When the secret lists were last read (`REFRESH_INTERVAL`).
+    secrets_polled_at: f64,
     /// The sessions watched for notifications.
     pub notifications: crate::notifications::Notifications,
     /// Field values of forms closed without submitting, by kind.
@@ -424,6 +437,10 @@ impl Workspace {
             scroll_to: String::new(),
             window_title: String::new(),
             bubbling_key: None,
+            secrets: crate::secret_requests::Requests::new(
+                std::env::var_os("FLEET_SECRET_REQUESTS_DEMO").is_some(),
+            ),
+            secrets_polled_at: f64::NEG_INFINITY,
             notifications: Default::default(),
             form_drafts: HashMap::new(),
             topics: Default::default(),
@@ -494,6 +511,11 @@ impl Workspace {
             self.toast = Toast::default();
         }
         self.refresh_account_usage(false);
+        if now - self.secrets_polled_at >= crate::secret_requests::POLL_MS {
+            self.secrets_polled_at = now;
+            self.refresh_secret_requests();
+            self.refresh_secret_alerts();
+        }
         if matches!(self.overlay, Overlay::Conversations) {
             // The debounced search comes due between keystrokes (upstream
             // spawns a timer; the tick is the contract's only clock).
@@ -640,6 +662,10 @@ impl Workspace {
 
     fn apply_reply(&mut self, what: Reply, result: Result<String, String>) {
         match what {
+            Reply::SecretList(_)
+            | Reply::SecretAlert(_)
+            | Reply::SecretAction
+            | Reply::SecretLink(_) => self.secret_reply(what, result),
             Reply::Cli {
                 done,
                 undo_on_success,

@@ -8,6 +8,8 @@
 
 use Icon from "./icons.contract"
 use Rail from "./rail.contract"
+use SecretsSidebar from "./secrets.contract"
+use SecretAlertCard from "./secrets.contract"
 use Manager from "./manager.contract"
 use Overlays from "./overlays.contract"
 use TabBody from "./terminal.contract"
@@ -45,8 +47,10 @@ shape Theme
   statusBar: string
   selectedBg: string
   hoverBg: string
+  accent09: string
   accent12: string
   accent15: string
+  accent16: string
   accent18: string
   accent35: string
   accent55: string
@@ -284,6 +288,49 @@ shape IMessagePair
   sendFrom: string
   url: string
   retry: bool
+shape SecretLifetime
+  id: string
+  label: string
+  seconds: number
+  selected: bool
+shape SecretRequestCard
+  id: string
+  requestId: string
+  name: string
+  reason: string
+  status: string
+  statusColor: string
+  editing: bool
+  entry: bool
+  actions: bool
+  revoke: bool
+  openId: string
+  dismissId: string
+  revokeId: string
+  provideId: string
+  cancelId: string
+shape SecretAlert
+  visible: bool
+  title: string
+  name: string
+  reason: string
+  openLabel: string
+shape SecretRequests
+  visible: bool
+  title: string
+  pending: string
+  demo: string
+  error: string
+  empty: string
+  cards: list<SecretRequestCard>
+  masked: string
+  placeholder: string
+  focused: bool
+  provideLabel: string
+  lifetimes: list<SecretLifetime>
+  busy: bool
+  reset: string
+  alert: SecretAlert
 shape View
   theme: Theme
   windowTitle: string
@@ -302,6 +349,7 @@ shape View
   region: string
   whatsNew: WhatsNew
   pairing: IMessagePair
+  secrets: SecretRequests
 shape Media
   prefersColorScheme: string
   width: number
@@ -380,6 +428,10 @@ component Ocho
             TabBody(model=vm.tab, t=t, appearance=(t.dark ? "dark" : "light"), hoverId=hoverId, press=press, hover=hover, terminalKeyDown=terminalKeyDown, exited=terminalExited)
           else
             Manager(model=vm.manager, t=t, hoverId=hoverId, press=press, pressAt=pressAt, hover=hover, typed=typed, searchKeyDown=searchKeyDown, doubleClick=doubleClick, contextMenu=contextMenu)
+        when vm.secrets.visible
+          SecretsSidebar(model=vm.secrets, t=t, hoverId=hoverId, press=press, hover=hover, typed=typed)
+      when vm.secrets.alert.visible
+        SecretAlertCard(model=vm.secrets.alert, t=t, hoverId=hoverId, press=press, hover=hover)
       // The toast (ui.rs:1932): bottom right, 464 wide at most.
       when vm.toast.text != ""
         column position="absolute" right=0 bottom=0 width="100%" max-width=464 padding=12 box-sizing="border-box"

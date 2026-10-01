@@ -38,6 +38,7 @@ pub fn render(ws: &Workspace, _versions: &[f64]) -> Value {
         "termFontSize": ws.settings.terminal_font_size.unwrap_or(13.0),
         "whatsNew": ws.whats_new.view(),
         "pairing": pairing,
+        "secrets": ws.secrets_view(),
         "region": match ws.region() {
             Region::Rail => "rail",
             Region::Manager => "manager",

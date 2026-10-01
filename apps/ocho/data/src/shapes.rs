@@ -41,8 +41,10 @@ pub const THEME: Shape = Record(&[
     // Opaque blends the rail uses (ui.rs:836-837) and the tints with alpha.
     ("selectedBg", Str),
     ("hoverBg", Str),
+    ("accent09", Str),
     ("accent12", Str),
     ("accent15", Str),
+    ("accent16", Str),
     ("accent18", Str),
     ("accent35", Str),
     ("accent55", Str),
@@ -306,6 +308,57 @@ pub const IMESSAGE_PAIR: Shape = Record(&[
     ("retry", Bool),
 ]);
 
+pub const SECRET_LIFETIME: Shape = Record(&[
+    ("id", Str),
+    ("label", Str),
+    ("seconds", Num),
+    ("selected", Bool),
+]);
+
+pub const SECRET_CARD: Shape = Record(&[
+    ("id", Str),
+    ("requestId", Str),
+    ("name", Str),
+    ("reason", Str),
+    ("status", Str),
+    ("statusColor", Str),
+    ("editing", Bool),
+    ("entry", Bool),
+    ("actions", Bool),
+    ("revoke", Bool),
+    ("openId", Str),
+    ("dismissId", Str),
+    ("revokeId", Str),
+    ("provideId", Str),
+    ("cancelId", Str),
+]);
+
+pub const SECRET_ALERT: Shape = Record(&[
+    ("visible", Bool),
+    ("title", Str),
+    ("name", Str),
+    ("reason", Str),
+    ("openLabel", Str),
+]);
+
+pub const SECRETS: Shape = Record(&[
+    ("visible", Bool),
+    ("title", Str),
+    ("pending", Str),
+    ("demo", Str),
+    ("error", Str),
+    ("empty", Str),
+    ("cards", List(&SECRET_CARD)),
+    ("masked", Str),
+    ("placeholder", Str),
+    ("focused", Bool),
+    ("provideLabel", Str),
+    ("lifetimes", List(&SECRET_LIFETIME)),
+    ("busy", Bool),
+    ("reset", Str),
+    ("alert", SECRET_ALERT),
+]);
+
 pub const VIEW: Shape = Record(&[
     ("theme", THEME),
     ("windowTitle", Str),
@@ -324,6 +377,7 @@ pub const VIEW: Shape = Record(&[
     ("region", Str),
     ("whatsNew", WHATS_NEW),
     ("pairing", IMESSAGE_PAIR),
+    ("secrets", SECRETS),
 ]);
 
 /// The value of `json` in `shape`, missing fields as their zero.

@@ -175,6 +175,21 @@ final class GhosttyRuntime {
             return true
         case GHOSTTY_ACTION_RING_BELL:
             return true
+        case GHOSTTY_ACTION_OPEN_URL:
+            // A ⌘-click on a link (terminal.rs on_mouse_up): an
+            // `ocho://secret/NAME` asks the model for that secret; anything
+            // else opens in the browser.
+            let link = action.action.open_url
+            guard let bytes = link.url else { return true }
+            let url = String(decoding: UnsafeRawBufferPointer(start: bytes, count: Int(link.len)), as: UTF8.self)
+            DispatchQueue.main.async {
+                if url.hasPrefix("ocho://secret/") {
+                    view?.onSecretLink?(url)
+                } else if let target = URL(string: url) {
+                    NSWorkspace.shared.open(target)
+                }
+            }
+            return true
         default:
             return false
         }
@@ -186,6 +201,8 @@ final class SurfaceView: NSView {
     private(set) var surface: ghostty_surface_t?
     var onExit: (() -> Void)?
     var onTitle: ((String) -> Void)?
+    /// A ⌘-clicked `ocho://secret/NAME`; the tab's instance forwards it.
+    var onSecretLink: ((String) -> Void)?
     var mouseShape = GHOSTTY_MOUSE_SHAPE_DEFAULT { didSet { window?.invalidateCursorRects(for: self) } }
     private var trackingArea: NSTrackingArea?
     private var strings: [UnsafeMutablePointer<CChar>] = []
@@ -533,6 +550,7 @@ final class TerminalInstance: ExactNativeInstance {
             return
         }
         surface.scheme = appearance
+        surface.onSecretLink = { [weak self] url in self?.events.message("secret:\(url)") }
         surface.applyScheme()
         surface.frame = container.bounds
         container.addSubview(surface)

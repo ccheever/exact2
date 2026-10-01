@@ -109,6 +109,16 @@ const catalogs = {
   opencode: [['opencode/default', 'Default', 'Whatever OpenCode is set up with.']],
 };
 
+const secrets = {
+  'm-local:s1': [
+    { id: 'r-stripe', name: 'STRIPE_API_KEY', reason: 'Check the webhook signing secret against the staging endpoint', status: 'pending' },
+    { id: 'r-gh', name: 'GITHUB_TOKEN', reason: 'Read the private exact2 repository', status: 'provided', expires_at: Math.floor(Date.now() / 1000) + 1800 },
+  ],
+  'm-redwood:s2': [
+    { id: 'r-npm', name: 'NPM_TOKEN', reason: 'Publish the renamed ocho package', status: 'pending' },
+  ],
+};
+
 function job(argv, stdin) {
   const [cmd, ...rest] = argv;
   const ok = (stdout = '') => ({ status: 0, stdout, stderr: '' });
@@ -126,6 +136,19 @@ function job(argv, stdin) {
       return ok(JSON.stringify((catalogs[provider] ?? []).map(([id, name, description], i) => ({ id, name, description, default: i === 0 }))));
     }
     case 'accounts': if (rest[0] === 'usage') return ok(JSON.stringify({ five_hour: { used_percent: 24, resets_at: iso(-3600e3) }, weekly: { used_percent: 61, resets_at: iso(-3 * 86400e3) } })); return ok('');
+    case 'secret': {
+      // fleet secret list|provide|dismiss|revoke|link M S …: s1 asks for two
+      // secrets, s2 for one (its alert shows while s1's tab is active).
+      const [verb, machine, sessionId, id] = rest;
+      const list = (secrets[`${machine}:${sessionId}`] ??= []);
+      if (verb === 'list') return ok(JSON.stringify(list));
+      const item = list.find((r) => r.id === id);
+      if (verb === 'provide' && item) { item.status = 'provided'; item.expires_at = Math.floor(Date.now() / 1000) + Number((rest[5] ?? '3600s').replace('s', '')); }
+      if (verb === 'dismiss' && item) item.status = 'dismissed';
+      if (verb === 'revoke' && item) item.status = 'revoked';
+      if (verb === 'link') return ok(JSON.stringify(list.find((r) => r.name === id) ?? { id: `r-${id}`, name: id, reason: '', status: 'pending' }));
+      return ok('');
+    }
     case 'search': {
       if (rest[0] === 'index') return ok(JSON.stringify({ sessions: 5, indexed: 1, chunks: 4, skipped: 0, errors: {}, elapsed: '0.2s' }));
       const hits = [
