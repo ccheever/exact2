@@ -794,7 +794,16 @@ if (long) {
 // leave Caltrain's, 5.0 KiB; then `filter` and `clip-path` linked by use,
 // 3.5–3.9 KiB; then CSS animations' grammars linked by use, 4.6–5.0 KiB; then
 // `background-image`'s gradients linked by use, 2.6–2.8 KiB.
-const WEB_CORE_KIB = { realworld: 284, 'video-player': 229, caltrain: 290 };
+// Relaxed 2026-09-30 (Charlie: "we can relax this some since it mattered most
+// for web but our approach is different on web now. smaller is still better but
+// i don't think we need a hard limit that low"): an app's web build is the JS
+// target since LLP 1071, and this wasm core is what games, conformance and the
+// fixtures build. The cores had reached 298 / 292 / 237 KiB (every(frame),
+// initial-item-count, DataError::Interface, the sorted testId index, the CSS
+// property-name table, the render host's detached kernel); each ceiling is that
+// size plus ~12 KiB. Link-by-use stays the rule, and a lane still says what it
+// added.
+const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
