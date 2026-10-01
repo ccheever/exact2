@@ -344,6 +344,9 @@ pub struct Workspace {
     pub scroll_to: String,
     /// The window title last handed to the host.
     pub window_title: String,
+    /// A key an input's own handler just took: its keydown bubbles to the
+    /// window's handler next and must not run twice (a web keydown bubbles).
+    bubbling_key: Option<String>,
     /// The sessions watched for notifications.
     pub notifications: crate::notifications::Notifications,
     /// Field values of forms closed without submitting, by kind.
@@ -420,6 +423,7 @@ impl Workspace {
             focus_id: String::new(),
             scroll_to: String::new(),
             window_title: String::new(),
+            bubbling_key: None,
             notifications: Default::default(),
             form_drafts: HashMap::new(),
             topics: Default::default(),
@@ -433,6 +437,9 @@ impl Workspace {
     /// Apply one event.
     pub fn dispatch(&mut self, event: Event) {
         self.version += 1;
+        if !matches!(event, Event::Key { .. }) {
+            self.bubbling_key = None;
+        }
         self.focus_id.clear();
         self.scroll_to.clear();
         match event {
@@ -446,7 +453,16 @@ impl Workspace {
             }
             Event::Press(id) => self.press(&id),
             Event::PressAt(id, x, y) => self.press_at(&id, x, y),
-            Event::Key { name, mods, at } => self.key(&Keystroke::new(&name, &mods), &at),
+            Event::Key { name, mods, at } => {
+                if at.is_empty() && self.bubbling_key.take().as_deref() == Some(name.as_str()) {
+                    // The same keydown, bubbled from the input that handled it.
+                } else {
+                    if !at.is_empty() {
+                        self.bubbling_key = Some(name.clone());
+                    }
+                    self.key(&Keystroke::new(&name, &mods), &at)
+                }
+            }
             Event::Input(id, value) => self.input(&id, &value),
             Event::Pan(id, dx, dy) => self.pan(&id, dx, dy),
             Event::DoubleClick(id) => self.double_click(&id),
@@ -478,6 +494,11 @@ impl Workspace {
             self.toast = Toast::default();
         }
         self.refresh_account_usage(false);
+        if matches!(self.overlay, Overlay::Conversations) {
+            // The debounced search comes due between keystrokes (upstream
+            // spawns a timer; the tick is the contract's only clock).
+            self.poll_topics();
+        }
     }
 
     /// Post a toast (workspace.rs `set_message`): plain ones fade after 6 s.

@@ -216,10 +216,8 @@ impl Workspace {
     /// Open the theme picker over the bundled themes and the files the
     /// module found (workspace.rs `open_themes`).
     pub fn open_themes(&mut self, from_settings: bool) {
-        let mut list = themes::bundled();
-        list.extend(self.theme_files.iter().cloned());
         self.overlay = Overlay::Themes(Box::new(ThemePicker::open(
-            list,
+            self.theme_list(),
             &self.theme,
             from_settings,
         )));
@@ -255,13 +253,22 @@ impl Workspace {
         self.poll_topics();
     }
 
+    /// Every theme the picker offers: the bundled ones, then the files the
+    /// module found (`discover` already leads with the bundled ones).
+    fn theme_list(&self) -> Vec<themes::ThemeEntry> {
+        if self.theme_files.is_empty() {
+            themes::bundled()
+        } else {
+            self.theme_files.clone()
+        }
+    }
+
     /// The theme files the module listed: `[[path, text], …]`.
     pub fn theme_files_arrived(&mut self, text: &str) {
         let files: Vec<(String, String)> = serde_json::from_str(text).unwrap_or_default();
         self.theme_files = themes::discover(&files);
         if let Overlay::Themes(picker) = &mut self.overlay {
-            let mut list = themes::bundled();
-            list.extend(self.theme_files.iter().cloned());
+            let list = themes::discover(&files);
             let from_settings = picker.from_settings;
             let previous = picker.previous.clone();
             let mut fresh = ThemePicker::open(list, &self.theme, from_settings);

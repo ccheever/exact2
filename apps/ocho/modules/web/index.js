@@ -126,6 +126,14 @@ function job(argv, stdin) {
       return ok(JSON.stringify((catalogs[provider] ?? []).map(([id, name, description], i) => ({ id, name, description, default: i === 0 }))));
     }
     case 'accounts': if (rest[0] === 'usage') return ok(JSON.stringify({ five_hour: { used_percent: 24, resets_at: iso(-3600e3) }, weekly: { used_percent: 61, resets_at: iso(-3 * 86400e3) } })); return ok('');
+    case 'search': {
+      if (rest[0] === 'index') return ok(JSON.stringify({ sessions: 5, indexed: 1, chunks: 4, skipped: 0, errors: {}, elapsed: '0.2s' }));
+      const hits = [
+        { machine: 'm-redwood', machine_name: 'redwood', session: 's3', title: 'devicehub cli', cwd: '~/Developer/devicehub', provider: 'codex', account: 'eliot@expo.io', score: 0.82, matches: 3, turn: 4, role: 'assistant', snippet: 'The CLI lists devices and streams logs; tests pass.', updated: iso(22 * 60e3), historical: false, tmux_pane: '%3' },
+        { machine: 'm-local', machine_name: 'Eliots-MacBook-Pro', session: 's4', title: 'plan.stanf.org', cwd: '~/Developer/plan.stanf.org', provider: 'codex', account: 'eliot@expo.io', score: 0.61, matches: 1, turn: 2, role: 'user', snippet: 'Can you add the spring quarter to the planner?', updated: iso(3 * 3600e3), historical: true, tmux_pane: '' },
+      ];
+      return ok(JSON.stringify(hits));
+    }
     case 'directories': return ok(JSON.stringify({ matches: ['~/Developer/exact2', '~/Developer/fleet', '~/Developer/devicehub'], more: false }));
     case 'desktop-update': return ok(JSON.stringify({ state: 'up_to_date' }));
     default: return ok('');
