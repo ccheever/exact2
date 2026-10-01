@@ -1020,6 +1020,72 @@ turn, so at rest a continuation runs each turn and does nothing — the shape
 of the in-flight spin the spin fix (f7aa53049) removed. Whoever reopens the
 branch verifies that first.
 
+### 8.7 The owner measures its own rows (r8, 2026-09-30: built, measured twice, parked)
+
+**What it is.** On the Apple host a list's rows are laid out on the owner,
+and the presenter then reads the same boxes back from the frame ops and
+reports them: the measure report in the landing turn (25.6/s on the M1
+iPad Pro's 19-kind fling, main waiting 6.4 ms/s for 6.0 of owner time and
+4.2 of apply), and half the fling's batches carried nothing but a snapshot
+(50/s: 13.4 ms/s of owner time, 6.5 of apply). The change
+(`parked/owner-measure`, 676adb620 on main 536f930e2: `host/apple/src/
+rows.rs`, `Runner::collection_measure`, `CollectionFill::measuring`) has the
+host's Rust measure the rows a report's commit laid out and tell the runner
+in that same commit, at the decimal the presenter would read from the wire,
+so the batch that mounts a row carries its measurement and the correction
+it implies; the presenter skips a report whose only news is measurements
+the snapshot holds.
+
+**First A/B** (measured build-only on every turn; three alternated rounds
+against the spin tip): CPU 627.0 → 623.7 ms/s, main 267.8 → 268.9, peak 330
+→ 368 MB — a redistribution: +12000 CPU 764 → 714, main 305 → 281, fps
+115.3 → 118.5, but +1000 CPU 247 → 267 and main 157 → 166, +6000 fps 120.0
+→ 116.8. The 1k cost and the peak were the fill's own contract: a
+build-only report (`CollectionFill::create_only`) leaves the rows the window
+no longer wants mounted and the list `pending`, owed the host's next
+report, so after a report main applied itself every commit that mounted a
+row cost one more report.
+
+**Rebuilt**: the pass measures only the list the report addressed, under
+that report's terms (a slice stays build-only; a report main applies keeps
+its retiring and, at rest, its unlimited room), once while the list moves
+and up to eight times at rest. **Second A/B** (three alternated rounds
+against main 536f930e2, `~/bench/xheavy/results/cpu/ipad/ab9-measure2`):
+
+| | CPU ms/s | main ms/s | fps | late/s | peak MB |
+|---|---|---|---|---|---|
+| the run | 620.1 → 608.5 | 263.8 → 262.7 | 117.6 → 117.7 | 1.1 → 0.8 | 302 → 293 |
+| +1000 | 251 → 257 | 161 → 162 | 119.9 → 120.0 | | |
+| +6000 | 505 → 515 | 242 → 242 | **120.0 → 116.7** (all three rounds) | | |
+| −6000 | 788 → 829 | 268 → 278 | 114.9 → 114.2 | | |
+| +12000 | **751 → 643** | **301 → 262** | **115.5 → 119.9** | | |
+| +24000 | 1192 → 1266 | 421 → 432 | 115.4 → 117.5 | | |
+| −24000 | 1173 → 1115 | 438 → 435 | 114.9 → 115.4 | | |
+
+The 1k cost and the peak are gone, and at 12k the round trip saved is worth
+a third of the main thread's row work — but the 6k pass loses three frames
+a second in every round, and over the run it is −11.6 ms/s of CPU and −1.1
+of main.
+
+**Reviews.** Four outside passes (sol), each with a new P1 in how a
+measuring pass re-enters the report path, all fixed on the branch with
+mutation-checked tests: the passes were unbounded in effect and the wire
+number did not match `push_num` past its exact paths; a measuring pass
+could dispatch an edge action again, applied one list's fill to every list
+and spent a finite limit again; it counted as the reader's travel against
+an into-view target; it counted toward that target's settling and cleared a
+correction the presenter had not applied yet.
+
+**Parked** (the coordinator for Charlie, 2026-09-30): the gain over the run
+is under what four review rounds were buying, the 6k loss is a frame-drop
+cost (frame drops over total CPU, 2026-09-26), and a pass that re-enters the
+report path keeps finding report-level state to disturb. A next reader
+should not add a fifth flag: the 12k result says the idea is right, and the
+shape to try is a runner entry of its own that applies measurements, the
+anchor's correction and the rows the port then owes — and nothing a report
+means (edges, targets, limits, acknowledgements) — with the 6k pass's lost
+frames traced first.
+
 ### 8.11 The lead's velocity term, measured and parked (r8, 2026-09-30)
 
 A moving list's window leads its port by one viewport on each side plus
