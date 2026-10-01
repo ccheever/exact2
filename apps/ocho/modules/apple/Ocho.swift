@@ -373,6 +373,14 @@ final class JobRunner {
                     if argv.count > 1 { terminals.close(tab: argv[1]) }
                     finish(["status": 0, "stderr": "", "stdout": ""])
                 }
+            case "submit-terminal":
+                DispatchQueue.main.async {
+                    guard argv.count > 1 else { finish(["status": 1, "stderr": "not connected", "stdout": ""]); return }
+                    terminals.submit(tab: argv[1], text: stdin) { outcome in
+                        if let outcome { finish(["status": 0, "stderr": "", "stdout": outcome]) }
+                        else { finish(["status": 1, "stderr": "not connected", "stdout": ""]) }
+                    }
+                }
             case "write-terminal":
                 DispatchQueue.main.async {
                     if argv.count > 1 { terminals.write(tab: argv[1], text: stdin) }

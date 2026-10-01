@@ -228,10 +228,90 @@ pub const OVERLAY: Shape = Record(&[
     ("footer", Str),
     ("body", Str),
     ("bodyMarkdown", Bool),
+    ("blocks", List(&MARKDOWN_BLOCK)),
     ("fields", List(&FIELD)),
     ("buttons", List(&BUTTON)),
     ("hint", Str),
     ("focusId", Str),
+]);
+
+pub const MARKDOWN_RUN: Shape = Record(&[
+    ("id", Str),
+    ("text", Str),
+    ("bold", Bool),
+    ("italic", Bool),
+    ("code", Bool),
+    ("strike", Bool),
+    ("url", Str),
+    ("subdued", Bool),
+    ("math", Str),
+]);
+
+pub const MARKDOWN_CELL: Shape = Record(&[
+    ("id", Str),
+    ("runs", List(&MARKDOWN_RUN)),
+    ("flow", Bool),
+    ("align", Str),
+]);
+
+pub const MARKDOWN_TABLE_ROW: Shape = Record(&[
+    ("id", Str),
+    ("header", Bool),
+    ("cells", List(&MARKDOWN_CELL)),
+]);
+
+pub const MARKDOWN_BLOCK: Shape = Record(&[
+    ("id", Str),
+    ("kind", Str),
+    ("level", Num),
+    ("depth", Num),
+    ("marker", Str),
+    ("quote", Num),
+    ("language", Str),
+    ("text", Str),
+    ("subdued", Bool),
+    ("flow", Bool),
+    ("runs", List(&MARKDOWN_RUN)),
+    ("rows", List(&MARKDOWN_TABLE_ROW)),
+    ("align", List(&Str)),
+]);
+
+pub const INDICATOR: Shape = Record(&[
+    ("glyph", Str),
+    ("head", Str),
+    ("headColor", Str),
+    ("rest", Str),
+    ("restColor", Str),
+]);
+
+pub const TRANSCRIPT_ENTRY: Shape = Record(&[
+    ("id", Str),
+    ("kind", Str),
+    ("subdued", Bool),
+    ("first", Bool),
+    ("blocks", List(&MARKDOWN_BLOCK)),
+    ("summary", Str),
+    ("live", Str),
+    ("liveIndicator", INDICATOR),
+    ("collapsed", Bool),
+    ("toggleId", Str),
+]);
+
+pub const TRANSCRIPT: Shape = Record(&[
+    ("visible", Bool),
+    ("entries", List(&TRANSCRIPT_ENTRY)),
+    ("empty", Str),
+    ("error", Str),
+    ("working", Str),
+    ("workingIndicator", INDICATOR),
+    ("provider", Str),
+    ("draft", Str),
+    ("rows", Num),
+    ("placeholder", Str),
+    ("editing", Bool),
+    ("sendLabel", Str),
+    ("canSend", Bool),
+    ("scrollTop", Num),
 ]);
 
 pub const TAB_VIEW: Shape = Record(&[
@@ -262,6 +342,7 @@ pub const TAB_VIEW: Shape = Record(&[
     ("panelHeight", Num),
     ("panelFocused", Bool),
     ("transcript", Bool),
+    ("conversation", TRANSCRIPT),
     ("dropTarget", Bool),
 ]);
 

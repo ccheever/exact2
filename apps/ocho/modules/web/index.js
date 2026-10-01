@@ -128,6 +128,7 @@ function job(argv, stdin) {
     case 'open-url': window.open(rest.join(''), '_blank'); return ok();
     case 'clipboard-write': navigator.clipboard?.writeText(stdin).catch(() => {}); return ok();
     case 'clipboard-read': return ok('');
+    case 'submit-terminal': return ok('sent');
     case 'notify': case 'notify-remove': case 'close-terminal': case 'write-terminal': case 'refresh-feed': case 'clear-terminal': case 'reconnect-terminal': case 'save-title-prompt': return ok();
     case 'theme-files': return ok('[]');
     case 'whats-new-history': return ok("e6adfa8a6cc7a9cd99b26347cc7da8467f0b5631\t2026-10-01\tRun local Grok directly and allow verified mixed remote versions (#266)\nc03ff04e0320b8015d550df7e4d0373219799e13\t2026-10-01\tRemove Profiles manager tab (#267)\nb8139a71efddd2f703d8f7ffcda89c37657df148\t2026-10-01\tAdd Google OAuth accounts to Ocho (#260)\n134c1723c26f10212d9e8bc7b4510e2f3e95ab24\t2026-10-01\tRun Fleet and Ocho Codex sessions on EAS with DO and R2 persistence (#258)\n7847256dcfe2ee3f50e30a177f72e5a04131fb04\t2026-10-01\tFix transcript math layout, sharpness, and scrolling (#264)\nde58802d6faa7ab08ed14015a49119405f11c708\t2026-10-01\tBridge legacy fleet services to owner identity (#265)");
@@ -148,6 +149,21 @@ function job(argv, stdin) {
       if (verb === 'revoke' && item) item.status = 'revoked';
       if (verb === 'link') return ok(JSON.stringify(list.find((r) => r.name === id) ?? { id: `r-${id}`, name: id, reason: '', status: 'pending' }));
       return ok('');
+    }
+    case 'transcript': {
+      // fleet transcript M S --revision R: a short conversation with every
+      // kind of row and Markdown block the view draws.
+      const [, , , revision] = rest;
+      if (revision === 'r1') return ok(JSON.stringify({ revision: 'r1', unchanged: true }));
+      return ok(JSON.stringify({ revision: 'r1', entries: [
+        { kind: 'user', text: '# AGENTS.md instructions for /Users/eliot/Developer/exact2\n<INSTRUCTIONS>\nRead `rules/RULES.md` first.\n</INSTRUCTIONS>' },
+        { kind: 'user', text: 'Port the **Secrets** sidebar from Fleet and verify it headlessly.' },
+        { kind: 'assistant', phase: 'commentary', text: 'Reading `secret_requests_ui.rs` and the workspace wiring.' },
+        { kind: 'tools', count: 7, seconds: 95 },
+        { kind: 'assistant', phase: 'final', text: '## Done\n\nThe sidebar is wired:\n\n1. `fleet secret list` every 8 s\n2. Provide, dismiss and revoke\n   - values go over stdin only\n\n> The value never reaches the view.\n\n| Command | Reply |\n| :-- | --: |\n| list | JSON |\n| provide | status |\n\n```rust\nlet argv = secrets.wanted_list(active)?;\n```\n\nSee [the PR](https://github.com/expo/exact2/pull/54) and $e^{i\\pi} + 1 = 0$.\n\n---\n\n$$\\int_0^1 x^2\\,dx = \\tfrac{1}{3}$$' },
+        { kind: 'user', text: 'Great, now the transcript view.' },
+        { kind: 'tools', count: 2, seconds: 12 },
+      ] }));
     }
     case 'search': {
       if (rest[0] === 'index') return ok(JSON.stringify({ sessions: 5, indexed: 1, chunks: 4, skipped: 0, errors: {}, elapsed: '0.2s' }));

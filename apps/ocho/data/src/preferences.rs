@@ -648,6 +648,7 @@ pub fn view(settings: &DesktopSettings, theme_name: &str, page: &SettingsPage) -
         "footer": if page.editing_prompt { FOOTER_EDITING } else { FOOTER },
         "body": "",
         "bodyMarkdown": false,
+        "blocks": [],
         "fields": fields,
         "buttons": [{
             "id": WHATS_NEW_BUTTON,

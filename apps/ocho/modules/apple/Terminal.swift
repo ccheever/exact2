@@ -270,6 +270,22 @@ final class SurfaceView: NSView {
     /// theme pair in the configuration follows it.
     var scheme = "light" { didSet { if scheme != oldValue { GhosttyRuntime.shared.currentScheme = scheme; syncAppearance() } } }
     func applyScheme() { GhosttyRuntime.shared.currentScheme = scheme; syncAppearance() }
+    /// Return, as if typed (kVK_Return), press then release.
+    func pressEnter() -> Bool {
+        guard let surface else { return false }
+        var ev = ghostty_input_key_s()
+        ev.action = GHOSTTY_ACTION_PRESS
+        ev.keycode = 36
+        ev.mods = GHOSTTY_MODS_NONE
+        ev.consumed_mods = GHOSTTY_MODS_NONE
+        ev.composing = false
+        ev.unshifted_codepoint = 13
+        let sent = ghostty_surface_key(surface, ev)
+        ev.action = GHOSTTY_ACTION_RELEASE
+        _ = ghostty_surface_key(surface, ev)
+        return sent
+    }
+
     /// Text into the terminal as typed (a reply from a notification, the docked panel's draft).
     func paste(_ text: String) {
         guard let surface else { return }
@@ -491,6 +507,18 @@ final class TerminalStore {
     }
 
     func write(tab: String, text: String) { views[tab]?.paste(text) }
+
+    /// The transcript composer's send (workspace.rs `send_transcript`): paste
+    /// the draft, then press Enter 150 ms later on the same surface. `done`
+    /// gets "sent" or "unsent", or nil when the terminal is gone.
+    func submit(tab: String, text: String, done: @escaping (String?) -> Void) {
+        guard let view = views[tab], !exited.contains(tab) else { done(nil); return }
+        view.paste(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.views[tab] === view, !self.exited.contains(tab) else { done(nil); return }
+            done(view.pressEnter() ? "sent" : "unsent")
+        }
+    }
 
     /// ⌘K: the scrollback goes (`clear` through the shell would need a prompt).
     func clear(tab: String) { views[tab]?.paste("\u{0C}") }

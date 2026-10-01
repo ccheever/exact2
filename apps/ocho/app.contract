@@ -213,10 +213,76 @@ shape Overlay
   footer: string
   body: string
   bodyMarkdown: bool
+  blocks: list<MarkdownBlock>
   fields: list<Field>
   buttons: list<Button>
   hint: string
   focusId: string
+shape MarkdownRun
+  id: string
+  text: string
+  bold: bool
+  italic: bool
+  code: bool
+  strike: bool
+  url: string
+  subdued: bool
+  math: string
+shape MarkdownCell
+  id: string
+  runs: list<MarkdownRun>
+  flow: bool
+  align: string
+shape MarkdownTableRow
+  id: string
+  header: bool
+  cells: list<MarkdownCell>
+shape MarkdownBlock
+  id: string
+  kind: string
+  level: number
+  depth: number
+  marker: string
+  quote: number
+  language: string
+  text: string
+  subdued: bool
+  flow: bool
+  runs: list<MarkdownRun>
+  rows: list<MarkdownTableRow>
+  align: list<string>
+shape Indicator
+  glyph: string
+  head: string
+  headColor: string
+  rest: string
+  restColor: string
+shape TranscriptEntry
+  id: string
+  kind: string
+  subdued: bool
+  first: bool
+  blocks: list<MarkdownBlock>
+  summary: string
+  live: string
+  liveIndicator: Indicator
+  collapsed: bool
+  toggleId: string
+shape Transcript
+  visible: bool
+  entries: list<TranscriptEntry>
+  empty: string
+  error: string
+  working: string
+  workingIndicator: Indicator
+  provider: string
+  draft: string
+  rows: number
+  placeholder: string
+  editing: bool
+  sendLabel: string
+  canSend: bool
+  scrollTop: number
 shape TabView
   key: string
   title: string
@@ -245,6 +311,7 @@ shape TabView
   panelHeight: number
   panelFocused: bool
   transcript: bool
+  conversation: Transcript
   dropTarget: bool
 shape Toast
   text: string
@@ -398,6 +465,10 @@ component Ocho
     send ui = dispatch("key-at", name, "terminal", 0, 0)
   action terminalExited(message: string) writes ui
     send ui = dispatch("press", `terminal:${message}`, "", 0, 0)
+  action transcriptScrolled(left: number, top: number) writes ui
+    send ui = dispatch("scrolled", "transcript", "", left, top)
+  action composerKeyDown(name: string) writes ui
+    send ui = dispatch("key-at", name, "transcript", 0, 0)
   action typed(id: string, value: string) writes ui
     send ui = dispatch("input", id, value, 0, 0)
   action hover(id: string, on: bool) writes ui, hoverId
@@ -425,7 +496,7 @@ component Ocho
         Rail(model=vm.rail, t=t, hoverId=hoverId, press=press, hover=hover, panned=panned, doubleClick=doubleClick, contextMenu=contextMenu)
         column flex=1 min-width=0 min-height=0
           when vm.onTab
-            TabBody(model=vm.tab, t=t, appearance=(t.dark ? "dark" : "light"), hoverId=hoverId, press=press, hover=hover, terminalKeyDown=terminalKeyDown, exited=terminalExited)
+            TabBody(model=vm.tab, t=t, appearance=(t.dark ? "dark" : "light"), hoverId=hoverId, press=press, hover=hover, terminalKeyDown=terminalKeyDown, exited=terminalExited, typed=typed, scrolled=transcriptScrolled, composerKeyDown=composerKeyDown)
           else
             Manager(model=vm.manager, t=t, hoverId=hoverId, press=press, pressAt=pressAt, hover=hover, typed=typed, searchKeyDown=searchKeyDown, doubleClick=doubleClick, contextMenu=contextMenu)
         when vm.secrets.visible

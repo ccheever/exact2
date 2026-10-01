@@ -5,6 +5,7 @@
 // running the tab's `fleet` argv (libghostty on macOS, a placeholder on the
 // web).
 
+use Conversation from "./transcript.contract"
 use Ellipsis from "./theme.contract"
 use Reset from "./theme.contract"
 
@@ -18,9 +19,15 @@ component TabBody
     hover: action
     terminalKeyDown: action
     exited: action
+    typed: action
+    scrolled: action
+    composerKeyDown: action
   view
     column flex=1 min-height=0 min-width=0 position="relative" background-color=t.termBg
-      column flex=1 min-height=0 min-width=0 position="relative"
+      // Transcript mode replaces the grid (ui.rs `render_tab_body`).
+      when model.transcript
+        Conversation(model=model.conversation, t=t, hoverId=hoverId, press=press, hover=hover, typed=typed, scrolled=scrolled, composerKeyDown=composerKeyDown)
+      column flex=1 min-height=0 min-width=0 position="relative" display=(model.transcript ? "none" : "flex")
         ghostty-terminal testId="terminal" tab=model.key argv=model.argvJson cwd=model.cwd scheme=appearance flex=1 min-height=0 width="100%" key=terminalKeyDown message=exited
         // The disconnected scrim (ui.rs:3115): the last healthy frame stays under it.
         when model.overlay == "disconnected" or model.overlay == "reconnecting"

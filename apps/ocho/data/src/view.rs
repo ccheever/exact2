@@ -324,16 +324,20 @@ fn tab_view(ws: &Workspace, _theme: &Theme) -> Json {
         "panelCwd": "",
         "panelHeight": 260,
         "panelFocused": false,
-        "transcript": false,
+        "transcript": ws.transcript_visible(),
+        "conversation": ws.transcript_view(),
         "dropTarget": false,
     })
 }
+
+/// The message dialog with no observed reply (ui.rs).
+const NO_MESSAGE: &str = "No assistant message observed yet. New Ocho launches install status hooks. Existing sessions can use fleet hooks codex|claude|opencode on their machine. Ocho pre-trusts its Codex hooks; native hook reload rules still apply.";
 
 fn card(kind: &str, width: f64, top: bool) -> Json {
     json!({
         "kind": kind, "width": width, "top": top, "title": "", "subtitle": "", "pill": "", "pillColor": "",
         "glyph": "", "placeholder": "", "query": "", "status": "", "statusError": false, "rows": [],
-        "index": 0, "footer": "", "body": "", "bodyMarkdown": false, "fields": [], "buttons": [], "hint": "", "focusId": "",
+        "index": 0, "footer": "", "body": "", "bodyMarkdown": false, "blocks": [], "fields": [], "buttons": [], "hint": "", "focusId": "",
     })
 }
 
@@ -387,20 +391,28 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
             )
         }
         Overlay::Message(item) => {
+            // ui.rs `Overlay::Message`: the last agent message as Markdown,
+            // the hook warning under it.
             let s = &item.session;
-            let source = if s.status_source.is_empty() {
-                "unknown"
+            let mut message = if s.last_message.is_empty() {
+                NO_MESSAGE.to_string()
             } else {
-                s.status_source.as_str()
+                session::clean(&s.last_message)
             };
+            if !s.hook_warning.is_empty() {
+                message.push_str("\n\n");
+                message.push_str(&s.hook_warning);
+            }
+            let blocks = crate::markdown_doc::to_json(&crate::markdown_doc::parse(&message), false);
             merge(
                 card("message", 720.0, false),
                 json!({
                     "title": session::clean(&s.title),
-                    "subtitle": format!("{} · source: {} · {}", session_state(s), source, item.machine.name),
-                    "body": if s.last_message.is_empty() { "No message yet.".to_string() } else { s.last_message.clone() },
+                    "subtitle": format!("{} · source: {} · {}", s.state, s.status_source, item.machine.name),
+                    "body": message,
                     "bodyMarkdown": true,
-                    "hint": "Esc · Enter · q · m close",
+                    "blocks": blocks,
+                    "buttons": [{ "id": "message-close", "label": "Close", "hint": "Esc", "primary": true }],
                 }),
             )
         }

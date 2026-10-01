@@ -314,14 +314,18 @@ impl Workspace {
     }
 
     /// Open a session a finder chose: attach it, or show it in the list.
-    fn open_found(&mut self, machine_id: &str, session_id: &str, gone: String) {
+    /// Open a finder's choice; `true` when it attached (a conversation hit
+    /// then shows its transcript at the matching turn).
+    fn open_found(&mut self, machine_id: &str, session_id: &str, gone: String) -> bool {
         // Decide on the session as the feed has it now, not the finder's copy.
         let Some(item) = self.session_item(machine_id, session_id) else {
             self.set_error(gone);
-            return;
+            return false;
         };
         self.overlay = Overlay::None;
+        let attachable = item.session.can_attach();
         self.open_session_item(item);
+        attachable
     }
 
     /// A key while a dialog of this module is open; `true` when it was one.
@@ -361,7 +365,9 @@ impl Workspace {
                     FinderKey::Chosen(choice) => {
                         let (m, s) = (choice.hit.machine.clone(), choice.hit.session.clone());
                         let gone = finders::conversation_gone(&choice.hit);
-                        self.open_found(&m, &s, gone);
+                        if self.open_found(&m, &s, gone) {
+                            self.reveal_transcript_turn(choice.hit.turn);
+                        }
                     }
                     FinderKey::Closed => {
                         self.topics.close();
@@ -437,7 +443,9 @@ impl Workspace {
                 if let Some(choice) = self.topics.press(rest) {
                     let (m, s) = (choice.hit.machine.clone(), choice.hit.session.clone());
                     let gone = finders::conversation_gone(&choice.hit);
-                    self.open_found(&m, &s, gone);
+                    if self.open_found(&m, &s, gone) {
+                        self.reveal_transcript_turn(choice.hit.turn);
+                    }
                 }
                 true
             }

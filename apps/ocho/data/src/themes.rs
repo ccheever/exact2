@@ -518,7 +518,7 @@ impl ThemePicker {
         json!({
             "kind": "picker", "width": WIDTH, "top": true, "title": "", "subtitle": "", "pill": "", "pillColor": "",
             "glyph": "›", "placeholder": PLACEHOLDER, "query": self.picker.query, "status": status, "statusError": false,
-            "rows": rows, "index": self.picker.index, "footer": FOOTER, "body": "", "bodyMarkdown": false, "fields": [],
+            "rows": rows, "index": self.picker.index, "footer": FOOTER, "body": "", "bodyMarkdown": false, "blocks": [], "fields": [],
             "buttons": [], "hint": "", "focusId": "overlay-query-input",
         })
     }

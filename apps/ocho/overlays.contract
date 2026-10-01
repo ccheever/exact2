@@ -4,6 +4,7 @@
 // (ui.rs:1376), anchored to its trigger or at the pointer.
 
 use Icon from "./icons.contract"
+use MarkdownBlocks from "./markdown.contract"
 use Ellipsis from "./theme.contract"
 use Reset from "./theme.contract"
 use Card from "./theme.contract"
@@ -124,13 +125,19 @@ component Overlays
                   when b.hint != ""
                     text b.hint font-size=11 line-height="18px" color=t.muted
           // ---- Message (m): title, meta line, markdown body ----
+          // ---- The last agent message (ui.rs Overlay::Message): title, the
+          // state line, the Markdown body (14 px, line height 1.6), Close ----
           when model.kind == "message"
-            row align-items="center" padding-left=16 padding-right=16 padding-top=12
-              text model.title flex=1 font-weight=600 class=Ellipsis
-              text model.hint font-size=12 line-height="19px" color=t.muted
-            text model.subtitle padding-left=16 padding-right=16 padding-top=4 font-size=12 line-height="19px" color=t.muted
-            scroll max-height=(min(420, windowHeight - 200)) padding-left=16 padding-right=16 padding-top=8 padding-bottom=12
-              text model.body font-size=14 line-height="22px" white-space="pre-wrap"
+            text model.title padding-left=16 padding-right=16 padding-top=12 font-weight=600
+            text model.subtitle padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="19px" color=t.muted
+            scroll testId="message-body" max-height=(min(420, windowHeight - 200)) padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 border-top-style="solid" border-top-width=1 border-color=t.border
+              MarkdownBlocks(blocks=model.blocks, t=t, size=14, lineHeight=22.4, hoverId=hoverId, keyPrefix="message", press=press, hover=hover)
+            row justify-content="flex-end" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8
+              each b in model.buttons key=b.id
+                button press=press(b.id) testId=b.id hover=hover(b.id) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == b.id ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text
+                  text b.label
+                  when b.hint != ""
+                    text b.hint font-size=11 line-height="17px" color=t.muted
           // ---- Help (ui.rs:3891): sections from the keymap, keys in Menlo at 200 wide ----
           when model.kind == "help"
             row align-items="center" padding-left=16 padding-right=16 padding-top=12

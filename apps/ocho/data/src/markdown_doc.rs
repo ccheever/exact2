@@ -921,5 +921,44 @@ pub fn to_json(blocks: &[Block], subdued: bool) -> Vec<Json> {
         subdued,
     };
     flatten(blocks, &mut at, &mut out);
+    number(&mut out);
     out
+}
+
+/// Give every record an `id` (`b3`, `r0`, `row1`, `c2`): a Contract `each`
+/// needs a key, and position is the identity here.
+fn number(blocks: &mut [Json]) {
+    fn runs(list: Option<&mut Json>) {
+        if let Some(Json::Array(runs)) = list {
+            for (i, run) in runs.iter_mut().enumerate() {
+                set(run, "id", json!(format!("r{i}")));
+            }
+        }
+    }
+    for (i, block) in blocks.iter_mut().enumerate() {
+        set(block, "id", json!(format!("b{i}")));
+        runs(block.get_mut("runs"));
+        let align: Vec<Json> = block
+            .get("align")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(Json::Array(rows)) = block.get_mut("rows") {
+            for (r, row) in rows.iter_mut().enumerate() {
+                set(row, "id", json!(format!("row{r}")));
+                if let Some(Json::Array(cells)) = row.get_mut("cells") {
+                    for (c, cell) in cells.iter_mut().enumerate() {
+                        set(cell, "id", json!(format!("c{c}")));
+                        // Each cell carries its column's alignment.
+                        set(
+                            cell,
+                            "align",
+                            align.get(c).cloned().unwrap_or(json!("left")),
+                        );
+                        runs(cell.get_mut("runs"));
+                    }
+                }
+            }
+        }
+    }
 }

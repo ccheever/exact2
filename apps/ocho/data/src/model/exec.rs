@@ -140,6 +140,7 @@ impl Workspace {
             }
             Command::Palette => self.overlay = Overlay::Palette(PickerState::new()),
             Command::ToggleSecrets => self.toggle_secrets(),
+            Command::ToggleTranscript => self.toggle_transcript(),
             Command::AttachIMessage => {
                 match self.tab_target().as_ref().and_then(imessage_attach_command) {
                     Some(args) => self.run_cli(args, "iMessage attached to this conversation"),

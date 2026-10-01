@@ -13,6 +13,9 @@ impl Workspace {
             self.secrets_press(id);
             return;
         }
+        if id.starts_with("transcript-") && self.transcript_press(id) {
+            return;
+        }
         // A click anywhere else takes the keyboard from the secret entry
         // (ui.rs: a terminal click; the entry is the only focus Ocho tracks).
         if !id.starts_with("key:") {
@@ -150,7 +153,7 @@ impl Workspace {
                     self.searching = false;
                 }
             }
-            "backdrop" => self.close_overlay(),
+            "backdrop" | "message-close" => self.close_overlay(),
             "button" | "pick" if self.extras_press(rest) => {}
             "whats-new" => self.execute(Command::WhatsNew),
             "pick" | "button" | "field" | "choice" | "dir" if self.dialog_press(kind, rest) => {}
@@ -338,6 +341,14 @@ impl Workspace {
         if self.dialog_key(&ks.key, &mods) || self.extras_key(&ks.key, &mods) {
             return;
         }
+        // Transcript mode takes the tab's keys (terminal_key_target).
+        if matches!(self.overlay, Overlay::None)
+            && self.tabs.active > 0
+            && !self.nav
+            && self.transcript_key(&ks.key, &mods)
+        {
+            return;
+        }
         if at == "terminal" && matches!(self.overlay, Overlay::None) {
             // The terminal took the key itself; only NAV's entry is ours.
             return;
@@ -517,6 +528,7 @@ impl Workspace {
         }
         match id {
             "secret-demo-input" => self.secrets.input(value),
+            "transcript-input" => self.transcript_input(value),
             "search" => {
                 self.query = value.to_string();
                 self.index = 0;

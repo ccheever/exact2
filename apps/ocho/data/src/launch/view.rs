@@ -52,6 +52,7 @@ pub fn overlay(kind: &str, title: &str, pill: &str, pill_color: &str) -> Json {
         "footer": "",
         "body": "",
         "bodyMarkdown": false,
+        "blocks": [],
         "fields": [],
         "buttons": [],
         "hint": "",

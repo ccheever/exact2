@@ -2,6 +2,7 @@
 //! entities and windows. One per app; the host has one window (LLP 1030),
 //! so there is one.
 
+mod conversation;
 mod dialogs;
 mod exec;
 mod extras;
@@ -127,6 +128,8 @@ pub enum Event {
     Pan(String, f64, f64),
     /// The host clock, in milliseconds, and the window's size.
     Tick(f64, f64, f64),
+    /// A scroll node moved to (left, top); nothing is repainted.
+    Scrolled(String, f64, f64),
     /// Something the contract has no name for; ignored.
     Unknown,
 }
@@ -153,6 +156,7 @@ impl Event {
             "input" => Event::Input(a.into(), b.into()),
             "pan" => Event::Pan(a.into(), x, y),
             "tick" => Event::Tick(a.parse().unwrap_or(0.0), x, y),
+            "scrolled" => Event::Scrolled(a.into(), x, y),
             _ => Event::Unknown,
         }
     }
@@ -219,6 +223,20 @@ pub enum Reply {
     SecretAction,
     /// `fleet secret link M S NAME` from a terminal link.
     SecretLink(crate::secret_requests::Source),
+    /// `fleet transcript M S --revision R` for a tab's conversation.
+    Transcript {
+        /// The tab.
+        key: String,
+        /// The read's number (`TranscriptView::begin`).
+        request: u64,
+    },
+    /// `submit-terminal`: the transcript composer's draft was pasted.
+    TranscriptSent {
+        /// The tab.
+        key: String,
+        /// What was sent.
+        draft: String,
+    },
     /// A host job; nothing to apply.
     Host,
 }
@@ -360,6 +378,10 @@ pub struct Workspace {
     pub secrets: crate::secret_requests::Requests,
     /// When the secret lists were last read (`REFRESH_INTERVAL`).
     secrets_polled_at: f64,
+    /// Each session tab's conversation, by tab key.
+    pub transcripts: HashMap<String, crate::transcript::TranscriptView>,
+    /// Each transcript list's scroll, by tab key.
+    pub transcript_scroll: HashMap<String, conversation::TranscriptScroll>,
     /// The sessions watched for notifications.
     pub notifications: crate::notifications::Notifications,
     /// Field values of forms closed without submitting, by kind.
@@ -441,6 +463,8 @@ impl Workspace {
                 std::env::var_os("FLEET_SECRET_REQUESTS_DEMO").is_some(),
             ),
             secrets_polled_at: f64::NEG_INFINITY,
+            transcripts: HashMap::new(),
+            transcript_scroll: HashMap::new(),
             notifications: Default::default(),
             form_drafts: HashMap::new(),
             topics: Default::default(),
@@ -453,6 +477,14 @@ impl Workspace {
 
     /// Apply one event.
     pub fn dispatch(&mut self, event: Event) {
+        // A scroll only tells the model where a list is: no version moves,
+        // so nothing is asked of the view.
+        if let Event::Scrolled(id, _, top) = &event {
+            if id == "transcript" {
+                self.transcript_scrolled(*top);
+            }
+            return;
+        }
         self.version += 1;
         if !matches!(event, Event::Key { .. }) {
             self.bubbling_key = None;
@@ -484,7 +516,7 @@ impl Workspace {
             Event::Pan(id, dx, dy) => self.pan(&id, dx, dy),
             Event::DoubleClick(id) => self.double_click(&id),
             Event::ContextMenu(id, x, y) => self.context_menu(&id, x, y),
-            Event::Unknown => {}
+            Event::Unknown | Event::Scrolled(..) => {}
         }
         self.sync_window_title();
     }
@@ -516,6 +548,7 @@ impl Workspace {
             self.refresh_secret_requests();
             self.refresh_secret_alerts();
         }
+        self.refresh_transcript(false);
         if matches!(self.overlay, Overlay::Conversations) {
             // The debounced search comes due between keystrokes (upstream
             // spawns a timer; the tick is the contract's only clock).
@@ -666,6 +699,8 @@ impl Workspace {
             | Reply::SecretAlert(_)
             | Reply::SecretAction
             | Reply::SecretLink(_) => self.secret_reply(what, result),
+            Reply::Transcript { key, request } => self.transcript_arrived(&key, request, result),
+            Reply::TranscriptSent { key, draft } => self.transcript_sent(&key, &draft, result),
             Reply::Cli {
                 done,
                 undo_on_success,
@@ -924,6 +959,15 @@ impl Workspace {
                     return;
                 };
                 stamp(&mut update.sessions);
+                // A provider reply landed in the conversation on screen: read
+                // it now rather than at the next interval.
+                let refresh_reply = self.transcript_visible()
+                    && self.tab_target().is_some_and(|current| {
+                        current.machine.id == update.machine_id
+                            && update.sessions.iter().any(|incoming| {
+                                crate::transcript::reply_observed(&current.session, incoming)
+                            })
+                    });
                 if let Some(machine) = self
                     .state
                     .machines
@@ -940,6 +984,9 @@ impl Workspace {
                             }
                         }
                     }
+                }
+                if refresh_reply {
+                    self.refresh_transcript(true);
                 }
             }
             "error" if !event.error.is_empty() => self.set_error(event.error),

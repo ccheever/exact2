@@ -231,3 +231,67 @@ fn a_secret_link_in_a_terminal_opens_its_pending_request() {
     w.dispatch(Event::Press("terminal:secret:ocho://secret/A/B".into()));
     assert!(w.take_jobs().is_empty());
 }
+
+#[test]
+fn option_command_t_toggles_the_transcript_on_a_session_tab() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.dispatch(Event::Press("key:meta+alt+t".into()));
+    assert!(w.transcript_visible());
+    let jobs = w.take_jobs();
+    assert!(jobs.iter().any(|j| j.argv[0] == "transcript"), "{jobs:?}");
+}
+
+fn key(w: &mut Workspace, name: &str) {
+    w.dispatch(Event::Key {
+        name: name.into(),
+        mods: String::new(),
+        at: String::new(),
+    });
+}
+
+#[test]
+fn transcript_keys_scroll_by_target_and_send_through_the_terminal() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.execute(Command::ToggleTranscript);
+    let read = w
+        .take_jobs()
+        .into_iter()
+        .find(|j| j.argv[0] == "transcript")
+        .unwrap();
+    w.apply_io(&serde_json::json!({"replies": [{"id": read.id, "kind": "transcript", "status": 0,
+        "stdout": r#"{"revision":"r1","entries":[{"kind":"user","text":"hi"},{"kind":"assistant","text":"**hello**"}]}"#,
+        "stderr": ""}]}));
+    let top = |w: &Workspace| w.transcript_view()["scrollTop"].as_f64().unwrap();
+    assert_eq!(top(&w), 1.0e9, "a fresh transcript starts at the end");
+    w.dispatch(Event::Scrolled("transcript".into(), 0.0, 400.0));
+    key(&mut w, "j");
+    assert_eq!(top(&w), 460.0);
+    key(&mut w, "k");
+    assert_eq!(top(&w), 340.0);
+    key(&mut w, "Home");
+    assert_eq!(top(&w), 0.0);
+    let entries = w.transcript_view()["entries"].clone();
+    assert_eq!(entries[1]["blocks"][0]["runs"][0]["bold"], true);
+    assert_eq!(entries[1]["blocks"][0]["id"], "b0");
+    // i opens the composer; Enter sends through the terminal.
+    key(&mut w, "i");
+    w.dispatch(Event::Input("transcript-input".into(), "ship it".into()));
+    key(&mut w, "Enter");
+    let submit = w
+        .take_jobs()
+        .into_iter()
+        .find(|j| j.argv[0] == "submit-terminal")
+        .unwrap();
+    assert_eq!(submit.argv[1], "m1:s1:false");
+    assert_eq!(submit.stdin, "ship it");
+    w.apply_io(&serde_json::json!({"replies": [{"id": submit.id, "kind": "host", "status": 0, "stdout": "sent", "stderr": ""}]}));
+    let view = w.transcript_view();
+    assert_eq!(view["draft"], "");
+    assert_eq!(view["entries"].as_array().unwrap().len(), 3);
+    // Esc leaves the composer, a second Esc leaves transcript mode.
+    key(&mut w, "Escape");
+    key(&mut w, "Escape");
+    assert!(!w.transcript_visible());
+}

@@ -63,7 +63,7 @@ fn overlay(
     json!({
         "kind": "picker", "width": width, "top": true, "title": "", "subtitle": "", "pill": "", "pillColor": "",
         "glyph": glyph, "placeholder": placeholder, "query": query, "status": status, "statusError": status_error,
-        "rows": rows, "index": index, "footer": footer, "body": "", "bodyMarkdown": false, "fields": [],
+        "rows": rows, "index": index, "footer": footer, "body": "", "bodyMarkdown": false, "blocks": [], "fields": [],
         "buttons": [], "hint": "", "focusId": "overlay-query-input",
     })
 }

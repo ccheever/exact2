@@ -1,0 +1,78 @@
+// Transcript mode (ui.rs `render_transcript`, 1:1): the conversation as a
+// bottom-anchored list of rows centred at most 736 wide, then the composer.
+// TEXT_SM 12 px; rows 15 px at line height 1.7.
+
+use MarkdownBlocks from "./markdown.contract"
+use Reset from "./theme.contract"
+
+component Conversation
+  props
+    model: Transcript
+    t: Theme
+    hoverId: string
+    press: action
+    hover: action
+    typed: action
+    scrolled: action
+    composerKeyDown: action
+  view
+    column testId="transcript-view" flex=1 min-height=0 width="100%" background-color=t.bg
+      when model.error != ""
+        text model.error padding-left=24 padding-right=24 padding-top=12 padding-bottom=12 font-size=12 line-height="19px" color=t.warn
+      when model.empty != ""
+        column padding=32 gap=8 color=t.muted
+          text model.empty
+          when model.working != ""
+            WorkingLine(ind=model.workingIndicator, t=t)
+      else
+        scroll id="transcript" testId="transcript" scroll=scrolled scrollFollowEnd=true scrollTop=model.scrollTop flex=1 min-height=0 overflow-x="hidden"
+          column padding-top=16 padding-bottom=16
+            each e in model.entries key=e.id
+              column testId=e.id padding-left=24 padding-right=24 padding-top=((e.kind == "user" and not e.first) ? 24 : 12) padding-bottom=12 font-size=15 line-height="25.5px" color=t.text
+                column width="100%" max-width=736 margin-left="auto" margin-right="auto" min-width=0
+                  when e.kind == "user"
+                    row justify-content="flex-end"
+                      column max-width="85%" min-width=0 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 border-radius=20 background-color=t.elevated
+                        MarkdownBlocks(blocks=e.blocks, t=t, size=15, lineHeight=25.5, hoverId=hoverId, keyPrefix=e.id, press=press, hover=hover)
+                  when e.kind == "assistant"
+                    MarkdownBlocks(blocks=e.blocks, t=t, size=15, lineHeight=25.5, hoverId=hoverId, keyPrefix=e.id, press=press, hover=hover)
+                  when e.kind == "tool-group"
+                    column font-size=13 line-height="20px" color=t.muted
+                      when e.live != ""
+                        WorkingLine(ind=e.liveIndicator, t=t)
+                      else
+                        text e.summary
+                  when e.kind == "agents-md"
+                    column gap=12
+                      button press=press(e.toggleId) testId=e.toggleId hover=hover(e.toggleId) class=Reset display="flex" flex-direction="row" align-items="center" gap=8 font-size=13 line-height="20px" color=(hoverId == e.toggleId ? t.text : t.muted)
+                        text (e.collapsed ? "▸" : "▾")
+                        text "AGENTS.md instructions"
+                      when not e.collapsed
+                        column padding-left=16 border-left-style="solid" border-left-width=1 border-color=t.border
+                          MarkdownBlocks(blocks=e.blocks, t=t, size=15, lineHeight=25.5, hoverId=hoverId, keyPrefix=e.id, press=press, hover=hover)
+            when model.working != ""
+              column padding-left=24 padding-right=24
+                column width="100%" max-width=736 margin-left="auto" margin-right="auto" margin-top=8
+                  WorkingLine(ind=model.workingIndicator, t=t)
+      // The composer: border_t_1, px_6 py_3; the input grows to six lines.
+      column border-top-style="solid" border-top-width=1 border-color=t.border padding-left=24 padding-right=24 padding-top=12 padding-bottom=12 flex-shrink=0
+        row width="100%" max-width=736 margin-left="auto" margin-right="auto" align-items="flex-end" gap=12
+          box flex=1 min-width=0 position="relative" border-radius=16 background-color=t.elevated padding-left=16 padding-right=16 padding-top=8 padding-bottom=8
+            when model.draft == ""
+              text model.placeholder position="absolute" left=16 top=8 color=t.placeholder font-size=15 line-height="21px"
+            textarea id="transcript-input" testId="transcript-input" value=model.draft input=typed("transcript-input") key=composerKeyDown focus=press("transcript-input") blur=press("transcript-blur") autofocus=model.editing placeholder="" aria-label=model.placeholder width="100%" height=(model.rows * 21) line-height="21px" padding=0 border-width=0 background-color="rgba(0,0,0,0)" font-size=15 font-family="system-ui" color=t.text box-sizing="border-box"
+          button press=press("transcript-send") testId="transcript-send" hover=hover("transcript-send") aria-label="Send" class=Reset flex-shrink=0 border-radius=999 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 background-color=(model.canSend ? t.accent : t.elevated) color=(model.canSend ? t.surface : t.muted)
+            text model.sendLabel
+
+// status_indicator.rs `working_indicator` at 12 px: Claude's glyph and
+// header in its tone, then the rest; others the header then muted rest.
+component WorkingLine
+  props
+    ind: Indicator
+    t: Theme
+  view
+    row align-items="center" gap=4 font-size=12 line-height="19px" min-width=0
+      when ind.glyph != ""
+        text ind.glyph color=ind.headColor width=16 flex-shrink=0
+      text ind.head color=ind.headColor
+      text ind.rest color=ind.restColor
