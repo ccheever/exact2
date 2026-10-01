@@ -2,6 +2,7 @@
 //! entities and windows. One per app; the host has one window (LLP 1030),
 //! so there is one.
 
+mod connection;
 mod conversation;
 mod dialogs;
 mod exec;
@@ -324,6 +325,10 @@ pub struct Workspace {
     pub tabs: TabTree,
     /// Keys of tabs whose terminal has exited.
     pub exited: std::collections::HashSet<String>,
+    /// Each exited terminal's status, when the host reported one.
+    pub exit_codes: HashMap<String, i32>,
+    /// Each terminal's transport, as `fleet attach` reports it.
+    pub connections: HashMap<String, connection::Connection>,
     /// The drop target while a tab is dragged.
     pub tab_drop: Option<TabDrop>,
     /// The tab being dragged, and the pointer's y offset from its row's top.
@@ -433,6 +438,8 @@ impl Workspace {
             nav: false,
             tabs: TabTree::new(),
             exited: Default::default(),
+            exit_codes: HashMap::new(),
+            connections: HashMap::new(),
             tab_drop: None,
             drag: None,
             rail_width: 236.0,

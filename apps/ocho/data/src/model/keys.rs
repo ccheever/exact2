@@ -82,20 +82,20 @@ impl Workspace {
             }
             // The active tab's terminal view reported: "exited" when its
             // process ended, "missing"/"unavailable" when it could not show one.
+            // The active tab's terminal view reported: "exited[:CODE]" when
+            // its process ended, "connection:{json}" for its transport,
+            // "missing"/"unavailable" when it could not show one.
             "terminal" => {
                 if let Some(tab) = self.tabs.active_tab() {
                     let key = tab.key.clone();
                     match rest {
-                        "exited" => {
-                            self.exited.insert(key);
-                        }
                         "unavailable" => {
                             self.set_error("No terminal: libghostty is not available in this build")
                         }
                         link if link.starts_with("secret:") => {
                             self.open_terminal_secret_link(&key, &link["secret:".len()..]);
                         }
-                        _ => {}
+                        other => self.terminal_report(&key, other),
                     }
                 }
             }

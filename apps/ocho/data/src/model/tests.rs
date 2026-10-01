@@ -295,3 +295,48 @@ fn transcript_keys_scroll_by_target_and_send_through_the_terminal() {
     key(&mut w, "Escape");
     assert!(!w.transcript_visible());
 }
+
+#[test]
+fn a_retryable_transport_reconnects_in_place_and_the_strip_says_so() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.dispatch(Event::Tick(1000.0, 0.0, 0.0));
+    w.take_jobs();
+    w.dispatch(Event::Press(
+        r#"terminal:connection:{"transport":"ssh","state":"disconnected","retryable":true}"#.into(),
+    ));
+    let strip = w.connection_strip(false);
+    assert_eq!(strip["stripLabel"], "Disconnected");
+    assert_eq!(strip["stripRetry"], true);
+    assert_eq!(w.connection_scrim(), (true, false));
+    w.dispatch(Event::Press("tab:retry".into()));
+    let jobs = w.take_jobs();
+    assert_eq!(jobs[0].argv, ["retry-connection", "m1:s1:false"]);
+    let strip = w.connection_strip(false);
+    assert_eq!(strip["stripLabel"], "Reconnecting…");
+    assert_eq!(strip["stripRetry"], false);
+    w.dispatch(Event::Tick(4000.0, 0.0, 0.0));
+    assert_eq!(
+        w.connection_strip(false)["stripDetail"],
+        "3s · SSH input resumes when attached"
+    );
+    w.dispatch(Event::Press(
+        r#"terminal:connection:{"transport":"ssh","state":"connected"}"#.into(),
+    ));
+    assert_eq!(w.connection_strip(false)["strip"], "");
+}
+
+#[test]
+fn an_exit_status_is_kept_and_reconnect_clears_it() {
+    let mut w = ws();
+    with_session_tab(&mut w, "m1", "s1");
+    w.dispatch(Event::Press("terminal:exited:255".into()));
+    assert_eq!(w.exit_codes.get("m1:s1:false"), Some(&255));
+    w.execute(Command::ReconnectTab);
+    assert!(w.exit_codes.is_empty());
+    assert!(!w.exited.contains("m1:s1:false"));
+    let jobs = w.take_jobs();
+    assert!(jobs
+        .iter()
+        .any(|j| j.argv == ["reconnect-terminal", "m1:s1:false"]));
+}

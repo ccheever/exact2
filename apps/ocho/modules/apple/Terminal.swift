@@ -175,6 +175,9 @@ final class GhosttyRuntime {
             return true
         case GHOSTTY_ACTION_RING_BELL:
             return true
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            view?.exitCode = Int(action.action.child_exited.exit_code)
+            return true
         case GHOSTTY_ACTION_OPEN_URL:
             // A ⌘-click on a link (terminal.rs on_mouse_up): an
             // `ocho://secret/NAME` asks the model for that secret; anything
@@ -200,6 +203,8 @@ final class GhosttyRuntime {
 final class SurfaceView: NSView {
     private(set) var surface: ghostty_surface_t?
     var onExit: (() -> Void)?
+    /// The child's exit status, when libghostty showed it.
+    var exitCode: Int?
     var onTitle: ((String) -> Void)?
     /// A ⌘-clicked `ocho://secret/NAME`; the tab's instance forwards it.
     var onSecretLink: ((String) -> Void)?
@@ -481,6 +486,11 @@ final class TerminalStore {
     private weak var module: OchoModule?
     private var views: [String: SurfaceView] = [:]
     private(set) var exited: Set<String> = []
+    /// Each terminal's exit status, when libghostty reported one.
+    private(set) var exitCodes: [String: Int] = [:]
+    private var feeds: [String: ConnectionFeed] = [:]
+    /// Each terminal's last transport report, replayed when its tab shows.
+    private(set) var connections: [String: String] = [:]
 
     init(module: OchoModule) { self.module = module }
 
@@ -497,9 +507,16 @@ final class TerminalStore {
         let colors = GhosttyRuntime.shared.terminalColors
         env["FLEET_TERMINAL_FOREGROUND"] = colors.fg
         env["FLEET_TERMINAL_BACKGROUND"] = colors.bg
+        let feed = ConnectionFeed { [weak self] json in
+            self?.connections[key] = json
+            NotificationCenter.default.post(name: .ochoTerminalConnection, object: key)
+        }
+        env["FLEET_TERMINAL_EVENTS"] = feed?.path ?? ""
+        feeds[key] = feed
         let view = SurfaceView(command: [binary] + argv, environment: env)
-        view.onExit = { [weak self] in
+        view.onExit = { [weak self, weak view] in
             self?.exited.insert(key)
+            if let code = view?.exitCode { self?.exitCodes[key] = code }
             NotificationCenter.default.post(name: .ochoTerminalExited, object: key)
         }
         views[key] = view
@@ -523,9 +540,15 @@ final class TerminalStore {
     /// ⌘K: the scrollback goes (`clear` through the shell would need a prompt).
     func clear(tab: String) { views[tab]?.paste("\u{0C}") }
 
+    /// The connection strip's Retry while the transport can retry.
+    func retryConnection(tab: String) { feeds[tab]?.retry() }
+
     func close(tab: String) {
         if let v = views.removeValue(forKey: tab) { v.removeFromSuperview() }
         exited.remove(tab)
+        exitCodes.removeValue(forKey: tab)
+        feeds.removeValue(forKey: tab)
+        connections.removeValue(forKey: tab)
     }
 
     func destroyAll() {
@@ -536,6 +559,7 @@ final class TerminalStore {
 
 extension Notification.Name {
     static let ochoTerminalExited = Notification.Name("ocho.terminal.exited")
+    static let ochoTerminalConnection = Notification.Name("ocho.terminal.connection")
     static let ochoTerminalColors = Notification.Name("ocho.terminal.colors")
 }
 
@@ -547,13 +571,28 @@ final class TerminalInstance: ExactNativeInstance {
     private let container = TerminalContainer(frame: .zero)
     private var tabId = ""
     private var observer: NSObjectProtocol?
+    private var connectionObserver: NSObjectProtocol?
+
+    /// "exited", or "exited:CODE" when libghostty reported the status.
+    private func exitMessage() -> String {
+        guard let code = module?.terminals.exitCodes[tabId] else { return "exited" }
+        return "exited:\(code)"
+    }
+
+    private func reportConnection() {
+        if let json = module?.terminals.connections[tabId] { events.message("connection:\(json)") }
+    }
 
     init(module: OchoModule, props: [String: String], events: ExactNativeEvents) throws {
         self.module = module
         super.init(events: events)
         observer = NotificationCenter.default.addObserver(forName: .ochoTerminalExited, object: nil, queue: .main) { [weak self] note in
             guard let self, (note.object as? String) == self.tabId else { return }
-            self.events.message("exited")
+            self.events.message(self.exitMessage())
+        }
+        connectionObserver = NotificationCenter.default.addObserver(forName: .ochoTerminalConnection, object: nil, queue: .main) { [weak self] note in
+            guard let self, (note.object as? String) == self.tabId else { return }
+            self.reportConnection()
         }
         try setProps(props)
     }
@@ -582,12 +621,14 @@ final class TerminalInstance: ExactNativeInstance {
         surface.applyScheme()
         surface.frame = container.bounds
         container.addSubview(surface)
-        if module.terminals.exited.contains(next) { events.message("exited") }
+        if module.terminals.exited.contains(next) { events.message(exitMessage()) }
+        reportConnection()
         events.load()
     }
 
     override func destroy() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let connectionObserver { NotificationCenter.default.removeObserver(connectionObserver) }
         container.subviews.forEach { $0.removeFromSuperview() }
     }
 }
@@ -607,5 +648,79 @@ final class TerminalContainer: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         for v in subviews { v.frame = bounds }
+    }
+}
+
+/// A terminal's transport reports (terminal/connection.rs `Feed`): `fleet
+/// attach` sends `{"transport","state","retryable"}` datagrams to
+/// `$FLEET_TERMINAL_EVENTS`, a socket in a private directory; a "retry"
+/// datagram to the directory's `retry` asks it to reconnect now.
+final class ConnectionFeed {
+    private static var next = 0
+    let directory: String
+    private var fd: Int32 = -1
+    private var source: DispatchSourceRead?
+
+    var path: String { directory + "/status" }
+
+    init?(onEvent: @escaping (String) -> Void) {
+        var dir = ""
+        repeat {
+            // Short paths fit Darwin's 104-byte sockaddr_un limit.
+            dir = "/tmp/fleet-pty-\(getpid())-\(ConnectionFeed.next)"
+            ConnectionFeed.next += 1
+        } while mkdir(dir, 0o700) != 0 && errno == EEXIST
+        directory = dir
+        fd = socket(AF_UNIX, SOCK_DGRAM, 0)
+        guard fd >= 0, ConnectionFeed.withAddress(directory + "/status", { addr, len in bind(fd, addr, len) }) == 0 else {
+            if fd >= 0 { close(fd) }
+            rmdir(dir)
+            return nil
+        }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+        let socket = fd
+        source.setEventHandler {
+            var bytes = [UInt8](repeating: 0, count: 512)
+            while true {
+                let n = recv(socket, &bytes, bytes.count, 0)
+                guard n > 0 else { break }
+                onEvent(String(decoding: bytes[0..<n], as: UTF8.self))
+            }
+        }
+        source.resume()
+        self.source = source
+    }
+
+    /// Ask `fleet attach` to reconnect now.
+    func retry() {
+        let out = socket(AF_UNIX, SOCK_DGRAM, 0)
+        guard out >= 0 else { return }
+        defer { close(out) }
+        let message = Array("retry".utf8)
+        _ = ConnectionFeed.withAddress(directory + "/retry") { addr, len in
+            message.withUnsafeBytes { sendto(out, $0.baseAddress, message.count, 0, addr, len) } >= 0 ? 0 : -1
+        }
+    }
+
+    deinit {
+        source?.cancel()
+        if fd >= 0 { close(fd) }
+        unlink(path)
+        rmdir(directory)
+    }
+
+    private static func withAddress(_ path: String, _ body: (UnsafePointer<sockaddr>, socklen_t) -> Int32) -> Int32 {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: addr.sun_path) else { return -1 }
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            raw.copyBytes(from: bytes)
+            raw[bytes.count] = 0
+        }
+        return withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
     }
 }

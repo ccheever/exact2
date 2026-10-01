@@ -183,7 +183,7 @@ impl Workspace {
             Command::ReconnectTab => {
                 if self.tabs.active > 0 {
                     let pos = self.tabs.active - 1;
-                    if self.exited.contains(&self.tabs.tabs[pos].key) {
+                    if self.terminal_can_reconnect(&self.tabs.tabs[pos].key) {
                         self.reconnect_tab(pos);
                     } else {
                         self.set_message("This terminal is still connected");
@@ -628,7 +628,13 @@ impl Workspace {
     /// Spawn the terminal again (workspace.rs `reconnect_tab`).
     pub fn reconnect_tab(&mut self, pos: usize) {
         let key = self.tabs.tabs[pos].key.clone();
+        // A retryable transport reconnects in place.
+        if self.retry_connection(&key) {
+            return;
+        }
         self.exited.remove(&key);
+        self.exit_codes.remove(&key);
+        self.connections.remove(&key);
         self.host(vec!["reconnect-terminal".into(), key], String::new());
     }
 

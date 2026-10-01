@@ -297,7 +297,7 @@ fn tab_view(ws: &Workspace, _theme: &Theme) -> Json {
         return Json::Null;
     };
     let exited = ws.exited.contains(&tab.key);
-    json!({
+    let base = json!({
         "key": tab.key,
         "title": tab.title,
         "argv": tab.reconnect,
@@ -327,7 +327,8 @@ fn tab_view(ws: &Workspace, _theme: &Theme) -> Json {
         "transcript": ws.transcript_visible(),
         "conversation": ws.transcript_view(),
         "dropTarget": false,
-    })
+    });
+    merge(base, ws.connection_strip(false))
 }
 
 /// The message dialog with no observed reply (ui.rs).

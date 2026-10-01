@@ -203,7 +203,7 @@ const STYLE = `
 
 export function create(tag, element, json, event) {
   const root = element.shadowRoot ?? element.attachShadow({ mode: 'open' });
-  const h = { element, root, tab: '' };
+  const h = { element, root, tab: '', event };
   root.innerHTML = `<style>${STYLE}</style><div class="pane"></div>`;
   h.pane = root.querySelector('.pane');
   setProps(h, json);
@@ -216,6 +216,8 @@ export function setProps(h, json) {
   let argv = [];
   try { argv = JSON.parse(props.argv || '[]'); } catch { argv = []; }
   h.pane.innerHTML = `<div class="muted">ocho · ${h.tab}</div><div>$ fleet ${argv.join(' ')}</div><div class="muted">The terminal runs in the macOS app (libghostty). This is the web preview.</div><div><span class="cursor"></span></div>`;
+  // A remote tab's transport (FLEET_TERMINAL_EVENTS): redwood is mid-reconnect.
+  if (h.tab.startsWith('m-redwood:')) h.event?.(8, 'connection:{"transport":"ssh","state":"reconnecting","retryable":true}');
 }
 
 export function destroy(h) { h.root.innerHTML = ''; }

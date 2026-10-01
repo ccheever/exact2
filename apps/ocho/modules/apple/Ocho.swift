@@ -329,6 +329,11 @@ final class JobRunner {
                 try? body.write(to: url)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                 finish(["status": 0, "stderr": "", "stdout": ""])
+            case "retry-connection":
+                DispatchQueue.main.async {
+                    if argv.count > 1 { terminals.retryConnection(tab: argv[1]) }
+                    finish(["status": 0, "stderr": "", "stdout": ""])
+                }
             case "clear-terminal", "reconnect-terminal":
                 DispatchQueue.main.async {
                     if argv.count > 1 { argv[0] == "clear-terminal" ? terminals.clear(tab: argv[1]) : terminals.close(tab: argv[1]) }
