@@ -7,7 +7,7 @@
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
 import { sourceTypes } from './names.js';
-import { clock, commit, journal, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, journal, R, Resources } from './rt.js';
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -123,7 +123,20 @@ export function install(data, mixed = false, modules = null) {
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
     keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId, location.href) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
+  // A module's `kept(source, args, value)` is given the answers its page was
+  // rendered with, once, before it is first asked: they are its own answers,
+  // made by the render host, which it may keep as it keeps any other.
+  let seeded = !source.kept;
+  const seed = () => {
+    seeded = true;
+    const page = checkpoint().kept;
+    for (const r of page ? Resources : []) {
+      const k = page.get(r.name), types = sourceTypes[r.source];
+      if (k && types) try { source.kept(r.source, k[0].map((a, i) => named(a, types[0][i])), named(k[1], types[1])); } catch {}
+    }
+  };
   const ts = (name, args, store, target) => {
+    if (!seeded) seed();
     const [params, result] = sourceTypes[name] ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = { get: k => { seen.read = true; return store.get(k); }, set: (k, v) => store.set(k, String(v)), forget: k => store.set(k, null),

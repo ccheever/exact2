@@ -963,6 +963,21 @@ generation of `app.ts` is a restart with carry on the web too, not a new wasm
 program. Deterministic host refusals wait for a new edit; transient fetch failures
 retain the existing discovery retry behavior.
 
+*A served page's answers, given to the module* (2026-10-01, the JS target,
+`host/web-js/ts-data.js`). A module may export `kept(source, args, value)`.
+Before the browser first asks it anything, the runtime gives it each answer
+the page's document was rendered with (the checkpoint's, LLP 1048.000 D4),
+converted as any argument is: they are the module's own answers, made by the
+render host, which it may keep as it keeps any answer. Nothing else changes —
+a resource still asks its source whenever its arguments move, and what the
+source answers is its business. RealWorld keeps its
+reads by source, arguments and reader until anything writes, as the other
+RealWorlds' query caches keep a route's answers (Solid's router `query`, the
+served page's included), so coming back to the home feed shows it at once: the
+browse flow's "home" went from 239 to 19 ms on the benchmark's mobile profile
+(Solid 21). Other hosts don't call `kept`; a module that keeps answers only
+starts its cache with its own first reads there.
+
 ### D7 — Delivery: the module card carries bytecode; the runtime version carries the bytecode version
 
 LLP 1026 D9–D12 apply verbatim with one substitution: the update
