@@ -493,9 +493,7 @@ component Calendar
     if not dragging and not modalOpen
       monthAnchor = some(clock.month)
       selectedDay = some(clock.today)
-  // A month changes at once and fades in. The Mac host draws a view where its
-  // frame is, not where a translate moved it, so a slide would lose the text
-  // of the page leaving; each click counts.
+  // Each click turns one page; the pages slide by their laid-out origins.
   action goMonth(offset: number) writes monthAnchor
     if not dragging and not modalOpen
       monthAnchor = some(boundedMonth(month + offset))
@@ -839,8 +837,15 @@ component Calendar
           when clockReady
             box id="calendar-pages" testId="calendar-pages" position="relative" width="100%" height="100%"
               each page in pages key=page.id
-                when page.month == month
-                  MonthPage(page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, create=create, move=moveSelection, hover=hoverOn)
+                // The pages beside the month wait off the stage; a page turn moves every
+                // page by its laid-out origin, so each slides in place of the next.
+                when viewport.prefersReducedMotion
+                  when page.month == month
+                    MonthPage(page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, create=create, move=moveSelection, hover=hoverOn)
+                else
+                  when page.month >= month - 1 and page.month <= month + 1
+                    box testId=`month-slot-${page.id}` position="absolute" left=(page.month - month) * pageWidth top=0 width=pageWidth height="100%" layout-transition="320ms ease-out" inert=(page.month != month) aria-hidden=(page.month != month)
+                      MonthPage(page=page, left=0, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, create=create, move=moveSelection, hover=hoverOn)
       column testId="inspector" role="complementary" aria-label="Selected date" width=300 flex-shrink=0 height="100%" min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" border-style="solid" border-top-width=0 border-right-width=0 border-bottom-width=0 border-left-width=1 border-color=themeBorder background-color=themePanel
         column flex-shrink=0 padding-left=20 padding-right=16 padding-top=12 padding-bottom=10 gap=3
           text (clockReady ? agenda.label : "") testId="inspector-date" font-size=19 font-weight=700 letter-spacing=-0.3 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"

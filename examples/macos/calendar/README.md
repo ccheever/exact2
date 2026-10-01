@@ -48,8 +48,10 @@ and switches never follow a dark system appearance into the light page.
   the next or previous month. The selected date shows an inset, rounded accent
   tint.
 - A trackpad swipe left or right over the month turns exactly one month, however
-  far it travels. ‹ Today › and ⌘[ ⌘T ⌘] do the same. The month switches at once
-  and fades in. The header's ‹ Today › have no background, only a hover tint.
+  far it travels. ‹ Today › and ⌘[ ⌘T ⌘] do the same. The month slides: the
+  pages on either side wait off the stage, and a turn moves every page by its
+  laid-out origin (`layout-transition`, 320 ms), so the leaving page keeps its
+  text on the Mac. With reduced motion the month switches at once. The header's ‹ Today › have no background, only a hover tint.
 - Click an inspector row to edit it. Drags start only from inspector rows
   (events, plans, todos, the date's sticker) and palette stickers: press and
   move past three points. An event's color dot grows into the event block, its

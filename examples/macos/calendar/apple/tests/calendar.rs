@@ -468,15 +468,16 @@ fn a_click_selects_a_date_and_arrows_move_the_selection_across_months() {
 }
 
 #[test]
-fn month_buttons_switch_at_once_count_every_click_and_today_returns() {
+fn month_buttons_turn_pages_count_every_click_and_today_returns() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.press("month-next");
     assert_eq!(app.derived("month"), &Value::Number(SEPTEMBER + 1.0));
     assert_eq!(app.text("month-label"), "October");
-    // Only the month on view is mounted: no page waits off to the side.
+    // The pages beside it wait off the stage so a turn can slide them in.
     assert!(app.mounted("month-2026-10"));
-    assert!(!app.mounted("month-2026-09") && !app.mounted("month-2026-11"));
+    assert!(app.mounted("month-2026-09") && app.mounted("month-2026-11"));
+    assert!(!app.mounted("month-2026-08") && !app.mounted("month-2026-12"));
     app.press("date-2026-10-2026-10-14");
     app.press("month-previous");
     app.press("month-previous");
