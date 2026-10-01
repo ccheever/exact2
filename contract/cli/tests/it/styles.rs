@@ -584,6 +584,13 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
       box testId="pinned" position="absolute" overflow="hidden"
       box testId="named" position="relative"
       box testId="open" overflow="visible"
+      box testId="clips-holding" overflow="hidden"
+        box position="absolute"
+      box testId="clips-a-component" overflow="hidden"
+        Pin()
+component Pin
+  view
+    box position="absolute"
 "#,
     )
     .unwrap();
@@ -599,10 +606,13 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     let k = r.kernel();
     for (id, position) in [
         ("plain", Static),
-        ("clips", Relative),
-        ("moves", Relative),
-        ("presses", Relative),
-        ("fades", Relative),
+        // Nothing absolute can be under them (exp/clip-narrow).
+        ("clips", Static),
+        ("moves", Static),
+        ("presses", Static),
+        ("fades", Static),
+        ("clips-holding", Relative),
+        ("clips-a-component", Relative),
         ("glass", Relative),
         ("dim", Static),
         ("raised", Static),

@@ -93,6 +93,7 @@ pub(crate) fn positioned(
     in_svg: bool,
     span: contract_syntax::Span,
     host_transform: bool,
+    holds_nothing: bool,
 ) -> Result<Option<Vec<contract_syntax::Attr>>, crate::LowerError> {
     use contract_syntax::Expr;
     let literal =
@@ -123,6 +124,33 @@ pub(crate) fn positioned(
         ),
         Some(_) => Ok(None),
         None if tag.fixed_styles.iter().any(|(id, _)| *id == StyleId::PositionType) => Ok(None),
+        // Only its own rows (it clips, transforms or animates) and nothing
+        // absolute can be under it (`Lowerer::may_hold_absolute`): it is the
+        // containing block of nothing, and a positioned box costs a host a
+        // layer to paint and hit-test (10,000 grid rows' clipping cells: a
+        // 25 ms hit test a pointer event).
+        None if holds_nothing
+            && !host_transform
+            && !tag.node_type.scrolls_by_default()
+            && tag.node_type != NodeType::Canvas
+            && !attrs.iter().any(|a| {
+                (a.name == "markup" && literal(a, "markdown"))
+                    || matches!(
+                        a.name.as_str(),
+                        "backgroundMaterial"
+                            | "navigationKey"
+                            | "navigationPresentation"
+                            | "contextTarget"
+                            | "z-index"
+                            | "top"
+                            | "right"
+                            | "bottom"
+                            | "left"
+                    )
+            }) =>
+        {
+            Ok(None)
+        }
         None => {
             let mut attrs = attrs.to_vec();
             attrs.push(contract_syntax::Attr {
