@@ -544,16 +544,7 @@ pub fn provider_versions(m: &Machine, latest_versions: &HashMap<String, String>)
 /// permissions.rs `summary`: "Codex yolo · Claude auto", providers in
 /// `launch::PROVIDERS` order, empty when nothing is set.
 pub fn permissions_summary(defaults: &HashMap<String, String>) -> String {
-    crate::launch::PROVIDERS
-        .into_iter()
-        .filter_map(|provider| {
-            defaults
-                .get(provider)
-                .filter(|mode| !mode.is_empty())
-                .map(|mode| format!("{} {mode}", provider_label(provider)))
-        })
-        .collect::<Vec<_>>()
-        .join(" · ")
+    crate::permissions::summary(defaults)
 }
 
 // ----- profiles (workspace.rs:1878-1899) ---------------------------------------

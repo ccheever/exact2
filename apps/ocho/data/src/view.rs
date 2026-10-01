@@ -435,20 +435,51 @@ fn overlay(ws: &Workspace, theme: &Theme) -> Json {
             "Ocho will not contact this machine. Its helper, running sessions, files, and authorized SSH key will be left untouched.".into(),
             "Remove from Ocho",
         ),
-        Overlay::ProviderUpdate { machine, provider } => confirm(
-            format!(
-                "Install/Update {} on {}?",
-                session::provider_label(provider),
-                machine.name
-            ),
-            "Runs the provider's installer on that machine.".into(),
-            "Update",
-        ),
-        Overlay::ProfileDelete(name) => confirm(
-            format!("Remove launch profile {name}?"),
-            "The profile and its shortcut go; sessions it launched stay.".into(),
-            "Remove",
-        ),
+        Overlay::ProviderUpdate { machine, provider } => {
+            // ui.rs: Install when it is missing, else Update, with versions.
+            let label = session::provider_label(provider);
+            let current = session::provider_version(machine, provider)
+                .unwrap_or_else(|| "unknown".to_string());
+            let latest = ws.latest_provider_versions.get(provider.as_str());
+            let (verb, body) = if current == "not installed" {
+                (
+                    "Install",
+                    format!(
+                        "{label} is not installed{}. Ocho will run the official {label} installer on this machine and then refresh its inventory.",
+                        latest.map(|v| format!("; the latest version is {v}")).unwrap_or_default()
+                    ),
+                )
+            } else {
+                (
+                    "Update",
+                    format!(
+                        "Ocho will update {label} from {current}{} using its official installer, then refresh this machine's inventory.",
+                        latest.map(|v| format!(" to {v}")).unwrap_or_default()
+                    ),
+                )
+            };
+            confirm(
+                format!("{verb} {label} on {}?", session::clean(&machine.name)),
+                body,
+                verb,
+            )
+        }
+        Overlay::ProviderPathFix {
+            machine,
+            provider,
+            fix,
+        } => {
+            let label = session::provider_label(provider);
+            confirm(
+                format!("{label} updates are not reaching {}", session::clean(&machine.name)),
+                format!(
+                    "Something earlier on PATH resolves before the copy the installer maintains, so sessions keep running the older {label}. Ocho can append one line to {}:\n\n    {}\n\nNothing else in the file is changed. Open a new terminal afterwards.",
+                    session::clean(&fix.file),
+                    session::clean(&fix.line)
+                ),
+                "Update PATH",
+            )
+        }
         Overlay::Palette(picker) => {
             let items = ws.palette_items();
             let scopes = ws.key_scopes();

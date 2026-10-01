@@ -61,8 +61,15 @@ pub enum Overlay {
         /// The provider.
         provider: String,
     },
-    /// "Remove launch profile {name}?".
-    ProfileDelete(String),
+    /// An update is shadowed by an older copy on PATH: offer `fix-path`.
+    ProviderPathFix {
+        /// The machine.
+        machine: Machine,
+        /// The provider.
+        provider: String,
+        /// The plan.
+        fix: crate::types::PathFix,
+    },
     /// The launch dialog, or quick launch inside it.
     Launch(Box<Launch>),
     /// The command palette.
@@ -810,23 +817,11 @@ impl Workspace {
                 );
             }
             Overlay::ProviderUpdate { machine, provider } => {
-                let label = crate::session::provider_label(&provider).to_string();
-                self.run_cli(
-                    vec![
-                        "machine".into(),
-                        "update-provider".into(),
-                        machine.id.clone(),
-                        provider,
-                    ],
-                    format!("{label} updated on {}", machine.name),
-                );
+                self.update_provider(machine, provider);
             }
-            Overlay::ProfileDelete(name) => {
-                self.run_cli(
-                    vec!["profiles".into(), "remove".into(), name.clone()],
-                    format!("Removed profile {name}"),
-                );
-            }
+            Overlay::ProviderPathFix {
+                machine, provider, ..
+            } => self.apply_path_fix(machine, provider),
             other => self.overlay = other,
         }
     }
@@ -1070,7 +1065,18 @@ impl Workspace {
         }
         if effect.save_prompt {
             if let Overlay::Settings(page) = &self.overlay {
-                self.host(vec!["save-title-prompt".into()], page.prompt.clone());
+                // title_settings.rs: {prompt, revision}, written privately.
+                let body = serde_json::to_string_pretty(&serde_json::json!({
+                    "prompt": page.prompt.trim(),
+                    "revision": self.request_id(),
+                }))
+                .unwrap_or_default();
+                self.queue(
+                    "host",
+                    vec!["save-title-prompt".into()],
+                    body,
+                    Reply::TitlePromptSaved,
+                );
             }
         }
         if effect.reset_theme {

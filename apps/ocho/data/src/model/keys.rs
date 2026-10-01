@@ -487,7 +487,7 @@ impl Workspace {
             Overlay::Confirm { .. }
             | Overlay::MachineDelete(_)
             | Overlay::ProviderUpdate { .. }
-            | Overlay::ProfileDelete(_) => {
+            | Overlay::ProviderPathFix { .. } => {
                 if t == "y" {
                     self.confirm_yes();
                 } else if t == "n" || key == "Escape" {

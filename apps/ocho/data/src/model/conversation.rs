@@ -73,12 +73,16 @@ impl Workspace {
             return;
         };
         let request = view.begin();
-        self.queue(
+        let id = self.queue(
             "transcript",
             argv,
             String::new(),
             Reply::Transcript { key, request },
         );
+        // A read gives up after ten seconds (`run_within`).
+        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == id) {
+            job.timeout = crate::transcript::TIMEOUT_MS / 1000.0;
+        }
     }
 
     /// A `fleet transcript` reply.

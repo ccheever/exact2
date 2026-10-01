@@ -147,18 +147,6 @@ pub struct Shortcuts {
     pub machines: Vec<String>,
 }
 
-/// Sort only new identities: inventory order and removals never change old
-/// slots (quick_launch.rs `enroll`).
-pub fn enroll(slots: &mut Vec<String>, identities: impl IntoIterator<Item = String>) {
-    let mut added: Vec<_> = identities
-        .into_iter()
-        .filter(|id| !slots.contains(id))
-        .collect();
-    added.sort();
-    added.dedup();
-    slots.extend(added.into_iter().take(99usize.saturating_sub(slots.len())));
-}
-
 /// The whole of `desktop.json`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -784,30 +772,5 @@ mod tests {
         .unwrap();
         assert!(folder.folder && folder.collapsed && folder.reconnect.is_empty());
         assert_eq!(folder.session, None);
-    }
-
-    #[test]
-    fn quick_launch_slots_enroll_new_identities_in_order() {
-        let mut slots = vec!["b@x".to_string()];
-        enroll(
-            &mut slots,
-            [
-                "c@x".to_string(),
-                "a@x".to_string(),
-                "b@x".to_string(),
-                "a@x".to_string(),
-            ],
-        );
-        assert_eq!(slots, vec!["b@x", "a@x", "c@x"]);
-        let settings = DesktopSettings {
-            launch_shortcuts: Shortcuts {
-                accounts: slots,
-                machines: vec![],
-            },
-            ..Default::default()
-        };
-        let text = settings.to_json_pretty();
-        assert!(text.contains("launch_shortcuts"));
-        assert_eq!(DesktopSettings::parse(&text), settings);
     }
 }

@@ -229,7 +229,7 @@ impl Workspace {
             "host",
             vec!["theme-files".into()],
             String::new(),
-            Reply::ThemeFiles,
+            Reply::ThemeFiles(false),
         );
     }
 
@@ -266,10 +266,26 @@ impl Workspace {
         }
     }
 
-    /// The theme files the module listed: `[[path, text], …]`.
-    pub fn theme_files_arrived(&mut self, text: &str) {
-        let files: Vec<(String, String)> = serde_json::from_str(text).unwrap_or_default();
+    /// The theme files the module listed: `{"files": [[path, text], …],
+    /// "zed": Zed's settings text, "env": FLEET_THEME, "dark": the system
+    /// appearance}` (a bare list is the files alone). At `startup` the theme
+    /// is resolved from them as theme.rs `initial_theme` does.
+    pub fn theme_files_arrived(&mut self, text: &str, startup: bool) {
+        let value: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+        let files: Vec<(String, String)> = match &value {
+            serde_json::Value::Array(_) => {
+                serde_json::from_value(value.clone()).unwrap_or_default()
+            }
+            _ => serde_json::from_value(value["files"].clone()).unwrap_or_default(),
+        };
         self.theme_files = themes::discover(&files);
+        if startup {
+            let env = value["env"].as_str().filter(|s| !s.is_empty());
+            let zed = value["zed"].as_str().filter(|s| !s.is_empty());
+            let dark = value["dark"].as_bool().unwrap_or(true);
+            let saved = self.settings.theme.clone();
+            self.theme = themes::initial_theme(&self.theme_files, env, saved.as_deref(), zed, dark);
+        }
         if let Overlay::Themes(picker) = &mut self.overlay {
             let list = themes::discover(&files);
             let from_settings = picker.from_settings;
@@ -291,7 +307,12 @@ impl Workspace {
                 self.theme = theme;
                 self.settings.theme = Some(self.theme.name.clone());
                 let text = self.settings.to_json_pretty();
-                self.host(vec!["save-desktop".into()], text);
+                self.queue(
+                    "host",
+                    vec!["save-desktop".into()],
+                    text,
+                    Reply::ThemeSaved(self.theme.name.clone()),
+                );
                 self.set_message(themes::kept_message(&self.theme.name));
                 self.overlay = Overlay::None;
                 // A theme file can change without its name: recreate remote

@@ -1,5 +1,5 @@
 // Ocho — a client for Fleet: your machines, your sessions, in one window.
-// A 1:1 port of the GPUI desktop (fleet/desktop, origin/main e577272).
+// A 1:1 port of the GPUI desktop (fleet/desktop, origin/main e6adfa8).
 //
 // The model lives in the Rust data source (`data/`): every event the window
 // sees goes to `dispatch`, and `view` is what the model wants painted. The

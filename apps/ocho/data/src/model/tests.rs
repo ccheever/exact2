@@ -99,7 +99,7 @@ fn a_key_an_input_handled_does_not_run_again_when_it_bubbles() {
 fn the_theme_picker_lists_each_bundled_theme_once() {
     let mut w = ws();
     w.open_themes(false);
-    w.theme_files_arrived("[]");
+    w.theme_files_arrived("[]", false);
     w.open_themes(false);
     match &w.overlay {
         Overlay::Themes(p) => {

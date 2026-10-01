@@ -150,7 +150,7 @@ component Overlays
           // ---- Confirm (ui.rs:3689): title in warn, body muted, Cancel n / Yes y ----
           when model.kind == "confirm"
             text model.title padding-left=16 padding-right=16 padding-top=12 font-weight=600 color=t.warn
-            text model.body padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=t.muted
+            text model.body padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 font-size=12 line-height="19px" color=t.muted white-space="pre-wrap"
             row justify-content="flex-end" gap=8 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
               each b in model.buttons key=b.id
                 button press=press(`button:${b.id}`) testId=`button-${b.id}` hover=hover(`button:${b.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=6 padding-left=8 padding-right=8 padding-top=2 padding-bottom=2 border-radius=6 border-style="solid" border-width=1 border-color=(b.primary ? t.accent : t.border) background-color=(hoverId == `button:${b.id}` ? t.selected : (b.primary ? t.accent12 : t.element)) color=t.text

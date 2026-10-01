@@ -7,6 +7,8 @@ use crate::theme::{Rgba, Theme};
 /// One breath of the Claude glyph, and one shimmer pass, in milliseconds.
 pub const INDICATOR_CYCLE_MS: f64 = 2000.0;
 
+// The non-Claude shimmer needs a 30 fps repaint the view does not run; the header shows unanimated.
+#[allow(dead_code)]
 /// How often a view showing an indicator asks for a new frame (≈30 fps): a
 /// 30 fps tick is indistinguishable for a two-second cosine and costs a
 /// quarter of the renders.
@@ -76,12 +78,16 @@ pub fn shimmer_center(len: usize, phase: f64) -> f64 {
     phase * (len as f64 + 6.0) - 3.0
 }
 
+// The non-Claude shimmer needs a 30 fps repaint the view does not run; the header shows unanimated.
+#[allow(dead_code)]
 /// How much of the highlight character `index` gets, 0..=1, for a shimmer
 /// centered at `center`.
 pub fn shimmer_amount(index: usize, center: f64) -> f64 {
     (1.0 - (index as f64 - center).abs() / 3.0).max(0.0)
 }
 
+// The non-Claude shimmer needs a 30 fps repaint the view does not run; the header shows unanimated.
+#[allow(dead_code)]
 /// The color of character `index` in a `len`-character header at `phase`,
 /// blending `base` toward `highlight` (status_indicator.rs `theme_shimmer`).
 pub fn shimmer_color(base: Rgba, highlight: Rgba, len: usize, index: usize, phase: f64) -> Rgba {

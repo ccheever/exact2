@@ -43,11 +43,10 @@ pub const OPENCODE_PERMISSIONS_FIELD: &str = "OpenCode permissions";
 pub const ANTIGRAVITY_PERMISSIONS_FIELD: &str = "Antigravity permissions";
 /// The machine form's Grok default mode.
 pub const GROK_PERMISSIONS_FIELD: &str = "Grok permissions";
-/// The Pair iMessage form's only field.
-pub const PHONE_FIELD: &str = "Your iMessage number";
+/// The Pair iMessage form's one field.
+pub use crate::imessage_pair::FIELD_LABEL as PHONE_FIELD;
 /// The Pair iMessage form's error for a number without a country code.
-pub const PHONE_ERROR: &str =
-    "Enter your phone number with country code, for example +14155552671.";
+pub use crate::imessage_pair::PHONE_ERROR;
 
 /// The toast when Esc keeps what was typed.
 pub const DRAFT_KEPT: &str = "Draft kept; reopen the form to continue";
@@ -226,21 +225,7 @@ fn permission_choices(provider: &str) -> Vec<String> {
     out
 }
 
-/// imessage_pair.rs `normalize_phone`: pasted spaces, parentheses and
-/// dashes dropped; a `+`, a country code that does not start with 0, and 7
-/// to 15 digits in all.
-pub fn normalize_phone(input: &str) -> Option<String> {
-    let phone: String = input
-        .chars()
-        .filter(|c| !c.is_whitespace() && !matches!(c, '(' | ')' | '-'))
-        .collect();
-    let digits = phone.strip_prefix('+')?;
-    (digits.len() >= 7
-        && digits.len() <= 15
-        && !digits.starts_with('0')
-        && digits.bytes().all(|c| c.is_ascii_digit()))
-    .then_some(phone)
-}
+pub use crate::imessage_pair::normalize_phone;
 
 /// "{label} · {machine}", the session tab title a submission opens with.
 fn session_tab_title(label: &str, machine: &str) -> String {
@@ -387,7 +372,7 @@ impl Form {
     pub fn pair_imessage() -> Form {
         Form::new(
             FormKind::PairIMessage,
-            "Pair iMessage",
+            crate::imessage_pair::FORM_TITLE,
             vec![field(PHONE_FIELD, "")],
         )
     }
@@ -607,7 +592,7 @@ impl Form {
     /// The primary button's text.
     pub fn submit_label(&self) -> &'static str {
         match self.kind {
-            FormKind::PairIMessage => "Get pairing code",
+            FormKind::PairIMessage => crate::imessage_pair::SUBMIT_LABEL,
             FormKind::Resume => "Launch",
             FormKind::Machine => "Add machine",
             FormKind::MachineEdit => "Save machine",
@@ -626,7 +611,7 @@ impl Form {
     pub fn hint(&self) -> &'static str {
         match self.kind {
             FormKind::PairIMessage => {
-                "Use the number you send iMessages from, including country code (for example +14155552671). We'll show you a QR code to connect it to your Fleet."
+                crate::imessage_pair::FORM_HINT
             }
             FormKind::Account => {
                 "Space picks the provider · Enter opens the sign-in terminal. Ocho reads your email from the provider and saves the account to Cloudflare."

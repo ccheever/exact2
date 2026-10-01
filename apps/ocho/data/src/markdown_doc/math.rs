@@ -43,6 +43,8 @@ impl Formula {
         })
     }
 
+    // Upstream shows the delimited source on compact surfaces, which strip Markdown here.
+    #[allow(dead_code)]
     /// The source with its delimiters, as compact surfaces show it.
     pub fn literal(&self) -> String {
         literal(&self.source, self.display)

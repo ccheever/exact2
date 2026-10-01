@@ -339,6 +339,8 @@ impl Updater {
 
 // ----- the feed watcher's restart backoff (feed.rs) -------------------------
 
+// Realized by the host: Ocho.swift FleetFeed restarts with this backoff.
+#[allow(dead_code)]
 /// How long a watcher stays down after its `failures`-th consecutive exit:
 /// 2 s, 4 s, 8 s … capped at a minute. A user's refresh or restart ignores it.
 pub fn restart_delay_secs(failures: u32) -> u64 {
@@ -346,18 +348,24 @@ pub fn restart_delay_secs(failures: u32) -> u64 {
     seconds.min(60)
 }
 
+// Realized by the host: Ocho.swift FleetFeed restarts with this backoff.
+#[allow(dead_code)]
 /// A watcher that has run this long without exiting has left any crash loop
 /// behind; only then does a completed observation clear earlier failures.
 /// A crashing watcher can still emit a state event and even a machine event
 /// before it dies, so those alone prove nothing.
 pub const SURVIVAL_MS: f64 = 30_000.0;
 
+// Realized by the host: Ocho.swift FleetFeed restarts with this backoff.
+#[allow(dead_code)]
 /// Whether an event of `kind` from a watcher started at `started_at` clears
 /// the failure count.
 pub fn proves_healthy(kind: &str, started_at: Option<f64>, now_ms: f64) -> bool {
     kind == "machine" && started_at.is_some_and(|at| now_ms - at >= SURVIVAL_MS)
 }
 
+// Realized by the host: Ocho.swift FleetFeed restarts with this backoff.
+#[allow(dead_code)]
 /// Consecutive watcher exits and the hold they put on the next start.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Backoff {
@@ -371,6 +379,8 @@ pub struct Backoff {
     started_at: Option<f64>,
 }
 
+// Realized by the host: Ocho.swift FleetFeed restarts with this backoff.
+#[allow(dead_code)]
 impl Backoff {
     /// No failures yet.
     pub fn new() -> Backoff {

@@ -1,5 +1,5 @@
 //! Ocho's data source: the workspace model, a port of the GPUI desktop's
-//! (`fleet/desktop`, origin/main e577272), answering the view from memory.
+//! (`fleet/desktop`, origin/main e6adfa8), answering the view from memory.
 //!
 //! The seam is Elm-shaped. The contract keeps two counters (`ui.version`,
 //! `ui.io`) and sends every event to `dispatch`; the model changes and the
@@ -14,7 +14,6 @@
 #![deny(missing_docs)]
 // The port lands module by module; what the view does not reach yet is
 // kept, not pruned, until the last phase wires it (then this line goes).
-#![allow(dead_code)]
 
 mod finders;
 mod forms;

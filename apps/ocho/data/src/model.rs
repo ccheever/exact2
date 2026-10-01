@@ -11,6 +11,7 @@ mod keys;
 mod menus;
 mod panel;
 mod phone;
+mod providers;
 mod recover;
 mod secrets;
 #[cfg(test)]
@@ -178,6 +179,13 @@ pub struct Job {
     pub kind: String,
     /// Standard input, when the command takes any.
     pub stdin: String,
+    /// Seconds before the host kills it; 0 for the default minute.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub timeout: f64,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
 }
 
 /// What a reply does when it comes back (the closure a GPUI task held).
@@ -209,8 +217,9 @@ pub enum Reply {
     Models(crate::launch::CatalogKey),
     /// `fleet search …`: the topic finder's search or index run.
     Topics(Box<crate::finders::TopicJob>),
-    /// The theme files the module listed.
-    ThemeFiles,
+    /// The theme files the module listed; `true` at launch, when the
+    /// startup theme is resolved from them (theme.rs `initial_theme`).
+    ThemeFiles(bool),
     /// The build's change history for What's New.
     WhatsNewHistory,
     /// `fleet serve --describe` for an iMessage pairing request.
@@ -264,6 +273,26 @@ pub enum Reply {
         machine: String,
         /// What was asked.
         on: bool,
+    },
+    /// `save-title-prompt`.
+    TitlePromptSaved,
+    /// `save-desktop` after a theme was kept.
+    ThemeSaved(String),
+    /// `fleet machine update-provider M P`.
+    ProviderUpdated {
+        /// The machine.
+        machine: crate::types::Machine,
+        /// The provider.
+        provider: String,
+    },
+    /// `fleet machine fix-path M P` after an update.
+    PathPlan {
+        /// The machine.
+        machine: crate::types::Machine,
+        /// The provider.
+        provider: String,
+        /// How the update went.
+        updated: Result<(), String>,
     },
     /// A host job; nothing to apply.
     Host,
@@ -639,6 +668,7 @@ impl Workspace {
             argv,
             kind: kind.into(),
             stdin,
+            timeout: 0.0,
         });
         self.replies.insert(id, reply);
         self.io += 1;
@@ -849,11 +879,37 @@ impl Workspace {
             Reply::WhatsNewHistory => self.whats_new_arrived(result),
             Reply::PairDescribe(request) => self.pair_describe_arrived(request, result),
             Reply::Pairing(request) => self.imessage.set_pairing(request, result),
-            Reply::ThemeFiles => {
+            Reply::ThemeFiles(startup) => {
                 if let Ok(text) = result {
-                    self.theme_files_arrived(&text);
+                    self.theme_files_arrived(&text, startup);
                 }
             }
+            Reply::ProviderUpdated { machine, provider } => {
+                self.provider_updated(machine, provider, result)
+            }
+            Reply::PathPlan {
+                machine,
+                provider,
+                updated,
+            } => self.path_plan_arrived(machine, provider, updated, result),
+            Reply::ThemeSaved(name) => {
+                if let Err(error) = result {
+                    self.set_error(crate::themes::not_saved_message(&name, &error));
+                }
+            }
+            Reply::TitlePromptSaved => match result {
+                Ok(_) => {
+                    if let Overlay::Settings(page) = &mut self.overlay {
+                        page.error.clear();
+                    }
+                    self.set_message(crate::preferences::PROMPT_SAVED);
+                }
+                Err(e) => {
+                    if let Overlay::Settings(page) = &mut self.overlay {
+                        page.error = format!("Could not save the title prompt: {e}");
+                    }
+                }
+            },
             Reply::Host => {}
         }
     }
@@ -1083,10 +1139,18 @@ impl Workspace {
         self.desktop_broken = false;
         if !self.desktop_loaded {
             self.desktop_loaded = true;
+            // The bundled theme now; the saved one (or FLEET_THEME, or Zed's)
+            // once the host lists the theme files (`initial_theme`).
             self.theme = match settings.theme.as_deref() {
                 Some("Ocho Light") => Theme::ocho_light(),
                 _ => Theme::ocho_dark(),
             };
+            self.queue(
+                "host",
+                vec!["theme-files".into()],
+                String::new(),
+                Reply::ThemeFiles(true),
+            );
             if let Some(window) = settings.restored_windows().into_iter().next() {
                 self.rail_width = clamp_rail(window.rail_width.unwrap_or(236.0), self.window.0);
                 self.tabs = TabTree::restore(&window);

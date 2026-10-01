@@ -438,6 +438,8 @@ pub fn item(item: &PopupItem, id: &str, selected: bool) -> Json {
     })
 }
 
+// Menus build their POPUP in model/menus.rs.
+#[allow(dead_code)]
 /// A `POPUP`.
 pub fn popup(
     kind: &str,

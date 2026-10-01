@@ -23,6 +23,8 @@ pub const PLACEHOLDER: &str = "Type a theme name…";
 pub const NO_MATCH: &str = "No matching themes";
 /// The footer.
 pub const FOOTER: &str = "↑ ↓ preview · Enter keeps · Esc reverts · Zed theme files from ~/.config/zed/themes, Zed extensions, and $FLEET_HOME/themes";
+// Realized by the host: Ocho.swift's theme-files job lists these directories.
+#[allow(dead_code)]
 /// Under the home directory: Zed's installed extensions, each with a
 /// `themes` folder the host lists (`installed/*/themes`).
 pub const ZED_EXTENSIONS: &str = "Library/Application Support/Zed/extensions/installed";
@@ -171,6 +173,8 @@ pub fn bundled() -> Vec<ThemeEntry> {
     ]
 }
 
+// Realized by the host: Ocho.swift's theme-files job lists these directories.
+#[allow(dead_code)]
 /// Directories searched for Zed theme files, in priority order:
 /// `$FLEET_HOME/themes`, `~/.local/share/fleet/themes`,
 /// `~/.config/zed/themes`, then every `ZED_EXTENSIONS/*/themes` the host

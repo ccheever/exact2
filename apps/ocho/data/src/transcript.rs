@@ -79,14 +79,20 @@ pub const AFTER_SEND_MS: f64 = 800.0;
 pub const SCROLL_STEP: f64 = 60.0;
 /// The composer's placeholder.
 pub const PLACEHOLDER: &str = "Message the agent…";
+// Realized by the host: Terminal.swift `submit` pastes, then presses Return 150 ms later.
+#[allow(dead_code)]
 /// What follows the pasted draft on the PTY.
 pub const ENTER: &str = "\r";
+// Realized by the host: Terminal.swift `submit` pastes, then presses Return 150 ms later.
+#[allow(dead_code)]
 /// Bracketed paste lands before Enter is pressed this much later.
 pub const PASTE_SETTLE_MS: f64 = 150.0;
 /// A `fleet transcript` read gives up after this long (`run_within`).
 pub const TIMEOUT_MS: f64 = 10_000.0;
 /// The composer grows to this many lines.
 pub const MAX_COMPOSER_LINES: usize = 6;
+// Drawn by transcript.contract (max-width 736).
+#[allow(dead_code)]
 /// Rows and the composer are centred at most this wide, px.
 pub const COLUMN_WIDTH: f64 = 736.0;
 /// Sending with the session's terminal gone.

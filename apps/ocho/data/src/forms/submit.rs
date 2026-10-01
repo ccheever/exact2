@@ -67,24 +67,8 @@ pub enum Submission {
 /// `machine_spec`): every provider named, a blank one as `default`, so a
 /// cleared field removes that provider's default.
 pub fn machine_spec(modes: &[String]) -> String {
-    ["codex", "claude", "opencode", "antigravity", "grok"]
-        .into_iter()
-        .zip(
-            modes
-                .iter()
-                .map(String::as_str)
-                .chain(std::iter::repeat("")),
-        )
-        .map(|(provider, mode)| {
-            let mode = if mode.trim().is_empty() {
-                crate::permissions::NATIVE
-            } else {
-                mode.trim()
-            };
-            format!("{provider}={mode}")
-        })
-        .collect::<Vec<_>>()
-        .join(",")
+    let mode = |i: usize| modes.get(i).map(String::as_str).unwrap_or("");
+    crate::permissions::machine_spec(mode(0), mode(1), mode(2), mode(3), mode(4))
 }
 
 impl Form {

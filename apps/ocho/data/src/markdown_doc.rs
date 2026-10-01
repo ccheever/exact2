@@ -75,6 +75,8 @@
 
 use serde_json::{json, Value as Json};
 
+// Upstream lays out formula paragraphs itself; Contract text layout and the TeX stand-in replace it.
+#[allow(dead_code)]
 pub mod flow;
 mod inline;
 pub mod math;

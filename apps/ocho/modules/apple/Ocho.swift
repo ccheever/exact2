@@ -395,8 +395,16 @@ final class JobRunner {
                             if let text = try? String(contentsOfFile: path, encoding: .utf8) { files.append([path, text]) }
                         }
                     }
-                    let json = (try? JSONSerialization.data(withJSONObject: files)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
-                    finish(["status": 0, "stderr": "", "stdout": json])
+                    // theme.rs `initial_theme` also reads FLEET_THEME, Zed's
+                    // settings and the system appearance.
+                    let zed = (try? String(contentsOfFile: "\(home)/.config/zed/settings.json", encoding: .utf8)) ?? ""
+                    let env = ProcessInfo.processInfo.environment["FLEET_THEME"] ?? ""
+                    DispatchQueue.main.async {
+                        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                        let body: [String: Any] = ["files": files, "zed": zed, "env": env, "dark": dark]
+                        let json = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+                        finish(["status": 0, "stderr": "", "stdout": json])
+                    }
                 }
             case "refresh-feed":
                 fleet.refresh()
@@ -410,11 +418,21 @@ final class JobRunner {
                     finish(["status": 0, "stderr": "", "stdout": ""])
                 }
             case "save-title-prompt":
-                let url = URL(fileURLWithPath: FleetHome.path).appendingPathComponent("titles.json")
-                let body = (try? JSONSerialization.data(withJSONObject: ["prompt": stdin])) ?? Data()
-                try? body.write(to: url)
-                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-                finish(["status": 0, "stderr": "", "stdout": ""])
+                // title_settings.rs `save_to`: a private temp file renamed into place.
+                let dir = URL(fileURLWithPath: FleetHome.path)
+                let url = dir.appendingPathComponent("titles.json")
+                let temp = dir.appendingPathComponent("titles.\(UUID().uuidString).tmp")
+                do {
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    guard FileManager.default.createFile(atPath: temp.path, contents: Data(stdin.utf8), attributes: [.posixPermissions: 0o600]) else {
+                        throw CocoaError(.fileWriteUnknown)
+                    }
+                    guard rename(temp.path, url.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+                    finish(["status": 0, "stderr": "", "stdout": ""])
+                } catch {
+                    try? FileManager.default.removeItem(at: temp)
+                    finish(["status": 1, "stderr": error.localizedDescription, "stdout": ""])
+                }
             case "retry-connection":
                 DispatchQueue.main.async {
                     if argv.count > 1 { terminals.retryConnection(tab: argv[1]) }
@@ -480,7 +498,8 @@ final class JobRunner {
             default:
                 queue.async { [binary] in
                     guard let binary else { return finish(["status": 127, "stderr": "The fleet CLI wasn't found. Install Ocho or set FLEET_BIN.", "stdout": ""]) }
-                    finish(Self.fleet(binary: binary, argv: argv, stdin: stdin))
+                    let timeout = (job["timeout"] as? NSNumber)?.doubleValue ?? 0
+                    finish(Self.fleet(binary: binary, argv: argv, stdin: stdin, timeout: timeout > 0 ? timeout : 60))
                 }
             }
         }
@@ -488,7 +507,11 @@ final class JobRunner {
     }
 
     /// One `fleet` command to completion, or killed at 60 s (backend.rs).
-    static func fleet(binary: String, argv: [String], stdin: String) -> [String: Any] {
+    /// backend.rs `run_bounded`: one deadline for the whole command (60 s,
+    /// or the job's own), stdout and stderr drained together so neither pipe
+    /// can stall it. A command still running at the deadline is killed and
+    /// reported, so a hung CLI cannot leave a spinner up for good.
+    static func fleet(binary: String, argv: [String], stdin: String, timeout: Double = 60) -> [String: Any] {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: binary)
         p.arguments = argv
@@ -497,22 +520,30 @@ final class JobRunner {
         p.environment = env
         let out = Pipe(), err = Pipe(), inp = Pipe()
         p.standardOutput = out; p.standardError = err; p.standardInput = inp
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
         do { try p.run() } catch { return ["status": 127, "stderr": error.localizedDescription, "stdout": ""] }
+        final class Box { var data = Data() }
+        let stdoutBox = Box(), stderrBox = Box()
+        let drained = DispatchGroup()
+        for (pipe, box) in [(out, stdoutBox), (err, stderrBox)] {
+            drained.enter()
+            DispatchQueue.global().async { box.data = pipe.fileHandleForReading.readDataToEndOfFile(); drained.leave() }
+        }
         if !stdin.isEmpty { inp.fileHandleForWriting.write(Data(stdin.utf8)) }
         try? inp.fileHandleForWriting.close()
-        let stdoutData = DispatchQueue.global().sync { out.fileHandleForReading.readDataToEndOfFile() }
-        let deadline = DispatchTime.now() + 60
-        let waiter = DispatchSemaphore(value: 0)
-        p.terminationHandler = { _ in waiter.signal() }
-        if p.isRunning && waiter.wait(timeout: deadline) == .timedOut {
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
             p.terminate()
-            return ["status": 124, "stderr": "fleet \(argv.joined(separator: " ")) timed out after 60 s", "stdout": String(decoding: stdoutData, as: UTF8.self)]
+            _ = drained.wait(timeout: .now() + 2)
+            let seconds = Int(timeout)
+            return ["status": 124, "stderr": "fleet \(argv.first ?? "") timed out after \(seconds) s", "stdout": ""]
         }
-        let stderrData = err.fileHandleForReading.readDataToEndOfFile()
+        // A process it left behind may hold the pipes open; don't wait on it for long.
+        _ = drained.wait(timeout: .now() + 2)
         return [
             "status": Int(p.terminationStatus),
-            "stdout": String(decoding: stdoutData, as: UTF8.self),
-            "stderr": String(decoding: stderrData, as: UTF8.self),
+            "stdout": String(decoding: stdoutBox.data, as: UTF8.self),
+            "stderr": String(decoding: stderrBox.data, as: UTF8.self),
         ]
     }
 }
