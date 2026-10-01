@@ -1,6 +1,7 @@
 # Journal lines carry the agent clock only, so a fast reply can read as a long stall
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Executor completion wall time is journaled independently of the agent clock; real delayed HTTP drives pass on JS web, macOS and iOS, alongside runner and native executor regressions.
 **Systems:** Runner journal, Apple host, Linux host, web host, Agent API
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -28,5 +29,9 @@ native executor regression deliberately delays draining and verifies that this
 delay is excluded. Apple, Linux and render Rust suites pass. A production-generated
 JS fixture fetched a real local HTTP response delayed by 350 ms, while its agent
 clock advanced to 900000; the journal read `t=900000 reply 1; wall 353 ms` and the
-reply rendered successfully. The macOS and iOS delayed-request app drives required
-above remain to be recorded, so this ticket stays open pending that verification.
+reply rendered successfully. The same native
+drive used Exact Live's real HTTP executor with a held local response: macOS
+logged `t=900000 fulfil 1 (reply) [HTTP 200, 43 bytes; wall 359 ms]`, and the
+iOS simulator logged wall 375 ms at the same agent time. Both held the request
+for 350 ms and published its successful result. All three requested host drives
+pass; the elapsed values are independent of the agent clock.
