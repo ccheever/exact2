@@ -64,15 +64,15 @@ final class OchoModule: ExactModule {
         switch op {
         case "feed":
             let events = fleet.take()
-            var answer: [String: Any] = ["events": events, "now": Date().timeIntervalSince1970]
+            var answer: [String: Any] = ["events": events, "now": Date().timeIntervalSince1970, "tz": TimeZone.current.secondsFromGMT()]
             if let message = fleet.failure { answer["failure"] = message }
             reply.send(answer)
         case "desktop":
-            reply.send(["text": desktop.text, "mtime": desktop.mtime, "home": FleetHome.path, "now": Date().timeIntervalSince1970,
+            reply.send(["text": desktop.text, "mtime": desktop.mtime, "home": FleetHome.path, "now": Date().timeIntervalSince1970, "tz": TimeZone.current.secondsFromGMT(),
                         "read": true, "exists": FileManager.default.fileExists(atPath: desktop.url.path)])
         case "io":
             let jobs = request["jobs"] as? [[String: Any]] ?? []
-            self.jobs.run(jobs, fleet: fleet, desktop: desktop, terminals: terminals) { replies in reply.send(["replies": replies, "now": Date().timeIntervalSince1970]) }
+            self.jobs.run(jobs, fleet: fleet, desktop: desktop, terminals: terminals) { replies in reply.send(["replies": replies, "now": Date().timeIntervalSince1970, "tz": TimeZone.current.secondsFromGMT()]) }
         default:
             reply.fail("Ocho answers no \(op)")
         }

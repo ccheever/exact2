@@ -37,9 +37,9 @@ const machines = [
       hostname: 'Eliots-MacBook-Pro.local', home: '/Users/eliot', platform: 'darwin 26.6', cpu: 'Apple M4 Max', cores: 14, cpu_percent: 23, memory_total: 36 * 2 ** 30, memory_used: 21 * 2 ** 30,
       versions: { codex: '0.159.0', claude: '2.1.4', opencode: '1.2.0' }, live_inventory: true, at: iso(4000), warnings: [],
       sessions: [
-        session('s1', { title: 'Ocho client in exact2 · Eliots-MacBook-Pro', account: 'eliot@getfirewood.dev', cwd: '~/Developer/exact2', model: 'claude-fable-5-1', state: 'working', status_text: 'Working… (12s · ↓ 3.2k tokens)', last_message: 'Building the sidebar and the launcher; the terminal module compiles.', pinned: true, started: iso(30e3) }),
-        session('s4', { title: 'plan.stanf.org', provider: 'codex', account: 'eliot@expo.io', cwd: '~/Developer/plan.stanf.org', model: 'gpt-6-astra', state: 'idle', last_message: 'Waiting for you.', started: iso(3 * 3600e3), pull_requests: [{ url: 'https://github.com/eiiot/plan/pull/41', repo: 'eiiot/plan', number: 41 }] }),
-        session('s5', { title: 'imessage bridge', provider: 'codex', account: 'eliot.supceo@gmail.com', cwd: '~/Developer/fleet', model: 'gpt-6-sol', state: 'paused', pause_reason: 'memory', last_message: 'Paused before the migration step.', started: iso(26 * 3600e3), imessage_attached: true }),
+        session('s1', { updated: iso(20e3),  title: 'Ocho client in exact2 · Eliots-MacBook-Pro', account: 'eliot@getfirewood.dev', cwd: '~/Developer/exact2', model: 'claude-fable-5-1', state: 'working', status_text: 'Working… (12s · ↓ 3.2k tokens)', last_message: 'Building the sidebar and the launcher; the terminal module compiles.', pinned: true, started: iso(30e3) }),
+        session('s4', { updated: iso(26 * 3600e3),  title: 'plan.stanf.org', provider: 'codex', account: 'eliot@expo.io', cwd: '~/Developer/plan.stanf.org', model: 'gpt-6-astra', state: 'idle', last_message: 'Waiting for you.', started: iso(3 * 3600e3), pull_requests: [{ url: 'https://github.com/eiiot/plan/pull/41', repo: 'eiiot/plan', number: 41 }] }),
+        session('s5', { updated: iso(4 * 86400e3),  title: 'imessage bridge', provider: 'codex', account: 'eliot.supceo@gmail.com', cwd: '~/Developer/fleet', model: 'gpt-6-sol', state: 'paused', pause_reason: 'memory', last_message: 'Paused before the migration step.', started: iso(26 * 3600e3), imessage_attached: true }),
         session('s7', { title: 'shell', provider: 'shell', cwd: '~', state: 'idle', managed: false, tracked: false, started: iso(9 * 86400e3) }),
       ],
     },
@@ -50,8 +50,8 @@ const machines = [
       hostname: 'redwood', home: '/home/eliot', platform: 'linux 6.12', cpu: 'AMD EPYC 9354', cores: 32, cpu_percent: 8, memory_total: 128 * 2 ** 30, memory_used: 48 * 2 ** 30,
       versions: { codex: '0.158.0', claude: '2.1.4', opencode: '' }, live_inventory: true, at: iso(9000), warnings: [],
       sessions: [
-        session('s2', { title: 'rename to ocho · redwood', account: 'eliot@eliot.sh', cwd: '~/.local/share/fleet/workspaces/fleet-aa31c17c', model: 'claude-opus-5-5', state: 'awaiting approval', last_message: 'Approval needed: git push origin main', started: iso(4 * 60e3) }),
-        session('s3', { title: 'devicehub cli', provider: 'codex', account: 'eliot@expo.io', cwd: '~/Developer/devicehub', model: 'gpt-6-sol', state: 'idle', last_message: 'Done. The CLI lists devices and streams logs; **tests pass**.', started: iso(22 * 60e3) }),
+        session('s2', { updated: iso(5 * 60e3),  title: 'rename to ocho · redwood', account: 'eliot@eliot.sh', cwd: '~/.local/share/fleet/workspaces/fleet-aa31c17c', model: 'claude-opus-5-5', state: 'awaiting approval', last_message: 'Approval needed: git push origin main', started: iso(4 * 60e3) }),
+        session('s3', { updated: iso(2 * 3600e3),  title: 'devicehub cli', provider: 'codex', account: 'eliot@expo.io', cwd: '~/Developer/devicehub', model: 'gpt-6-sol', state: 'idle', last_message: 'Done. The CLI lists devices and streams logs; **tests pass**.', started: iso(22 * 60e3) }),
         session('s6', { title: 'Fleet mobile app with Expo', account: 'eliot@getfirewood.dev', cwd: '~/Developer/fleet-mobile', model: 'claude-fable-5-1', state: 'closed', pid: 0, archived: true, last_message: "Fixed in Fleet's transcript reader, which is where they came from.", started: iso(3 * 86400e3) }),
       ],
     },
@@ -194,12 +194,12 @@ function job(argv, stdin) {
 export async function later(request) {
   const { op } = request;
   switch (op) {
-    case 'feed': { const events = pending; pending = []; return { events, now: Date.now() / 1000 }; }
-    case 'desktop': return { text: desktop, mtime: desktopMtime, home: '~/.local/share/fleet', now: Date.now() / 1000 };
+    case 'feed': { const events = pending; pending = []; return { events, now: Date.now() / 1000, tz: -new Date().getTimezoneOffset() * 60 }; }
+    case 'desktop': return { text: desktop, mtime: desktopMtime, home: '~/.local/share/fleet', now: Date.now() / 1000, tz: -new Date().getTimezoneOffset() * 60 };
     case 'io': {
       const jobs = request.jobs ?? [];
       await new Promise((r) => setTimeout(r, 40));
-      return { replies: jobs.map((j) => ({ id: j.id, kind: j.kind, ...job(j.argv ?? [], j.stdin ?? '') })), now: Date.now() / 1000 };
+      return { replies: jobs.map((j) => ({ id: j.id, kind: j.kind, ...job(j.argv ?? [], j.stdin ?? '') })), now: Date.now() / 1000, tz: -new Date().getTimezoneOffset() * 60 };
     }
     default: throw new Error(`Ocho answers no ${op}`);
   }

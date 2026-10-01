@@ -223,6 +223,13 @@ pub struct Session {
     /// of the session list does not parse every timestamp per comparison.
     #[serde(skip)]
     pub started_epoch: f64,
+    /// The last hook event or transcript turn the helper observed.
+    #[serde(default)]
+    pub updated: String,
+    /// When the session last did anything, as Unix seconds: the newer of
+    /// `updated` and `started`. Parsed with `started_epoch`.
+    #[serde(skip)]
+    pub active_epoch: f64,
     /// Ocho tracks the session.
     #[serde(default)]
     pub tracked: bool,
@@ -561,6 +568,7 @@ impl FleetEvent {
         }
         for session in sessions {
             session.started_epoch = epoch_seconds(&session.started);
+            session.active_epoch = epoch_seconds(&session.updated).max(session.started_epoch);
         }
     }
 }

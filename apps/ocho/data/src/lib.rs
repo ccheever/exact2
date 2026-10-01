@@ -1,5 +1,5 @@
 //! Ocho's data source: the workspace model, a port of the GPUI desktop's
-//! (`fleet/desktop`, origin/main e6adfa8), answering the view from memory.
+//! (`fleet/desktop`, origin/main a23ae42), answering the view from memory.
 //!
 //! The seam is Elm-shaped. The contract keeps two counters (`ui.version`,
 //! `ui.io`) and sends every event to `dispatch`; the model changes and the
@@ -21,6 +21,7 @@ mod imessage_pair;
 mod indicator;
 mod keymap;
 mod launch;
+mod local_time;
 mod markdown;
 mod markdown_doc;
 mod model;

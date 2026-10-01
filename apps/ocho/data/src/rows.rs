@@ -7,10 +7,10 @@
 use crate::indicator;
 use crate::model::Page;
 use crate::session::{
-    account, account_email, clean, format_usage_reset, machine_rows, machine_status,
-    permissions_summary, provider_label, provider_outdated, provider_update_action_available,
-    provider_versions, session_badge, session_observation_available, session_refs, session_state,
-    session_summary, stale_session_summary,
+    account_email, clean, format_usage_reset, machine_rows, machine_status, permissions_summary,
+    provider_label, provider_outdated, provider_update_action_available, provider_versions,
+    session_group, session_observation_available, session_project, session_refs, session_state,
+    session_status_label, session_summary, stale_session_summary,
 };
 use crate::theme::{provider_usage_color, Theme};
 use crate::types::{Machine, ProviderUsage, State};
@@ -96,6 +96,22 @@ pub struct Row {
     pub selected: bool,
     /// The buttons at the row's right.
     pub actions: Vec<RowAction>,
+    /// Sessions: the day group this row opens ("Today", "Pinned", …), drawn
+    /// as its own list item above it; "" inside a group.
+    pub group: String,
+    /// Sessions: where it ran, before the summary ("app · box · Codex").
+    pub context: String,
+    /// Sessions: the plain-words state at the right ("Working", …); "" on
+    /// other pages.
+    pub status_label: String,
+    /// The state's colour, CSS.
+    pub status_color: String,
+    /// A live state: a 7 px dot before the label, which is medium weight.
+    pub status_dot: bool,
+    /// The last-activity time after the label ("12m", "Mon", …).
+    pub status_time: String,
+    /// The pin icon in the narrow leading column.
+    pub pinned: bool,
 }
 
 /// An item of a row's "⋯" menu (`shapes::MENU_ITEM`'s id, label and icon).
@@ -147,6 +163,8 @@ pub struct Rows<'a> {
     pub now_ms: f64,
     /// Unix seconds (usage reset text).
     pub now_epoch_s: f64,
+    /// The host's offset from UTC, seconds (day groups, row times).
+    pub utc_offset_s: f64,
     /// The theme, for colors.
     pub theme: &'a Theme,
 }
@@ -341,6 +359,13 @@ fn blank(id: String) -> Row {
         archived: false,
         selected: false,
         actions: Vec::new(),
+        group: String::new(),
+        context: String::new(),
+        status_label: String::new(),
+        status_color: String::new(),
+        status_dot: false,
+        status_time: String::new(),
+        pinned: false,
     }
 }
 
@@ -433,48 +458,69 @@ pub fn rows(ctx: &Rows) -> Vec<Row> {
             ctx.hide_non_running,
         )
         .into_iter()
-        .map(|(machine, s)| {
+        .scan(String::new(), |previous_group, (machine, s)| {
+            // ui.rs (#269): day groups, the context line, the plain state and
+            // time at the right, the pin; the account and full path are gone.
+            let offset = ctx.utc_offset_s;
+            let now = crate::local_time::local(ctx.now_epoch_s, offset);
             let available = session_observation_available(machine, s, ctx.now_ms);
             let state = session_state(s);
-            let badge = session_badge(s);
-            let account = match account(ctx.state, &s.account) {
-                Some(a) => account_email(a),
-                None if s.account.is_empty() => "native login".to_string(),
-                None => s.account.clone(),
+            let group = session_group(s, now, offset);
+            let opens_group = group != *previous_group;
+            previous_group.clone_from(&group);
+            let (color, dot) = if available {
+                match state {
+                    "RUNNING" => (t.good, true),
+                    "BLOCKED" | "LIMITED" => (t.warn, true),
+                    "IDLE" => (t.text, false),
+                    _ => (t.muted, false),
+                }
+            } else {
+                (t.muted, false)
             };
-            let archived = if s.archived { "archived · " } else { "" };
+            let home = machine.last.as_ref().map_or("", |last| last.home.as_str());
             let working = available && state == "RUNNING" && !s.status_text.is_empty();
             let summary_is_message = available
                 && !working
                 && !s.last_message.is_empty()
                 && !matches!(state, "RUNNING" | "BLOCKED" | "UNAVAILABLE");
+            let context = [
+                session_project(&s.cwd, home).as_str(),
+                machine.name.as_str(),
+                provider_label(&s.provider),
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+            let summary = if working {
+                String::new()
+            } else if available {
+                session_summary(s)
+            } else {
+                stale_session_summary(s)
+            };
             let mut row = Row {
-                badge,
-                badge_color: if available {
-                    t.badge(state).css()
-                } else {
-                    t.muted.css()
-                },
                 title: clean(&s.title),
                 imessage: s.imessage_attached,
                 prs: s.pull_requests.iter().map(|pr| pr.label()).collect(),
-                lines: non_empty(vec![
-                    format!(
-                        "{archived}{} · {} · {} · {}",
-                        machine.name, s.provider, account, s.cwd
-                    ),
-                    if working {
-                        String::new()
-                    } else if available {
-                        session_summary(s)
-                    } else {
-                        stale_session_summary(s)
-                    },
-                ]),
-                markdown_line: if summary_is_message { 1 } else { -1 },
+                lines: vec![summary],
+                markdown_line: if summary_is_message { 0 } else { -1 },
                 archived: s.archived,
                 working,
                 actions: actions(Page::Sessions, s.archived, available && state == "LIMITED"),
+                group: if opens_group { group } else { String::new() },
+                context,
+                status_label: session_status_label(s).into(),
+                status_color: color.css(),
+                status_dot: dot,
+                status_time: crate::local_time::activity_label(
+                    ctx.now_epoch_s,
+                    s.active_epoch,
+                    now,
+                    crate::local_time::local(s.active_epoch, offset),
+                ),
+                pinned: s.pinned,
                 ..blank(format!("{}/{}", machine.id, s.id))
             };
             if working {
@@ -488,7 +534,7 @@ pub fn rows(ctx: &Rows) -> Vec<Row> {
                     None => ind.rest,
                 };
             }
-            row
+            Some(row)
         })
         .collect(),
         Page::Accounts => {
@@ -587,6 +633,7 @@ mod tests {
                                 status_text: "Thinking… (3s)".into(),
                                 observation_received_at: Some(1_000.0),
                                 started_epoch: 20.0,
+                                active_epoch: 20.0,
                                 imessage_attached: true,
                                 pull_requests: vec![PullRequest {
                                     number: 9,
@@ -604,6 +651,7 @@ mod tests {
                                 last_message: "**done**\nall good".into(),
                                 observation_received_at: Some(1_000.0),
                                 started_epoch: 30.0,
+                                active_epoch: 30.0,
                                 ..Default::default()
                             },
                             Session {
@@ -617,6 +665,7 @@ mod tests {
                                 archived: true,
                                 observation_received_at: Some(1_000.0),
                                 started_epoch: 40.0,
+                                active_epoch: 40.0,
                                 ..Default::default()
                             },
                         ],
@@ -683,6 +732,7 @@ mod tests {
             selected: 0,
             now_ms: 2_000.0,
             now_epoch_s: 0.0,
+            utc_offset_s: 0.0,
             theme,
         }
     }
@@ -749,13 +799,14 @@ mod tests {
         assert!(rows.iter().all(|r| !r.selected));
 
         let idle = &rows[0];
-        assert_eq!(idle.badge, "○  READY");
-        assert_eq!(idle.badge_color, t.muted.css());
-        assert_eq!(
-            idle.lines,
-            ["mac · codex · native login · ", "**done** all good"]
-        );
-        assert_eq!(idle.markdown_line, 1);
+        // #269: plain words and a time at the right, the context line, groups.
+        assert_eq!(idle.status_label, "Turn ended");
+        assert_eq!(idle.status_color, t.text.css());
+        assert!(!idle.status_dot);
+        assert_eq!(idle.group, "Today");
+        assert_eq!(idle.context, "mac · Codex");
+        assert_eq!(idle.lines, ["**done** all good"]);
+        assert_eq!(idle.markdown_line, 0);
         assert!(!idle.working);
         assert_eq!(
             idle.actions
@@ -769,9 +820,12 @@ mod tests {
         assert_eq!(work.title, "Fix login");
         assert!(work.imessage);
         assert_eq!(work.prs, ["#9"]);
-        assert_eq!(work.badge, "✳  WORKING");
-        assert_eq!(work.badge_color, t.good.css());
-        assert_eq!(work.lines, ["mac · claude · me@example.com · ~/src"]);
+        assert_eq!(work.status_label, "Working");
+        assert_eq!(work.status_color, t.good.css());
+        assert!(work.status_dot);
+        assert_eq!(work.group, "", "the same day's group continues");
+        assert_eq!(work.context, "src · mac · Claude");
+        assert_eq!(work.lines, [""]);
         assert_eq!(work.markdown_line, -1);
         assert!(work.working);
         assert_eq!(work.working_glyph, "·");
@@ -796,22 +850,21 @@ mod tests {
         );
         let work = &rows[1];
         assert!(!work.working);
-        assert_eq!(work.badge_color, t.muted.css());
-        assert_eq!(work.lines[1], "◷  Thinking…");
+        assert_eq!(work.status_color, t.muted.css());
+        assert!(!work.status_dot);
+        assert_eq!(work.lines[0], "◷  Thinking…");
         let idle = &rows[0];
         assert_eq!(idle.markdown_line, -1);
-        assert_eq!(idle.lines[1], "◷  **done** all good");
+        assert_eq!(idle.lines[0], "◷  **done** all good");
         // Fresh again: the limited session has the handoff button and reads Unarchive.
         c.now_ms = 2_000.0;
         let rows = super::rows(&c);
         let limited = &rows[2];
         assert!(limited.archived);
-        assert_eq!(limited.badge, "◷  LIMITED");
-        assert_eq!(limited.badge_color, t.warn.css());
-        assert_eq!(
-            limited.lines,
-            ["archived · mac · codex · ghost · ", "Usage limit reached"]
-        );
+        assert_eq!(limited.status_label, "Usage limited");
+        assert_eq!(limited.status_color, t.warn.css());
+        assert_eq!(limited.group, "Archived");
+        assert_eq!(limited.lines, ["Usage limit reached"]);
         assert_eq!(
             limited
                 .actions

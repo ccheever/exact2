@@ -1,5 +1,5 @@
 // Ocho — a client for Fleet: your machines, your sessions, in one window.
-// A 1:1 port of the GPUI desktop (fleet/desktop, origin/main e6adfa8).
+// A 1:1 port of the GPUI desktop (fleet/desktop, origin/main a23ae42).
 //
 // The model lives in the Rust data source (`data/`): every event the window
 // sees goes to `dispatch`, and `view` is what the model wants painted. The
@@ -142,6 +142,13 @@ shape Row
   archived: bool
   selected: bool
   actions: list<RowAction>
+  group: string
+  context: string
+  statusLabel: string
+  statusColor: string
+  statusDot: bool
+  statusTime: string
+  pinned: bool
 shape ManagerModel
   page: string
   title: string

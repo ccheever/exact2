@@ -232,6 +232,7 @@ fn manager(ws: &Workspace, theme: &Theme) -> Json {
         hide_non_running: ws.hide_non_running,
         selected: ws.index,
         now_ms: ws.now,
+        utc_offset_s: ws.utc_offset,
         now_epoch_s: ws.epoch_s(),
         theme,
     };

@@ -389,6 +389,8 @@ pub struct Workspace {
     pub updater: crate::updater::Updater,
     /// Each tab's docked shell, by tab key.
     pub panels: HashMap<String, panel::Panel>,
+    /// The host's offset from UTC, seconds east (its time zone, now).
+    pub utc_offset: f64,
     /// The last Pair Phone open's number.
     phone_requests: u64,
     /// The docked shells' height, px.
@@ -513,6 +515,7 @@ impl Workspace {
             recoveries: HashMap::new(),
             panels: HashMap::new(),
             phone_requests: 0,
+            utc_offset: 0.0,
             panel_height: panel::DEFAULT_PANEL_HEIGHT,
             resuming_tabs: Default::default(),
             updater: crate::updater::Updater::new(false),
@@ -728,6 +731,9 @@ impl Workspace {
     fn stamp_wall(&mut self, json: &serde_json::Value) {
         if let Some(now) = json.get("now").and_then(|n| n.as_f64()) {
             self.wall = (now, self.now);
+        }
+        if let Some(tz) = json.get("tz").and_then(|n| n.as_f64()) {
+            self.utc_offset = tz;
         }
     }
 

@@ -53,45 +53,94 @@ component Manager
               column
                 when row.header != ""
                   text row.header padding-left=8 padding-right=8 padding-top=12 padding-bottom=4 font-size=11 line-height="18px" font-weight=700 color=t.accent
-                // A row (ui.rs:1848): gap_3 px_3 py_1p5, rounded_md, a ring when selected and focused.
-                row id=`row-${row.id}` testId=`row-${row.id}` align-items="flex-start" gap=12 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=6 border-style="solid" border-width=1 border-color=(row.selected and model.focused ? t.accent55 : "rgba(0,0,0,0)") background-color=(row.selected ? t.selected : (hoverId == `row:${row.id}` ? t.hover : "rgba(0,0,0,0)")) box-sizing="border-box" hover=hover(`row:${row.id}`) dblclick=doubleClick(`row:${row.id}`) contextmenu=contextMenu(`row:${row.id}`, `row-${row.id}`)
-                  button press=press(`row:${row.id}`) class=Reset display="flex" flex-direction="row" align-items="flex-start" gap=12 flex=1 min-width=0 color=t.text aria-label=row.title
-                    // The badge column: 96 wide; chip px_1p5, rounded_sm, 11 medium, color at 15%.
-                    row width=96 flex-shrink=0 justify-content="flex-start"
-                      when row.badge != ""
-                        text row.badge padding-left=6 padding-right=6 border-radius=2 font-size=11 line-height="18px" font-weight=500 background-color=row.badgeBg color=row.badgeColor white-space="nowrap"
-                    column flex=1 min-width=0 gap=2
-                      row align-items="center" gap=8 min-width=0
-                        text row.title class=Ellipsis font-weight=600
-                        when row.imessage
-                          Icon(name="messages", size=13, color="#30d158")
-                        each pr in row.prs key=pr
-                          text pr padding-left=6 padding-right=6 border-radius=2 font-size=11 line-height="18px" font-weight=500 background-color=t.accent15 color=t.accent
-                      each line in row.lines key=line
-                        row min-width=0
-                          text line class=Ellipsis font-size=12 line-height="19px" color=(row.attention and line == row.firstLine ? t.warn : t.muted)
-                      when row.usageNote != ""
-                        text row.usageNote padding-top=4 font-size=12 line-height="19px" color=t.muted
-                      when length(row.usage) > 0
-                        column gap=4 padding-top=4 max-width=560
-                          each m in row.usage key=m.label
-                            row align-items="center" gap=8
-                              text m.label width=92 flex-shrink=0 font-size=12 line-height="19px" color=t.muted
-                              box height=7 min-width=96 max-width=220 flex=1 overflow="hidden" border-radius=999 background-color=t.border72
-                                box height="100%" width=`${m.percent}%` border-radius=999 background-color=m.color
-                              text m.text width=38 flex-shrink=0 font-size=12 line-height="19px" font-weight=500 color=t.text
-                              text m.reset flex-shrink=0 font-size=11 line-height="18px" color=t.muted
-                      when row.working
-                        row min-width=0 font-size=12 line-height="19px"
-                          when row.workingGlyph != ""
-                            text row.workingGlyph color=row.workingHeadColor width=16 flex-shrink=0
-                          text row.workingHead color=row.workingHeadColor white-space="nowrap"
-                          text row.workingRest class=Ellipsis color=t.text
-                  // Row buttons (ui.rs:1783): 14 px icons, dim unless the row is selected or hovered.
-                  row align-items="center" gap=4 flex-shrink=0 padding-top=2 opacity=(row.selected or hoverId == `row:${row.id}` ? 1 : 0.45)
-                    each a in row.actions key=a.id
-                      button press=press(`act:${row.id}:${a.id}`) testId=`act-${row.id}-${a.id}` hover=hover(`act:${row.id}:${a.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `act:${row.id}:${a.id}` ? t.selected : "rgba(0,0,0,0)") aria-label=(a.hint != "" ? `${a.label}  ·  ${a.hint}` : a.label)
-                        Icon(name=a.icon, size=14, color=(hoverId == `act:${row.id}:${a.id}` ? t.text : t.muted))
-                    // "⋯" (ui.rs:1806): the row menu, also on right-click.
-                    button id=`more-${row.id}` press=pressAt(`more:${row.id}`, `more-${row.id}`) testId=`more-${row.id}` hover=hover(`more:${row.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `more:${row.id}` ? t.selected : "rgba(0,0,0,0)") aria-label="More actions · right-click"
-                      Icon(name="ellipsis", size=14, color=(hoverId == `more:${row.id}` ? t.text : t.muted))
+                // A day group's heading (ui.rs `session_group_heading`, #269):
+                // the session rows' height, the text at its bottom.
+                when row.group != ""
+                  row height=52 align-items="flex-end" padding-left=12 padding-right=12 padding-bottom=4 box-sizing="border-box" font-size=11 line-height="18px" font-weight=600 color=t.muted
+                    text row.group
+                when row.statusLabel != ""
+                  // A session row (#269): 52 tall, centred; the pin column,
+                  // the title over "project · machine · provider — summary",
+                  // the state and time at the right, buttons only when
+                  // selected or hovered.
+                  row id=`row-${row.id}` testId=`row-${row.id}` height=52 align-items="center" gap=12 padding-left=12 padding-right=12 border-radius=6 border-style="solid" border-width=1 border-color=(row.selected and model.focused ? t.accent55 : "rgba(0,0,0,0)") background-color=(row.selected ? t.selected : (hoverId == `row:${row.id}` ? t.hover : "rgba(0,0,0,0)")) box-sizing="border-box" hover=hover(`row:${row.id}`) dblclick=doubleClick(`row:${row.id}`) contextmenu=contextMenu(`row:${row.id}`, `row-${row.id}`)
+                    button press=press(`row:${row.id}`) class=Reset display="flex" flex-direction="row" align-items="center" gap=12 flex=1 min-width=0 color=t.text aria-label=row.title
+                      row width=14 flex-shrink=0
+                        when row.pinned
+                          Icon(name="pin", size=12, color=t.muted)
+                      column flex=1 min-width=0
+                        row align-items="center" gap=8 min-width=0
+                          text row.title class=Ellipsis font-weight=600
+                          when row.imessage
+                            Icon(name="messages", size=13, color="#30d158")
+                          each pr in row.prs key=pr
+                            text pr padding-left=6 padding-right=6 border-radius=2 font-size=11 line-height="18px" font-weight=500 background-color=t.accent15 color=t.accent
+                        row align-items="center" gap=6 min-width=0 overflow="hidden" font-size=12 line-height="19px" color=t.muted
+                          text row.context flex-shrink=0 white-space="nowrap"
+                          when row.working
+                            text "—" flex-shrink=0
+                            row min-width=0 overflow="hidden"
+                              when row.workingGlyph != ""
+                                text row.workingGlyph color=row.workingHeadColor width=16 flex-shrink=0
+                              text row.workingHead color=row.workingHeadColor white-space="nowrap"
+                              text row.workingRest class=Ellipsis color=t.text
+                          else
+                            each line in row.lines key=line
+                              when line != ""
+                                text "—" flex-shrink=0
+                                text line class=Ellipsis
+                      row align-items="center" gap=6 flex-shrink=0 white-space="nowrap" font-size=12 line-height="19px"
+                        when row.statusDot
+                          box width=7 height=7 border-radius=999 background-color=row.statusColor
+                        text row.statusLabel color=row.statusColor font-weight=(row.statusDot ? 500 : 400)
+                        text "·" color=t.muted
+                        text row.statusTime color=t.muted
+                    row align-items="center" gap=4 flex-shrink=0 opacity=(row.selected or hoverId == `row:${row.id}` ? 1 : 0)
+                      each a in row.actions key=a.id
+                        button press=press(`act:${row.id}:${a.id}`) testId=`act-${row.id}-${a.id}` hover=hover(`act:${row.id}:${a.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `act:${row.id}:${a.id}` ? t.selected : "rgba(0,0,0,0)") aria-label=(a.hint != "" ? `${a.label}  ·  ${a.hint}` : a.label)
+                          Icon(name=a.icon, size=14, color=(hoverId == `act:${row.id}:${a.id}` ? t.text : t.muted))
+                      button id=`more-${row.id}` press=pressAt(`more:${row.id}`, `more-${row.id}`) testId=`more-${row.id}` hover=hover(`more:${row.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `more:${row.id}` ? t.selected : "rgba(0,0,0,0)") aria-label="More actions · right-click"
+                        Icon(name="ellipsis", size=14, color=(hoverId == `more:${row.id}` ? t.text : t.muted))
+                else
+                  // A row (ui.rs:1848): gap_3 px_3 py_1p5, rounded_md, a ring when selected and focused.
+                  row id=`row-${row.id}` testId=`row-${row.id}` align-items="flex-start" gap=12 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-radius=6 border-style="solid" border-width=1 border-color=(row.selected and model.focused ? t.accent55 : "rgba(0,0,0,0)") background-color=(row.selected ? t.selected : (hoverId == `row:${row.id}` ? t.hover : "rgba(0,0,0,0)")) box-sizing="border-box" hover=hover(`row:${row.id}`) dblclick=doubleClick(`row:${row.id}`) contextmenu=contextMenu(`row:${row.id}`, `row-${row.id}`)
+                    button press=press(`row:${row.id}`) class=Reset display="flex" flex-direction="row" align-items="flex-start" gap=12 flex=1 min-width=0 color=t.text aria-label=row.title
+                      // The badge column: 96 wide; chip px_1p5, rounded_sm, 11 medium, color at 15%.
+                      row width=96 flex-shrink=0 justify-content="flex-start"
+                        when row.badge != ""
+                          text row.badge padding-left=6 padding-right=6 border-radius=2 font-size=11 line-height="18px" font-weight=500 background-color=row.badgeBg color=row.badgeColor white-space="nowrap"
+                      column flex=1 min-width=0 gap=2
+                        row align-items="center" gap=8 min-width=0
+                          text row.title class=Ellipsis font-weight=600
+                          when row.imessage
+                            Icon(name="messages", size=13, color="#30d158")
+                          each pr in row.prs key=pr
+                            text pr padding-left=6 padding-right=6 border-radius=2 font-size=11 line-height="18px" font-weight=500 background-color=t.accent15 color=t.accent
+                        each line in row.lines key=line
+                          row min-width=0
+                            text line class=Ellipsis font-size=12 line-height="19px" color=(row.attention and line == row.firstLine ? t.warn : t.muted)
+                        when row.usageNote != ""
+                          text row.usageNote padding-top=4 font-size=12 line-height="19px" color=t.muted
+                        when length(row.usage) > 0
+                          column gap=4 padding-top=4 max-width=560
+                            each m in row.usage key=m.label
+                              row align-items="center" gap=8
+                                text m.label width=92 flex-shrink=0 font-size=12 line-height="19px" color=t.muted
+                                box height=7 min-width=96 max-width=220 flex=1 overflow="hidden" border-radius=999 background-color=t.border72
+                                  box height="100%" width=`${m.percent}%` border-radius=999 background-color=m.color
+                                text m.text width=38 flex-shrink=0 font-size=12 line-height="19px" font-weight=500 color=t.text
+                                text m.reset flex-shrink=0 font-size=11 line-height="18px" color=t.muted
+                        when row.working
+                          row min-width=0 font-size=12 line-height="19px"
+                            when row.workingGlyph != ""
+                              text row.workingGlyph color=row.workingHeadColor width=16 flex-shrink=0
+                            text row.workingHead color=row.workingHeadColor white-space="nowrap"
+                            text row.workingRest class=Ellipsis color=t.text
+                    // Row buttons (ui.rs:1783): 14 px icons, dim unless the row is selected or hovered.
+                    row align-items="center" gap=4 flex-shrink=0 padding-top=2 opacity=(row.selected or hoverId == `row:${row.id}` ? 1 : 0.45)
+                      each a in row.actions key=a.id
+                        button press=press(`act:${row.id}:${a.id}`) testId=`act-${row.id}-${a.id}` hover=hover(`act:${row.id}:${a.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `act:${row.id}:${a.id}` ? t.selected : "rgba(0,0,0,0)") aria-label=(a.hint != "" ? `${a.label}  ·  ${a.hint}` : a.label)
+                          Icon(name=a.icon, size=14, color=(hoverId == `act:${row.id}:${a.id}` ? t.text : t.muted))
+                      // "⋯" (ui.rs:1806): the row menu, also on right-click.
+                      button id=`more-${row.id}` press=pressAt(`more:${row.id}`, `more-${row.id}`) testId=`more-${row.id}` hover=hover(`more:${row.id}`) class=Reset display="flex" align-items="center" gap=4 padding-left=6 padding-right=6 padding-top=4 padding-bottom=4 border-radius=6 background-color=(hoverId == `more:${row.id}` ? t.selected : "rgba(0,0,0,0)") aria-label="More actions · right-click"
+                        Icon(name="ellipsis", size=14, color=(hoverId == `more:${row.id}` ? t.text : t.muted))

@@ -143,6 +143,13 @@ pub const ROW: Shape = Record(&[
     ("archived", Bool),
     ("selected", Bool),
     ("actions", List(&ROW_ACTION)),
+    ("group", Str),
+    ("context", Str),
+    ("statusLabel", Str),
+    ("statusColor", Str),
+    ("statusDot", Bool),
+    ("statusTime", Str),
+    ("pinned", Bool),
 ]);
 
 pub const MANAGER: Shape = Record(&[

@@ -1,5 +1,5 @@
 //! The pure session, machine, account and profile helpers of the GPUI
-//! desktop (workspace.rs `session_state`, `session_badge`,
+//! desktop (workspace.rs `session_state`, `session_status_label`,
 //! `session_summary`, the Sessions filter and sort, `machine_status`,
 //! `provider_versions`; backend.rs `provider_label`, `account_email`,
 //! `machine_rows`; permissions.rs `summary`), verbatim in behavior. Times
@@ -144,23 +144,46 @@ pub fn session_state(s: &Session) -> &'static str {
     }
 }
 
-/// The badge text, with the `⌖  ` prefix when pinned.
-pub fn session_badge(s: &Session) -> String {
-    let mut badge = match session_state(s) {
-        "RUNNING" => "✳  WORKING",
-        "BLOCKED" => "◆  INPUT",
-        "LIMITED" => "◷  LIMITED",
-        "IDLE" => "○  READY",
-        "PAUSED" => "Ⅱ  PAUSED",
-        "CLOSED" => "—  CLOSED",
-        "TERMINAL" => "›_ TERMINAL",
-        _ => "?  UNKNOWN",
+/// The plain-words state beside a session row's time (workspace.rs
+/// `session_status_label`, #269).
+pub fn session_status_label(s: &Session) -> &'static str {
+    match session_state(s) {
+        "RUNNING" => "Working",
+        "BLOCKED" if s.state == "awaiting approval" => "Waiting for approval",
+        "BLOCKED" => "Waiting for input",
+        "LIMITED" => "Usage limited",
+        "IDLE" if s.state == "starting" => "Starting",
+        "IDLE" if s.last_turn_interrupted => "Interrupted",
+        "IDLE" if s.last_message.is_empty() => "New",
+        "IDLE" => "Turn ended",
+        "PAUSED" => "Paused",
+        "CLOSED" => "Closed",
+        "TERMINAL" => "Shell",
+        _ => "Unknown",
     }
-    .to_string();
+}
+
+/// The heading a session row sits under: pinned and archived sessions keep
+/// their own groups, everything else goes by the day it was last active.
+pub fn session_group(s: &Session, now: crate::local_time::LocalTime, offset: f64) -> String {
     if s.pinned {
-        badge = format!("⌖  {badge}");
+        "Pinned".into()
+    } else if s.archived {
+        "Archived".into()
+    } else {
+        crate::local_time::day_group(now, crate::local_time::local(s.active_epoch, offset))
     }
-    badge
+}
+
+/// The folder a session works in, named the way you would look for it: the
+/// last part of its directory, or `~` for the home directory itself.
+pub fn session_project(cwd: &str, home: &str) -> String {
+    let path = crate::launch::tilde(cwd.trim_end_matches('/'), home);
+    match path.rsplit('/').next() {
+        _ if path == "~" || path.is_empty() => path,
+        Some(name) if !name.is_empty() => name.into(),
+        _ => path,
+    }
 }
 
 /// The second line of a session row.
@@ -316,14 +339,15 @@ pub fn session_haystack(machine: &Machine, session: &Session, account: &str) -> 
     .to_lowercase()
 }
 
-/// The list order: pinned first, then unarchived, then newest `started` first.
+/// The list order: pinned first, then unarchived, then most recently
+/// active first (#269).
 pub fn session_order(a: &Session, b: &Session) -> Ordering {
     b.pinned
         .cmp(&a.pinned)
         .then_with(|| a.archived.cmp(&b.archived))
         .then_with(|| {
-            b.started_epoch
-                .partial_cmp(&a.started_epoch)
+            b.active_epoch
+                .partial_cmp(&a.active_epoch)
                 .unwrap_or(Ordering::Equal)
         })
 }
@@ -626,32 +650,32 @@ mod tests {
             pid: 123,
             ..Default::default()
         };
-        assert_eq!(session_badge(&s), "?  UNKNOWN");
+        assert_eq!(session_status_label(&s), "Unknown");
         assert_eq!(session_summary(&s), "Unable to observe the current turn");
         s.state = "exited".into();
         s.pinned = true;
-        assert_eq!(session_badge(&s), "⌖  —  CLOSED");
+        assert_eq!(session_status_label(&s), "Closed");
         s.last_message = "  **hello**\n world ".into();
         assert_eq!(session_summary(&s), "**hello** world");
         s.state = "idle".into();
-        assert_eq!(session_badge(&s), "⌖  ○  READY");
+        assert_eq!(session_status_label(&s), "Turn ended");
         assert_eq!(session_summary(&s), "**hello** world");
         s.state = "running".into();
         s.status_text = "Working (25s)".into();
-        assert_eq!(session_badge(&s), "⌖  ✳  WORKING");
+        assert_eq!(session_status_label(&s), "Working");
         assert_eq!(session_summary(&s), "Working (25s)");
         s.state = "blocked".into();
         s.status_text = "Waiting for your answer".into();
-        assert_eq!(session_badge(&s), "⌖  ◆  INPUT");
+        assert_eq!(session_status_label(&s), "Waiting for input");
         assert_eq!(session_summary(&s), "Waiting for your answer");
         s.state = "limited".into();
         s.status_text = "Session limit reached · resets 3pm".into();
-        assert_eq!(session_badge(&s), "⌖  ◷  LIMITED");
+        assert_eq!(session_status_label(&s), "Usage limited");
         assert_eq!(session_summary(&s), "Session limit reached · resets 3pm");
         s.status_text.clear();
         assert_eq!(session_summary(&s), "Usage limit reached");
         s.pid = 0;
-        assert_eq!(session_badge(&s), "⌖  —  CLOSED");
+        assert_eq!(session_status_label(&s), "Closed");
         assert_eq!(session_summary(&s), "**hello** world");
     }
 
@@ -690,26 +714,38 @@ mod tests {
     }
 
     #[test]
-    fn badge_table_and_pinned_prefix() {
-        let mk = |state: &str, pinned: bool| Session {
-            state: state.into(),
-            pid: 7,
-            pinned,
+    fn status_labels_say_where_the_turn_stands() {
+        let mut s = Session {
+            state: "starting".into(),
+            pid: 0,
             ..Default::default()
         };
-        assert_eq!(session_badge(&mk("running", false)), "✳  WORKING");
-        assert_eq!(session_badge(&mk("blocked", false)), "◆  INPUT");
-        assert_eq!(session_badge(&mk("limited", false)), "◷  LIMITED");
-        assert_eq!(session_badge(&mk("idle", false)), "○  READY");
-        assert_eq!(session_badge(&mk("paused", false)), "Ⅱ  PAUSED");
-        assert_eq!(session_badge(&mk("closed", false)), "—  CLOSED");
-        assert_eq!(session_badge(&mk("other", false)), "?  UNKNOWN");
-        assert_eq!(session_badge(&mk("idle", true)), "⌖  ○  READY");
-        let shell = Session {
-            provider: "shell".into(),
-            ..Default::default()
-        };
-        assert_eq!(session_badge(&shell), "›_ TERMINAL");
+        assert_eq!(session_status_label(&s), "Starting");
+        s.state = "idle".into();
+        s.pid = 123;
+        assert_eq!(session_status_label(&s), "New");
+        s.last_message = "Done.".into();
+        assert_eq!(session_status_label(&s), "Turn ended");
+        s.last_turn_interrupted = true;
+        assert_eq!(session_status_label(&s), "Interrupted");
+        s.state = "awaiting approval".into();
+        assert_eq!(session_status_label(&s), "Waiting for approval");
+        s.state = "awaiting input".into();
+        assert_eq!(session_status_label(&s), "Waiting for input");
+        s.provider = "shell".into();
+        assert_eq!(session_status_label(&s), "Shell");
+    }
+
+    #[test]
+    fn session_project_names_the_working_folder() {
+        assert_eq!(
+            session_project("/Users/me/fleet-sessions", "/Users/me"),
+            "fleet-sessions"
+        );
+        assert_eq!(session_project("/Users/me/code/app/", "/Users/me/"), "app");
+        assert_eq!(session_project("/Users/me", "/Users/me"), "~");
+        assert_eq!(session_project("/srv/work", ""), "work");
+        assert_eq!(session_project("", "/Users/me"), "");
     }
 
     #[test]
@@ -793,7 +829,7 @@ mod tests {
             tmux_pane: "%3".into(),
             ..Default::default()
         };
-        assert_eq!(session_badge(&s), "Ⅱ  PAUSED");
+        assert_eq!(session_status_label(&s), "Paused");
         assert_eq!(session_summary(&s), "Paused; opens where it left off");
         s.status_text = "Paused 3h ago; opens where it left off".into();
         assert_eq!(
@@ -803,7 +839,7 @@ mod tests {
         assert!(session_matches_filters(&s, false, false, false));
         assert!(!session_matches_filters(&s, false, false, true));
         s.historical = true;
-        assert_eq!(session_badge(&s), "—  CLOSED");
+        assert_eq!(session_status_label(&s), "Closed");
     }
 
     #[test]
@@ -998,6 +1034,7 @@ mod tests {
             pinned,
             archived,
             started_epoch: started,
+            active_epoch: started,
             ..Default::default()
         };
         let state = state_with_sessions(vec![
