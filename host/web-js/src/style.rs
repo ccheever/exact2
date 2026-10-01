@@ -165,7 +165,8 @@ pub fn project(
             });
         }
     }
-    for (i, children) in element_children(plan, sites).into_iter().enumerate() {
+    let tree = element_children(plan, sites);
+    for (i, children) in tree.iter().cloned().enumerate() {
         if !children.is_empty() {
             ops.push(Op::SetChildren {
                 id: view(i),
@@ -205,8 +206,13 @@ pub fn project(
         }
         out.push(Some(parts));
     }
-    // CSS sibling selectors use the actual rows and active region arms.
-    // Static template guesses cannot decide a first copy or a bound position.
+    // Only a box that can follow something painted with the positioned (an
+    // earlier sibling in any arm, or its own earlier copy) is a candidate
+    // for the sibling rule (paint.js); a box that can't is never isolated,
+    // so a list of static rows costs the rule nothing.
+    let follows = can_follow(plan, sites, &kernel, &tree);
+    // The rule reads the actual rows and active region arms: static template
+    // guesses cannot decide a first copy or a bound position.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
@@ -214,7 +220,9 @@ pub fn project(
         if paint.outside {
             continue;
         }
-        parts.props.insert("data-exact-box".into(), "".into());
+        if follows[i] {
+            parts.props.insert("data-exact-box".into(), "".into());
+        }
         if paint.positioned || paint.stacks {
             parts.props.insert("data-exact-layer".into(), "".into());
         }
@@ -236,9 +244,112 @@ pub fn project(
     Ok(out)
 }
 
-/// Painting in the actual DOM, including repeated roots and conditional arms.
+/// Which nodes can follow, among their parent's children, a node that paints
+/// with the positioned or holds one: a sibling before it in any arm, or, for
+/// a row of an `each`, its own earlier copy.
+fn can_follow(
+    plan: &Plan,
+    sites: &crate::emit::Sites,
+    kernel: &Kernel,
+    tree: &[Vec<u32>],
+) -> Vec<bool> {
+    let n = plan.nodes.len();
+    let layered = |i: usize| {
+        let Some(node) = kernel.node(i as ViewId + 1) else {
+            return false;
+        };
+        let p = layers::paint_of(&node.facts(), None);
+        p.positioned
+            || p.stacks
+            || node.style.mask.has(StyleId::ZIndex)
+            || plan.nodes[i]
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| {
+                    literal(plan, plan.code(b.expr)).is_none()
+                        && match b.kind {
+                            BindingKind::Style => {
+                                StyleId::from_bit(b.id as u32).is_some_and(|id| {
+                                    id == StyleId::PositionType
+                                        || id == StyleId::ZIndex
+                                        || layers::STACKS.contains(&id)
+                                })
+                            }
+                            BindingKind::Prop => matches!(
+                                PropId::from_wire(b.id),
+                                Some(
+                                    PropId::BackgroundMaterial
+                                        | PropId::NavigationKey
+                                        | PropId::NavigationPresentation
+                                )
+                            ),
+                        }
+                })
+    };
+    // Whether a node's subtree can paint with the positioned, children first.
+    let mut holds = vec![None; n];
+    fn hold(
+        i: usize,
+        tree: &[Vec<u32>],
+        layered: &dyn Fn(usize) -> bool,
+        holds: &mut Vec<Option<bool>>,
+    ) -> bool {
+        if let Some(h) = holds[i] {
+            return h;
+        }
+        let h = layered(i)
+            | tree[i]
+                .iter()
+                .fold(false, |a, c| hold(*c as usize, tree, layered, holds) | a);
+        holds[i] = Some(h);
+        h
+    }
+    // An `each` row's roots, through any region at its top.
+    fn roots(
+        plan: &Plan,
+        sites: &crate::emit::Sites,
+        list: &[crate::emit::Site],
+        into: &mut Vec<usize>,
+    ) {
+        for s in list {
+            match s {
+                crate::emit::Site::Node(i) => into.push(*i as usize),
+                crate::emit::Site::Region(r) => {
+                    for arm in plan.regions[*r as usize].arms.iter() {
+                        roots(plan, sites, sites.of_arm(arm.0), into);
+                    }
+                }
+            }
+        }
+    }
+    let mut rows = Vec::new();
+    for region in plan
+        .regions
+        .iter()
+        .filter(|r| r.kind == exact_plan::RegionKind::Each)
+    {
+        for arm in region.arms.iter() {
+            roots(plan, sites, sites.of_arm(arm.0), &mut rows);
+        }
+    }
+    let mut follows = vec![false; n];
+    for children in tree {
+        let mut before = false;
+        for c in children {
+            let c = *c as usize;
+            let h = hold(c, tree, &layered, &mut holds);
+            follows[c] = before || (h && rows.contains(&c));
+            before |= h;
+        }
+    }
+    follows
+}
+
+/// What paints with the positioned, as a selector over the actual DOM's paint
+/// facts (paint.js decides the sibling rule with it, once per changed list).
 /// A flex/grid item's z-index layers it even when it is static.
-pub fn paint_css() -> String {
+pub fn paint_own() -> String {
     let mut own = vec![
         "[data-exact-layer]".to_string(),
         "[data-exact-position]".into(),
@@ -257,8 +368,7 @@ pub fn paint_css() -> String {
         ]
         .map(|p| format!("[data-exact-stack-prop-{}]", p as u16)),
     );
-    let own = own.join(",");
-    format!("#exact-root#exact-root :is({own},:has(:is({own})),[data-exact-flex]:has(>[data-exact-z]))~[data-exact-box]:not(:is({own})){{isolation:isolate}}")
+    own.join(",")
 }
 
 /// The DOM prop name the live host gives `prop` on a node of `node_type`,
