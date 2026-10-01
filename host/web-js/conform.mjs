@@ -37,6 +37,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSyn
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
+import { resolveApp } from '../../scripts/app.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -355,7 +356,7 @@ function linuxFor(t) {
   if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
   if (LINUX_APART[t.name]?.[0] === null) return { why: `not compared on Linux: ${LINUX_APART[t.name][1]}` };
   // agent.mjs runs the crate's own binary; a crate that builds only other bins (a render server) has none.
-  if (!existsSync(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'release', crate))) return { why: `not compared on Linux: ${t.app}'s Linux crate has no ${crate} binary built` };
+  if (!existsSync(resolve(resolveApp(t.app).target, 'release', crate))) return { why: `not compared on Linux: ${t.app}'s Linux crate has no ${crate} binary built` };
   return {};
 }
 
@@ -374,9 +375,21 @@ if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map
   if (b.status !== 0) report.failures.push({ target: a, step: 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
 }
 if (linuxRef && argv.includes('--build')) {
-  const crates = [...new Set([...apps, ...synthetic.map(s => s.data)].map(linuxCrate).filter(Boolean))];
-  const b = crates.length ? spawnSync('cargo', ['build', '-q', '--release', ...crates.flatMap(c => ['-p', c])], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }) : { status: 0 };
-  if (b.status !== 0) report.failures.push({ target: 'linux', step: 'linux-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
+  // Each data app's binary where agent.mjs runs it (`resolveApp(app).target`):
+  // the root workspace's crates in one build; an app in a workspace of its own
+  // (Messages, snapback4's) from its manifest into that workspace's target.
+  const own = [], rooted = [];
+  for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
+    const crate = linuxCrate(a); if (!crate) continue;
+    const target = resolveApp(a).target;
+    if (target === resolveApp('caltrain').target) rooted.push(crate); else own.push({ a, crate, target });
+  }
+  const builds = [...(rooted.length ? [{ what: rooted.join(' '), args: rooted.flatMap(c => ['-p', c]), env: {} }] : []),
+    ...own.map(o => ({ what: o.crate, args: ['--manifest-path', resolve(root, 'apps', o.a, 'linux', 'Cargo.toml')], env: { CARGO_TARGET_DIR: o.target } }))];
+  for (const { what, args, env } of builds) {
+    const b = spawnSync('cargo', ['build', '-q', '--release', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+    if (b.status !== 0) report.failures.push({ target: 'linux', step: `linux-build ${what}`, what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
+  }
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
