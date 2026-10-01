@@ -518,6 +518,10 @@ pub struct FleetEvent {
     /// The error, on `error`.
     #[serde(default)]
     pub error: String,
+    /// A menu bar item's command id (`Command::id`), on `menu`: the host
+    /// sends the menu through the feed.
+    #[serde(default)]
+    pub command: String,
     /// A machine event whose sessions are the same as last time: the
     /// snapshot arrives without them and the ones shown count as observed.
     #[serde(default)]

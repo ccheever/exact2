@@ -458,3 +458,12 @@ fn pair_phone_prefers_the_running_server_and_falls_back_to_describe() {
     key(&mut w, "Escape");
     assert!(matches!(w.overlay, Overlay::None));
 }
+
+#[test]
+fn a_menu_bar_item_runs_its_command() {
+    let mut w = ws();
+    w.apply_feed(&serde_json::json!({"events": [{"type": "menu", "command": "palette"}]}));
+    assert!(matches!(w.overlay, Overlay::Palette(_)));
+    w.apply_feed(&serde_json::json!({"events": [{"type": "menu", "command": "tab-0"}]}));
+    assert_eq!(w.tabs.active, 0);
+}

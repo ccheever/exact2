@@ -45,6 +45,7 @@ final class OchoModule: ExactModule {
         desktop.start()
         DispatchQueue.main.async { [weak self] in
             WindowChrome.apply()
+            if let self { OchoMenu.install(feed: self.fleet) }
             // Answers made before this module loaded settled empty; now
             // there is someone to ask.
             self?.context.changed("feed")
@@ -265,6 +266,17 @@ final class FleetFeed {
         if !announced {
             announced = true
             DispatchQueue.main.async { [weak self] in self?.onEvents?() }
+        }
+    }
+
+    /// A menu bar item: delivered to the model as a `menu` event.
+    func inject(_ event: [String: Any]) {
+        queue.async {
+            self.pending.append(event)
+            if !self.announced {
+                self.announced = true
+                DispatchQueue.main.async { [weak self] in self?.onEvents?() }
+            }
         }
     }
 
@@ -607,5 +619,99 @@ enum WindowChrome {
             button.setFrameOrigin(frame.origin)
             x += frame.width + 6
         }
+    }
+}
+
+/// The menu bar (main.rs `set_menus`): Ocho, File, Edit, View, Help, as
+/// upstream lays them out. An item reaches the model as a `menu` event
+/// naming its command; chords keep going through the contract's declared
+/// shortcuts, which the host routes before the menu. Edit stays with the
+/// responder chain so text fields keep undo, cut, copy and paste.
+final class OchoMenu: NSObject {
+    private static let shared = OchoMenu()
+    private weak var feed: FleetFeed?
+
+    static func install(feed: FleetFeed) {
+        shared.feed = feed
+        // The host installs its own bar at launch; replace it once it has.
+        DispatchQueue.main.async { NSApp.mainMenu = shared.build(develop: NSApp.mainMenu?.item(withTitle: "Develop")) }
+    }
+
+    @objc private func run(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        feed?.inject(["type": "menu", "command": id])
+    }
+
+    private func item(_ title: String, _ command: String, _ key: String = "", _ mods: NSEvent.ModifierFlags = [.command]) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(run(_:)), keyEquivalent: key)
+        item.keyEquivalentModifierMask = mods
+        item.target = self
+        item.representedObject = command
+        return item
+    }
+
+    private func menu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+        let menu = NSMenu(title: title)
+        items.forEach(menu.addItem)
+        let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        holder.submenu = menu
+        return holder
+    }
+
+    private func build(develop: NSMenuItem?) -> NSMenu {
+        let bar = NSMenu()
+        let services = NSMenu(title: "Services")
+        NSApp.servicesMenu = services
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        servicesItem.submenu = services
+        bar.addItem(menu("Ocho", [
+            servicesItem,
+            .separator(),
+            item("Check for Updates…", "check-for-updates"),
+            item("What’s New…", "whats-new"),
+            item("Settings…", "settings", ","),
+            .separator(),
+            item("Quit Ocho", "quit", "q"),
+        ]))
+        bar.addItem(menu("File", [
+            item("New Window", "new-window", "n", [.command, .option]),
+            item("Launch Session…", "launch", "n"),
+            item("Quick Launch…", "quick-launch", "n", [.command, .shift]),
+            .separator(),
+            item("Close Tab", "close-tab", "w"),
+            item("Reopen Closed Tab", "reopen-closed-tab", "t", [.command, .shift]),
+            item("Close Window", "close-window", "w", [.command, .shift]),
+        ]))
+        let edit: [NSMenuItem] = [
+            NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"),
+            { let i = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z"); i.keyEquivalentModifierMask = [.command, .shift]; return i }(),
+            .separator(),
+            NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
+            NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
+            NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
+            .separator(),
+            NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
+        ]
+        bar.addItem(menu("Edit", edit))
+        bar.addItem(menu("View", [
+            item("Command Palette", "palette", "p"),
+            item("Open Session for PR…", "pull-requests", "p", [.command, .option]),
+            item("Find Session by Topic…", "conversations", "f", [.command, .shift]),
+            item("Refresh Ocho", "refresh", "r"),
+            item("Clear Terminal Scrollback", "clear-scrollback", "k"),
+            item("Change Theme…", "themes"),
+            item("Pair Phone…", "pair-phone"),
+            item("Pair iMessage…", "pair-imessage"),
+            .separator(),
+            item("Ocho Manager", "tab-0", "0"),
+            item("Next Tab", "next-tab", "]", [.command, .shift]),
+            item("Previous Tab", "prev-tab", "[", [.command, .shift]),
+        ]))
+        bar.addItem(menu("Help", [item("Keyboard Help", "help", "/")]))
+        if let develop {
+            develop.menu?.removeItem(develop)
+            bar.addItem(develop)
+        }
+        return bar
     }
 }

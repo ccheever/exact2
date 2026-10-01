@@ -64,3 +64,21 @@ replaces.
 - **Lists have no membership test and strings no split.** `includes` takes
   two strings only, so flags travel as a space-joined string; a QR code's
   rows arrive pre-split as records because `split` does not exist.
+- **No programmatic scroll to a node.** GPUI's transcript scrolls to an entry
+  (Home, End, a search hit's turn) with `scroll_to_reveal_item`. Contract has
+  an authored `scrollTop`, absolute, and a `scroll` event; the app reports the
+  offset to the model without a repaint and answers j/k/Home/End with a new
+  `scrollTop`, but revealing entry N needs its frame, which only an action can
+  read. A `scrollIntoView`-style effect (or `scrollTo=nodeId`) would close it.
+- **Jobs queued outside `dispatch` wait for the next one.** The `io` resource
+  is keyed by the counter `dispatch` returns, so a follow-up job queued while
+  applying a reply or a feed event (the PATH plan after a provider update, a
+  re-read after a send) runs on the next tick, up to a second later. An
+  answer that can say "ask me again" (or a counter the `io` parse can move)
+  would remove the lag.
+- **One window per app outside document mode.** Ocho's New Window opens a
+  second workspace window; ExactMac opens more windows only for apps that
+  declare documents with `navigate-new`. The command says it is unavailable.
+- **No inline math typesetting.** Upstream renders LaTeX with RaTeX; the app
+  shows the TeX source in italic serif. A module-drawn formula would need a
+  native inline element inside a `text` run, which Contract has no slot for.

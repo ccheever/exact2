@@ -1114,6 +1114,12 @@ impl Workspace {
                 }
             }
             "error" if !event.error.is_empty() => self.set_error(event.error),
+            // A menu bar item (main.rs `set_menus`), relayed by the host.
+            "menu" => {
+                if let Some(cmd) = crate::palette::Command::from_id(&event.command) {
+                    self.execute(cmd);
+                }
+            }
             _ => {}
         }
     }
