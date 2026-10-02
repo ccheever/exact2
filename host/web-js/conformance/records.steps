@@ -1,7 +1,8 @@
 # A copy with one field replaced, then a branch's local; a local read after
 # a write sees the starting count; a match arm's local copies a record built
 # in a handler's argument; saved, the draft equals what was loaded; a `fn`
-# builds one; a child's local beside its parent's `count`.
+# builds one; a child's local beside its parent's `count`. Each `step`
+# changes `count`, so the callbacks that build and copy `Stop`s run again.
 tap retitle
 tap pin
 tap step

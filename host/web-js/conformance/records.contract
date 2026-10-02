@@ -1,7 +1,8 @@
 // Synthetic conformance plan (LLP 1035.005.000 D2, D3): records built and
 // copied in expressions, compared with `!=`, and `let` in actions — through
 // branches, in a `match` arm, after a write (which it does not see), and in a
-// child's action lifted into the root.
+// child's action lifted into the root; and built and copied in `map` and
+// `filter` callbacks over Caltrain's nearest stations.
 shape Fields
   title: string
   body: string
@@ -10,6 +11,20 @@ shape Fields
 shape Point
   x: number
   y: number
+
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+shape Stop
+  name: string
+  rank: number
 
 fn blank(title: string): Fields = Fields(title=title, body="", pinned=false)
 
@@ -22,6 +37,11 @@ component Records
   state label = ""
   derive fields = match draft { case some(d) => d, case none => loaded }
   derive dirty = fields != loaded
+  resource loc = defaultLocation() as shape Location
+  resource close = nearest(loc, 3) as shape list<Station>
+  derive stops = map(close, (s, i) => Stop(name=s.name, rank=i + count))
+  derive ranked = map(stops, s => Stop(s, rank=s.rank * 10))
+  derive kept = filter(ranked, s => Stop(s, name="") != Stop(name="", rank=count * 10))
   action retitle
     let next = Fields(fields, title=`${fields.title}!`)
     draft = some(next)
@@ -56,6 +76,7 @@ component Records
       text fields.title testId="title"
       text `${fields.body} ${fields.pinned ? "pinned" : "loose"} ${dirty ? "dirty" : "clean"}` testId="status"
       text `${count} ${seen} ${spot.x},${spot.y} ${label}` testId="locals"
+      text join(map(kept, s => `${s.name}:${s.rank}`), ", ") testId="stops"
       row gap=8
         button press=retitle testId="retitle"
           text "retitle"

@@ -8,13 +8,16 @@ use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
 /// Answers `echo(x)` with `x`: a record passed as a source's argument
-/// arrives as the record it was built as.
+/// arrives as the record it was built as. `numbers()` is `[1, 2, 3]`.
 struct Echo;
 
 impl DataSource for Echo {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match (source, args) {
             ("echo", [x]) => Ok(x.clone()),
+            ("numbers", []) => Ok(Value::list(
+                (1..=3).map(|n| Value::Number(n.into())).collect(),
+            )),
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
@@ -182,4 +185,92 @@ fn only_a_declared_shape_is_built_and_a_fn_may_not_take_its_name() {
     )
     .unwrap_err();
     assert_eq!(e.id, "type-fn-shape-name", "{e}");
+}
+
+fn boot(src: &str) -> Runner<Echo> {
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}\n{src}"));
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    Runner::boot(
+        plan,
+        Echo,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn points(xs: &[f64]) -> Value {
+    Value::list(
+        xs.iter()
+            .map(|&x| Value::record(vec![Value::Number(x)]))
+            .collect(),
+    )
+}
+
+/// A callback returns a value, and a record is one: built and copied in
+/// `map` and `filter` callbacks, unlike a component's name (the JSX habit,
+/// still refused).
+#[test]
+fn a_record_is_built_and_copied_inside_list_callbacks() {
+    let src = "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape list<number>\n  state offset = 0\n  derive fs = map(nums, n => F(x=n + offset))\n  derive gs = map(fs, f => F(f, x=f.x + 1))\n  derive at = map(nums, (n, i) => F(x=n * 10 + i))\n  derive kept = filter(gs, g => g != F(x=3))\n  derive copied = filter(fs, f => F(f, x=f.x * 2) == F(x=4))\n  action add\n    offset = offset + 10\n  view\n    column\n      text toString(length(gs)) testId=\"count\"\n      text join(map(kept, k => toString(k.x)), \",\") testId=\"kept\"\n      button press=add testId=\"add\"\n        text \"add\"\n";
+    let mut r = boot(src);
+    assert_eq!(r.derive("fs"), Some(&points(&[1.0, 2.0, 3.0])));
+    assert_eq!(r.derive("gs"), Some(&points(&[2.0, 3.0, 4.0])));
+    assert_eq!(r.derive("at"), Some(&points(&[10.0, 21.0, 32.0])));
+    assert_eq!(r.derive("kept"), Some(&points(&[2.0, 4.0])));
+    assert_eq!(r.derive("copied"), Some(&points(&[2.0])));
+    assert_eq!(text(&r, "count"), "3");
+    assert_eq!(text(&r, "kept"), "2,4");
+    // The callbacks run again over what changed.
+    press(&mut r, "add");
+    assert_eq!(r.derive("gs"), Some(&points(&[12.0, 13.0, 14.0])));
+    assert_eq!(r.derive("copied"), Some(&points(&[])));
+    assert_eq!(text(&r, "kept"), "12,13,14");
+    // A component's name in a callback is still the JSX habit.
+    let e = contract::compile(
+        "component App\n  resource nums = numbers() as shape list<number>\n  derive rs = map(nums, n => Row(x=n))\n  view\n    text \"a\"\ncomponent Row\n  props\n    x: number\n  view\n    text \"r\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-callback-view", "{e}");
+    // A `filter` callback that builds a record says it returns a bool.
+    let e = contract::compile(
+        "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape list<number>\n  derive fs = filter(map(nums, n => F(x=n)), f => F(f, x=2))\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
+    assert!(e.message.contains("returns a bool, not `F`"), "{e}");
+}
+
+/// Expanding a use never renames a record constructor's head: a child's
+/// state, a child's prop (passed a parent's variable), or a binder spelled
+/// like a declared shape leaves `F(…)` building `F` (LLP 1035.005.000 D3).
+#[test]
+fn expansion_keeps_a_record_constructors_head() {
+    const SHAPE: &str = "shape F\n  x: number\n";
+    // A child's `state F` beside a `state f = F(x=1)`.
+    let src = format!(
+        "{SHAPE}component App\n  view\n    Child()\ncomponent Child\n  state F = 7\n  state f = F(x=1)\n  action bump\n    f = F(f, x=f.x + F)\n  view\n    button press=bump testId=\"bump\"\n      text `${{f.x}} ${{F}}` testId=\"state\"\n"
+    );
+    let mut r = boot(&src);
+    assert_eq!(text(&r, "state"), "1 7");
+    press(&mut r, "bump");
+    assert_eq!(text(&r, "state"), "8 7");
+    // A child's prop `F`, passed the parent's `p`.
+    let src = format!(
+        "{SHAPE}component App\n  state p = 5\n  view\n    Child(F=p)\ncomponent Child\n  props\n    F: number\n  derive made = F(x=F + 1)\n  view\n    text `${{made.x}} ${{F(x=F * 2).x}}` testId=\"prop\"\n"
+    );
+    let r = boot(&src);
+    assert_eq!(text(&r, "prop"), "6 10");
+    // Binders spelled `F`: a view's `each`, a callback's parameter and a
+    // `match` arm, in a child whose prop's value builds an `F` (so each
+    // expression binder is renamed apart from it).
+    let src = format!(
+        "{SHAPE}component App\n  resource nums = numbers() as shape list<number>\n  view\n    Child(v=F(x=2), vs=map(nums, n => F(x=n)))\ncomponent Child\n  props\n    v: F\n    vs: list<F>\n  derive d = match some(v) {{ case some(F) => F(F, x=F.x + 1), case none => v }}\n  derive m = map(vs, F => F(F, x=F.x * v.x))\n  view\n    column\n      text `${{d.x}} ${{join(map(m, q => toString(q.x)), \",\")}}` testId=\"binders\"\n      each F in vs key=F.x\n        text toString(F(F, x=F.x + 40).x) testId=`each-${{F.x}}`\n      text toString(match some(v) {{ case some(F) => F(F, x=F.x + 50).x, case none => 0 }}) testId=\"arm\"\n"
+    );
+    let r = boot(&src);
+    assert_eq!(text(&r, "binders"), "3 2,4,6");
+    assert_eq!(text(&r, "each-1"), "41");
+    assert_eq!(text(&r, "each-3"), "43");
+    assert_eq!(text(&r, "arm"), "52");
 }

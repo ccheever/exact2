@@ -14,7 +14,7 @@
 
 use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, TypeExpr};
 use crate::parser::SyntaxError;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod derives;
 mod subst;
@@ -113,6 +113,18 @@ pub fn expand_all(file: &File, mapped: bool) -> (Expanded, Vec<SyntaxError>) {
     expand_with_sites(file, mapped)
 }
 
+/// The file's record constructors: every declared shape that is not also a
+/// `fn`. A call naming one builds that record ahead of any name in scope
+/// (LLP 1035.005.000 D3), so expansion never replaces such a call's head.
+fn record_constructors(file: &File) -> BTreeSet<String> {
+    file.shapes
+        .iter()
+        .map(|shape| &shape.name)
+        .filter(|name| !file.fns.iter().any(|f| &f.name == *name))
+        .cloned()
+        .collect()
+}
+
 /// The stand-in for a value a refused use could not supply.
 fn absent(span: crate::Span) -> Expr {
     Expr::Ident("?".into(), span)
@@ -150,8 +162,10 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         );
     }
     let mut counter = 0u32;
+    let records = record_constructors(file);
     let mut ctx = Ctx {
         file,
+        records: &records,
         counter: &mut counter,
         depth: 0,
         provides: Vec::new(),
@@ -174,7 +188,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         },
     };
     let none = BTreeMap::new();
-    let mut subst = Subst::new(&none);
+    let mut subst = Subst::new(&none, &records);
     for b in &source.provides {
         ctx.provides
             .push((b.name.clone(), subst_expr(&b.expr, &mut subst)));
@@ -218,6 +232,8 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
 /// What inlining carries down the tree besides the substitution.
 struct Ctx<'a> {
     file: &'a File,
+    /// The file's record constructors (`record_constructors`).
+    records: &'a BTreeSet<String>,
     counter: &'a mut u32,
     depth: u32,
     /// Provided bindings in force, outermost component first, each already
@@ -398,12 +414,13 @@ fn inline_nodes(
                 // for the child's derive `a`.
                 // A resolved derive reads no other derive by name, so every
                 // one is substituted against the same props, states and actions.
-                let derives = resolved_derives(c).unwrap_or_else(|e| {
+                let records = ctx.records;
+                let derives = resolved_derives(c, records).unwrap_or_else(|e| {
                     ctx.errors.push(e);
                     c.derives.iter().map(|d| (d, absent(d.span))).collect()
                 });
                 let resolved: Vec<Expr> = {
-                    let mut base = Subst::new(&child_subst);
+                    let mut base = Subst::new(&child_subst, records);
                     derives
                         .iter()
                         .map(|(_, expr)| subst_expr(expr, &mut base))
@@ -412,7 +429,7 @@ fn inline_nodes(
                 for ((derive, _), expr) in derives.iter().zip(resolved) {
                     child_subst.insert(derive.name.clone(), expr);
                 }
-                let mut child = Subst::new(&child_subst);
+                let mut child = Subst::new(&child_subst, records);
                 for st in &c.states {
                     ctx.extra_states.push((
                         Binding {
@@ -439,7 +456,7 @@ fn inline_nodes(
                         );
                     }
                     let resolved: Vec<Expr> = {
-                        let mut base = Subst::new(&action_subst);
+                        let mut base = Subst::new(&action_subst, records);
                         derives
                             .iter()
                             .map(|(_, expr)| subst_expr(expr, &mut base))
@@ -461,7 +478,11 @@ fn inline_nodes(
                                 .map(|(param, _, _)| param.clone())
                                 .chain(a.params.iter().cloned())
                                 .collect(),
-                            body: subst_stmts(&a.body, &mut Subst::new(&action_subst), &names),
+                            body: subst_stmts(
+                                &a.body,
+                                &mut Subst::new(&action_subst, records),
+                                &names,
+                            ),
                             span: a.span,
                         },
                         instance,

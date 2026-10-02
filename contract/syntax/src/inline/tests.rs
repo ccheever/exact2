@@ -140,7 +140,7 @@ fn substitution_never_captures_a_replacements_free_name() {
         for (name, replacement) in &subst {
             bound.insert(name.clone(), eval(replacement, &env));
         }
-        let result = substituted(&e, &subst);
+        let result = substituted(&e, &subst, &Default::default());
         renamed += format!("{result:?}").contains('@') as u32;
         assert_eq!(
             eval(&result, &env),
@@ -260,7 +260,7 @@ fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
         let src = derive_source(&mut rng, derives);
         let file = crate::parse(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
         let c = &file.components[0];
-        let resolved = super::resolved_derives(c).unwrap();
+        let resolved = super::resolved_derives(c, &Default::default()).unwrap();
         let authored: BTreeMap<String, Expr> = c
             .derives
             .iter()
@@ -329,7 +329,11 @@ fn a_statement_let_is_renamed_apart_from_a_replacement_for_the_rest_of_its_block
         assign("x", id("a")),
     ];
     let map = BTreeMap::from([("b".to_owned(), id("a"))]);
-    let out = subst_stmts(&body, &mut Subst::new(&map), &BTreeMap::new());
+    let out = subst_stmts(
+        &body,
+        &mut Subst::new(&map, &Default::default()),
+        &BTreeMap::new(),
+    );
     let Stmt::If { then, .. } = &out[1] else {
         panic!("{out:?}")
     };
