@@ -37,7 +37,7 @@ fn app(body: &str) -> String {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     format!(
-        "keyframes fade\n  from opacity=0\n  to opacity=1\nkeyframes flash\n  from background-color=\"#ff0000\"\n  to background-color=\"#0000ff\"\ncomponent App\n  state busy = false\n  state n = 0\n  action go writes n\n    n = n + 1\n  action keys(k: string) writes n\n    n = n + 1\n  view\n    column\n{body}"
+        "keyframes fade\n  from opacity=0\n  to opacity=1\nkeyframes flash\n  from background-color=\"#ff0000\"\n  to background-color=\"#0000ff\"\ncomponent App\n  state busy = false\n  state n = 0\n  action go\n    n = n + 1\n  action keys(k: string)\n    n = n + 1\n  view\n    column\n{body}"
     )
 }
 
@@ -159,6 +159,9 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
 #[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
+    // An SF Symbol by name, literal or computed (LLP 1035.004.000).
+    boot(&app("button appearance=\"auto\" press=go aria-label=\"Send\"\n  image \"symbol:sf/paperplane.fill\""));
+    boot(&app("button appearance=\"auto\" press=go\n  image `symbol:sf/${busy ? \"hourglass\" : \"paperplane\"}`\n  text \"Send\""));
     for (body, says) in [
         (
             "button appearance=\"auto\" press=go width=40 height=40",
@@ -182,7 +185,11 @@ fn its_face_is_a_title_a_symbol_or_both() {
         ),
         (
             "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"photo.png\"",
-            "symbol role",
+            "is a symbol",
+        ),
+        (
+            "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"symbol:sf/\"",
+            "is a symbol",
         ),
         (
             "button appearance=\"auto\" press=go\n  when busy\n    text \"Wait\"",

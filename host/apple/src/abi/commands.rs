@@ -151,12 +151,12 @@ impl<D: DataSource> Bridge<D> {
             None => json.push_str("null"),
         }
         json.push_str(",\"symbol\":");
-        match face
-            .symbol
-            .as_deref()
-            .and_then(exact_kernel::generated::symbol)
-        {
-            Some((apple, _, _)) => quote(apple, &mut json),
+        // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000).
+        match face.symbol.as_deref().and_then(|r| {
+            r.strip_prefix("sf/")
+                .or_else(|| exact_kernel::generated::symbol(r).map(|s| s.0))
+        }) {
+            Some(apple) => quote(apple, &mut json),
             None => json.push_str("null"),
         }
         json.push_str(&format!(",\"leading\":{},\"style\":", face.leading));

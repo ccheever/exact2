@@ -17,7 +17,7 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
     let plan = contract::compile(
         r#"component App
   state n = 0
-  action go writes n
+  action go
     n = n + 1
   view
     column align-items="flex-start" press=go testId="row"

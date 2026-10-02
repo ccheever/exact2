@@ -750,16 +750,31 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
                         }
                     }
                     "image" => {
-                        let ok = positional.first().and_then(literals).is_some_and(|srcs| {
-                            srcs.iter().all(|s| {
-                                s.strip_prefix("symbol:")
-                                    .is_some_and(|r| exact_kernel::generated::symbol(r).is_some())
+                        // A role from the table or an SF Symbol's name
+                        // (LLP 1035.004.000), a choice between them, or a
+                        // source computed at runtime that starts `symbol:`.
+                        let symbol = |s: &str| {
+                            s.strip_prefix("symbol:").is_some_and(|r| {
+                                r.strip_prefix("sf/").map_or_else(
+                                    || exact_kernel::generated::symbol(r).is_some(),
+                                    |name| !name.is_empty(),
+                                )
                             })
-                        });
+                        };
+                        let ok = match positional.first() {
+                            Some(Expr::Template(parts, _)) => matches!(
+                                parts.first(),
+                                Some(contract_syntax::TemplatePart::Text(t)) if t.starts_with("symbol:")
+                            ),
+                            Some(e) => {
+                                literals(e).is_some_and(|srcs| srcs.iter().all(|s| symbol(s)))
+                            }
+                            None => false,
+                        };
                         if !ok {
                             return err(
                                 "lower-button-content",
-                                "a native button's image is a symbol role, `image \"symbol:…\"` (or a choice between them)",
+                                "a native button's image is a symbol, `image \"symbol:…\"` (a role or `sf/` and an SF Symbol's name, a choice between them, or a template that starts `symbol:`)",
                                 *span,
                             );
                         }
@@ -788,7 +803,6 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
                 }
                 out
             }
-            Node::Provide { body, .. } => face_counts(body)?,
             Node::Each { span, .. } => {
                 return err(
                     "lower-button-content",

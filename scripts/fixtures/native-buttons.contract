@@ -1,15 +1,16 @@
 // LLP 1069.011: native buttons — every `buttonStyles` row with a title,
 // then a symbol, a symbol and a title, a fixed width, a stretched one, a
 // disabled one, an accent (on a button, and inherited by the styles that
-// draw their title in the label colour), a long title in a narrow button,
+// draw their title in the label colour), an SF Symbol by name, a long title
+// in a narrow button,
 // and glass buttons in a glass group with a
 // fading one. The platform draws each; the web draws its stated look.
 component NativeButtons
   state presses = 0
   state fading = false
-  action go writes presses
+  action go
     presses = presses + 1
-  action fade writes fading
+  action fade
     fading = not fading
   view
     column testId="native-buttons" padding=16 gap=10 background-color="light-dark(#ffffff, #000000)"
@@ -75,6 +76,8 @@ component NativeButtons
         button appearance="auto" buttonStyle="tinted" press=go testId="a-tinted"
           image "symbol:send"
           text "tinted"
+        button appearance="auto" buttonStyle="glass" press=go testId="a-sf" aria-label="Send"
+          image "symbol:sf/paperplane.fill"
       button appearance="auto" buttonStyle="filled" press=go testId="narrow" width=90
         text "Send this very long message"
       button appearance="auto" press=go testId="stretched"
