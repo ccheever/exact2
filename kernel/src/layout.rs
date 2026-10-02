@@ -905,14 +905,19 @@ impl LayoutTree {
                     {
                         return size;
                     }
-                    if arena.node_type(slot) == NodeType::Control {
+                    if matches!(
+                        arena.node_type(slot),
+                        NodeType::Control | NodeType::NativeView
+                    ) {
                         // @ref LLP 1069.001 D3 — the platform's size for its
                         // control (CSS leaves it to the UA), each axis
                         // overridden by a known one; until the host
-                        // reports, the kind's default.
+                        // reports, the kind's default. Native modules use the
+                        // same non-ratio seam, with no default content size
+                        // (LLP 1024 D4).
                         let (iw, ih) = arena.intrinsic(slot).unwrap_or_else(|| {
-                            crate::ControlKind::of(NodeType::Control, arena.props(slot))
-                                .map_or((13.0, 13.0), crate::ControlKind::default_size)
+                            crate::ControlKind::of(arena.node_type(slot), arena.props(slot))
+                                .map_or((0.0, 0.0), crate::ControlKind::default_size)
                         });
                         return Size {
                             width: known.width.unwrap_or(iw),

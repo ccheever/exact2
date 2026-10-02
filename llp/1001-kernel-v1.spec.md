@@ -450,7 +450,14 @@ weight/style whose declared family lacks the needed face, and the web host emits
 `font-synthesis: none` (LLP 1019 §5). A `ScrollView`/`List` scrolls on its
 block axis unless the producer sets `overflow_y` — the only per-tag default,
 applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
-web). An `Image` is a replaced element: the host reports its intrinsic size
+web). A `NativeView` may report a preferred content-size pair through the same
+`Kernel::set_intrinsic_size` seam as a `Control` (LLP 1024 D4, 2026-10-01).
+It is a measured leaf without an inferred ratio or a projected tablist's
+minimum; CSS still determines the outer box. Without a report its content
+measures zero, and a block still stretches to available width. Reports are
+finite positive pairs or `None` to clear, not constrained measurements.
+
+An `Image` is a replaced element: the host reports its intrinsic size
 (`Kernel::set_intrinsic_size`, the bitmap's pixel counts one-for-one as points,
 after the image loads; before that each unknown axis measures 0, so a `width`
 row still sizes the box), the node is measured from it, and it keeps its

@@ -77,6 +77,7 @@ final class FixtureBox: ExactNativeInstance {
     override var view: ExactNativeView { box }
 
     private func apply(_ props: [String: String]) {
+        events.intrinsicSize(CGSize(width: 200, height: 96))
         tint = rgb(props["tint"])
         #if os(macOS)
         box.layer?.backgroundColor = CGColor(srgbRed: tint.0, green: tint.1, blue: tint.2, alpha: 1)
@@ -139,13 +140,18 @@ final class PlainBox: ExactNativeInstance {
         box.isUserInteractionEnabled = false
         box.contentMode = .redraw
         #endif
-        box.tint = rgb(props["tint"])
+        apply(props)
     }
 
     override var view: ExactNativeView { box }
 
-    override func setProps(_ props: [String: String]) throws {
+    private func apply(_ props: [String: String]) {
+        events.intrinsicSize(props["natural"] == "false" ? nil : CGSize(width: 120, height: props["expanded"] == "true" ? 64 : 32))
         box.tint = rgb(props["tint"])
+    }
+
+    override func setProps(_ props: [String: String]) throws {
+        apply(props)
         #if os(macOS)
         box.needsDisplay = true
         #else

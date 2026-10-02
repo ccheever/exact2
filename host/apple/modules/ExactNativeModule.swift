@@ -136,7 +136,7 @@ open class ExactModule {
     open func destroy() {}
 }
 
-/// The nine events, as the kernel's `EventKind` ordinals.
+/// The nine events (kernel `EventKind` ordinals) and host-only size reports.
 public final class ExactNativeEvents: @unchecked Sendable {
     let fn: ExactNativeEventFn
     let ctx: UnsafeMutableRawPointer?
@@ -155,6 +155,15 @@ public final class ExactNativeEvents: @unchecked Sendable {
     public func submit() { send(6) }
     public func load() { send(7) }
     public func message(_ text: String) { send(8, text) }
+    /// Preferred content size in points, independent of the assigned frame.
+    /// Report after creation and whenever content changes; nil forgets it.
+    /// Both axes must be finite and positive. CSS still owns the final frame;
+    /// no aspect ratio is inferred. This is not a constrained measure callback.
+    /// Any thread; stale instances are ignored, and a turn's reports coalesce.
+    public func intrinsicSize(_ size: CGSize?) {
+        guard let size else { send(9); return }
+        send(9, "\(size.width),\(size.height)")
+    }
 }
 
 /// One instance of a module tag.
@@ -336,7 +345,7 @@ private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 
 }
 
 /// The ABI major this artifact was built against; the host refuses others.
-private let major: UInt32 = 2
+private let major: UInt32 = 3
 
 private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
