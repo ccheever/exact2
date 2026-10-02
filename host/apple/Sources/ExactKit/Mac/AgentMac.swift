@@ -97,7 +97,7 @@ extension Agent {
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
-            responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+            session.natives.ownsFocus(n) || responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
         }).min(by: { $0.id < $1.id }) {
             focus["logical"] = Int(node.id)
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
@@ -548,12 +548,27 @@ extension Agent {
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
 
+    private func nativeType(_ v: NodeView, _ req: [String: Any], token: UInt32? = nil) -> [String: Any] {
+        let nonce = token ?? session.natives.inputToken(v)
+        if nonce != nil, let window = v.window, !window.isKeyWindow { window.makeKey() }
+        let reply = session.natives.input(v, request: req, token: token)
+        if reply["error"] == nil, req["phase"] as? String == "down",
+           let release = req["releaseKey"] as? String, let nonce, let key = req["key"] as? String {
+            keyReleases[release] = { [weak session, weak v] in
+                guard let session, let v else { return ["error": "native view ended"] }
+                return session.natives.input(v, request: ["key": key, "phase": "up"], token: nonce)
+            }
+        }
+        return reply
+    }
+
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
@@ -564,7 +579,8 @@ extension Agent {
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
-            let parts = chord.split(separator: "+").map(String.init)
+            let normalized = chord == "+" ? "Plus" : chord.hasSuffix("++") ? String(chord.dropLast()) + "Plus" : chord
+            let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
             let key = device?.key ?? rawKey
@@ -577,6 +593,7 @@ extension Agent {
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
+            guard phase == nil || phase == "down" || phase == "up" else { return ["error": "invalid key phase"] }
             if modifiers.intersection([.command,.control]).isEmpty, let code=device?.code,
                session.canvases.pressedControlKey(code,down:phase != "up") {
                 if phase == nil {_ = session.canvases.pressedControlKey(code,down:false)}
@@ -595,7 +612,16 @@ extension Agent {
             // First responder only if it is not held already: re-making an
             // editing field first responder ends its editing (a blur the
             // app would see) and begins it again with no focus.
-            if presenter.toolbar.contains(v) {
+            let nativeToken = v.kind == "native" ? session.natives.inputToken(v) : nil
+            if v.kind == "native" {
+                guard let nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
+                if phase == "up" {
+                    guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+                } else if !session.natives.focus(v) { return ["error": "native view refused focus"] }
+                // Resigning the previous responder can synchronously replace or restrict this node.
+                guard session.natives.inputToken(v) == nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
+                guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+            } else if presenter.toolbar.contains(v) {
                 if let view = session.view { win.makeFirstResponder(view) }
             } else if let f = v.textArea {
                 if win.firstResponder !== f { win.makeFirstResponder(f) }
@@ -608,8 +634,9 @@ extension Agent {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
             } else { return ["error": "view \(v.id) takes no key"] }
             let (chars, code): (String, UInt16) = {
-                if let device, let code = KeyCodes.mac.first(where: { $0.value == device.code })?.key { return (device.key == "Enter" ? "\r" : device.key, UInt16(code)) }
                 switch key {
+                case "Plus": return ("+", 24)
+                case "Space": return (" ", 49)
                 case "c": return (key, 8)
                 case "o": return (key, 31)
                 case "Enter": return ("\r", 36)
@@ -620,7 +647,9 @@ extension Agent {
                 case "ArrowDown": return ("\u{F701}", 125)
                 case "ArrowLeft": return ("\u{F702}", 123)
                 case "ArrowRight": return ("\u{F703}", 124)
-                default: return (key, 0)
+                default:
+                    let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
+                    return (key, UInt16(code ?? 0))
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
@@ -630,12 +659,17 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if presenter.shortcuts.perform(down) {
+            if phase != "up", presenter.shortcuts.perform(down) {
+                if phase == "down", let release = req["releaseKey"] as? String {
+                    // A host command consumed the down; its up belongs to no module instance.
+                    keyReleases[release] = { ["phase": "up", "delivery": "recognized"] }
+                }
                 return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
             }
+            if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
-            if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
+            if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
             if phase != "up" { win.sendEvent(down) }
@@ -698,7 +732,7 @@ extension Agent {
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
             guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
-            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
+            guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             return ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
         }
@@ -713,7 +747,9 @@ extension Agent {
         Capture.capturing = false
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        guard let png = rep.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
+        // The display's profile can be P3. Agent pixel comparisons and films
+        // consume sRGB bytes, so convert the pixels rather than just retagging.
+        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         return ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
     }

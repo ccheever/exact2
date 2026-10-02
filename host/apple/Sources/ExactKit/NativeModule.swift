@@ -18,7 +18,8 @@
 //  40  snapshot(handle, token)          nullable; answered on `reply`
 //  48  destroy(handle)
 //  56  set_bounds                       reserved, NULL (LLP 1024 §5)
-//  64  agent_input                      reserved, NULL
+//  64  agent_input(handle, json, len, err, errCap) → 0 delivered, else refused
+//        nullable; JSON {text: string} or {key: chord, phase?: down|up}
 //  72  module_create(json, len, host, changed, now, err, errCap) → module
 //        json: {"agent", "data", "cache", "temporary"}; changed(host, topic,
 //        len) from any thread; now(host) → the session clock, main thread
@@ -30,6 +31,9 @@
 // 104  prepare_for_reuse(handle) → 0 reset, else refused   size ≥ 112; nullable
 //        (LLP 1068 §4.8): as if created with no props; the next set_props is
 //        a first mount, and `load` follows once no pixel of the last row shows
+//
+// 112  focus_target(handle) → borrowed NSView * / UIView *; size ≥ 120; nullable
+//        the platform view or an attached descendant; nil refuses focus
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -99,6 +103,8 @@ private final class NativeTable {
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
     var prepareForReuse: ReuseFn?
+    var agentInput: SetFn?
+    var focusTarget: ViewFn?
 
     private init(path: String, roster: [String: [String: Any]], create: @escaping CreateFn, platformView: @escaping ViewFn,
                  setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn,
@@ -147,6 +153,8 @@ private final class NativeTable {
             moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
+        loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
+        loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
         return .success(loaded)
     }
@@ -205,7 +213,13 @@ private let nativeEventCallback: NativeEventFn = { _, instance, kind, bytes, len
     // Never synchronously: the host enters the runner through the presenter's gate.
     DispatchQueue.main.async {
         if let natives = NativeProcess.owners[nonce]?.natives { natives.received(nonce: nonce, kind: kind, data: data) }
-        else { NativeProcess.retired[nonce]?.natives?.dropped(nonce: nonce, kind: kind) }
+        else {
+            // A callback issued after retirement captured 0. The module's
+            // original nonce still identifies its weak diagnostic owner;
+            // use it only for logging, never to deliver to a reused view.
+            let retiredNonce = nonce == 0 ? instance : nonce
+            NativeProcess.retired[retiredNonce]?.natives?.dropped(nonce: retiredNonce, kind: kind)
+        }
     }
 }
 
@@ -518,6 +532,9 @@ final class NativeViews {
         entry.props = props
         entry.state = "ready"
         entry.error = nil
+        #if os(macOS)
+        owner.presenter?.keyViewLoopStale = true
+        #endif
         made += 1
         measured?("native", CFAbsoluteTimeGetCurrent() - started)
         log("\(entry.name) #\(entry.id): ready")
@@ -587,6 +604,9 @@ final class NativeViews {
         var error = [UInt8](repeating: 0, count: 512)
         let json = Data(props.utf8)
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
+        #if os(macOS)
+        owner.presenter?.keyViewLoopStale = true
+        #endif
         if status == 0 {
             entry.props = props
             if entry.state == "error" { entry.state = "ready"; entry.error = nil }
@@ -594,6 +614,113 @@ final class NativeViews {
             fail(entry, "error", "props refused: \(String(cString: error.map { CChar(bitPattern: $0) }))")
         }
     }
+
+    #if os(macOS)
+    /// Include field editors, which AppKit keeps outside the widget subtree.
+    func ownsFocus(_ owner: NodeView) -> Bool {
+        guard let entry = entries[owner.id], entry.owner === owner else { return false }
+        return ownsFocus(entry)
+    }
+
+    private func ownsFocus(_ entry: NativeEntry) -> Bool {
+        guard let root = entry.view else { return false }
+        return ownsFocus(in: root)
+    }
+
+    private func ownsFocus(in root: NSView) -> Bool {
+        guard let responder = root.window?.firstResponder else { return false }
+        if let view = responder as? NSView, view === root || view.isDescendant(of: root) { return true }
+        func editing(_ view: NSView) -> Bool {
+            if let field = view as? NSTextField, field.currentEditor() === responder { return true }
+            return view.subviews.contains(where: editing)
+        }
+        return editing(root)
+    }
+
+    private func available(_ owner: NodeView) -> NativeEntry? {
+        guard let entry = entries[owner.id], entry.owner === owner, entry.state == "ready",
+              entry.handle != nil, let root = entry.view, root.superview === owner,
+              root.window != nil, !owner.disabled, !owner.inert,
+              owner.bounds.width > 0, owner.bounds.height > 0 else { return nil }
+        var next: NSView? = root
+        while let view = next {
+            if view.isHidden { return nil }
+            if (view as? NodeView)?.style["display"]?.string == "none" { return nil }
+            next = view.superview
+        }
+        return entry
+    }
+
+    /// One responder for explicit focus, sequential focus and dialog entry.
+    func focusTarget(_ owner: NodeView) -> NSView? {
+        guard let entry = available(owner), let handle = entry.handle, let root = entry.view,
+              let window = root.window, case .success(let table)? = NativeProcess.table,
+              let raw = table.focusTarget?(handle) else { return nil }
+        let target = Unmanaged<NSView>.fromOpaque(raw).takeUnretainedValue()
+        guard target === root || target.isDescendant(of: root), target.window === window,
+              !target.isHiddenOrHasHiddenAncestor, target.acceptsFirstResponder,
+              (target as? NSControl)?.isEnabled != false else { return nil }
+        return target
+    }
+
+    @discardableResult func focus(_ owner: NodeView) -> Bool {
+        guard let target = focusTarget(owner), let window = target.window else { return false }
+        if ownsFocus(in: target) { return true }
+        return window.makeFirstResponder(target) && ownsFocus(in: target)
+    }
+
+    func inputToken(_ owner: NodeView) -> UInt32? {
+        guard let entry = available(owner) else { return nil }
+        return entry.nonce
+    }
+
+    func input(_ owner: NodeView, request: [String: Any], token: UInt32? = nil) -> [String: Any] {
+        guard let entry = available(owner), token == nil || token == entry.nonce,
+              let handle = entry.handle, case .success(let table)? = NativeProcess.table else {
+            return ["error": "native view is unavailable, hidden, inert, disabled or replaced"]
+        }
+        guard let input = table.agentInput else { return ["error": "native view does not support agent input"] }
+        let nonce = entry.nonce
+        var payload: [String: String] = [:]
+        if let key = request["key"] as? String {
+            payload["key"] = key
+            if let phase = request["phase"] as? String {
+                guard phase == "down" || phase == "up" else { return ["error": "invalid key phase"] }
+                payload["phase"] = phase
+            }
+        } else {
+            guard request["phase"] == nil, let text = request["text"] as? String else { return ["error": "expected text or key"] }
+            guard owner.props["editable"] != "false" else { return ["error": "native view is readonly"] }
+            payload["text"] = text
+        }
+        // A held release must never steal focus back from a different widget.
+        if token != nil {
+            guard ownsFocus(owner) else { return ["error": "native view no longer owns focus"] }
+        } else {
+            guard focus(owner) else { return ["error": "native view refused focus"] }
+        }
+        // AppKit resigns the previous responder synchronously. Its blur handler
+        // can render new restrictions or replace this instance before we return.
+        guard available(owner) === entry, entry.nonce == nonce, entry.handle == handle else {
+            return ["error": "native view is unavailable, hidden, inert, disabled or replaced"]
+        }
+        guard ownsFocus(owner) else { return ["error": "native view no longer owns focus"] }
+        if payload["text"] != nil, owner.props["editable"] == "false" {
+            return ["error": "native view is readonly"]
+        }
+        let bytes = Array((try! JSONSerialization.data(withJSONObject: payload)))
+        var error = [UInt8](repeating: 0, count: 512)
+        let status = bytes.withUnsafeBufferPointer { input(handle, $0.baseAddress, UInt32($0.count), &error, UInt32(error.count)) }
+        guard status == 0 else {
+            let message = String(decoding: error.prefix { $0 != 0 }, as: UTF8.self)
+            return ["error": message.isEmpty ? "native view refused agent input" : message]
+        }
+        var reply: [String: Any] = ["typed": Int(owner.id), "delivery": "native-module"]
+        if let key = payload["key"] { reply["key"] = key }
+        if let phase = payload["phase"] { reply["phase"] = phase }
+        return reply
+    }
+    #endif
 
     /// The node is gone: the nonce dies first, then the instance (D4).
     func destroy(id: UInt32) {
@@ -606,6 +733,11 @@ final class NativeViews {
         if park(entry) { return }
         #endif
         if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
+        #if os(macOS)
+        // Retire a descendant/field editor before destroying its module instance.
+        entry.owner?.presenter?.keyViewLoopStale = true
+        if ownsFocus(entry) { entry.view?.window?.makeFirstResponder(nil) }
+        #endif
         entry.view?.removeFromSuperview()
         if let handle = entry.handle, case .success(let table)? = NativeProcess.table {
             table.destroy(handle)

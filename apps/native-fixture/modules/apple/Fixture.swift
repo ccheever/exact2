@@ -38,7 +38,7 @@ private final class Passive: NSView {
 }
 private final class Drawn: NSView {
     var tint = (CGFloat(0.5), CGFloat(0.5), CGFloat(0.5))
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? { subviews.isEmpty ? nil : super.hitTest(point) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor(srgbRed: tint.0, green: tint.1, blue: tint.2, alpha: 1).setFill()
         bounds.fill()
@@ -131,14 +131,76 @@ final class FixtureBox: ExactNativeInstance {
     }
 }
 
+#if os(macOS)
+private final class FixtureEditor: NSTextView, NSTextViewDelegate {
+    var events: ExactNativeEvents?
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { events?.focus() }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { events?.blur() }
+        return accepted
+    }
+    func textDidChange(_ notification: Notification) { events?.change(string) }
+    override func keyDown(with event: NSEvent) {
+        events?.key(event.keyCode == 51 ? "Backspace" : event.characters ?? "")
+        super.keyDown(with: event)
+    }
+}
+#endif
+
 final class PlainBox: ExactNativeInstance {
     private let box = Drawn(frame: .zero)
+    #if os(macOS)
+    private var editor: FixtureEditor?
+    override var focusTarget: ExactNativeView? { editor }
+    override func agentInput(_ input: ExactNativeInput) throws {
+        guard let editor, editor.window?.firstResponder === editor else { throw ExactNativeRefusal("no focused fixture editor") }
+        switch input {
+        case .text(let text):
+            editor.selectAll(nil)
+            editor.insertText(text, replacementRange: editor.selectedRange())
+        case .key(let key, let phase):
+            // Exercise real AppKit commands; unsupported chords refuse before delivery.
+            let chars: String, code: UInt16
+            switch key {
+            case "Backspace": chars = "\u{7f}"; code = 51
+            case "ArrowLeft": chars = "\u{f702}"; code = 123
+            case "ArrowRight": chars = "\u{f703}"; code = 124
+            case "Enter": chars = "\r"; code = 36
+            default: throw ExactNativeRefusal("fixture does not support key \(key)")
+            }
+            let phases: [NSEvent.EventType] = phase == "up" ? [.keyUp] : phase == "down" ? [.keyDown] : [.keyDown, .keyUp]
+            for type in phases {
+                guard let event = NSEvent.keyEvent(with: type,
+                    location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: editor.window!.windowNumber, context: nil, characters: chars,
+                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) else { throw ExactNativeRefusal("no key event") }
+                if type == .keyUp { editor.keyUp(with: event) } else { editor.keyDown(with: event) }
+            }
+        }
+    }
+    #endif
 
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
         #if os(iOS)
         box.isUserInteractionEnabled = false
         box.contentMode = .redraw
+        #endif
+        #if os(macOS)
+        if props["customInput"] == "true" {
+            let editor = FixtureEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 48))
+            editor.events = events
+            editor.delegate = editor
+            editor.isRichText = false
+            editor.autoresizingMask = [.width, .height]
+            box.addSubview(editor)
+            self.editor = editor
+        }
         #endif
         apply(props)
     }
