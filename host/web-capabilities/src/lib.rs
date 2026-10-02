@@ -16,6 +16,7 @@ pub mod auth;
 pub mod backdrop;
 pub mod canvas_colors;
 pub mod collections;
+pub mod dataset;
 pub mod documents;
 pub mod drag;
 pub mod effects;
@@ -30,6 +31,7 @@ pub mod picker;
 pub mod router;
 pub mod share;
 pub mod surfaces;
+pub mod tabs;
 pub mod text_transform;
 pub mod timelines;
 
@@ -67,5 +69,7 @@ pub const ALL: exact_web::Linked = linked!(
     effects,
     animations,
     gradients,
-    geometry
+    geometry,
+    dataset,
+    tabs
 );

@@ -19,7 +19,7 @@ use exact_plan::{BindingKind, BindingsRow};
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 70] = [
+const HOST_WORDS: [&str; 71] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -32,6 +32,7 @@ const HOST_WORDS: [&str; 70] = [
     "bitmapwidth",
     "boot",
     "boot-ms",
+    "button-style",
     "dataset",
     "depth",
     "destructive",
@@ -110,10 +111,10 @@ pub fn is_word(word: &str) -> bool {
 }
 
 /// Whether a host already writes `data-<word>`: one of `HOST_WORDS`, or
-/// `exact` or `bitmap` and anything under them.
+/// `exact`, `bitmap` or `symbol` and anything under them.
 pub fn reserved(word: &str) -> bool {
     let under = |prefix: &str| word == prefix || word.starts_with(&format!("{prefix}-"));
-    HOST_WORDS.contains(&word) || under("exact") || under("bitmap")
+    HOST_WORDS.contains(&word) || under("exact") || under("bitmap") || under("symbol")
 }
 
 /// A `data-` attribute's refusal: a word HTML does not spell, or one a

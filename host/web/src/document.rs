@@ -111,7 +111,7 @@ pub(crate) fn project_keeping<D: DataSource>(
 /// A tree a document is written from: a kernel's nodes, or those a render
 /// holds without one ([`DocTree`], LLP 1048.004). One walk writes both, so
 /// the two documents differ only where the trees do.
-trait Source {
+pub trait Source {
     /// The facts of node `id`, when it is live.
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>>;
     /// Its children, in order.
@@ -325,58 +325,96 @@ struct Route {
 /// projection visits them, and takes each from the end.
 pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
-/// A navigation root's tabpanels (LLP 1075.003 §3.7): those its own
-/// tablist's tabs name with `aria-controls`, in tab order — `navigation.js`'s
-/// `panelsOf`. A tablist inside a route is that route's, never the root's.
-fn tab_panels<S: Source>(src: &S, children: &[ViewId]) -> Vec<ViewId> {
-    fn find<S: Source>(
-        src: &S,
-        ids: &[ViewId],
-        out: &mut Vec<ViewId>,
-        pred: &dyn Fn(&NodeFacts<'_>) -> bool,
-        stop: &dyn Fn(&NodeFacts<'_>) -> bool,
-    ) {
+/// A navigation root's routes as `navigation.project` marks them when the
+/// root has tabs (LLP 1075.003 §3.7), the `tabs` capability's walk:
+/// `(view, hidden, inert)` for each tabpanel and each route. Every panel but
+/// the selected one is hidden and inert, and each stack shows its own route;
+/// without tabs the stack is the root's own rows. Empty when the key names
+/// no route, which leaves the stack as it is.
+pub type TabRoutes = fn(&dyn Source, &[ViewId], Option<&str>) -> Vec<(ViewId, bool, bool)>;
+
+/// [`TabRoutes`]: the panels are those the root's own tablist's tabs name
+/// with `aria-controls`, in tab order — `navigation.js`'s `panelsOf`. A
+/// tablist inside a route is that route's, never the root's.
+pub fn tab_routes(
+    src: &dyn Source,
+    children: &[ViewId],
+    key: Option<&str>,
+) -> Vec<(ViewId, bool, bool)> {
+    // The root's tablists and tabpanels in tree order, none inside a route.
+    let (mut lists, mut found) = (Vec::new(), Vec::new());
+    let mut todo: Vec<ViewId> = children.iter().rev().copied().collect();
+    while let Some(id) = todo.pop() {
+        let Some(f) = src.facts(id) else { continue };
+        match f.props.str(PropId::AccessibilityRole) {
+            Some("tablist") => lists.push(id),
+            Some("tabpanel") => found.push(id),
+            _ => {}
+        }
+        if f.props.str(PropId::NavigationKey).is_none() {
+            todo.extend(src.children(id).iter().rev());
+        }
+    }
+    let mut panels = Vec::new();
+    for list in lists {
+        for tab in src.children(list).iter() {
+            let Some(t) = src.facts(*tab) else { continue };
+            let Some(target) = t.props.str(PropId::AccessibilityControls) else {
+                continue;
+            };
+            if t.props.str(PropId::AccessibilityRole) != Some("tab") {
+                continue;
+            }
+            let id = |p: &ViewId| {
+                src.facts(*p)
+                    .is_some_and(|f| f.props.str(PropId::Id) == Some(target))
+            };
+            panels.extend(found.iter().find(|p| id(p)));
+        }
+        if !panels.is_empty() {
+            break;
+        }
+    }
+    // Each stack's routes: (view, named by the key, modal).
+    let mut stacks = Vec::new();
+    let mut stack = |ids: &[ViewId]| {
+        let mut routes = Vec::new();
         for id in ids {
             let Some(f) = src.facts(*id) else { continue };
-            if pred(&f) {
-                out.push(*id);
-            }
-            if !stop(&f) {
-                find(src, &src.children(*id), out, pred, stop);
+            if let Some(k) = f.props.str(PropId::NavigationKey) {
+                let modal = f.props.str(PropId::NavigationPresentation) == Some("modal");
+                routes.push((*id, Some(k) == key, modal));
             }
         }
+        stacks.push(routes);
+    };
+    if panels.is_empty() {
+        stack(children);
     }
-    let role = |f: &NodeFacts<'_>, r: &str| f.props.str(PropId::AccessibilityRole) == Some(r);
-    let route = |f: &NodeFacts<'_>| f.props.str(PropId::NavigationKey).is_some();
-    let mut lists = Vec::new();
-    find(src, children, &mut lists, &|f| role(f, "tablist"), &|f| {
-        route(f) || role(f, "tablist")
-    });
-    let mut panels = Vec::new();
-    find(src, children, &mut panels, &|f| role(f, "tabpanel"), &route);
-    for list in lists {
-        let named: Vec<ViewId> = src
-            .children(list)
-            .iter()
-            .filter_map(|t| src.facts(*t))
-            .filter(|t| role(t, "tab"))
-            .filter_map(|t| {
-                t.props
-                    .str(PropId::AccessibilityControls)
-                    .map(str::to_owned)
-            })
-            .filter_map(|id| {
-                panels.iter().copied().find(|p| {
-                    src.facts(*p)
-                        .is_some_and(|f| f.props.str(PropId::Id) == Some(id.as_str()))
-                })
-            })
-            .collect();
-        if !named.is_empty() {
-            return named;
+    for panel in &panels {
+        stack(&src.children(*panel));
+    }
+    let mut out = Vec::new();
+    let Some(at) = stacks.iter().position(|routes| routes.iter().any(|r| r.1)) else {
+        return out;
+    };
+    for (index, panel) in panels.iter().enumerate() {
+        out.push((*panel, index != at, index != at));
+    }
+    for (index, routes) in stacks.iter().enumerate() {
+        let selected = if index == at {
+            routes.iter().position(|r| r.1).unwrap_or(0)
+        } else {
+            routes.len().saturating_sub(1)
+        };
+        let modal = routes.get(selected).is_some_and(|r| r.2);
+        for (i, route) in routes.iter().enumerate() {
+            let active = i == selected;
+            let shown = active || (modal && i + 1 == selected);
+            out.push((route.0, !shown, !active));
         }
     }
-    Vec::new()
+    out
 }
 
 struct Walk<'r, 'w, S: Source> {
@@ -689,72 +727,43 @@ impl<S: Source> Walk<'_, '_, S> {
         Ok(())
     }
 
-    /// Mark the routes under a navigation root as `navigation.project` does:
-    /// with tabs (LLP 1075.003 §3.7), every panel but the selected one is
-    /// hidden and inert, and each stack shows its own route.
+    /// Mark the routes under a navigation root as `navigation.project` does;
+    /// with tabs, as the `tabs` capability does ([`tab_routes`]).
     fn route_children(&mut self, node: &NodeFacts<'_>, children: &[ViewId]) {
         if node.props.str(PropId::NavigationBack).is_none() {
             return;
         }
         let src = self.src;
         let key = node.props.str(PropId::NavigationKey);
-        let routes_in = |ids: &[ViewId]| -> Vec<ViewId> {
-            ids.iter()
-                .copied()
-                .filter(|c| {
-                    src.facts(*c)
-                        .is_some_and(|f| f.props.str(PropId::NavigationKey).is_some())
-                })
-                .collect()
-        };
-        let panels = tab_panels(src, children);
-        let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
-            vec![routes_in(children)]
-        } else {
-            panels
-                .iter()
-                .map(|p| routes_in(&src.children(*p)))
-                .collect()
-        };
-        let named = |id: &ViewId| {
-            src.facts(*id)
-                .is_some_and(|f| f.props.str(PropId::NavigationKey) == key)
-        };
+        if let Some(tabs) = crate::link::linked().tabs {
+            for (id, hidden, inert) in tabs(src, children, key) {
+                self.routes.insert(id, Route { hidden, inert });
+            }
+            return;
+        }
+        let routes: Vec<NodeFacts<'_>> = children
+            .iter()
+            .filter_map(|c| src.facts(*c))
+            .filter(|c| c.props.str(PropId::NavigationKey).is_some())
+            .collect();
         // A key that names no route leaves the stack as it is.
-        let Some(at) = stacks.iter().position(|routes| routes.iter().any(named)) else {
+        let Some(selected) = routes
+            .iter()
+            .position(|r| r.props.str(PropId::NavigationKey) == key)
+        else {
             return;
         };
-        for (index, panel) in panels.iter().enumerate() {
-            let active = index == at;
+        let modal = routes[selected].props.str(PropId::NavigationPresentation) == Some("modal");
+        for (index, route) in routes.iter().enumerate() {
+            let active = index == selected;
+            let shown = active || (modal && index + 1 == selected);
             self.routes.insert(
-                *panel,
+                route.id,
                 Route {
-                    hidden: !active,
+                    hidden: !shown,
                     inert: !active,
                 },
             );
-        }
-        for (stack, routes) in stacks.iter().enumerate() {
-            let selected = if stack == at {
-                routes.iter().position(named).unwrap_or(0)
-            } else {
-                routes.len().saturating_sub(1)
-            };
-            let modal = routes
-                .get(selected)
-                .and_then(|r| src.facts(*r))
-                .is_some_and(|f| f.props.str(PropId::NavigationPresentation) == Some("modal"));
-            for (index, route) in routes.iter().enumerate() {
-                let active = index == selected;
-                let shown = active || (modal && index + 1 == selected);
-                self.routes.insert(
-                    *route,
-                    Route {
-                        hidden: !shown,
-                        inert: !active,
-                    },
-                );
-            }
         }
     }
 
@@ -1019,10 +1028,7 @@ struct Piece {
 /// href], …]`), as the linked Markdown capability wrote them; anything else
 /// is a defect.
 fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
-    let mut p = Json {
-        bytes: json.as_bytes(),
-        at: 0,
-    };
+    let mut p = Json::new(json);
     let mut pieces = Vec::new();
     p.expect(b'[')?;
     if p.peek() == Some(b']') {
@@ -1055,12 +1061,45 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
     }
 }
 
+/// A `dataset` row's pairs, the `dataset` capability's reading (LLP 1075.003
+/// §3.3): the runner's object of strings (`NativeProps`,
+/// LLP 1024 §9), written without whitespace and with JSON's escapes for
+/// `"`, `\\` and control characters only. Anything else yields what it
+/// parsed so far.
+pub fn dataset(json: &str) -> Vec<(String, String)> {
+    let mut p = Json::new(json);
+    let mut pairs = Vec::new();
+    if p.expect(b'{').is_err() {
+        return pairs;
+    }
+    while p.peek() == Some(b'"') {
+        let Ok(key) = p.string() else { break };
+        let (Ok(()), Ok(value)) = (p.expect(b':'), p.string()) else {
+            break;
+        };
+        pairs.push((key, value));
+        if p.peek() == Some(b',') {
+            p.next();
+        }
+    }
+    pairs
+}
+
+/// A reader of the JSON the host and the runner write themselves: the
+/// `markupPieces`, and a `dataset` row ([`dataset`]).
 struct Json<'a> {
     bytes: &'a [u8],
     at: usize,
 }
 
-impl Json<'_> {
+impl<'a> Json<'a> {
+    fn new(text: &'a str) -> Self {
+        Json {
+            bytes: text.as_bytes(),
+            at: 0,
+        }
+    }
+
     fn peek(&self) -> Option<u8> {
         self.bytes.get(self.at).copied()
     }

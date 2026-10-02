@@ -199,6 +199,20 @@ fn gradients_are_linked_by_use() {
 }
 
 #[test]
+fn data_words_and_tabs_are_linked_by_use() {
+    // @ref LLP 1075.003 §3.3, §3.7 — the web core carries neither the
+    // `dataset` reading nor the tabs' walk unless a plan binds the row.
+    let plain = used("component A\n  view\n    box testId=\"a\"\n");
+    assert!(!plain.has(Capability::Dataset) && !plain.has(Capability::Tabs));
+    let words = used("component A\n  view\n    box data-screen=\"home\"\n");
+    assert_eq!(words.to_string(), "dataset");
+    let tabs = used(
+        "component A\n  view\n    column\n      row role=\"tablist\"\n        button role=\"tab\" aria-controls=\"one\"\n          text \"One\"\n      column role=\"tabpanel\" id=\"one\"\n",
+    );
+    assert_eq!(tabs.to_string(), "tabs");
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

@@ -72,11 +72,17 @@ pub enum Capability {
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
     Geometry,
+    /// `data-*` words (LLP 1075.003 §3.3): a plan that binds `dataset`. The
+    /// web writes each word as its own attribute.
+    Dataset,
+    /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
+    /// `aria-controls`. The web's document shows each tab's stack.
+    Tabs,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 18] = [
+    pub const ALL: [Capability; 20] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -95,6 +101,8 @@ impl Capability {
         Capability::Animations,
         Capability::Gradients,
         Capability::Geometry,
+        Capability::Dataset,
+        Capability::Tabs,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -118,6 +126,8 @@ impl Capability {
             Capability::Animations => "animations",
             Capability::Gradients => "gradients",
             Capability::Geometry => "geometry",
+            Capability::Dataset => "dataset",
+            Capability::Tabs => "tabs",
         }
     }
 
@@ -208,6 +218,8 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
+                Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
                 }

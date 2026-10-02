@@ -678,8 +678,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         }
         // @ref LLP 1075.003 §3.3 — the app's words are real attributes.
         if let (PropId::Dataset, PropValue::Str(json)) = (id, value) {
-            for (word, value) in dataset(json) {
-                out.insert(format!("data-{word}"), value);
+            if let Some(dataset) = crate::link::linked().dataset {
+                for (word, value) in dataset(json) {
+                    out.insert("data-".to_owned() + &word, value);
+                }
             }
             continue;
         }
@@ -913,60 +915,6 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     out
 }
 
-/// A `dataset` row's pairs: the runner's object of strings (`NativeProps`,
-/// LLP 1024 §9), whose only escapes are JSON's for `"`, `\\` and control
-/// characters. Anything else yields what it parsed so far.
-pub fn dataset(json: &str) -> Vec<(String, String)> {
-    fn string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
-        if chars.next()? != '"' {
-            return None;
-        }
-        let mut out = String::new();
-        loop {
-            match chars.next()? {
-                '"' => return Some(out),
-                '\\' => match chars.next()? {
-                    'n' => out.push('\n'),
-                    't' => out.push('\t'),
-                    'r' => out.push('\r'),
-                    'b' => out.push('\u{8}'),
-                    'f' => out.push('\u{c}'),
-                    'u' => {
-                        let hex: String = (0..4).filter_map(|_| chars.next()).collect();
-                        out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
-                    }
-                    c => out.push(c),
-                },
-                c => out.push(c),
-            }
-        }
-    }
-    let mut pairs = Vec::new();
-    let mut chars = json.trim().chars().peekable();
-    if chars.next() != Some('{') {
-        return pairs;
-    }
-    while let Some(&c) = chars.peek() {
-        match c {
-            '}' => break,
-            ',' | ' ' => {
-                chars.next();
-            }
-            _ => {
-                let Some(key) = string(&mut chars) else { break };
-                if chars.next() != Some(':') {
-                    break;
-                }
-                let Some(value) = string(&mut chars) else {
-                    break;
-                };
-                pairs.push((key, value));
-            }
-        }
-    }
-    pairs
-}
-
 impl<D: exact_runner::DataSource> super::Host<D> {
     /// A view's CSS as the page has it: the rows, the host's additions, a
     /// folded text's (LLP 1007.001) and its paint isolation.
@@ -1137,6 +1085,10 @@ mod dataset_tests {
 
     #[test]
     fn a_dataset_is_one_attribute_per_word() {
+        crate::link::link(crate::Linked {
+            dataset: Some(crate::document::dataset),
+            ..crate::link::linked()
+        });
         let out = written(
             NodeType::View,
             PropId::Dataset,
@@ -1152,7 +1104,7 @@ mod dataset_tests {
         );
         assert!(out.get("data-dataset").is_none());
         assert_eq!(
-            super::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
+            crate::document::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
             vec![
                 ("a".into(), "q\"\\\t\u{1}".into()),
                 ("b".into(), String::new())

@@ -64,8 +64,9 @@ pub struct NodeArena {
     /// tablist's native control size; `None` before measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
     /// What a host container covers of a box (LLP 1075.003 §3.5): a few
-    /// route nodes at most, so by slot rather than a column.
-    covers: std::collections::BTreeMap<u32, crate::kernel::HostCover>,
+    /// route nodes at most, so a list by slot rather than a column (and not a
+    /// map, whose code every web core would carry).
+    covers: Vec<(u32, crate::kernel::HostCover)>,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -747,7 +748,7 @@ impl NodeArena {
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
         self.intrinsic[s] = None;
-        self.covers.remove(&slot);
+        self.covers.retain(|(s, _)| *s != slot);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -863,14 +864,17 @@ impl NodeArena {
 
     /// What a host container covers of a box, when it has said.
     pub fn cover(&self, slot: u32) -> Option<crate::kernel::HostCover> {
-        self.covers.get(&slot).copied()
+        self.covers
+            .iter()
+            .find(|(s, _)| *s == slot)
+            .map(|(_, c)| *c)
     }
 
     pub(crate) fn set_cover(&mut self, slot: u32, cover: Option<crate::kernel::HostCover>) {
-        match cover {
-            Some(c) => self.covers.insert(slot, c),
-            None => self.covers.remove(&slot),
-        };
+        self.covers.retain(|(s, _)| *s != slot);
+        if let Some(c) = cover {
+            self.covers.push((slot, c));
+        }
     }
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {
