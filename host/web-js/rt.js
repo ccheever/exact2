@@ -123,7 +123,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false;
+/** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
+class Failed extends Refusal {}
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
 export const journal = [];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -142,7 +144,7 @@ export function commit(f, what = "commit") {
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
   stamp();
-  const undo = [], saved = Resources.map(r => r.save()), store = Store.save();
+  const undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
   let ok = true;
   try {
     untracked(f);
@@ -159,9 +161,9 @@ export function commit(f, what = "commit") {
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
-    Resources.forEach((r, k) => r.restore(saved[k]));
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
     Store.restore(store);
-    Out = []; Commands = []; Landed = [];
+    Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
     if (!(e instanceof Refusal)) console.error(e);
     try { settle(); } catch {}
@@ -347,6 +349,22 @@ function ask(source, args, name) {
   if (a && a.then) { const p = a; return { promise: p }; }
   return a;
 }
+/** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
+ * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
+ * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
+function reply(t, name, source, held, f, next, gone) {
+  return o => {
+    if (commit(() => {
+      if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
+      let p;
+      try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
+      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
+      f(p);
+    }, `reply ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
+    gone(); commit(() => {}, "a failed request");
+  };
+}
 /** A resource: its value, the arguments it settled with, one ticket in flight. */
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
@@ -358,26 +376,29 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   const hold = () => {
     if (r.value !== undefined) return;
     const v = typeof ph === "function" ? ph() : ph;
-    if (v === undefined) throw new Refusal(`${name} answers later and has nothing to show; give it an \`else\``);
+    if (v === undefined) throw new Failed(`${name} answers later and has nothing to show; give it an \`else\``);
     r.value = v;
   };
   const take = (v, a) => {
-    if (type && !conforms(v, type, [0], r.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     r.checked = v;
     r.value = v; r.settled = a;
   };
-  const land = t => outcome => commit(() => {
-    if (r.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(source, t.args, outcome, Store);
+  // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
+  const land = t => reply(t, name, source, () => r.ticket === t, p => {
     if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    take(p.v, t.args); r.ticket = null;
+    take(p.v, t.args); r.ticket = r.failed = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
+    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
+    if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
+    flag(fail, r.failed);
+    if (r.failed) return r.value;
     if (!forced && !reread && !rev) {
       if (r.settled !== undefined && eq(a, r.settled)) return r.value;
       if (r.ticket && eq(a, r.ticket.args)) return r.value;
@@ -386,15 +407,14 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     try { ans = ask(source, a, name); }
     catch (e) {
       if (e instanceof Refusal) throw e;
-      if (e.refuse) throw new Refusal(`resource ${name}: ${e.message}`);
-      flag(fail, String(e.message)); say(`resource ${name} failed: ${e.message}`); return r.value;
+      if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
+      r.failed = a; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
       take(ans.v, a);
       if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
       if (!r.ticket) flag(pend, false);
-      flag(fail, null);
       return r.value;
     }
     // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
@@ -419,8 +439,8 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -440,18 +460,17 @@ export function mut(name, slot, refreshes, type) {
   Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
-  const land = t => outcome => commit(() => {
-    if (m.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(t.source, t.args, outcome, Store);
+  // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
+  const land = t => reply(t, name, t.source, () => m.ticket === t, p => {
     if (p.req) { t.req = p.req; send(t, land(t)); return; }
-    if (type && !conforms(p.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
     m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
   Object.assign(m, {
     forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
     send(source, args, undo) {
