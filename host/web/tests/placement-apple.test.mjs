@@ -44,9 +44,9 @@ precondition(capture()); precondition(m.cleared == [1,2]); precondition(captured
 
 for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, not the kernel frame${unavailable ? ` — ${unavailable}` : ''}`,()=>{
   const source=readFileSync(process.env.R7_APPLE_AGENT ?? `host/apple/Sources/ExactKit/${host}/Agent${host}.swift`,'utf8');
-  const start=source.indexOf('    func box('), body=source.indexOf('\n',start);
-  const end=source.indexOf(host==='Mac'?'        let clip =':'        let vp =',body);
-  const guard=source.slice(body,end);
+  const start=source.indexOf('        if (v as? NodeView)?.placedAncestor?.placementHidden == true');
+  expect(start).toBeGreaterThan(-1);
+  const guard=source.slice(start,source.indexOf('\n',start));
   const swift=`struct Rect: Equatable {var width:Int;static let zero=Rect(width:0)}
 class View {}
 class NodeView: View {var placedAncestor:NodeView?;var placementHidden=false}
