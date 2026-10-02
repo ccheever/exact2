@@ -1,3 +1,42 @@
+const CODEC_PATHS: [&str; 5] = [
+    "../vendor/taffy/src/style/grid.rs",
+    "build.rs",
+    "build/codec.rs",
+    "src/style/grid.rs",
+    "src/wire/codec.rs",
+];
+const SCHEMA_PATH: &str = "tables/schema.json";
+const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
+
+enum GridSeam {
+    Decode,
+    Encode,
+    Dynamic,
+}
+
+fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
+    if !matches!(
+        id,
+        "GridAutoFlow"
+            | "GridTemplateColumns"
+            | "GridTemplateRows"
+            | "GridColumn"
+            | "GridRow"
+            | "JustifyItems"
+    ) {
+        return false;
+    }
+    if id == "GridAutoFlow" {
+        let line = match seam {
+            GridSeam::Decode => "crate::style::decode_grid_rows(&mut out, mask, r)?;",
+            GridSeam::Encode => "crate::style::encode_grid_rows(self, mask, w);",
+            GridSeam::Dynamic => "StyleId::GridAutoFlow | StyleId::GridTemplateColumns | StyleId::GridTemplateRows | StyleId::GridColumn | StyleId::GridRow | StyleId::JustifyItems => crate::style::set_grid_dynamic(self, id, value)?,",
+        };
+        writeln!(w, "            {line}").unwrap();
+    }
+    true
+}
+
 enum Codec {
     Dimension,
     LineHeight,

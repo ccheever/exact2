@@ -22,7 +22,6 @@ pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
-use grid::grid_line;
 pub use grid::link as link_grid;
 pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
@@ -1116,39 +1115,28 @@ fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
     }
 }
 
-impl GridAutoFlow {
-    pub(crate) fn from_css(text: &str) -> Option<Self> {
-        let words = grid::css_idents(text)?
-            .into_iter()
-            .map(|word| word.to_ascii_lowercase())
-            .collect::<Vec<_>>();
-        match words.as_slice() {
-            [row] if row == "row" => Some(Self::Row),
-            [column] if column == "column" => Some(Self::Column),
-            [dense] if dense == "dense" => Some(Self::Dense),
-            [a, b] if (a == "row" && b == "dense") || (a == "dense" && b == "row") => {
-                Some(Self::RowDense)
-            }
-            [a, b] if (a == "column" && b == "dense") || (a == "dense" && b == "column") => {
-                Some(Self::ColumnDense)
-            }
-            _ => None,
-        }
-    }
+pub(crate) fn set_grid_dynamic(
+    style: &mut StyleProps,
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<(), StyleValueError> {
+    grid::set_dynamic(style, id, value)
 }
 
-impl JustifyItems {
-    pub(crate) fn from_css(text: &str) -> Option<Self> {
-        let mut value = grid::css_idents(text)?
-            .into_iter()
-            .map(|word| word.to_ascii_lowercase())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if value == "first baseline" {
-            value = "baseline".into();
-        }
-        Self::from_name(&value)
-    }
+pub(crate) fn decode_grid_rows(
+    style: &mut StyleProps,
+    mask: StyleMask,
+    reader: &mut crate::wire::codec::Reader<'_>,
+) -> Result<(), crate::error::DecodeError> {
+    grid::decode(style, mask, reader)
+}
+
+pub(crate) fn encode_grid_rows(
+    style: &StyleProps,
+    mask: StyleMask,
+    writer: &mut crate::wire::codec::Writer,
+) {
+    grid::encode(style, mask, writer);
 }
 
 impl StyleProps {
@@ -1318,14 +1306,8 @@ impl StyleProps {
         s.grid_template_column_names = self.grid_template_columns.line_names();
         s.grid_template_rows = self.grid_template_rows.taffy_components();
         s.grid_template_row_names = self.grid_template_rows.line_names();
-        s.grid_column = taffy::geometry::Line {
-            start: grid_line(&self.grid_column.start),
-            end: grid_line(&self.grid_column.end),
-        };
-        s.grid_row = taffy::geometry::Line {
-            start: grid_line(&self.grid_row.start),
-            end: grid_line(&self.grid_row.end),
-        };
+        s.grid_column = self.grid_column.taffy();
+        s.grid_row = self.grid_row.taffy();
         s
     }
 }

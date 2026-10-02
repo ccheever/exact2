@@ -6,18 +6,25 @@
 //! decode; the web only excludes the few valid forms Taffy cannot run.
 
 use cssparser::{serialize_identifier, Parser, ParserInput, Token};
+#[cfg(not(target_arch = "wasm32"))]
 use taffy::prelude::{
     auto, fit_content, fr, length, line, max_content, min_content, minmax, percent, span,
 };
 use taffy::style::{
     ExpandedMaxTrackSizingFunction as TaffyMax, ExpandedMinTrackSizingFunction as TaffyMin,
     GridPlacement as TaffyPlacement, GridTemplateComponent as TaffyComponent,
-    GridTemplateRepetition as TaffyRepeat, GridTemplateTracks as TaffyTracks,
-    MaxTrackSizingFunction, MinTrackSizingFunction, RepetitionCount as TaffyRepeatCount,
-    TrackSizingFunction,
+    GridTemplateTracks as TaffyTracks, RepetitionCount as TaffyRepeatCount, TrackSizingFunction,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use taffy::style::{
+    GridTemplateRepetition as TaffyRepeat, MaxTrackSizingFunction, MinTrackSizingFunction,
 };
 
-use super::MAX_GRID_TRACKS;
+use super::{
+    GridAutoFlow, JustifyItems, StyleId, StyleMask, StyleProps, StyleValue, MAX_GRID_TRACKS,
+};
+use crate::error::{DecodeError, StyleValueError};
+use crate::wire::codec::{Reader, Writer};
 
 /// The grid grammars, once linked ([`link`]). Only a wasm artifact reads
 /// this table; native hosts and the compiler call the parsers directly.
@@ -25,7 +32,13 @@ use super::MAX_GRID_TRACKS;
 struct Parsers {
     tracks: fn(&str) -> Option<GridTracks>,
     placement: fn(&str) -> Option<GridPlacement>,
-    idents: fn(&str) -> Option<Vec<String>>,
+    tracks_finite: fn(&GridTracks) -> bool,
+    tracks_valid: fn(&GridTracks) -> bool,
+    placement_valid: fn(&GridPlacement) -> bool,
+    placement_css: fn(&GridPlacement) -> String,
+    set_dynamic: fn(&mut StyleProps, StyleId, &StyleValue) -> Result<(), StyleValueError>,
+    decode: fn(&mut StyleProps, StyleMask, &mut Reader<'_>) -> Result<(), DecodeError>,
+    encode: fn(&StyleProps, StyleMask, &mut Writer),
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -40,7 +53,13 @@ pub fn link() {
     let _ = LINKED.set(Parsers {
         tracks: GridTracks::check,
         placement: GridPlacement::check,
-        idents: parse_css_idents,
+        tracks_finite: GridTracks::check_finite,
+        tracks_valid: GridTracks::check_valid,
+        placement_valid: GridPlacement::check_valid,
+        placement_css: GridPlacement::format_css,
+        set_dynamic: check_set_dynamic,
+        decode: check_decode,
+        encode: check_encode,
     });
 }
 
@@ -141,17 +160,29 @@ pub enum GridTrackComponent {
 /// A grid template, including the names on its explicit lines.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridTracks {
+    #[cfg(not(target_arch = "wasm32"))]
     components: Vec<GridTrackComponent>,
+    #[cfg(not(target_arch = "wasm32"))]
     line_names: Vec<Vec<String>>,
     css: String,
+    #[cfg(target_arch = "wasm32")]
+    finite: bool,
+    #[cfg(target_arch = "wasm32")]
+    valid: bool,
 }
 
 impl Default for GridTracks {
     fn default() -> Self {
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             components: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             line_names: Vec::new(),
             css: "none".into(),
+            #[cfg(target_arch = "wasm32")]
+            finite: true,
+            #[cfg(target_arch = "wasm32")]
+            valid: true,
         }
     }
 }
@@ -165,11 +196,22 @@ impl GridTracks {
         } else {
             tracks.iter().map(track_css).collect::<Vec<_>>().join(" ")
         };
-        let line_names = vec![Vec::new(); tracks.len().saturating_add(1)];
+        #[cfg(not(target_arch = "wasm32"))]
+        let line_names: Vec<Vec<String>> = vec![Vec::new(); tracks.len().saturating_add(1)];
+        #[cfg(target_arch = "wasm32")]
+        let finite = tracks.iter().copied().all(track_finite);
+        #[cfg(target_arch = "wasm32")]
+        let valid = tracks.len() <= MAX_GRID_TRACKS && tracks.iter().copied().all(track_valid);
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             components: tracks.into_iter().map(GridTrackComponent::Single).collect(),
+            #[cfg(not(target_arch = "wasm32"))]
             line_names,
             css,
+            #[cfg(target_arch = "wasm32")]
+            finite,
+            #[cfg(target_arch = "wasm32")]
+            valid,
         }
     }
 
@@ -198,12 +240,21 @@ impl GridTracks {
             .collect::<Option<Vec<_>>>()?;
         let line_names = parsed.line_names;
         let css = template_css(&components, &line_names);
+        #[cfg(target_arch = "wasm32")]
+        let finite = components.iter().all(component_finite);
+        let valid = tracks_valid(&components, &line_names, &css);
         let value = Self {
+            #[cfg(not(target_arch = "wasm32"))]
             components,
+            #[cfg(not(target_arch = "wasm32"))]
             line_names,
             css,
+            #[cfg(target_arch = "wasm32")]
+            finite,
+            #[cfg(target_arch = "wasm32")]
+            valid,
         };
-        value.is_valid().then_some(value)
+        valid.then_some(value)
     }
 
     /// The canonical CSS declaration value.
@@ -214,71 +265,59 @@ impl GridTracks {
     /// Heap-bearing entries used by native host packet sizing. The CSS text
     /// itself is exposed separately by [`Self::css`].
     pub fn storage_len(&self) -> usize {
-        self.components.len()
-            + self.line_names.iter().map(Vec::len).sum::<usize>()
-            + self
-                .components
-                .iter()
-                .map(|component| match component {
-                    GridTrackComponent::Single(_) => 0,
-                    GridTrackComponent::Repeat(repeat) => {
-                        repeat.tracks.len() + repeat.line_names.iter().map(Vec::len).sum::<usize>()
-                    }
-                })
-                .sum::<usize>()
+        #[cfg(target_arch = "wasm32")]
+        return 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.components.len()
+                + self.line_names.iter().map(Vec::len).sum::<usize>()
+                + self
+                    .components
+                    .iter()
+                    .map(|component| match component {
+                        GridTrackComponent::Single(_) => 0,
+                        GridTrackComponent::Repeat(repeat) => {
+                            repeat.tracks.len()
+                                + repeat.line_names.iter().map(Vec::len).sum::<usize>()
+                        }
+                    })
+                    .sum::<usize>()
+        }
     }
 
     /// Whether every track size is finite.
     pub fn is_finite(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED
+            .get()
+            .is_some_and(|parsers| (parsers.tracks_finite)(self));
+        #[cfg(not(target_arch = "wasm32"))]
+        self.check_finite()
+    }
+
+    fn check_finite(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        return self.finite;
+        #[cfg(not(target_arch = "wasm32"))]
         self.components.iter().all(component_finite)
     }
 
     /// Whether this is a structurally valid template in Taffy's supported CSS
     /// subset, bounded by the engine's explicit-grid limit.
     pub(crate) fn is_valid(&self) -> bool {
-        if self.components.is_empty() {
-            return self.css.eq_ignore_ascii_case("none");
-        }
-        if self.line_names.len() != self.components.len().saturating_add(1)
-            || !self
-                .line_names
-                .iter()
-                .flatten()
-                .all(|name| valid_grid_ident(name))
-            || !self.components.iter().all(component_valid)
-        {
-            return false;
-        }
-        let mut explicit_tracks = 0usize;
-        for component in &self.components {
-            let count = match component {
-                GridTrackComponent::Single(_) => 1,
-                GridTrackComponent::Repeat(GridRepeat {
-                    count: GridRepeatCount::Count(count),
-                    tracks,
-                    ..
-                }) => usize::from(*count).saturating_mul(tracks.len()),
-                GridTrackComponent::Repeat(GridRepeat { tracks, .. }) => tracks.len(),
-            };
-            explicit_tracks = explicit_tracks.saturating_add(count);
-            if explicit_tracks > MAX_GRID_TRACKS {
-                return false;
-            }
-        }
-        let auto_repeats = self
-            .components
-            .iter()
-            .filter(|component| {
-                matches!(
-                    component,
-                    GridTrackComponent::Repeat(GridRepeat {
-                        count: GridRepeatCount::AutoFill | GridRepeatCount::AutoFit,
-                        ..
-                    })
-                )
-            })
-            .count();
-        auto_repeats == 0 || (auto_repeats == 1 && self.components.iter().all(component_is_fixed))
+        #[cfg(target_arch = "wasm32")]
+        return LINKED
+            .get()
+            .is_some_and(|parsers| (parsers.tracks_valid)(self));
+        #[cfg(not(target_arch = "wasm32"))]
+        self.check_valid()
+    }
+
+    fn check_valid(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        return self.valid;
+        #[cfg(not(target_arch = "wasm32"))]
+        tracks_valid(&self.components, &self.line_names, &self.css)
     }
 
     /// `count` equal `1fr` tracks.
@@ -287,12 +326,62 @@ impl GridTracks {
     }
 
     pub(crate) fn taffy_components(&self) -> Vec<TaffyComponent<String>> {
+        #[cfg(target_arch = "wasm32")]
+        return Vec::new();
+        #[cfg(not(target_arch = "wasm32"))]
         self.components.iter().map(component_to_taffy).collect()
     }
 
     pub(crate) fn line_names(&self) -> Vec<Vec<String>> {
+        #[cfg(target_arch = "wasm32")]
+        return Vec::new();
+        #[cfg(not(target_arch = "wasm32"))]
         self.line_names.clone()
     }
+}
+
+fn tracks_valid(components: &[GridTrackComponent], line_names: &[Vec<String>], css: &str) -> bool {
+    if components.is_empty() {
+        return css.eq_ignore_ascii_case("none");
+    }
+    if line_names.len() != components.len().saturating_add(1)
+        || !line_names
+            .iter()
+            .flatten()
+            .all(|name| valid_grid_ident(name))
+        || !components.iter().all(component_valid)
+    {
+        return false;
+    }
+    let mut explicit_tracks = 0usize;
+    for component in components {
+        let count = match component {
+            GridTrackComponent::Single(_) => 1,
+            GridTrackComponent::Repeat(GridRepeat {
+                count: GridRepeatCount::Count(count),
+                tracks,
+                ..
+            }) => usize::from(*count).saturating_mul(tracks.len()),
+            GridTrackComponent::Repeat(GridRepeat { tracks, .. }) => tracks.len(),
+        };
+        explicit_tracks = explicit_tracks.saturating_add(count);
+        if explicit_tracks > MAX_GRID_TRACKS {
+            return false;
+        }
+    }
+    let auto_repeats = components
+        .iter()
+        .filter(|component| {
+            matches!(
+                component,
+                GridTrackComponent::Repeat(GridRepeat {
+                    count: GridRepeatCount::AutoFill | GridRepeatCount::AutoFit,
+                    ..
+                })
+            )
+        })
+        .count();
+    auto_repeats == 0 || (auto_repeats == 1 && components.iter().all(component_is_fixed))
 }
 
 fn component_from_taffy(value: TaffyComponent<String>) -> Option<GridTrackComponent> {
@@ -314,6 +403,7 @@ fn component_from_taffy(value: TaffyComponent<String>) -> Option<GridTrackCompon
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn component_to_taffy(value: &GridTrackComponent) -> TaffyComponent<String> {
     match value {
         GridTrackComponent::Single(track) => TaffyComponent::Single(track_to_taffy(*track)),
@@ -589,6 +679,7 @@ fn max_nonnegative(value: GridTrackMax) -> bool {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn track_to_taffy(value: GridTrack) -> TrackSizingFunction {
     match value {
         GridTrack::Fr(v) => fr(v),
@@ -603,6 +694,7 @@ fn track_to_taffy(value: GridTrack) -> TrackSizingFunction {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn min_track(value: GridTrackMin) -> MinTrackSizingFunction {
     match value {
         GridTrackMin::Points(v) => length(v),
@@ -613,6 +705,7 @@ fn min_track(value: GridTrackMin) -> MinTrackSizingFunction {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn max_track(value: GridTrackMax) -> MaxTrackSizingFunction {
     match value {
         GridTrackMax::Fr(v) => fr(v),
@@ -657,12 +750,33 @@ impl GridLine {
 }
 
 /// An item's placement on one grid axis.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GridPlacement {
     /// Start edge.
+    #[cfg(not(target_arch = "wasm32"))]
     pub start: GridLine,
     /// End edge.
+    #[cfg(not(target_arch = "wasm32"))]
     pub end: GridLine,
+    #[cfg(target_arch = "wasm32")]
+    css: String,
+    #[cfg(target_arch = "wasm32")]
+    valid: bool,
+}
+
+impl Default for GridPlacement {
+    fn default() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            start: GridLine::Auto,
+            #[cfg(not(target_arch = "wasm32"))]
+            end: GridLine::Auto,
+            #[cfg(target_arch = "wasm32")]
+            css: "auto".into(),
+            #[cfg(target_arch = "wasm32")]
+            valid: true,
+        }
+    }
 }
 
 impl GridPlacement {
@@ -685,32 +799,101 @@ impl GridPlacement {
                 _ => GridLine::Auto,
             },
         };
-        let value = Self { start, end };
-        value.is_valid().then_some(value)
+        let valid = start.is_valid() && end.is_valid();
+        #[cfg(target_arch = "wasm32")]
+        let css = placement_css(&start, &end);
+        let value = Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            start,
+            #[cfg(not(target_arch = "wasm32"))]
+            end,
+            #[cfg(target_arch = "wasm32")]
+            css,
+            #[cfg(target_arch = "wasm32")]
+            valid,
+        };
+        valid.then_some(value)
     }
 
     /// Construct a placement from its typed lines.
     pub fn from_lines(start: GridLine, end: GridLine) -> Self {
-        Self { start, end }
+        #[cfg(target_arch = "wasm32")]
+        let valid = start.is_valid() && end.is_valid();
+        #[cfg(target_arch = "wasm32")]
+        let css = placement_css(&start, &end);
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            start,
+            #[cfg(not(target_arch = "wasm32"))]
+            end,
+            #[cfg(target_arch = "wasm32")]
+            css,
+            #[cfg(target_arch = "wasm32")]
+            valid,
+        }
     }
 
     /// The canonical CSS declaration value.
     pub fn css(&self) -> String {
-        let omission_keeps_meaning = match (&self.start, &self.end) {
-            (GridLine::NamedLine(start, 0), GridLine::NamedLine(end, 0)) => start == end,
-            (GridLine::NamedLine(_, 0), GridLine::Auto) => false,
-            (_, GridLine::Auto) => true,
-            _ => false,
-        };
-        if omission_keeps_meaning {
-            line_css(&self.start)
-        } else {
-            format!("{} / {}", line_css(&self.start), line_css(&self.end))
-        }
+        #[cfg(target_arch = "wasm32")]
+        return LINKED
+            .get()
+            .map(|parsers| (parsers.placement_css)(self))
+            .unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.format_css()
+    }
+
+    fn format_css(&self) -> String {
+        #[cfg(target_arch = "wasm32")]
+        return self.css.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        placement_css(&self.start, &self.end)
     }
 
     pub(crate) fn is_valid(&self) -> bool {
-        self.start.is_valid() && self.end.is_valid()
+        #[cfg(target_arch = "wasm32")]
+        return LINKED
+            .get()
+            .is_some_and(|parsers| (parsers.placement_valid)(self));
+        #[cfg(not(target_arch = "wasm32"))]
+        self.check_valid()
+    }
+
+    fn check_valid(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        return self.valid;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.start.is_valid() && self.end.is_valid()
+        }
+    }
+
+    pub(crate) fn taffy(&self) -> taffy::geometry::Line<TaffyPlacement<String>> {
+        #[cfg(target_arch = "wasm32")]
+        return taffy::geometry::Line {
+            start: TaffyPlacement::Auto,
+            end: TaffyPlacement::Auto,
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        taffy::geometry::Line {
+            start: grid_line(&self.start),
+            end: grid_line(&self.end),
+        }
+    }
+}
+
+fn placement_css(start: &GridLine, end: &GridLine) -> String {
+    let omission_keeps_meaning = match (start, end) {
+        (GridLine::NamedLine(start, 0), GridLine::NamedLine(end, 0)) => start == end,
+        (GridLine::NamedLine(_, 0), GridLine::Auto) => false,
+        (_, GridLine::Auto) => true,
+        _ => false,
+    };
+    if omission_keeps_meaning {
+        line_css(start)
+    } else {
+        format!("{} / {}", line_css(start), line_css(end))
     }
 }
 
@@ -820,11 +1003,135 @@ impl PlacementPart {
     }
 }
 
-pub(super) fn css_idents(text: &str) -> Option<Vec<String>> {
+pub(super) fn set_dynamic(
+    style: &mut StyleProps,
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<(), StyleValueError> {
     #[cfg(target_arch = "wasm32")]
-    return LINKED.get().and_then(|parsers| (parsers.idents)(text));
+    return LINKED
+        .get()
+        .ok_or(StyleValueError::Unsupported { style: id })
+        .and_then(|parsers| (parsers.set_dynamic)(style, id, value));
     #[cfg(not(target_arch = "wasm32"))]
-    parse_css_idents(text)
+    check_set_dynamic(style, id, value)
+}
+
+fn check_set_dynamic(
+    style: &mut StyleProps,
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<(), StyleValueError> {
+    match id {
+        StyleId::GridAutoFlow => {
+            style.grid_auto_flow = check_auto_flow(value.text(id)?)
+                .ok_or(StyleValueError::UnknownEnumValue { style: id })?;
+        }
+        StyleId::GridTemplateColumns | StyleId::GridTemplateRows => {
+            let parsed = GridTracks::check(&value.css_text(id)?)
+                .ok_or(StyleValueError::BadGridTracks { style: id })?;
+            if id == StyleId::GridTemplateColumns {
+                style.grid_template_columns = parsed;
+            } else {
+                style.grid_template_rows = parsed;
+            }
+        }
+        StyleId::GridColumn | StyleId::GridRow => {
+            let parsed = GridPlacement::check(&value.css_text(id)?)
+                .ok_or(StyleValueError::BadGridPlacement { style: id })?;
+            if id == StyleId::GridColumn {
+                style.grid_column = parsed;
+            } else {
+                style.grid_row = parsed;
+            }
+        }
+        StyleId::JustifyItems => {
+            style.justify_items = check_justify_items(value.text(id)?)
+                .ok_or(StyleValueError::UnknownEnumValue { style: id })?;
+        }
+        _ => return Err(StyleValueError::Unsupported { style: id }),
+    }
+    Ok(())
+}
+
+pub(super) fn decode(
+    style: &mut StyleProps,
+    mask: StyleMask,
+    reader: &mut Reader<'_>,
+) -> Result<(), DecodeError> {
+    #[cfg(target_arch = "wasm32")]
+    return LINKED
+        .get()
+        .ok_or(DecodeError::InvalidGridTrack)
+        .and_then(|parsers| (parsers.decode)(style, mask, reader));
+    #[cfg(not(target_arch = "wasm32"))]
+    check_decode(style, mask, reader)
+}
+
+fn check_decode(
+    style: &mut StyleProps,
+    mask: StyleMask,
+    reader: &mut Reader<'_>,
+) -> Result<(), DecodeError> {
+    if mask.has(StyleId::GridAutoFlow) {
+        let value = reader.u8()?;
+        style.grid_auto_flow =
+            GridAutoFlow::from_wire(value).ok_or(DecodeError::UnknownEnumValue {
+                style: StyleId::GridAutoFlow,
+                value,
+            })?;
+    }
+    if mask.has(StyleId::GridTemplateColumns) {
+        style.grid_template_columns = reader.tracks_for_style()?;
+    }
+    if mask.has(StyleId::GridTemplateRows) {
+        style.grid_template_rows = reader.tracks_for_style()?;
+    }
+    if mask.has(StyleId::GridColumn) {
+        style.grid_column = reader.placement_for_style()?;
+    }
+    if mask.has(StyleId::GridRow) {
+        style.grid_row = reader.placement_for_style()?;
+    }
+    if mask.has(StyleId::JustifyItems) {
+        let value = reader.u8()?;
+        style.justify_items =
+            JustifyItems::from_wire(value).ok_or(DecodeError::UnknownEnumValue {
+                style: StyleId::JustifyItems,
+                value,
+            })?;
+    }
+    Ok(())
+}
+
+pub(super) fn encode(style: &StyleProps, mask: StyleMask, writer: &mut Writer) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(parsers) = LINKED.get() {
+        (parsers.encode)(style, mask, writer);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    check_encode(style, mask, writer);
+}
+
+fn check_encode(style: &StyleProps, mask: StyleMask, writer: &mut Writer) {
+    if mask.has(StyleId::GridAutoFlow) {
+        writer.u8(style.grid_auto_flow as u8);
+    }
+    if mask.has(StyleId::GridTemplateColumns) {
+        writer.tracks(&style.grid_template_columns);
+    }
+    if mask.has(StyleId::GridTemplateRows) {
+        writer.tracks(&style.grid_template_rows);
+    }
+    if mask.has(StyleId::GridColumn) {
+        writer.placement(&style.grid_column);
+    }
+    if mask.has(StyleId::GridRow) {
+        writer.placement(&style.grid_row);
+    }
+    if mask.has(StyleId::JustifyItems) {
+        writer.u8(style.justify_items as u8);
+    }
 }
 
 fn parse_css_idents(text: &str) -> Option<Vec<String>> {
@@ -838,6 +1145,37 @@ fn parse_css_idents(text: &str) -> Option<Vec<String>> {
         }
     }
     (!words.is_empty()).then_some(words)
+}
+
+fn check_auto_flow(text: &str) -> Option<GridAutoFlow> {
+    let words = parse_css_idents(text)?
+        .into_iter()
+        .map(|word| word.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    match words.as_slice() {
+        [row] if row == "row" => Some(GridAutoFlow::Row),
+        [column] if column == "column" => Some(GridAutoFlow::Column),
+        [dense] if dense == "dense" => Some(GridAutoFlow::Dense),
+        [a, b] if (a == "row" && b == "dense") || (a == "dense" && b == "row") => {
+            Some(GridAutoFlow::RowDense)
+        }
+        [a, b] if (a == "column" && b == "dense") || (a == "dense" && b == "column") => {
+            Some(GridAutoFlow::ColumnDense)
+        }
+        _ => None,
+    }
+}
+
+fn check_justify_items(text: &str) -> Option<JustifyItems> {
+    let mut value = parse_css_idents(text)?
+        .into_iter()
+        .map(|word| word.to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if value == "first baseline" {
+        value = "baseline".into();
+    }
+    JustifyItems::from_name(&value)
 }
 
 fn css_ident(name: &str) -> String {
@@ -858,6 +1196,7 @@ fn line_css(value: &GridLine) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn grid_line(value: &GridLine) -> TaffyPlacement<String> {
     match value {
         GridLine::Auto => TaffyPlacement::Auto,

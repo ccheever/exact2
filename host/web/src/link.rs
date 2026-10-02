@@ -73,7 +73,8 @@ pub struct Linked {
     pub animations: Option<AnimationsLink>,
     /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
-    /// CSS grid's grammars: linked at [`link`] when any grid row is bound.
+    /// CSS grid's grammar, validation and serialization: linked at [`link`]
+    /// when any grid row is bound.
     pub grid: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.

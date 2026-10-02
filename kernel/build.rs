@@ -10,15 +10,6 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-const SCHEMA_PATH: &str = "tables/schema.json";
-const CODEC_PATHS: [&str; 5] = [
-    "../vendor/taffy/src/style/grid.rs",
-    "build.rs",
-    "build/codec.rs",
-    "src/style/grid.rs",
-    "src/wire/codec.rs",
-];
-const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 #[derive(Deserialize)]
 struct Schema {
     #[serde(rename = "schemaVersion")]
@@ -1122,6 +1113,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        let mut out = StyleProps::default();").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Decode) {
+            continue;
+        }
         let codec = parse_codec(&row.codec);
         writeln!(
             w,
@@ -1148,6 +1142,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        w.style_mask(mask);").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Encode) {
+            continue;
+        }
         let codec = parse_codec(&row.codec);
         writeln!(
             w,
@@ -1284,6 +1281,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     let mut groups: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Dynamic) {
+            continue;
+        }
         let conv = match parse_codec(&row.codec) {
             Codec::U8 if row.keywords.is_some() => format!(
                 "{}::bits(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?",
