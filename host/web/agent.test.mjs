@@ -277,7 +277,7 @@ function fixture(agentMode = true) {
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
   });
-  vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -323,6 +323,20 @@ test('ordinary reads and inputs are synchronous; the awaited entry returns the s
   await pending;
   f.wasm = null;
   expect(f.exact.agent({ op: 'state' })).toEqual({ error: 'not booted' });
+});
+
+test('GPU pending prevents the awaited operation from reading live state', async () => {
+  const f = fixture();
+  let reads = 0;
+  f.ask = request => { reads++; return request.op === 'tags' ? {epoch:2,incarnation:1,clock:0} : f.state; };
+  f.exact.gpu = { settled: async () => [{name:'GPU recovery world'}] };
+  const reply = await f.exact.agentSettled({op:'state'});
+  expect(reply.error).toContain('GPU is not settled');
+  expect(reply.pending).toEqual(['GPU recovery world']);
+  expect(reads).toBe(0);
+  const clock = await f.exact.agentSettled({op:'clock',settle:true});
+  expect(clock).toEqual({clock:0,settled:false,reason:'gpu',pending:['GPU recovery world']});
+  expect(reads).toBe(0);
 });
 
 test('only calls before the inspection stage arrives wait for it; later ones are synchronous again', async () => {

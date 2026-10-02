@@ -64,8 +64,10 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
             Ok(())
         }
         Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e.clone());
-            Err(JsValue::from_str(&e))
+            let failure = crate::recovery::RecoveryFailure::device(e);
+            let message = failure.message().to_string();
+            ERROR.with(|s| *s.borrow_mut() = message.clone());
+            Err(JsValue::from_str(&failure.json()))
         }
     }
 }
@@ -78,9 +80,11 @@ pub async fn recover(
     let mut module = MODULE
         .with(|m| m.borrow_mut().take())
         .ok_or_else(|| JsValue::from_str("GPU module not loaded"))?;
-    let result: Result<String, String> = async {
+    let result: Result<String, crate::recovery::RecoveryFailure> = async {
         if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
-            return Err("recovery canvas table mismatch".into());
+            return Err(crate::recovery::RecoveryFailure::other(
+                "recovery canvas table mismatch",
+            ));
         }
         let outcome = module.recover().await?;
         if !outcome.contains("\"status\":\"recovered\"") {
@@ -88,17 +92,19 @@ pub async fn recover(
         }
         // Stage the whole replacement table. Configurations remain on instances,
         // even when adapter creation, attachment, or a second loss fails.
-        let gpu = module.gpu.as_ref().ok_or("no device")?;
+        let gpu = module
+            .gpu
+            .as_ref()
+            .ok_or_else(|| crate::recovery::RecoveryFailure::other("no device"))?;
         let mut targets = Vec::new();
         for (id, canvas) in ids.iter().zip(canvases) {
-            let config = module.instances[id]
-                .config
-                .as_ref()
-                .ok_or("missing presentation configuration")?;
+            let config = module.instances[id].config.as_ref().ok_or_else(|| {
+                crate::recovery::RecoveryFailure::other("missing presentation configuration")
+            })?;
             let target = gpu
                 .instance
                 .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| crate::recovery::RecoveryFailure::other(e.to_string()))?;
             target.configure(&gpu.device, config);
             targets.push((*id, target));
         }
@@ -114,17 +120,22 @@ pub async fn recover(
             .device_lost
             .load(std::sync::atomic::Ordering::Acquire)
         {
-            return Err("replacement device was lost during recovery".into());
+            return Err(crate::recovery::RecoveryFailure::other(
+                "replacement device was lost during recovery",
+            ));
         }
         Ok(module.recovery_report())
     }
     .await;
     if let Err(error) = &result {
         module.lose_device();
-        module.error = format!("device recovery: {error}");
+        module.error = format!("device recovery: {}", error.message());
     }
     MODULE.with(|m| *m.borrow_mut() = Some(module));
-    result.map_err(|e| JsValue::from_str(&e))
+    Ok(match result {
+        Ok(report) => report,
+        Err(error) => error.json(),
+    })
 }
 
 /// Create a canvas's surface on a `<canvas>` element. The id, or 0.

@@ -85,7 +85,7 @@ impl Pixels {
 
 /// This machine's device, or why there is none — a fixture skips, saying so.
 pub fn device() -> Result<Gpu, String> {
-    block_on(load_gpu(wgpu::Instance::default(), None))
+    block_on(load_gpu(wgpu::Instance::default(), None)).map_err(|error| error.to_string())
 }
 
 /// One frame of `surface` into a fresh `Rgba8Unorm` texture of the frame's

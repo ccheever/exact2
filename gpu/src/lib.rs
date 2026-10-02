@@ -1202,7 +1202,9 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 }
 
 mod device;
-pub use device::{load_gpu, requested_features, requested_limits};
+pub use device::{
+    load_gpu, requested_features, requested_limits, DeviceFailure, DeviceFailureKind,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fixture;

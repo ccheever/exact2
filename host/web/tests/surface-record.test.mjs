@@ -221,6 +221,99 @@ test('failed recovery removes clones and backs off instead of retrying each fram
   assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
 });
 
+test('a missing adapter leaves a settled fallback through dirty frames and agent settle', async () => {
+  const f=await fixture();
+  // This recovery test has no runner record consumer; keep creation local to
+  // the GPU harness instead of entering glue.js's extracted batch fixture.
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  host.style.background='#123456';
+  let attempts=0, renders=0, dirty=true;
+  f.gpu.gpu_dirty=()=>dirty;
+  f.gpu.gpu_render=()=>{renders++;dirty=false;return 0;};
+  f.frame();
+  // gpu_recover resolves Rust's typed report (gpu/src/web.rs); the glue must carry its code.
+  f.gpu.gpu_recover=async()=>{attempts++;return '{"status":"failed","code":"no-adapter","error":"no adapter: no suitable graphics adapter found"}';};
+  f.exact.gpu.deviceLost();
+  for(let i=0;i<4;i++) await Promise.resolve();
+  assert.equal(renders,1);
+  assert.equal(attempts,1);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  const writes=f.sizeWrites.length;
+  dirty=true;
+  f.gpu.gpu_render=()=>{renders++;return 3;};
+  f.frame();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(renders,1,'a terminal surface never renders again');
+  assert.equal(f.sizeWrites.length,writes,'no canvas receives a width or height write after terminal fallback');
+  assert.deepEqual([canvas.width,canvas.height],[1,1],'a terminal frame never resizes the bitmap');
+  assert.equal(host.style.background,'#123456','the kernel-owned fallback box keeps its background');
+  assert.ok(canvas.isConnected,'the transparent surface leaf stays under fallback children');
+});
+
+test('the last bounded non-adapter failure enters fallback and logs the terminal transition', async () => {
+  const timers=[];
+  const f=await fixture({setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length;}});
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  let attempts=0;
+  f.gpu.gpu_recover=async()=>{
+    attempts++;
+    return '{"status":"failed","code":"no-device","error":"no device: limits rejected"}';
+  };
+  f.exact.gpu.deviceLost();
+  for(let i=0;i<4;i++) await Promise.resolve();
+  for(const delay of [100,200,400,800]) {
+    assert.equal(timers.length,1);
+    const timer=timers.shift(); assert.equal(timer.ms,delay); timer.fn();
+    for(let i=0;i<4;i++) await Promise.resolve();
+  }
+  assert.equal(attempts,5);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,2,
+    'the first error and the later terminal transition are each reported once');
+  f.gpu.gpu_dirty=()=>true;
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+});
+
+for (const [name, report, code] of [
+  ['navigator.gpu absent', '{"status":"failed","code":"no-adapter","error":"no adapter: requestAdapter returned null"}', 'no-adapter'],
+  ['requestDevice rejecting', '{"status":"failed","code":"no-device","error":"no device: requestDevice rejected \\"limits\\""}', 'no-device'],
+]) test(`${name} consumes Rust's typed load failure and keeps the fallback settled`, async () => {
+  let loads=0;
+  const f=await fixture({pendingCount:1,pendingBackground:'#abcdef',gpuLoad:async()=>{loads++;throw report;}});
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(loads,1);
+  const host=f.exact.views.get(1);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.equal(f.exact.gpu.recovery.code,code);
+  assert.equal(host.style.background,'#abcdef');
+  assert.deepEqual([host.canvas.width,host.canvas.height],[1,1]);
+  assert.ok(host.canvas.isConnected);
+  const writes=f.sizeWrites.length;
+  f.gpu.gpu_dirty=()=>true; f.frame();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(f.sizeWrites.length,writes);
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
+});
+
+test('settled reports a recovery that is still pending at its deadline', async () => {
+  let now=0, finish;
+  const f=await fixture({performance:{now:()=>now},setTimeout:(fn)=>{now=2500;queueMicrotask(fn);return 1;}});
+  f.gpu.gpu_published=()=>undefined;
+  f.create(1);
+  f.gpu.gpu_recover=()=>new Promise(resolve=>{finish=resolve;});
+  f.exact.gpu.deviceLost();
+  for(let i=0;i<4;i++) await Promise.resolve();
+  const pending=await f.exact.gpu.settled();
+  assert.deepEqual(pending.map(item=>item.name),['GPU recovery world']);
+  finish('{"status":"no device","instances":[]}');
+  for(let i=0;i<4;i++) await Promise.resolve();
+});
+
 
 test('restore diagnostics wrap an already named refusal exactly once', async () => {
   const f=await fixture({refuse:()=>true,error:'restore refused: EXSIM v5 awaits declared assets'});
