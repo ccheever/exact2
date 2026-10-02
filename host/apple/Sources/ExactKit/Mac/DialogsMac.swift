@@ -171,6 +171,7 @@ final class DialogHost {
         return nil
     }
     private func candidates(_ dialog: NodeView) -> [NSView] {
+        guard let presenter else { return [] }
         var nodes: [NodeView] = []
         func walk(_ node: NodeView) {
             guard !node.inert, !node.disabled, !node.isHidden else { return }
@@ -183,15 +184,15 @@ final class DialogHost {
             let bi = Int(b.element.props["tabIndex"] ?? "0") ?? 0
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
             return ap == bp ? a.offset < b.offset : ap < bp
-        }.map { $0.element.textArea ?? $0.element.field ?? $0.element }
+        }.map { presenter.keyView(of: $0.element) }
     }
     func enterFocus() {
-        guard let dialog = active, let window = dialog.window else { return }
+        guard let presenter, let dialog = active, let window = dialog.window else { return }
         let candidates = candidates(dialog)
-        let autofocus = presenter?.carrying("autofocus").first {
+        let autofocus = presenter.carrying("autofocus").first {
             ($0 === dialog || $0.isDescendant(of: dialog)) && $0.props["autofocus"] == "true" && !$0.inert && !$0.disabled && !$0.isHiddenOrHasHiddenAncestor
         }
-        let focus: NSView = autofocus.map { $0.textArea ?? $0.field ?? $0 } ?? candidates.first ?? dialog
+        let focus = autofocus.map { presenter.keyView(of: $0) } ?? candidates.first ?? dialog
         window.makeFirstResponder(focus)
     }
     private func ownsFocus(_ window: NSWindow) -> Bool {
@@ -211,7 +212,15 @@ final class DialogHost {
         if event.type == .keyDown, event.keyCode == 48 {
             let choices = candidates(dialog)
             guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }
-            let current = focusOwner(window).flatMap { owner in choices.firstIndex { $0 === owner } }
+            let current = focusOwner(window).flatMap { owner -> Int? in
+                var ancestor: NSView? = owner
+                while let view = ancestor {
+                    if let index = choices.firstIndex(where: { $0 === view
+                        || ($0 as? NSTextField)?.currentEditor() === window.firstResponder }) { return index }
+                    ancestor = view.superview
+                }
+                return nil
+            }
             let backwards = event.modifierFlags.contains(.shift)
             let index = current.map { ($0 + (backwards ? choices.count - 1 : 1)) % choices.count }
                 ?? (backwards ? choices.count - 1 : 0)

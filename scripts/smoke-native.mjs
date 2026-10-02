@@ -205,6 +205,31 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const retired = await held.release().catch(error => ({ error: error.message }));
       check(Boolean(retired.error) && await focus() !== input, 'macos native: unmount retires focus and refuses a held release');
       await s.tap('toggle'); await settle(s);
+      const dialogInput = byTestId(await s.tree(), 'dialog-input').id;
+      const dialogCommand = byTestId(await s.tree(), 'dialog-command').id;
+      const dialogClose = byTestId(await s.tree(), 'dialog-close').id;
+      const dialogOpener = byTestId(await s.tree(), 'open-native-dialog').id;
+      await s.tap('open-native-dialog'); await settle(s);
+      let dialogState = await s.state();
+      check(dialogState.dialog?.phase === 'open' && dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: a dialog initially focuses the native editor without focus/key handlers');
+      await s.type('dialog-input', 'modal draft'); await settle(s);
+      check((await s.state()).slots.dialogValue === 'modal draft', 'macos native: the dialog editor receives ordinary text');
+      await s.type('dialog-input', { key: 'Tab', for: 10 }); await settle(s);
+      check(await focus() === dialogCommand, 'macos native: Tab advances from the actual editor and releases after focus moves');
+      await s.type('dialog-command', { key: 'Shift+Tab' }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: Shift-Tab returns to the editing descendant');
+      await s.type('dialog-input', { key: 'Shift+Tab' }); await settle(s);
+      check(await focus() === dialogClose, 'macos native: Shift-Tab wraps from the editor to the final dialog button');
+      await s.type('dialog-close', { key: 'Tab' }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: Tab wraps back into the editor');
+      await s.type('dialog-input', { key: 'Meta+Shift+Enter', for: 10 }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.slots.dialogCommands === 1 && dialogState.slots.inputCommands === 3, 'macos native: the modal shortcut runs once and leaves the background command inert');
+      await s.type('dialog-input', { key: 'Escape', for: 10 }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.dialog == null && dialogState.focus.logical === dialogOpener && dialogState.slots.dialogValue === 'modal draft', 'macos native: Escape closes and releases safely, restores focus and preserves the draft');
     }
     // A plan reload reuses the defined elements (web).
     if (host === 'web') {

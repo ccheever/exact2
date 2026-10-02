@@ -12,6 +12,12 @@ component NativeFixture
   state inputCommands = 0
   action inputCommand
     inputCommands = inputCommands + 1
+  state dialogValue = ""
+  state dialogCommands = 0
+  action dialogChange(v: string)
+    dialogValue = v
+  action dialogCommand
+    dialogCommands = dialogCommands + 1
   state blocked = false
   state inputHidden = false
   state inputInert = false
@@ -142,3 +148,9 @@ component NativeFixture
           button "Before input" testId="before-input"
           exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
           button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
+      button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
+      dialog id="native-dialog" width=320 padding=16 closedby="any"
+        column gap=8
+          exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
+          button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
+          button "Close" testId="dialog-close" commandfor="native-dialog" command="close"

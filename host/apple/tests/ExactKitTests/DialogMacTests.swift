@@ -244,6 +244,19 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange(), selection)
     }
 
+    func testTabUsesTheEditingCandidateBeforeItsFocusableAncestor() throws {
+        let p = fixture()
+        let editor = try textarea(p, id: 7, parent: 3)
+        p.views[3]!.props["tabIndex"] = "1"
+        p.press(2)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === p.views[3], "Tab wraps from the last editor to the positive-tab-index dialog")
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(window.firstResponder === p.views[5], "Shift-Tab starts at the editor, not its focusable ancestor")
+    }
+
     func testMarkedTextareaKeepsEscapeAndTabForItsInputMethod() throws {
         let p = fixture()
         let editor = try textarea(p, id: 7, parent: 3)
@@ -266,16 +279,19 @@ final class DialogMacTests: XCTestCase {
         let p = fixture()
         let editor = MarkedInputClient(frame: NSRect(x: 10, y: 45, width: 200, height: 30))
         p.views[3]!.container.addSubview(editor)
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": "Escape"], "clear": []]]))
         for code: UInt16 in [48, 53] {
             p.dialogs.show(p.views[3]!)
             XCTAssertTrue(window.makeFirstResponder(editor))
             editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
             XCTAssertTrue(editor.hasMarkedText())
-            XCTAssertFalse(p.dialogs.key(key(code)), "custom NSTextInputClient composition must own Tab/Escape")
+            XCTAssertFalse(p.dialogs.key(key(code)) || p.shortcuts.perform(key(code)), "custom NSTextInputClient composition must own Tab/Escape")
             XCTAssertTrue(p.dialogs.active === p.views[3], "Escape must not dismiss during composition")
             XCTAssertTrue(window.firstResponder === editor, "Tab must not move focus during composition")
             editor.unmarkText()
         }
+        XCTAssertTrue(p.dialogs.key(key(53)), "Escape resumes after composition")
+        XCTAssertNil(p.dialogs.active)
     }
 
     func testSelectAllAndTextPaintingFollowTheTopLayer() {
