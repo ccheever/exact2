@@ -49,17 +49,17 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
-    /// Invalid or unsupported CSS `box-shadow` (LLP 1078 D4).
+    /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
-    /// Invalid CSS `rotate` axis (LLP 1078 D8).
+    /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
-    /// Invalid `symbol-palette` (LLP 1078 D10).
+    /// Invalid `symbol-palette` (LLP 1077 D10).
     BadSymbolPalette,
-    /// Invalid or unsupported CSS `text-shadow` (LLP 1078 D3).
+    /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
     BadTextShadow,
-    /// Invalid or unsupported CSS `mask-image` (LLP 1078 D2).
+    /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
     BadMaskImage,
-    /// Invalid CSS `corner-shape` (LLP 1078 D1).
+    /// Invalid CSS `corner-shape` (LLP 1077 D1).
     BadCornerShape,
     /// Invalid `drag-timeline` (LLP 1057.003).
     BadDragTimeline,
@@ -482,15 +482,15 @@ pub enum StyleValueError {
     BadBackgroundImage {
         style: StyleId,
     },
-    /// Not `none` or one text shadow (LLP 1078 D3).
+    /// Not `none` or one text shadow (LLP 1077 D3).
     BadTextShadow {
         style: StyleId,
     },
-    /// Not `none` or one gradient mask (LLP 1078 D2).
+    /// Not `none` or one gradient mask (LLP 1077 D2).
     BadMaskImage {
         style: StyleId,
     },
-    /// Not one to four corner shapes (LLP 1078 D1).
+    /// Not one to four corner shapes (LLP 1077 D1).
     BadCornerShape {
         style: StyleId,
     },
@@ -510,20 +510,20 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
-    /// Not a CSS `rotate` (LLP 1078 D8).
+    /// Not a CSS `rotate` (LLP 1077 D8).
     BadRotateAxis {
         style: StyleId,
     },
-    /// Not `none` or one to three colours (LLP 1078 D10).
+    /// Not `none` or one to three colours (LLP 1077 D10).
     BadSymbolPalette {
         style: StyleId,
     },
-    /// Not `-webkit-text-stroke` (LLP 1078 D7); `reason` names what.
+    /// Not `-webkit-text-stroke` (LLP 1077 D7); `reason` names what.
     BadTextStroke {
         style: StyleId,
         reason: &'static str,
     },
-    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1078 D4);
+    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1077 D4);
     /// the compiler names the reason (`BoxShadows::check`).
     BadBoxShadow {
         style: StyleId,

@@ -134,7 +134,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
-            // @ref LLP 1078 D1 — Apple's continuous curve is no CSS keyword:
+            // @ref LLP 1077 D1 — Apple's continuous curve is no CSS keyword:
             // the web's stand-in is `superellipse(K)` over the radius scaled
             // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
             // 1001). CSS's own keywords are the browser's.
@@ -164,7 +164,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1)
                 );
             }
-            // @ref LLP 1078 D8 — `rotate` is the angle and its axis, and
+            // @ref LLP 1077 D8 — `rotate` is the angle and its axis, and
             // `translate` x, y and z: one declaration each.
             (StyleId::Rotate, RowValue::Number(n)) if style.rotate_axis.0 != [0.0, 0.0, 1.0] => {
                 push_text!(&mut out, "rotate:{} ", style.rotate_axis.css());
@@ -395,7 +395,7 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
-/// Whether the corner a radius row sizes is `-apple-continuous` (LLP 1078 D1).
+/// Whether the corner a radius row sizes is `-apple-continuous` (LLP 1077 D1).
 fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     let i = match id {
         StyleId::BorderRadiusTopLeft => 0,
@@ -411,9 +411,9 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
-        // Written with `rotate` and `translate` (LLP 1078 D8).
+        // Written with `rotate` and `translate` (LLP 1077 D8).
         RowValue::RotateAxis(_) => false,
-        // Apple's affordances: no CSS property (LLP 1078 §5).
+        // Apple's affordances: no CSS property (LLP 1077 §5).
         RowValue::SymbolPalette(_) => false,
         _ if matches!(
             id,
@@ -460,7 +460,7 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
-        // @ref LLP 1078 D7 — the Compat Standard's prefixed names.
+        // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
         StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
         id => id.name(),
@@ -913,7 +913,7 @@ mod declaration_tests {
                 &[],
             ),
             css(&[(StyleId::LineClamp, StyleValue::Number(3.0))], &[]),
-            // LLP 1078 D4: one row, CSS's list.
+            // LLP 1077 D4: one row, CSS's list.
             css(
                 &[(
                     StyleId::BoxShadow,

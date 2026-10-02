@@ -70,7 +70,7 @@ pub struct Shape {
     pub rect: Rect4,
     /// The radii.
     pub radii: [(f32, f32); 4],
-    /// CSS `corner-shape` when any corner is not `round` (LLP 1078 D1).
+    /// CSS `corner-shape` when any corner is not `round` (LLP 1077 D1).
     pub corners: Option<exact_kernel::corner::CornerShape>,
 }
 
@@ -130,7 +130,7 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
-    /// CSS `background-clip` (LLP 1078 D6).
+    /// CSS `background-clip` (LLP 1077 D6).
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
@@ -251,7 +251,7 @@ impl BoxPaint {
             backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
-        // The last layer first, so the first is on top (LLP 1078 D5), within
+        // The last layer first, so the first is on top (LLP 1077 D5), within
         // the background's clip (D6).
         if let Some(clip) = self.background_shape(geometry) {
             for g in self.gradients.iter().rev() {
@@ -265,7 +265,7 @@ impl BoxPaint {
             backend.fill_border(&part, ts);
         }
     }
-    /// The background colour: within its `background-clip` (LLP 1078 D6).
+    /// The background colour: within its `background-clip` (LLP 1077 D6).
     fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4])) {
         let Some(shape) = self.background_shape(geometry) else {
             return;
@@ -306,7 +306,7 @@ impl BoxPaint {
         )
     }
     /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
-    /// list's first on top (LLP 1078 D4).
+    /// list's first on top (LLP 1077 D4).
     fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
         self.shadows
             .iter()
@@ -510,7 +510,7 @@ pub trait Backend {
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
     fn push_opacity(&mut self, alpha: f32);
-    /// CSS `mask-image` (LLP 1078 D2): what paints until [`Backend::pop_mask`]
+    /// CSS `mask-image` (LLP 1077 D2): what paints until [`Backend::pop_mask`]
     /// is one group, clipped to `shape`, the border box.
     fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
         self.push_opacity(1.0);
@@ -590,7 +590,7 @@ pub struct Painter {
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
     /// The node a 3D island paints flat, its own transform being the warp's
-    /// (LLP 1078 D8).
+    /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
 }
 
@@ -908,7 +908,7 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
-        // @ref LLP 1078 D8 — turned or moved in space: painted apart, warped.
+        // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
             self.damage.unsupported = true;
             return;
@@ -952,7 +952,7 @@ impl Painter {
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
-        // @ref LLP 1078 D2 — the mask is the border box's gradient's alpha.
+        // @ref LLP 1077 D2 — the mask is the border box's gradient's alpha.
         let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
         if mask.is_some() {
             self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);

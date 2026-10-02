@@ -341,7 +341,7 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
-        // @ref LLP 1078 D7, D8, D11 — the rows that take CSS text or a
+        // @ref LLP 1077 D7, D8, D11 — the rows that take CSS text or a
         // range of their own.
         if let Some(value) = space::f32_row(self, style) {
             return value;
@@ -497,7 +497,7 @@ impl StyleValue {
         match self {
             StyleValue::Auto if keyword == "auto" => Ok(None),
             StyleValue::Text(t) if t.eq_ignore_ascii_case(keyword) => Ok(None),
-            // @ref LLP 1078 D7 — a colour, else the shorthand's colour part.
+            // @ref LLP 1077 D7 — a colour, else the shorthand's colour part.
             StyleValue::Text(t) if style == StyleId::TextStrokeColor => {
                 self.color_value(style).map(Some).or_else(|_| {
                     stroke::parse(t)
@@ -610,7 +610,7 @@ fn parse_translate(text: &str) -> Option<Vec2> {
         Some(s) => parse_pixel_length(s)?,
         None => 0.0,
     };
-    // A third length is `translate`'s z, its own row (LLP 1078 D8).
+    // A third length is `translate`'s z, its own row (LLP 1077 D8).
     if parts
         .next()
         .is_some_and(|z| parse_pixel_length(z).is_none())
@@ -669,7 +669,7 @@ impl ColorValue {
 
     /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
     /// label, fill and separator colours by WebKit's name, which is such a
-    /// pair (LLP 1078 D13). Whitespace is free; anything that is not two
+    /// pair (LLP 1077 D13). Whitespace is free; anything that is not two
     /// parseable colours is not this function, and falls through to the
     /// plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
@@ -816,17 +816,17 @@ pub enum RowValue<'a> {
     Filter(&'a crate::svg::filter::FilterList),
     /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
-    /// CSS `box-shadow`: `none` or a list (LLP 1078 D4).
+    /// CSS `box-shadow`: `none` or a list (LLP 1077 D4).
     BoxShadow(&'a BoxShadows),
-    /// CSS `text-shadow` (LLP 1078 D3).
+    /// CSS `text-shadow` (LLP 1077 D3).
     TextShadow(&'a TextShadow),
-    /// CSS `mask-image`: `none` or one gradient (LLP 1078 D2).
+    /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
     MaskImage(&'a crate::gradient::BackgroundImage),
-    /// CSS `corner-shape` (LLP 1078 D1).
+    /// CSS `corner-shape` (LLP 1077 D1).
     CornerShape(&'a crate::corner::CornerShape),
-    /// CSS `rotate`'s axis (LLP 1078 D8).
+    /// CSS `rotate`'s axis (LLP 1077 D8).
     RotateAxis(&'a space::RotateAxis),
-    /// A symbol's palette (LLP 1078 D10).
+    /// A symbol's palette (LLP 1077 D10).
     SymbolPalette(&'a symbols::SymbolPalette),
     /// A dimension.
     Dimension(Dimension),

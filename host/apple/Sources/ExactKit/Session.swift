@@ -944,7 +944,7 @@ public final class ExactSession {
                     continue
                 }
                 if name == "haptic" {
-                    // @ref LLP 1078 D14 — feedback from app logic.
+                    // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
                     continue
                 }

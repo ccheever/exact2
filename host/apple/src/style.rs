@@ -173,7 +173,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 );
                 true
             }
-            // @ref LLP 1078 D2 — a mask is a gradient, as the background's.
+            // @ref LLP 1077 D2 — a mask is a gradient, as the background's.
             RowValue::MaskImage(g) => match g.gradient() {
                 Some(g) => {
                     out.push_str(&gradient_json(g));
@@ -181,7 +181,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 }
                 None => false,
             },
-            // @ref LLP 1078 D4 — `[{"o":[x,y],"b":blur,"s":spread,"i":1,"c":colour}]`,
+            // @ref LLP 1077 D4 — `[{"o":[x,y],"b":blur,"s":spread,"i":1,"c":colour}]`,
             // the first painted on top; `i` only on an inset one.
             RowValue::BoxShadow(list) if list.0.is_empty() => false,
             RowValue::BoxShadow(list) => {
@@ -208,7 +208,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(']');
                 true
             }
-            // @ref LLP 1078 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
+            // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
             // is currentcolor, the text's own.
             RowValue::TextShadow(t) => match t.shadow() {
                 Some(s) => {
@@ -227,7 +227,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 }
                 None => false,
             },
-            // @ref LLP 1078 D10 — the palette's colours, each four channels
+            // @ref LLP 1077 D10 — the palette's colours, each four channels
             // or a light/dark pair of them.
             RowValue::SymbolPalette(p) if p.0.is_empty() => false,
             RowValue::SymbolPalette(p) => {
@@ -241,7 +241,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(']');
                 true
             }
-            // @ref LLP 1078 D8 — `[x, y, z]`; the z axis (CSS's initial) is
+            // @ref LLP 1077 D8 — `[x, y, z]`; the z axis (CSS's initial) is
             // no row.
             RowValue::RotateAxis(a) if a.0 == [0.0, 0.0, 1.0] => false,
             RowValue::RotateAxis(a) => {
@@ -254,7 +254,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(']');
                 true
             }
-            // @ref LLP 1078 D1 — four corners: K, "inf", "-inf" or "apple".
+            // @ref LLP 1077 D1 — four corners: K, "inf", "-inf" or "apple".
             // All `round` is no row: the hosts' arcs.
             RowValue::CornerShape(c) if c.is_round() => false,
             RowValue::CornerShape(c) => {
@@ -277,7 +277,7 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(']');
                 true
             }
-            // One layer is its object; several (LLP 1078 D5) an array of
+            // One layer is its object; several (LLP 1077 D5) an array of
             // them, the first on top.
             RowValue::BackgroundImage(g) => match g.layers() {
                 [] => false, // `none`: nothing to paint
@@ -543,7 +543,7 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.tint_color = fixed(c);
         computed.mask.set(StyleId::TintColor);
     }
-    // @ref LLP 1078 D4 — the engine moves the list's first shadow (one
+    // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
     // from `none` is CSS's transparent, zero-length one).
     let (geometry, color) = (
         shown.get(Property::BoxShadow),
@@ -797,7 +797,7 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
         GradientKind::Linear(Direction::Corner { right, bottom }) => {
             format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
         }
-        // @ref LLP 1078 D5 — `[from, x%, xpx, y%, ypx]`.
+        // @ref LLP 1077 D5 — `[from, x%, xpx, y%, ypx]`.
         GradientKind::Conic { from, at } => {
             let axis = |l: Length| match l {
                 Length::Percent(p) => format!("{},0", num(p)),
