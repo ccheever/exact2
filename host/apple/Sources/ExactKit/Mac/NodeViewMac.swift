@@ -178,7 +178,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || tabbable
     }
-    var pressable: Bool { handlers.contains("press") || (kind == "button" && props["commandfor"] != nil) }
+    /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
+    var pressable: Bool { handlers.contains("press") || (isButton && props["commandfor"] != nil) }
     var tabbable: Bool {
         kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }

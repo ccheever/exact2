@@ -1116,7 +1116,7 @@ final class Presenter {
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
-        if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
+        if v.isButton || v.kind == "toggle" || v.pressable { return true }
         if v.canBecomeKeyView { return true }
         return index > 0
     }

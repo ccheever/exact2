@@ -157,6 +157,24 @@ final class DialogMacTests: XCTestCase {
         background.performClick(nil)
         XCTAssertEqual(pressed, [8], "native activation resumes after the modal closes")
     }
+    /// A native row that only closes its dialog (LLP 1069.011.000 D9) is its
+    /// own press, as a custom command-only button is: not its ancestor's.
+    func testANativeCloseRowClosesItsDialog() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "control", "props": ["type": "button", "commandfor": "form", "command": "close"], "style": ["appearance": "auto"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+            ["op": "frame", "id": 9, "x": 100, "y": 80, "w": 100, "h": 30],
+        ]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(2)
+        XCTAssertTrue(p.dialogs.active === p.views[3])
+        XCTAssertTrue(try XCTUnwrap(p.views[9]).pressable)
+        try XCTUnwrap(p.controls.controls[9] as? NativeButtonMac).performClick(nil)
+        XCTAssertNil(p.dialogs.active, "its command closed the dialog")
+        XCTAssertTrue(pressed.isEmpty, "a command-only button has no runner press handler")
+    }
 
     func testNativeMenuActionsRemainAvailableWithoutAModal() {
         let p = fixture()
