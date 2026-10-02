@@ -2,7 +2,9 @@ import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
-const unavailable=process.platform==='darwin' ? null : 'the extracted Swift placement harness requires macOS and xcrun';
+const swift=process.platform==='darwin' ? spawnSync('xcrun',['swift','--version'],{encoding:'utf8',env:process.env}) : null;
+const unavailable=process.platform!=='darwin' ? 'the extracted Swift placement harness requires macOS and xcrun'
+  : swift.status===0 ? null : `xcrun swift does not work${process.env.DEVELOPER_DIR ? ` with DEVELOPER_DIR=${process.env.DEVELOPER_DIR}` : ''}: ${(swift.stderr||swift.error?.message||`exit ${swift.status}`).trim()}`;
 if(unavailable) console.warn(`SKIP: ${unavailable}`);
 const check=unavailable ? test.skip : test;
 
@@ -37,7 +39,7 @@ ${branch}
 }
 precondition(capture()); precondition(m.cleared == [1,2]); precondition(captured == 1)
 `;
-  const env={...process.env,DEVELOPER_DIR:'/Applications/Xcode.app/Contents/Developer'};delete env.SDKROOT;
+  const env={...process.env};delete env.SDKROOT;
   const r=spawnSync('xcrun',['swift','-'],{input:swift,encoding:'utf8',env,timeout:60000});
   expect(r.status, r.stderr).toBe(0);
 },65000);
@@ -55,7 +57,7 @@ let parent=NodeView(), child=NodeView();child.placedAncestor=parent
 precondition(box(child).width==100);parent.placementHidden=true
 precondition(box(child)==Rect.zero)
 `;
-  const env={...process.env,DEVELOPER_DIR:'/Applications/Xcode.app/Contents/Developer'};delete env.SDKROOT;
+  const env={...process.env};delete env.SDKROOT;
   const r=spawnSync('xcrun',['swift','-'],{input:swift,encoding:'utf8',env,timeout:60000});
   expect(r.status,r.stderr).toBe(0);
 },65000);
