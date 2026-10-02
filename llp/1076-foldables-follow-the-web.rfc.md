@@ -285,9 +285,31 @@ reported (`presenter.hingeReported`), then refuses on a device with a fold.
   keeps the 9 content-region and transform-drag failures the base commit
   already has.
 
+**D9's parity evidence, exactly (2026-10-02, after review).** The web
+conformance run (`host/web-js/conform.mjs --synthetic --linux`) now has a
+`prefer` step: `conformance/segments.steps` drives `prefer segments 2x1 gap
+40`, `prefer posture folded` and `prefer segments 1x1` on
+`conformance/segments.contract`, a link to `contract/corpus/segments.contract`
+(skipped while the link dangles), comparing the wasm page and the JS target
+(Chromium's own display-feature override: `window.viewport.segments` and
+CSS's `env(viewport-segment-*)` are the browser's) against the Linux
+reference (the kernel's `set_segments`) after each. What was measured here:
+the mechanism, with a stand-in fixture (the `insets` corpus file in the
+link's place, since the segments fixture is the app lane's and not yet in
+this tree) — three `prefer` steps, 0 differences on all three hosts, the rest
+of the suite unchanged. What is owed: the first run over the real fixture
+with `pane-list` on (0, 0, 455.5, 669) and `pane-detail` on (495.5, 0,
+455.5, 669) at 951 × 669 (the CLI test case the app lane adds; the
+conformance viewport is the carriers' 420 × 900, so there the panes are
+(0, 0, 190, 900) and (230, 0, 190, 900)) — the async lane's run on the
+landing branch, where both lanes meet. The Linux pinned test, the CLI's fold
+test and the smoke's env check cover the one-segment branch today.
+
 **Open after this lane.** Rotation on the Duo (the beta's simulator
 decides); `apps/duo-lab`, `contract/corpus/segments.contract` and `smoke
 duo` (the sibling lane); linking the segment grammar by use.
+duo` (the sibling lane); the conformance run over the real segments fixture
+(above); linking the segment grammar by use.
 
 ## As built (app half, 2026-10-02)
 
