@@ -6,7 +6,10 @@
 // (the bake's answer, a flat display, a closed Duo) the panes stack; with two
 // horizontal segments (`prefer segments 2x1 gap 40`, or the Duo's division
 // region at a book or half angle) the list pane covers segment (0, 0) and the
-// detail pane segment (1, 0), the band between them empty.
+// detail pane segment (1, 0), the band between them empty. `-right` and
+// `-bottom` are a segment's edges from the viewport's left and top, as a
+// DOMRect's and Chromium's (LLP 1076 §As built): the marker sits on segment
+// (0, 0)'s bottom-right corner through the `calc()` form.
 shape Viewport
   width: number
   height: number
@@ -24,7 +27,8 @@ component Segments
         text `${viewport.width}×${viewport.height}` testId="fact-size" font-size=13 color="#ffffff"
       when viewport.horizontalViewportSegments == 2
         column testId="pane-list" position="absolute" top="env(viewport-segment-top 0 0)" left="env(viewport-segment-left 0 0)" width="env(viewport-segment-width 0 0)" height="env(viewport-segment-height 0 0)" background-color="#7c4dff"
-        column testId="pane-detail" position="absolute" top="env(viewport-segment-top 1 0)" left="env(viewport-segment-left 1 0)" right="env(viewport-segment-right 1 0)" bottom="env(viewport-segment-bottom 1 0)" background-color="#ffd60a"
+        column testId="pane-detail" position="absolute" top="env(viewport-segment-top 1 0)" left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="env(viewport-segment-height 1 0)" background-color="#ffd60a"
+        box testId="corner" position="absolute" left="calc(env(viewport-segment-right 0 0) - 4px)" top="calc(env(viewport-segment-bottom 0 0) - 4px)" width=8 height=8 background-color="#ffffff"
       else
         column testId="pane-list" flex=1 width="100%" background-color="#7c4dff"
         column testId="pane-detail" flex=1 width="100%" background-color="#ffd60a"
