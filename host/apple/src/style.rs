@@ -553,6 +553,22 @@ pub fn style_json_presented(
         }
     }
     let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
+    // A modal's top layer is positioned in the viewport by AppKit, outside
+    // its authored parent. Keep only the existing inset rows for dialogs.
+    if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+        for id in [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left] {
+            if !computed.mask.has(id) {
+                continue;
+            }
+            if let RowValue::Dimension(d) = computed.get(id) {
+                let mut value = String::new();
+                push_dimension(&mut value, d.resolve(env));
+                let comma = if json == "{}" { "" } else { "," };
+                json.pop();
+                let _ = write!(json, "{comma}\"{}\":{value}}}", id.name());
+            }
+        }
+    }
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",
@@ -639,6 +655,56 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
+    }
+
+    #[test]
+    fn only_dialogs_keep_viewport_positioning_rows() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op, PropId};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::Left, &StyleValue::Number(12.0))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::Bottom, &StyleValue::Text("calc(10% + 8px)".into()))
+            .unwrap();
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(style),
+                    },
+                ],
+            )
+            .unwrap();
+        let ordinary: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        assert!(ordinary.get("left").is_none());
+        assert!(ordinary.get("bottom").is_none());
+        kernel
+            .apply(
+                0,
+                2,
+                &[Op::SetProp {
+                    id: 1,
+                    prop: PropId::SemanticTag,
+                    value: "dialog".into(),
+                }],
+            )
+            .unwrap();
+        let dialog: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        assert_eq!(dialog["left"], 12);
+        assert_eq!(dialog["bottom"], serde_json::json!({ "pct": 10, "px": 8 }));
     }
 
     /// Quarters are written as `{n}` writes them.

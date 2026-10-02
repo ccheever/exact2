@@ -21,10 +21,6 @@ final class MenuHost: NSObject {
     /// After a batch: hide every popover, remember who invokes what.
     func sync() {
         guard let presenter else { return }
-        // A closed HTML dialog never paints as ordinary application content.
-        for v in presenter.carrying("tag:dialog") {
-            v.isHidden = true
-        }
         // An agent run gets the painted subtree, not the platform's menu
         // (LLP 1021 D4): the popover stays visible and the rows are tapped
         // by view id, so no NSMenu tracking loop ever blocks a driver.
@@ -49,11 +45,6 @@ final class MenuHost: NSObject {
     /// one turn later so the press's own batch — the switcher's refresh —
     /// is in the items.
     func pressed(_ id: UInt32) {
-        if let source = presenter?.views[id], let target = source.props["commandfor"],
-           presenter?.carrying("tag:dialog").contains(where: { $0.props["id"] == target }) == true {
-            presenter?.session?.log("dialog refused: AppKit projection is not implemented")
-            return
-        }
         guard let target = invokers[id], let popId = popovers[target] else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, let presenter = self.presenter,
