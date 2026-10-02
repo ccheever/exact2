@@ -197,12 +197,23 @@ and `action` (never a resource, mutation, or task — `type-child-resource`);
 substituted expression, and a use under an `each` makes its states row slots
 (`slots.owner`), one value per keyed row on the runner. The "only the root
 holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
-(typed names, like `props`) that a use site does not pass — the nearest
-enclosing `provide name = expr` fills them at inlining, the innermost winning,
-none on the path `syntax-missing-provide`; and `slot`, so that the nodes
-indented under a use of it replace its `children` node, inlined in the use
-site's scope (`syntax-no-slot`, `syntax-children-without-slot`). Both are the
-inliner's; nothing reaches the plan.
+(typed names, like `props`) that a use site does not pass, and a `provide`
+section beside them (LLP 1035.005.000 D9, 2026-10-02), one binding per line:
+`name = expr`, any expression legal in the component's scope, or `name` alone
+for the in-scope value of that name. A section covers its component's whole
+view. Each inject is filled at inlining from the nearest providing component
+on the use's chain of component nesting: an inner component's section
+overrides an outer one's, a slot's fill keeps its caller's providers, and
+none on the chain is `syntax-missing-provide`, which names every missing
+inject in the section form. A name twice in one section is
+`syntax-duplicate-declaration`. The nested view form, `provide name = expr`
+over a subtree, is `syntax-provide-in-view`, whose message shows the section;
+no use needed the narrower scope, and rewriting all six in-repo uses
+(Caltrain's `accent`, five apps' `theme`) left every plan byte-identical. And
+`slot`, so that the nodes indented under a use of it replace its `children`
+node, inlined in the use site's scope (`syntax-no-slot`,
+`syntax-children-without-slot`). Both are the inliner's; nothing reaches the
+plan.
 
 **Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
 T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:
