@@ -1,4 +1,4 @@
-// CSS `background-clip` (LLP 1076 D6), on both Apple platforms: the
+// CSS `background-clip` (LLP 1077 D6), on both Apple platforms: the
 // background colour and image painted within the border box (initial), the
 // padding box, the content box, or the glyphs of the node's own paragraph.
 // Anything but the border box draws (`draw(_:)`); `text` also keeps the
@@ -88,7 +88,7 @@ extension NodeView {
 
 extension TextEngine {
     /// The outlines of a paragraph's glyphs where `draw` paints them, in
-    /// the view's y-down space (LLP 1076 D6).
+    /// the view's y-down space (LLP 1077 D6).
     static func glyphPath(_ p: Paragraph, spec: Spec, in bounds: CGRect) -> CGPath {
         let path = CGMutablePath()
         for index in p.lines.indices {

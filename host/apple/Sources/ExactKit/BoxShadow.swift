@@ -1,4 +1,4 @@
-// CSS `box-shadow` on both Apple platforms (LLP 1064 D2, LLP 1076 D4): a
+// CSS `box-shadow` on both Apple platforms (LLP 1064 D2, LLP 1077 D4): a
 // list of outer and inset shadows with spread, the first on top. An outer
 // shadow is a layer with no contents casting the border box's outline,
 // grown by the spread, through `shadowPath` (no offscreen pass to find a
@@ -98,7 +98,7 @@ final class ShadowCaster: CALayer {
 }
 
 /// The inset shadows: a container masked to the padding box, one sublayer
-/// per shadow casting a frame inward (LLP 1076 D4).
+/// per shadow casting a frame inward (LLP 1077 D4).
 final class InsetShadowCaster: CALayer {
     private let inside = CAShapeLayer()
 
@@ -288,7 +288,7 @@ extension NodeView {
         }
     }
 
-    /// The inset shadows into a capture, over the box's paint (LLP 1076 D4):
+    /// The inset shadows into a capture, over the box's paint (LLP 1077 D4):
     /// a frame around the shrunk padding box casts inward, clipped to it.
     func drawCapturedInsetShadow(_ ctx: CGContext) {
         guard Capture.capturing, insetCaster != nil else { return }

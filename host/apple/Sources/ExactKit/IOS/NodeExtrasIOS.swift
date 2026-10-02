@@ -18,7 +18,7 @@ final class NodeExtras {
     var boxGradient: CAGradientLayer?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
-    /// Inset `box-shadow`s (LLP 1076 D4).
+    /// Inset `box-shadow`s (LLP 1077 D4).
     var insetCaster: InsetShadowCaster?
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).

@@ -1,4 +1,4 @@
-//! CSS `background-clip: text` (LLP 1076 D6): the node's background colour
+//! CSS `background-clip: text` (LLP 1077 D6): the node's background colour
 //! and gradients, painted over its border box into a CPU island, kept only
 //! where its paragraph's glyphs cover, and placed under the glyphs by either
 //! backend. The box itself painted no background (`background_shape`).

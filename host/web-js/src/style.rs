@@ -469,7 +469,7 @@ pub struct Write {
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// A bound value naming one of UIKit's system colours as its `light-dark()`
 /// pair, anywhere in the text (a shorthand's colour part too); the kernel's
-/// table, so literal and bound values agree (LLP 1076 D13).
+/// table, so literal and bound values agree (LLP 1077 D13).
 pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let pairs: Vec<String> = exact_kernel::style::symbols::SYSTEM_COLORS
         .iter()
@@ -515,7 +515,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
                 "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
-        // @ref LLP 1076 §5 — Apple's affordances: no declaration on the web
+        // @ref LLP 1077 §5 — Apple's affordances: no declaration on the web
         // (its forms are declared in LLP 1001).
         StyleId::SymbolRendering
         | StyleId::SymbolPalette
@@ -563,7 +563,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "clip-path",
             "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
         )],
-        // @ref LLP 1076 D1 — Apple's curve as the web's stand-in. A bound
+        // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-apple-continuous` reaches less far on the web.
         StyleId::CornerShape => vec![with(

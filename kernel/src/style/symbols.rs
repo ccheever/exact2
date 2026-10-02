@@ -1,4 +1,4 @@
-//! LLP 1076 §5: the affordances Apple's platforms have and CSS has no name
+//! LLP 1077 §5: the affordances Apple's platforms have and CSS has no name
 //! for, as declared rows: an SF Symbol's palette (D10), and the system's
 //! label, fill and separator colours (D13), which resolve as `light-dark()`
 //! pairs of UIKit's own values on every host.
@@ -63,7 +63,7 @@ impl SymbolPalette {
 }
 
 /// UIKit's label, fill and separator colours as WebKit spells them, light
-/// and dark (LLP 1076 D13): the one table every host and the web JS
+/// and dark (LLP 1077 D13): the one table every host and the web JS
 /// target's bound values read.
 pub const SYSTEM_COLORS: [(&str, u32, u32); 6] = [
     ("-apple-system-label", 0x0000_00ff, 0xffff_ffff),

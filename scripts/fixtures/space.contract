@@ -1,4 +1,4 @@
-// LLP 1076 D8's parity page: 3D transforms, the browser the oracle. Each
+// LLP 1077 D8's parity page: 3D transforms, the browser the oracle. Each
 // 100×70 cell is a parent with `perspective` holding one 80×50 card: turned
 // about y and x, about an axis of three numbers, moved along z, with the
 // vanishing point at a corner, turned without a perspective (flattened, as

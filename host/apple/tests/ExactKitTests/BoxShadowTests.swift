@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-/// CSS `box-shadow` (LLP 1064 D2, LLP 1076 D4): the list's outer shadows
+/// CSS `box-shadow` (LLP 1064 D2, LLP 1077 D4): the list's outer shadows
 /// cast through contentless layers in one container at the bottom of the
 /// node's own, from the rounded border box (grown by a spread) and masked to
 /// outside it; inset ones in a container masked to the padding box. A node

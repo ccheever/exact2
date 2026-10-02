@@ -94,10 +94,10 @@ struct Spec: Hashable {
     var ellipsis = false
     /// Collapsed → source offsets for the runs above (LLP 1053 G5).
     var source = SourceMap()
-    /// CSS `text-shadow` (LLP 1076 D3): offset x, y and blur in points, then
+    /// CSS `text-shadow` (LLP 1077 D3): offset x, y and blur in points, then
     /// the colour's r g b a (0–255), resolved for the appearance.
     var shadow: [Double]? = nil
-    /// `-webkit-text-stroke` (LLP 1076 D7): its width in points, then its
+    /// `-webkit-text-stroke` (LLP 1077 D7): its width in points, then its
     /// r g b a when it has a colour of its own (none is each run's own).
     var stroke: [Double]? = nil
 }
@@ -732,7 +732,7 @@ final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             // A centred stroke over the fill: Core Text's negative width,
-            // in percent of the run's size (LLP 1076 D7).
+            // in percent of the run's size (LLP 1077 D7).
             if let st = spec.stroke, st[0] > 0, r.size > 0 {
                 a[.strokeWidth] = -st[0] / Double(r.size) * 100
                 a[.strokeColor] = st.count == 5 ? TextEngine.color(Array(st[1...])) : (r.color.map(TextEngine.color) ?? color)
@@ -1181,7 +1181,7 @@ final class TextEngine {
     /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         // CSS `text-shadow`: under every glyph of the paragraph at once, so
-        // one line's shadow never covers another's text (LLP 1076 D3). Core
+        // one line's shadow never covers another's text (LLP 1077 D3). Core
         // Graphics' blur is CSS's radius; its offset is base space, y up.
         if let s = spec.shadow {
             ctx.saveGState()

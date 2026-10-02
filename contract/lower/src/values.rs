@@ -103,7 +103,7 @@ fn whole_i64(n: f64) -> bool {
     n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
 
-/// A CSS-text row's refusal with the kernel's own reason (LLP 1076).
+/// A CSS-text row's refusal with the kernel's own reason (LLP 1077).
 fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static str> {
     let exact_kernel::StyleValue::Text(t) = v else {
         return None;
@@ -392,7 +392,7 @@ pub(crate) fn check_style_value(
                     return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
                 }
             }
-            // @ref LLP 1066, LLP 1076 — the kernel's parse says why, by name.
+            // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
             let why = if rows.contains(&StyleId::BackgroundImage) {
                 exact_kernel::gradient::BackgroundImage::check(v).err()
             } else if rows.contains(&StyleId::MaskImage) {

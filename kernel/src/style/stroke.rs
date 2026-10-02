@@ -1,4 +1,4 @@
-//! `-webkit-text-stroke`, the Compat Standard's shorthand (LLP 1076 D7): one
+//! `-webkit-text-stroke`, the Compat Standard's shorthand (LLP 1077 D7): one
 //! value to its width and colour rows, each row taking its part, as
 //! `box-shadow` once did for its four (LLP 1064 D1).
 

@@ -131,7 +131,7 @@ extension NodeView {
 }
 
 extension NodeView {
-    /// CSS `text-shadow` resolved for an appearance (LLP 1076 D3): offset,
+    /// CSS `text-shadow` resolved for an appearance (LLP 1077 D3): offset,
     /// blur, then the colour, `currentcolor` being the text's own.
     func textShadow(dark: Bool, text: [Double]) -> [Double]? {
         guard case .object(let o)? = style["text_shadow"], let offset = o["o"]?.numbers, offset.count == 2 else { return nil }
@@ -145,7 +145,7 @@ extension NodeView {
 }
 
 extension NodeView {
-    /// `-webkit-text-stroke` for an appearance (LLP 1076 D7): the width, and
+    /// `-webkit-text-stroke` for an appearance (LLP 1077 D7): the width, and
     /// the colour unless it is `currentcolor`.
     func textStroke(dark: Bool) -> [Double]? {
         let width = number("text_stroke_width")

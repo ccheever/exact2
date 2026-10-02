@@ -61,7 +61,7 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     StyleId::PressScale,
     StyleId::DragTimeline,
     StyleId::AnimationTimeline,
-    // CSS: `perspective` makes a containing block too (LLP 1076 D8).
+    // CSS: `perspective` makes a containing block too (LLP 1077 D8).
     StyleId::Perspective,
 ];
 
@@ -675,7 +675,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "refreshing" => AttrTarget::Prop(p("refreshing")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
-        // @ref LLP 1076 D12 — what a discrete symbol effect plays on.
+        // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
         "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
@@ -870,12 +870,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "background-color" => styles(&[StyleId::BackgroundColor]),
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
-        // @ref LLP 1076 D1–D3
+        // @ref LLP 1077 D1–D3
         "mask-image" => styles(&[StyleId::MaskImage]),
         "text-shadow" => styles(&[StyleId::TextShadow]),
         "corner-shape" => styles(&[StyleId::CornerShape]),
         "background-clip" => styles(&[StyleId::BackgroundClip]),
-        // @ref LLP 1076 D7 — the Compat Standard's names; the shorthand
+        // @ref LLP 1077 D7 — the Compat Standard's names; the shorthand
         // binds both rows, each taking its part.
         "-webkit-text-stroke" => styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor]),
         "-webkit-text-stroke-width" => styles(&[StyleId::TextStrokeWidth]),
@@ -1012,7 +1012,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1076 D8 — one value to two rows: x and y, and z; the
+        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
         // angle, and its axis.
         "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
         "scale" => styles(&[StyleId::Scale]),
@@ -1020,7 +1020,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "perspective" => styles(&[StyleId::Perspective]),
         "perspective-origin" => styles(&[StyleId::PerspectiveOrigin]),
         "backface-visibility" => styles(&[StyleId::BackfaceVisibility]),
-        // @ref LLP 1076 §5 — declared rows CSS has no name for.
+        // @ref LLP 1077 §5 — declared rows CSS has no name for.
         "symbol-rendering" => styles(&[StyleId::SymbolRendering]),
         "symbol-palette" => styles(&[StyleId::SymbolPalette]),
         "symbol-value" => styles(&[StyleId::SymbolValue]),

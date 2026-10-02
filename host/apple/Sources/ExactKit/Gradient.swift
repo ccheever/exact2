@@ -14,7 +14,7 @@ struct Gradient {
         /// `at`: x%, xpx, y%, ypx. `extent`: closest-side, closest-corner,
         /// farthest-side, farthest-corner.
         case radial(circle: Bool, extent: Int, at: [CGFloat])
-        /// `conic-gradient()` (LLP 1076 D5): `from` CSS degrees (0 up,
+        /// `conic-gradient()` (LLP 1077 D5): `from` CSS degrees (0 up,
         /// clockwise), `at` x%, xpx, y%, ypx.
         case conic(from: CGFloat, at: [CGFloat])
     }
@@ -49,7 +49,7 @@ struct Gradient {
         dark = o["dark"]?.numbers.map { $0.map { CGFloat($0) } }
     }
 
-    /// A `background-image`'s layers (LLP 1076 D5): one gradient's object,
+    /// A `background-image`'s layers (LLP 1077 D5): one gradient's object,
     /// or an array of them, the first on top.
     static func layers(_ value: BatchValue?) -> [Gradient] {
         if let list = value?.array { return list.compactMap { Gradient($0) } }
@@ -57,7 +57,7 @@ struct Gradient {
     }
 
     /// The gradient's alpha as pixels `size` points at `scale`, placed in
-    /// the whole picture: a conic mask (LLP 1076 D2, D5), which Core
+    /// the whole picture: a conic mask (LLP 1077 D2, D5), which Core
     /// Animation's gradient layer cannot say.
     func image(size: CGSize, scale: CGFloat, dark: Bool) -> CGImage? {
         let w = Int((size.width * scale).rounded(.up)), h = Int((size.height * scale).rounded(.up))
@@ -252,7 +252,7 @@ struct Gradient {
     }
 }
 
-/// A conic `mask-image`'s pixels as a layer's mask (LLP 1076 D5).
+/// A conic `mask-image`'s pixels as a layer's mask (LLP 1077 D5).
 final class ConicMaskLayer: CALayer {}
 
 extension BatchValue {
@@ -260,7 +260,7 @@ extension BatchValue {
     /// is something to the view that shows it.
     ///
     /// Nested too: a layer list, a shadow list's or a text shadow's colour,
-    /// a symbol palette (LLP 1076).
+    /// a symbol palette (LLP 1077).
     var isSchemeGradient: Bool {
         switch self {
         case .object(let o): return o["dark"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
@@ -282,14 +282,14 @@ extension NodeView {
     /// the border, inside the border box's outline.
     func paintGradient(_ ctx: CGContext, clip: CGPath) {
         guard surface == nil else { return }
-        // The last layer first, so the first is on top (LLP 1076 D5).
+        // The last layer first, so the first is on top (LLP 1077 D5).
         for g in Gradient.layers(style["background_image"]).reversed() {
             g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark)
         }
     }
 
     /// Whether the background's gradients need `draw(_:)`: several layers,
-    /// or a conic one (LLP 1076 D5).
+    /// or a conic one (LLP 1077 D5).
     var gradientDraws: Bool {
         let layers = Gradient.layers(style["background_image"])
         return layers.count > 1 || layers.contains { $0.isConic }

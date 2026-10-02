@@ -1,4 +1,4 @@
-// LLP 1076 D6–D7's parity page: `background-clip` and `-webkit-text-stroke`,
+// LLP 1077 D6–D7's parity page: `background-clip` and `-webkit-text-stroke`,
 // the browser the oracle for the boxes. 100×70 boxes on a 125×95 grid: the
 // background within the padding box and the content box (a translucent
 // border shows the difference); gradient and colour text through

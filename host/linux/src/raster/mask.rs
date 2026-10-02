@@ -1,4 +1,4 @@
-//! CSS `mask-image` on the CPU painter (LLP 1076 D2): the group the mask
+//! CSS `mask-image` on the CPU painter (LLP 1077 D2): the group the mask
 //! opened is drawn onto the layer below through the gradient's alpha, as a
 //! frame-sized mask that is empty outside the border box.
 

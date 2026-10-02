@@ -1,4 +1,4 @@
-//! CSS's 3D transform properties (LLP 1076 D8): `rotate`'s axis forms,
+//! CSS's 3D transform properties (LLP 1077 D8): `rotate`'s axis forms,
 //! `translate`'s z, and `perspective`. `rotate` stays the angle row the
 //! engine animates; its axis is a row of its own, which the `rotate`
 //! attribute sets beside it, each row taking its part of one value.
@@ -135,7 +135,7 @@ pub fn perspective(text: &str) -> Option<f32> {
     parse_pixel_length(t).filter(|n| *n >= 0.0)
 }
 
-/// The `f32` rows that take CSS text or a range of their own (LLP 1076):
+/// The `f32` rows that take CSS text or a range of their own (LLP 1077):
 /// `rotate`'s angle, `translate`'s z and `perspective` (D8), a symbol's
 /// value (D11) and `-webkit-text-stroke`'s width (D7). `None` for any other
 /// row, which the plain number parse takes.

@@ -1,4 +1,4 @@
-// CSS `text-shadow` on a paragraph's raster layer (LLP 1076 D3): Core
+// CSS `text-shadow` on a paragraph's raster layer (LLP 1077 D3): Core
 // Animation casts the glyphs' own alpha, past the layer's bounds as CSS's
 // shadow reaches past the box. Without a `shadowPath` that is an offscreen
 // pass per frame, so the layer is rasterized: the shadowed glyphs are kept

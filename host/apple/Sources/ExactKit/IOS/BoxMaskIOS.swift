@@ -1,6 +1,6 @@
 // What masks a node's layer on UIKit: CSS `clip-path`, an overflow clip
-// with shaped corners (LLP 1076 D1: the corners Core Animation's radius
-// cannot say), and CSS `mask-image` (LLP 1076 D2: a gradient's alpha over
+// with shaped corners (LLP 1077 D1: the corners Core Animation's radius
+// cannot say), and CSS `mask-image` (LLP 1077 D2: a gradient's alpha over
 // the border box). They compose: the gradient is masked by the clip, which
 // is masked by the shaped corners. A filtered box's picture takes the same
 // composition (`renderFilter`); its layer's own mask is the picture's hide.
@@ -56,7 +56,7 @@ extension NodeView {
         let clip = clipMask(shaped: shaped)
         guard let gradient = Gradient(style["mask_image"]) else { return clip }
         if gradient.isConic {
-            // A conic mask is pixels (LLP 1076 D5).
+            // A conic mask is pixels (LLP 1077 D5).
             let m = ConicMaskLayer()
             m.frame = layer.bounds
             m.contents = gradient.image(size: layer.bounds.size, scale: traitCollection.displayScale, dark: drawsDark)

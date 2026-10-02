@@ -73,7 +73,7 @@ pub fn reduced(radii: [(f32, f32); 4], w: f32, h: f32) -> [(f32, f32); 4] {
     radii.map(|(x, y)| ((x * factor).max(0.0), (y * factor).max(0.0)))
 }
 
-/// A shape's outline: its corners' `corner-shape` from the kernel (LLP 1076
+/// A shape's outline: its corners' `corner-shape` from the kernel (LLP 1077
 /// D1), else [`rounded_rect`].
 pub fn shape_path(out: &mut Vec<PathOp>, shape: &Shape) {
     shaped_rect(out, shape.rect, shape.radii, shape.corners.as_ref());

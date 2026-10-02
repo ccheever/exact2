@@ -1,4 +1,4 @@
-//! CSS `corner-shape` (CSS Borders 4) and `-apple-continuous` (LLP 1076 D1).
+//! CSS `corner-shape` (CSS Borders 4) and `-apple-continuous` (LLP 1077 D1).
 //!
 //! Each corner is a superellipse parameter K, as CSS defines the keywords:
 //! `round` 1, `squircle` 2, `bevel` 0, `scoop` -1, `square` ∞, `notch` -∞.
@@ -249,7 +249,7 @@ fn corner_points(corner: Corner, ra: f32, rd: f32, out: &mut Vec<(f32, f32)>) {
 fn apple_points(ra: f32, rd: f32, out: &mut Vec<(f32, f32)>) {
     // Control points in radii, `(a, d)`, from the edge before to the edge
     // after: the curve as measured from UIKit's (symmetric about the
-    // diagonal; LLP 1076 D1 holds it to the simulator's pixels).
+    // diagonal; LLP 1077 D1 holds it to the simulator's pixels).
     const C: [[(f32, f32); 4]; 3] = [
         [
             (0.0, APPLE_EXTENT),

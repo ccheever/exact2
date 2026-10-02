@@ -229,7 +229,7 @@ pub fn color_targets(
         _ => None,
     };
     let [top, right, bottom, left] = s.border_colors(text);
-    // @ref LLP 1076 D4 — the engine moves the list's first shadow; the
+    // @ref LLP 1077 D4 — the engine moves the list's first shadow; the
     // rest change at once (declared in LLP 1001).
     let first = s.box_shadow.0.first();
     let shadow = first.map_or(crate::style::Color::TRANSPARENT, |f| f.color.resolve(dark));

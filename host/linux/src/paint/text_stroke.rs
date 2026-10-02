@@ -1,4 +1,4 @@
-//! `-webkit-text-stroke` (LLP 1076 D7): a stroke centred on the glyphs'
+//! `-webkit-text-stroke` (LLP 1077 D7): a stroke centred on the glyphs'
 //! outlines, painted over their fill. The painters draw glyphs as coverage,
 //! not outlines, so the stroke is a band: the paragraph in the stroke's
 //! colour dilated by half the width, less the same eroded by half. It is a

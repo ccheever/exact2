@@ -20,7 +20,7 @@ use vello::peniko::{Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mi
 pub(super) enum Layer {
     Clip(Fill, Affine, BezPath),
     Opacity(f32),
-    /// An isolated group clipped to a path: a mask's (LLP 1076 D2).
+    /// An isolated group clipped to a path: a mask's (LLP 1077 D2).
     Group(Affine, BezPath),
 }
 

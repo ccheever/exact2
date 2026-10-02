@@ -1,4 +1,4 @@
-//! CSS `mask-image` on the GPU painter (LLP 1076 D2): the group the mask
+//! CSS `mask-image` on the GPU painter (LLP 1077 D2): the group the mask
 //! opened (clipped to the border box) keeps only what the gradient's alpha
 //! keeps, composited `DestIn` over it.
 

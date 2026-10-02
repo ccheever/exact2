@@ -1,4 +1,4 @@
-// CSS's 3D transforms on both Apple platforms (LLP 1076 D8): `rotate` about
+// CSS's 3D transforms on both Apple platforms (LLP 1077 D8): `rotate` about
 // an axis, `translate`'s z, a parent's `perspective` about its
 // `perspective-origin`, and `backface-visibility`. Core Animation's layer
 // transform is CSS's matrix (WebKit draws CSS 3D with it); its sublayers
@@ -25,7 +25,7 @@ extension NodeView {
         return CATransform3DTranslate(t, -d.x, -d.y, 0)
     }
 
-    /// The 3D rows (LLP 1076 D8) go on again when any of them changed.
+    /// The 3D rows (LLP 1077 D8) go on again when any of them changed.
     func applySpace(changedFrom old: NodeStyle) {
         let rows = ["rotate_axis", "translate_z", "perspective", "perspective_origin", "backface_visibility"]
         if rows.contains(where: { style[$0] != old[$0] }) { applyTransform(); applyPerspective() }

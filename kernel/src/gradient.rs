@@ -1,6 +1,6 @@
 //! CSS `background-image`: `none`, or up to four layers of
 //! `linear-gradient()`, `radial-gradient()` and `conic-gradient()` (CSS
-//! Images 3 §3, Images 4 §3.3). @ref LLP 1066, LLP 1076 D5
+//! Images 3 §3, Images 4 §3.3). @ref LLP 1066, LLP 1077 D5
 //!
 //! Stops are resolved to percentages when parsed (CSS's fix-up), so the row
 //! holds what every host paints and `css()` is canonical. Geometry depends on
@@ -19,7 +19,7 @@ pub const MAX_STOPS: usize = 64;
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BackgroundImage(Vec<Gradient>);
 
-/// Most layers one `background-image` takes (LLP 1076 D5).
+/// Most layers one `background-image` takes (LLP 1077 D5).
 pub const MAX_LAYERS: usize = 4;
 
 /// One gradient.
@@ -46,7 +46,7 @@ pub enum GradientKind {
     /// `linear-gradient()`: CSS degrees (0 is up, clockwise), or the magic
     /// corner of `to <corner>`, whose angle depends on the box.
     Linear(Direction),
-    /// `conic-gradient()` (LLP 1076 D5): stops around a centre, from an
+    /// `conic-gradient()` (LLP 1077 D5): stops around a centre, from an
     /// angle (CSS degrees: 0 is up, clockwise); stop positions are
     /// fractions of the turn.
     Conic {
@@ -195,7 +195,7 @@ impl BackgroundImage {
             .map(Self)
     }
 
-    /// The parse for `mask-image` (LLP 1076 D2): one layer only.
+    /// The parse for `mask-image` (LLP 1077 D2): one layer only.
     pub fn check_mask(css: &str) -> Result<Self, &'static str> {
         let image = Self::check(css)?;
         if image.0.len() > 1 {

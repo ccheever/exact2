@@ -111,7 +111,7 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
-/* LLP 1076 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
+/* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
  * (NaN is -apple-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,

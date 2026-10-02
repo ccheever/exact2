@@ -1,4 +1,4 @@
-// LLP 1076 §5: what Apple's platforms draw and feel that CSS has no name
+// LLP 1077 §5: what Apple's platforms draw and feel that CSS has no name
 // for, declared as rows (LLP 1001): an SF Symbol's rendering mode, palette,
 // variable value and effects (D10–D12), and the feedback a press makes and
 // `haptic()` plays (D14). The iOS-only ones (scroll edge, pointer hover,
@@ -119,7 +119,7 @@ final class SymbolEffectState {
     }
 }
 
-/// The platform's haptics (LLP 1076 D14): `press-haptic`'s kinds and
+/// The platform's haptics (LLP 1077 D14): `press-haptic`'s kinds and
 /// `haptic()`'s, which adds success, warning and error. macOS plays on a
 /// Force Touch trackpad.
 enum Haptics {

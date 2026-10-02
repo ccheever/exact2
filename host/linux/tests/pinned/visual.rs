@@ -1,4 +1,4 @@
-//! LLP 1076: `corner-shape` and `mask-image` held to Chrome's pixels, and
+//! LLP 1077: `corner-shape` and `mask-image` held to Chrome's pixels, and
 //! `text-shadow` painted where CSS puts it. The pages are
 //! `scripts/fixtures/visual.contract` and `text-shadow.contract`; Chrome's
 //! pictures of the first (the web host at 1×) are `visual.web.png` as booted
@@ -110,7 +110,7 @@ fn a_text_shadow_paints_its_colour_under_the_glyphs_and_none_paints_none() {
     }
 }
 
-/// LLP 1076 D4: `box-shadow` lists, spread and `inset` (`shadows.contract`).
+/// LLP 1077 D4: `box-shadow` lists, spread and `inset` (`shadows.contract`).
 const SHADOW_CASES: [&str; 9] = [
     "two", "spread", "shrink", "inset", "ring", "bordered", "both", "squircle", "scheme",
 ];
@@ -140,7 +140,7 @@ fn every_shadow_case_matches_chrome_light_then_dark() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// LLP 1076 D5: `conic-gradient()` and stacked layers (`layers.contract`).
+/// LLP 1077 D5: `conic-gradient()` and stacked layers (`layers.contract`).
 const LAYER_CASES: [&str; 9] = [
     "conic", "from", "angles", "two", "three", "bordered", "masked", "scheme", "squircle",
 ];
@@ -170,7 +170,7 @@ fn every_layer_case_matches_chrome_light_then_dark() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// LLP 1076 D6–D7 (`text-paint.contract`): `background-clip` boxes held to
+/// LLP 1077 D6–D7 (`text-paint.contract`): `background-clip` boxes held to
 /// Chrome; clipped and stroked text checked by where their colours land.
 #[test]
 fn background_clip_and_text_stroke_paint_where_css_paints_them() {
@@ -222,7 +222,7 @@ fn background_clip_and_text_stroke_paint_where_css_paints_them() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// LLP 1076 D8: 3D transforms (`space.contract`), the warped planes held to
+/// LLP 1077 D8: 3D transforms (`space.contract`), the warped planes held to
 /// Chrome's.
 const SPACE_CASES: [&str; 9] = [
     "y", "x", "axis", "z", "origin", "flat", "hidden", "back", "nested",

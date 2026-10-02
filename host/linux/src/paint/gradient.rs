@@ -25,7 +25,7 @@ pub struct GradientPaint {
 }
 
 impl Captured {
-    /// The layers, the first on top (LLP 1076 D5).
+    /// The layers, the first on top (LLP 1077 D5).
     pub(super) fn capture(style: &StyleProps, dark: bool) -> Vec<Captured> {
         style
             .background_image
@@ -38,7 +38,7 @@ impl Captured {
             .collect()
     }
 
-    /// CSS `mask-image`'s gradient (LLP 1076 D2), placed in the border box.
+    /// CSS `mask-image`'s gradient (LLP 1077 D2), placed in the border box.
     pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
         let gradient = style.mask_image.gradient()?.clone();
         let stops = gradient.resolved(dark);

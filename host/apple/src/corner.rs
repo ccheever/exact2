@@ -1,4 +1,4 @@
-//! `corner-shape`'s outline for the Swift presenters (LLP 1076 D1): the
+//! `corner-shape`'s outline for the Swift presenters (LLP 1077 D1): the
 //! kernel's geometry, so every host draws one shape for one name.
 // The C seam reads the caller's arrays and writes its buffer.
 #![allow(unsafe_code)]
@@ -68,7 +68,7 @@ pub unsafe fn outline_points(
 #[macro_export]
 macro_rules! corner_exports {
     () => {
-        /// A box outline with shaped corners (LLP 1076 D1).
+        /// A box outline with shaped corners (LLP 1077 D1).
         ///
         /// # Safety
         /// As [`$crate::corner::outline_points`].

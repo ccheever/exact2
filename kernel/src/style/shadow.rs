@@ -1,6 +1,6 @@
 //! CSS `box-shadow` and `text-shadow`.
 //!
-//! @ref LLP 1076 D4 — `box-shadow` is one row holding CSS's list: outer and
+//! @ref LLP 1077 D4 — `box-shadow` is one row holding CSS's list: outer and
 //! inset shadows with spread, each with its colour. It replaced LLP 1064's
 //! four rows, which held one outer shadow. Each row's parse is the kernel's
 //! one, so a literal, a style block and a computed string all set it alike,
@@ -156,7 +156,7 @@ fn split_commas(text: &str) -> Vec<&str> {
 }
 
 /// CSS `text-shadow`: `none`, or one shadow under the node's glyphs and
-/// decorations, inherited (LLP 1076 D3).
+/// decorations, inherited (LLP 1077 D3).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct TextShadow(Option<GlyphShadow>);
 

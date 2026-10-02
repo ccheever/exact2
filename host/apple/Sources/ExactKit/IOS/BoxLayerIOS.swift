@@ -71,7 +71,7 @@ extension NodeView {
         let radius = radii.max() ?? 0
         let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        // A shape the layer's radius cannot say draws (LLP 1076 D1).
+        // A shape the layer's radius cannot say draws (LLP 1077 D1).
         let shape = CornerShape(style["corner_shape"])
         let fits = radius == 0 || (oneRadius && content == bounds && shown == content && (shape == nil || shape?.isAppleContinuous == true))
         guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else {
@@ -146,7 +146,7 @@ extension NodeView {
         let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let gradient = style["background_image"] != nil
-        // A `corner-shape` the layer cannot say draws (LLP 1076 D1); Apple's
+        // A `corner-shape` the layer cannot say draws (LLP 1077 D1); Apple's
         // continuous curve over one radius is the layer's `cornerCurve`.
         let shape = CornerShape(style["corner_shape"])
         let continuous = shape?.isAppleContinuous == true && oneRadius

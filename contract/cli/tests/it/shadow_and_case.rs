@@ -1,4 +1,4 @@
-//! LLP 1064, LLP 1076 D4: `box-shadow` sets its one row; `text-transform` is
+//! LLP 1064, LLP 1077 D4: `box-shadow` sets its one row; `text-transform` is
 //! applied where the kernel produces runs, so what is measured is what a
 //! host paints.
 
@@ -82,7 +82,7 @@ fn box_shadow_sets_its_row_from_a_literal_a_style_a_choice_and_a_template() {
 
 #[test]
 fn box_shadow_refusals_name_what_exact2_does_not_draw() {
-    // LLP 1076 D4: lists, `inset` and spread are drawn now.
+    // LLP 1077 D4: lists, `inset` and spread are drawn now.
     let r = boot("component App\n  view\n    view box-shadow=\"0 1px 2px #000, inset 0 2px 4px 3px #fff\" testId=\"a\"\n");
     let list = r
         .kernel()

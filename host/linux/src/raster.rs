@@ -772,7 +772,7 @@ impl Backend for Raster {
             ),
             // A whole turn from +x, clockwise, turned so it starts where
             // CSS's `from` does (0 is up): turned rather than started
-            // there, so the turn never wraps mid-sweep (LLP 1076 D5).
+            // there, so the turn never wraps mid-sweep (LLP 1077 D5).
             Geometry::Conic { center, from } => tiny_skia::SweepGradient::new(
                 Point::from_xy(center.0, center.1),
                 0.0,

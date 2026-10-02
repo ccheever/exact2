@@ -448,7 +448,7 @@ impl<D: DataSource> Presenter<D> {
                     _ => None,
                 }),
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
-                // No haptic engine here (LLP 1076 D14): nothing to feel.
+                // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).

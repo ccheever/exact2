@@ -72,7 +72,7 @@ impl Em<'_> {
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let writes: Vec<(String, String, Option<String>)> = match id {
-            // @ref LLP 1076 D8 — the `rotate` and `translate` attributes bind
+            // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
             StyleId::RotateAxis | StyleId::TranslateZ => {
@@ -82,7 +82,7 @@ impl Em<'_> {
                 }
                 return refuse("a dynamic 3D part without its `rotate` or `translate`");
             }
-            // @ref LLP 1076 D7 — the shorthand binds both rows with the
+            // @ref LLP 1077 D7 — the shorthand binds both rows with the
             // author's whole text: one declaration of the shorthand.
             StyleId::TextStrokeWidth | StyleId::TextStrokeColor
                 if binding(if id == StyleId::TextStrokeWidth { StyleId::TextStrokeColor } else { StyleId::TextStrokeWidth })
@@ -93,7 +93,7 @@ impl Em<'_> {
                 }
                 one("-webkit-text-stroke", Some(style::SYSTEM_COLOR_MAP.to_string()))
             }
-            // @ref LLP 1076 D8 — 0 is `none`, as css.rs writes it.
+            // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
                 "perspective",
                 Some("v=>v==null?v:v===0||v===\"0\"?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
@@ -182,7 +182,7 @@ impl Em<'_> {
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
                 .map(|w| {
-                    // @ref LLP 1076 D13 — a bound colour may name a system
+                    // @ref LLP 1077 D13 — a bound colour may name a system
                     // colour, which the literal path resolved in the kernel.
                     let colors = matches!(id.codec(), exact_kernel::StyleCodec::ColorValue | exact_kernel::StyleCodec::KeywordColor);
                     let map = w.map.map(str::to_string).or_else(|| colors.then(|| style::SYSTEM_COLOR_MAP.to_string()));

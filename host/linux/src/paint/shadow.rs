@@ -1,4 +1,4 @@
-//! CSS `box-shadow` (LLP 1064 D2, LLP 1076 D4): a list of outer and inset
+//! CSS `box-shadow` (LLP 1064 D2, LLP 1077 D4): a list of outer and inset
 //! shadows with spread. An outer one is the border box's outline, grown by
 //! the spread, offset and blurred, painted only outside the border box,
 //! under the box; an inset one is the padding box's outline, shrunk by the
@@ -58,7 +58,7 @@ impl ShadowPaint {
     }
 
     /// `base` with paint motion's geometry (offset, blur) and colour over its
-    /// first shadow (LLP 1062; LLP 1076 D4: the rest change at once).
+    /// first shadow (LLP 1062; LLP 1077 D4: the rest change at once).
     pub fn over(
         mut base: Vec<ShadowPaint>,
         geometry: Option<exact_motion::Value>,

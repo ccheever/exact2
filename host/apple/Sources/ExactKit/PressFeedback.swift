@@ -119,7 +119,7 @@ extension NodeView {
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressFactor
         let outer = CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y).concatenating(contextTransform)
         if let space = spaceTransform(origin: d, scale: s) {
-            // A 3D rotation or a z translation (LLP 1076 D8): the layer's own
+            // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.
             if transform != .identity { transform = .identity }
             layer.transform = CATransform3DConcat(space, CATransform3DMakeAffineTransform(outer))
@@ -153,7 +153,7 @@ extension NodeView {
         // there, turn, move it back. A press folds into the scale.
         let o = transformOriginPoint, s = scale * pressFactor
         if let space = spaceTransform(origin: o, scale: s, shift: shift) {
-            // A 3D rotation or a z translation (LLP 1076 D8).
+            // A 3D rotation or a z translation (LLP 1077 D8).
             layer?.transform = CATransform3DConcat(space, CATransform3DMakeTranslation(layoutOffset.x, layoutOffset.y, 0))
             return
         }

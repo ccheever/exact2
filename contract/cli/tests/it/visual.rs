@@ -1,4 +1,4 @@
-//! LLP 1076 D1–D3: `corner-shape`, `mask-image` and `text-shadow` reach the
+//! LLP 1077 D1–D3: `corner-shape`, `mask-image` and `text-shadow` reach the
 //! kernel as CSS, in a literal, a `style` and a conditional, and what the
 //! hosts do not draw is refused at compile time, by name.
 
@@ -87,7 +87,7 @@ fn what_no_host_draws_is_refused_by_name() {
     }
 }
 
-/// LLP 1076 §5: the declared rows Apple draws, their refusals named, and
+/// LLP 1077 §5: the declared rows Apple draws, their refusals named, and
 /// `haptic()` a host command.
 #[test]
 fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {

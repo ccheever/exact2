@@ -72,7 +72,7 @@ enum BorderPaint {
     }
 
     /// A rectangle with an elliptical radius per corner, clockwise on screen;
-    /// with a `corner-shape`, the kernel's outline (LLP 1076 D1).
+    /// with a `corner-shape`, the kernel's outline (LLP 1077 D1).
     static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
         if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()

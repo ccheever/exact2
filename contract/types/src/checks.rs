@@ -702,7 +702,7 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "deliveryCheck",
     "focus",
     "format",
-    // @ref LLP 1076 D14 — `haptic("success" | "warning" | "error" | …)`.
+    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
     "selectText",

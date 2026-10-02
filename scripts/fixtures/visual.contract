@@ -1,4 +1,4 @@
-// LLP 1076's parity page: `corner-shape` and `mask-image`, the browser the
+// LLP 1077's parity page: `corner-shape` and `mask-image`, the browser the
 // oracle. 100×70 boxes on a 125×95 grid: corner shapes over a fill, a
 // border and a clip; gradient masks over a fill, over children and with a
 // radius (`text-shadow` is text-shadow.contract). `dark` switches the scheme. Chrome's pictures (the web host

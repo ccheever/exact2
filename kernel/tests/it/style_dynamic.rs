@@ -30,7 +30,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         "0 1",
         "none",
         "1px,2px",
-        // A third length is `translate`'s z (LLP 1076 D8), a fourth nothing.
+        // A third length is `translate`'s z (LLP 1077 D8), a fourth nothing.
         "1px 2px 0px 0px",
         "1px 2px 3",
         "10% 0",

@@ -276,7 +276,7 @@ extension NodeView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // A `text-shadow` is cast by a sublayer of its own: the view's layer
-        // would cast its box too (LLP 1076 D3).
+        // would cast its box too (LLP 1077 D3).
         let shadow = textRasterKey?.spec.shadow
         if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil {
             textRasterOverflowLayer?.removeFromSuperlayer()

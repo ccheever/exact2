@@ -1,4 +1,4 @@
-// LLP 1076 D4's parity page: `box-shadow` lists, spread and `inset`, the
+// LLP 1077 D4's parity page: `box-shadow` lists, spread and `inset`, the
 // browser the oracle. 100×70 boxes on a 125×95 grid: two outer shadows,
 // a positive and a negative spread, inset shadows (offset, spread, under a
 // border, round), outer and inset together, a squircle's shadow following

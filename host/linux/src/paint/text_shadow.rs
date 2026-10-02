@@ -1,4 +1,4 @@
-//! CSS `text-shadow` (LLP 1076 D3): the paragraph's glyphs in the shadow's
+//! CSS `text-shadow` (LLP 1077 D3): the paragraph's glyphs in the shadow's
 //! colour, drawn on the CPU into an island over their reach, blurred (σ is
 //! half CSS's radius) and placed under the text by either backend.
 

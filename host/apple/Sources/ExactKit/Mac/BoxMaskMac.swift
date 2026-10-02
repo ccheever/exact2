@@ -1,6 +1,6 @@
 // What masks a node's layer on AppKit, as on UIKit (`IOS/BoxMaskIOS.swift`):
-// CSS `clip-path`, an overflow clip with shaped corners (LLP 1076 D1), and
-// CSS `mask-image` (LLP 1076 D2), composed, the shaped clip on the children's
+// CSS `clip-path`, an overflow clip with shaped corners (LLP 1077 D1), and
+// CSS `mask-image` (LLP 1077 D2), composed, the shaped clip on the children's
 // clip box when there is one. A filtered box's picture takes the same
 // composition. A material's effect view takes the gradient as its
 // `maskImage`, which AppKit composites with the effect: the blur fades and
@@ -44,7 +44,7 @@ extension NodeView {
         let clip = clipMask(shaped: shaped)
         guard let layer, let gradient = Gradient(style["mask_image"]) else { return clip }
         if gradient.isConic {
-            // A conic mask is pixels (LLP 1076 D5).
+            // A conic mask is pixels (LLP 1077 D5).
             let m = ConicMaskLayer()
             m.frame = layer.bounds
             m.contents = gradient.image(size: layer.bounds.size, scale: window?.backingScaleFactor ?? 2, dark: drawsDark)

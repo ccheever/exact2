@@ -1,4 +1,4 @@
-// LLP 1076 D3's parity page: `text-shadow`, the browser the oracle. Offset,
+// LLP 1077 D3's parity page: `text-shadow`, the browser the oracle. Offset,
 // blurred, `currentcolor`, `light-dark()`, over several lines and none.
 // Chrome's pictures (the web host at 1×) are text-shadow.web.png as booted
 // and text-shadow.web-dark.png after `dark`.

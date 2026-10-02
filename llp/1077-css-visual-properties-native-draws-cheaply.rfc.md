@@ -1,8 +1,8 @@
-# LLP 1076: The CSS visual properties native hosts draw cheaply
+# LLP 1077: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–4 and §5 built 2026-10-02 on lane/visual-1076 (§8); review and landing owed.
-**Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–4 and §5 built, reviewed (Astra, Grok) and landed 2026-10-02 (§8). Written as 1076 and renumbered at landing: LLP 1076 is the Android rendering research record.
+**Systems:** Kernel (`schema.json` style rows: bit 57 and bits 153–170, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
 **Date:** 2026-10-02

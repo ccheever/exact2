@@ -1,4 +1,4 @@
-// LLP 1076 §5 on UIKit: what iOS draws that CSS has no name for. Smart
+// LLP 1077 §5 on UIKit: what iOS draws that CSS has no name for. Smart
 // Invert leaving a node's pixels alone (D18), a scroll container's edge
 // effect (D16, iOS 26), the iPad pointer's effect over a node (D17), and
 // a text's numerals rolling as they change (D15).

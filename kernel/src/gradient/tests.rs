@@ -261,7 +261,7 @@ fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
     );
 }
 
-/// LLP 1076 D5: `conic-gradient()` from an angle at a position, stops in
+/// LLP 1077 D5: `conic-gradient()` from an angle at a position, stops in
 /// percentages or angles; and up to four layers, the first on top.
 #[test]
 fn conic_gradients_and_layers_parse_and_round_trip() {

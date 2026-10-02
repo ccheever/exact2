@@ -190,7 +190,7 @@ impl Lexer {
                 }
                 let span = col_of(pos);
                 // A vendor-prefixed CSS name, as the Compat Standard spells
-                // some (`-webkit-text-stroke`, LLP 1076 D7): the two
+                // some (`-webkit-text-stroke`, LLP 1077 D7): the two
                 // prefixes only, and only as an attribute's name (followed
                 // by `=`), so `-webkit-x` in an expression stays a negation.
                 let vendor = ["-webkit-", "-apple-"].iter().any(|p| {
