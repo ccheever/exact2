@@ -113,13 +113,14 @@ component Spark
   action settle(forced: number, vx: number, vy: number)
     dragging = false
     if index < count
-      if forced == 0 and verdict(x, y, vx, vy, throwAt) == 0
+      let decision = forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced
+      if decision == 0
         x = 0
         y = 0
       else
-        stack = stack * 4 + (forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced)
-        likes = likes + ((forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced) >= 2 ? 1 : 0)
-        matched = ((forced == 0 ? verdict(x, y, vx, vy, throwAt) : forced) >= 2 and topLikesYou) ? index : -1
+        stack = stack * 4 + decision
+        likes = likes + (decision >= 2 ? 1 : 0)
+        matched = (decision >= 2 and topLikesYou) ? index : -1
         flungY = y
         flungPhoto = photo
         photo = 0

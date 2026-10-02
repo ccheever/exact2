@@ -120,14 +120,18 @@ component InteractionGallery
   // An action reads state as it was before it ran, so each stop is written
   // out where it is used.
   action chooseSheet(value: number)
-    sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
-    sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
-    sheetPx = sheetChoice(value, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull), sheetPx)
+    let full = sheetFullOf(frame("sheet-bay"), sheetFull)
+    let read = sheetReadOf(measure("reading-sheet"), full, sheetRead)
+    sheetFull = full
+    sheetRead = read
+    sheetPx = sheetChoice(value, read, full, sheetPx)
 
   action snapSheet(height: number, velocity: number)
-    sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
-    sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
-    sheetPx = sheetStop(height + velocity * 0.15, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull))
+    let full = sheetFullOf(frame("sheet-bay"), sheetFull)
+    let read = sheetReadOf(measure("reading-sheet"), full, sheetRead)
+    sheetFull = full
+    sheetRead = read
+    sheetPx = sheetStop(height + velocity * 0.15, read, full)
 
   action command(op: string, id: string, n: number)
     if op == "reset" or op == "load"
