@@ -243,8 +243,19 @@ export function install(exact) {
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
-            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle(), refused = exact.advance(to);
-            if (typeof refused === 'string') { retime(); seek(); return { error: `clock: ${refused}`, clock: exact.clock.now }; }
+            // What is in flight lands before the next timer or `then` fires, as in a
+            // jump (below; glue.js's clock, the Linux agent's): the advance stops
+            // after each commit that sends and waits for its reply, within this
+            // round, so a run of sends never spends the rounds. Past the deadline,
+            // or 4096 stops, the rest is one advance.
+            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle();
+            for (let stops = 0; ; stops++) {
+              const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
+              const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
+              if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (!stopped) break;
+              while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+            }
             if (!(to > at) && exact.clock.epoch === epoch) break;
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));

@@ -257,9 +257,11 @@ export function frames(action) {
 }
 /** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
  * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
- * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time: its journal
- * line, as the runner's error. Under the agent the journal gets the runner's line for an advance that fired. */
+ * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time, and a
+ * non-finite `to` (NonFiniteClock) leaves the clock where it was: its journal line, as the runner's error. Under the
+ * agent the journal gets the runner's line for an advance that fired. */
 export function advance(to, wall, stop) {
+  if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
     let next = null, then = null;
