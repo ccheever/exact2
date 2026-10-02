@@ -1,0 +1,192 @@
+# LLP 1076: The CSS visual properties native hosts draw cheaply
+
+**Type:** RFC
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Being implemented.
+**Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
+**Date:** 2026-10-02
+**Related:** LLP 1001 §1 (the style table; new rows and declared deviations land there), LLP 1053.000 (`backdrop-filter`, `backgroundMaterial`), LLP 1055.000 D10/D14/D19 (SVG `mask`, `filter`, `mix-blend-mode`: the island route these defer to), LLP 1061–1064 (paint motion, `box-shadow`, `text-shadow`'s precedent), LLP 1066 (`background-image`; its grammar is reused and widened), LLP 1035.004 (native affordances by meaning: the precedent for §5), `rules/DEFERRED.md` (the "decorative effects" lines; moved 2026-10-02, §1)
+
+## Summary
+
+These are CSS visual properties that iOS draws with public Core Animation or Core Text API at little or no cost, that the browser draws natively, and that authors otherwise fake or do without:
+
+| | CSS | iOS mechanism | Stage |
+|---|---|---|---|
+| D1 | `corner-shape` (`squircle`, `superellipse()`, …, and `-apple-continuous`) | a path from one kernel function; `cornerCurve = .continuous` for `-apple-continuous` | 1 |
+| D2 | `mask-image` (one gradient) | `layer.mask = CAGradientLayer` | 1 |
+| D3 | `text-shadow` (one shadow) | `CGContext.setShadow` around the run | 1 |
+| D4 | `box-shadow` lists, `inset`, spread | one `shadowPath` sublayer per shadow | 2 |
+| D5 | `conic-gradient()`, stacked `background-image` layers | `CAGradientLayer` `.conic`, one sublayer per layer | 2 |
+| D6 | `background-clip: text` | gradient layer masked by the text | 3 |
+| D7 | `-webkit-text-stroke` | `CGContext` `.fillStroke` text mode | 3 |
+| D8 | `perspective`, `rotate: x\|y …`, `backface-visibility` | `CATransform3D`, `sublayerTransform.m34` | 4 |
+
+Two properties are **deferred**: `filter` on boxes and `mix-blend-mode` on boxes (D9). iOS has no public per-layer route for either. Nine iOS affordances with **no CSS name** are admitted too (§5, D10–D18). Charlie ruled them in, names included.
+
+Every row follows the house rules for a new visual row. CSS's grammar is admitted as a stated subset and the rest is refused by name, at compile time for a literal and at run time for a computed string. The web draws natively and is the oracle, so the native hosts are held to Chrome's pixels. Each feature links only where it is used, so an app that uses none of them pays no web-core bytes.
+
+## Motivation
+
+The visual rows today: `backdrop-filter: blur()`, `backgroundMaterial`, one linear or radial `background-image`, one outer `box-shadow` without spread, 2D `translate`/`scale`/`rotate`, `clip-path`, `opacity`, `tint-color`, `accent-color`. `filter` and `mix-blend-mode` exist only on SVG elements. On a box, `backdrop-filter`'s other filter functions are refused (`contract/cli/tests/it/styles.rs:504`), and iOS declares blend modes unsupported.
+
+Each item in the table is a single line of CSS on the web and a few lines of public API on iOS. Without them an author falls back to an SVG island, a Canvas surface, or a design change:
+
+- **Continuous corners.** Every UIKit and SwiftUI control and the native Messages bubbles use them. `apps/messages` is held to native iOS pixels with 31 `border-radius` uses, all circular arcs.
+- **Edge fades** on a carousel, a horizontally scrolling chip row, or truncated text. A fade toward a known background colour can be faked today with a gradient overlay. A fade toward whatever is behind the box cannot be.
+- **Legible text over imagery** (`text-shadow`), and **gradient or outlined headings** (D6, D7).
+- **Card flips and tilt** (D8).
+
+## 1. The DEFERRED move
+
+`rules/DEFERRED.md` is binding and says twice that "decorative effects wait behind" named consumers: behind the four interaction workloads (2026-09-16), and behind the sheet and the Shop accordion (2026-09-17/19). Every item here is a decorative effect. Earlier visual rows moved by naming a consumer and a take. LLP 1061–1064 and 1066 were "for grnl", and Charlie later ratified them with the take waived.
+
+**Ruled (Charlie, 2026-10-02): "Waive the take."** He added that ports are starting to ask for almost all of these, so the waiver covers all four stages. The line moved in `rules/DEFERRED.md` the same day. D9 stays out.
+
+## 2. Shared rules
+
+- **Rows.** Each is a CSS-text row, like `clip-path` and `background-image`. The kernel parses the text once in one Rust function, so a literal, a `style` block, a class choice and a computed string behave alike. New bits start at 154. LLP 1001 §1 gains the rows and any declared deviation.
+- **Refusals by name.** Each D lists what is admitted. Anything else in CSS's grammar is refused with the function or keyword named, as LLP 1066 does. Approximating instead is rejected: a host that paints something other than Chrome is a parity bug that nothing reports.
+- **Geometry in the kernel, once.** Shapes that more than one native host draws (D1's corner path, D4's spread and inset outlines, D5's conic placement) are kernel functions. Swift and the Linux painter consume their output and do not re-derive it. LLP 1066 repeated its gradient arithmetic in Swift; these rows do not.
+- **Size.** The web-core ceilings in `scripts/metrics.mjs` gate the landing. Each feature's web emit and runtime code link only when a plan uses its row.
+- **Motion.** A row CSS calls animatable takes `transition` and keyframes through the paint-motion seam (LLP 1061–1064). Each D states how its value interpolates.
+- **Performance is measured on a device.** A mask or an extra shadow can cost Core Animation an offscreen pass. Each Apple design below names the trap it avoids. Each stage's landing includes a frame-level check on an iPhone, with the content under the effect scrolling, not just a screenshot.
+
+## 3. Design
+
+### D1. `corner-shape`
+
+CSS Borders 4, shipped in Chrome. Admitted: the four-corner shorthand and the per-corner longhands, with values `round` (the initial value), `squircle`, `square`, `bevel`, `scoop`, `notch` and `superellipse(<number> | infinity | -infinity)`. All of these are one parameter K, which `squircle` sets to 2, `round` to 1 and `bevel` to 0. Refused: nothing in the property's grammar. Like the radius, the shape needs a `border-radius` to show.
+
+One keyword is added outside CSS: **`-apple-continuous`**, Apple's continuous corner curve. Each name means one shape on every host. `squircle` is CSS's superellipse everywhere, and `-apple-continuous` is Apple's curve everywhere (Q2, Charlie's proposal). The `-apple-` prefix follows WebKit's own (`-apple-system`) and cannot collide with a keyword CSS adds later.
+
+- **Row:** four f32 K values, one per corner, with one value reserved for `-apple-continuous`. A box without the row keeps today's arc fast path on every host.
+- **Kernel:** `corner_path(box, radii, k[4]) -> path`, the superellipse corner as CSS Borders 4 defines it, together with the inner border edge and the padding-box clip. Borders follow the shape, as in Chrome. For `-apple-continuous` the function returns Apple's curve: three cubic segments per corner reaching about 1.53× the radius along each side, eased back to a circular arc when the box is too small for that, as UIKit does. The constants are fitted to `UIBezierPath(roundedRect:cornerRadius:)` pixels on a simulator, not taken from a third-party write-up.
+- **Web:** native for CSS's keywords. `-apple-continuous` emits the nearest `superellipse(K)` with a radius scaled to the same extent. This is a declared approximation in LLP 1001, and its error against Apple's pixels is measured and stated before stage 1 lands. If the error is visible, the web draws the kernel path as a `clip-path: path()` plus a background, and the border loses its shape.
+- **Apple:** `-apple-continuous` is `cornerCurve = .continuous` with the layer's own radius, which costs nothing and needs no path. On macOS, where boxes are drawn, it is the kernel path. Every other keyword is the kernel path drawn as the background and border. For `overflow: hidden` it is also the content clip: a `CAShapeLayer` mask on iOS, a clip in `draw` on macOS. A box that does not clip draws the path into its own layer contents and needs no mask, so it costs no offscreen pass. `shadowPath` takes the same path.
+- **Linux:** the kernel path through both backends' existing path fill and clip.
+- **Motion:** K interpolates as a number, per corner.
+- **Why two names:** Apple's `.continuous` is not CSS's `superellipse(2)`. The continuous curve starts about 1.5× the radius back from the corner, while CSS's shape stays inside the radius box. With one name, either iOS would not match native apps or it would not match Chrome. With two, an author picks the look, and both mean the same shape on every host. `-apple-continuous` to `squircle` interpolates discretely; between the CSS keywords, K interpolates.
+
+### D2. `mask-image`
+
+Admitted: `none`, or one `linear-gradient()` or `radial-gradient()` in LLP 1066's grammar, with the same refusals. Initial `mask-mode` (alpha for a gradient), `mask-origin`, `mask-clip`, `mask-size` and `mask-position`: the gradient covers the border box. Refused: `url()`, several layers, `mask-composite`, `mask-mode: luminance`, and every other `mask-*` longhand. On a box, the `mask` shorthand stays refused. `mask: url(#id)` remains SVG-only (the `svg_mask` row, LLP 1055.000 D10).
+
+- **Row:** the gradient, parsed by `kernel/src/gradient.rs` with D4 of LLP 1066 (premultiplied stops) applied unchanged.
+- **Web:** native.
+- **iOS:** `layer.mask = CAGradientLayer`, with LLP 1066's two Core Animation corrections. On a `backgroundMaterial` or `backdrop-filter` box, the mask goes on the effect view's `mask`, which UIKit supports. A mask forces an offscreen pass for the masked subtree each time it changes. The device check (§2) measures a masked scroll view at 120 Hz before the stage lands.
+- **macOS:** the box draws into a transparency layer clipped by the gradient's alpha.
+- **Linux:** tiny-skia multiplies a `Mask` (`raster.rs` already composes masks). Vello's route for an alpha mask over a layer is confirmed or built in stage 1; until it is, Vello renders the subtree as an island, as SVG masks do.
+- **Progressive blur.** `backdrop-filter: blur()` plus a `mask-image` gradient fades a uniform blur. This is what Chrome draws, so iOS's masked effect view is parity, not an approximation. A blur whose radius varies across the box is not a CSS feature and is not proposed. Apple's `variableBlur` filter is private.
+- **Motion:** stops interpolate as LLP 1066's gradients would, when both ends have the same function and stop count. Otherwise the change is discrete.
+
+### D3. `text-shadow`
+
+Admitted: `none`, or one shadow, `<color>? <length>{2,3}`, inherited as in CSS. The shadow also falls under text decorations, as Chrome paints it. Refused: a list, for the reason LLP 1064 D1 refused one for `box-shadow`: a list needs one extra draw per entry on every host, and no one has asked for it. A missing colour is `currentcolor`, which this row can hold because the text colour is in hand when it draws. LLP 1064's shadow rows could not hold it.
+
+- **Web:** native.
+- **Apple:** `CGContext.setShadow(offset:blur:color:)` around the run's draw in the text engine, with blur radius = 2σ as in LLP 1064 D2. The host does not use an `NSShadow` attribute, because Core Text drawing ignores it.
+- **Linux:** the run's glyph coverage is blurred and drawn offset, under the glyphs, by the existing shadow blur.
+- **Motion:** colour, offsets and blur interpolate as `box-shadow`'s do.
+
+### D4. `box-shadow`: lists, `inset`, spread
+
+LLP 1064 D1 refused all three. This admits CSS's full `box-shadow` grammar except a missing colour, which stays refused for the reason LLP 1064 gives.
+
+- **Rows:** one `box_shadow` CSS-text row (a list) **replaces** the four rows at bits 57–60. Under "delete, don't deprecate", the four rows go, and LLP 1001 and LLP 1064's hosts move to the list (Q4, ruled). Authors write the same `box-shadow` text; only the wire changes, and baked bundles get a new compatibility id. Glass groups read the shadow rows (`GlassGroup*Tests.swift`) and move with them.
+- **Kernel:** each shadow's outline. Spread grows or shrinks the border-box outline, and its radii follow CSS's spread-radius rule (Backgrounds 3 §7.1.1). An inset shadow is an even-odd path: the padding-box outline with a hole shrunk by the spread.
+- **Web:** native.
+- **iOS:** outer shadows are one sublayer each, with an explicit `shadowPath` and no contents, kept outside the border box as LLP 1064 D2 does now. With a `shadowPath` Core Animation casts without an offscreen pass. Inset shadows are one sublayer each above the background and under the content, clipped to the padding box. The first outer shadow stays on the box's own layer, so a one-shadow box costs what it costs today.
+- **macOS and Linux:** the existing shadow paint loops over the list. Inset is a clip to the padding box and an even-odd fill.
+- **Motion:** lists interpolate pairwise, with the shorter list padded by transparent zero shadows, as CSS does. If inset and outer don't match at the same index, the change is discrete.
+
+### D5. `conic-gradient()` and stacked layers
+
+This widens LLP 1066's grammar. Admitted: `conic-gradient([from <angle>]? [at <position>]?, <stops>)` with 1066's stop rules, and a comma list of up to four layers mixing all three functions, painted with the first layer on top as in CSS. Still refused: `repeating-*`, `url()`, colour hints, and everything else 1066 refuses.
+
+- **Web:** native.
+- **iOS:** one `CAGradientLayer` per layer, with type `.conic` for a conic gradient. A box that `draw(_:)` paints (LLP 1066 D6) draws a conic gradient per pixel with Core Graphics, as `Canvas2DPaint.swift`'s `drawConic` does today.
+- **macOS:** Core Graphics in `draw`. A conic gradient uses the same per-pixel route.
+- **Linux:** Vello's sweep gradient. tiny-skia's support for a sweep gradient is confirmed at the start of the stage; if it has none, the gradient is drawn per pixel as Apple's Canvas does.
+
+### D6. `background-clip: text`
+
+Admitted: `border-box` (initial), `padding-box`, `content-box`, `text`. With `text`, the background colour and image are painted only inside the glyphs of the box's own text. The author sets `color: transparent` to see it, as in CSS; the compiler does not insist. Refused: `-webkit-` spellings, which are aliases Chrome keeps only for compatibility.
+
+- **Web:** native.
+- **iOS:** the gradient layer's mask is a layer that draws the same runs the text node draws, from the same layout, so the two never disagree. This costs one offscreen pass per text change, not per frame.
+- **macOS:** the runs' glyph paths become a clip in `draw`.
+- **Linux:** the glyph outlines' union as a clip path in both backends.
+
+### D7. `-webkit-text-stroke`
+
+The prefixed name is the only one CSS has, and the Compat Standard specifies it for every browser. Admitted: `-webkit-text-stroke-width` (a length), `-webkit-text-stroke-color` (initial `currentcolor`), and the shorthand. Inherited, as in Compat. The stroke is centred on the outline and painted over the fill, as Chrome draws it. Under `paint-order: stroke`, which Chrome honours on HTML text, it goes under the fill, using the existing `paint_order` row (bit 126).
+
+- **Web:** native.
+- **Apple:** `CGContext.setTextDrawingMode(.fillStroke)` with the line width in points, or two passes when paint order requires it.
+- **Linux:** glyph paths stroked after (or before) the fill.
+
+### D8. 3D transforms: `perspective`, axis rotations, `backface-visibility`
+
+Admitted: `perspective` (on the parent) with `perspective-origin`; the individual `rotate` property's axis forms (`x <angle>`, `y <angle>`, `<x> <y> <z> <angle>`); a `z` component on `translate`; and `backface-visibility`. Refused: `transform-style: preserve-3d`, so every box flattens its children into its own plane (CSS's initial `flat`); `perspective()` and `matrix3d()` inside `transform`, since the box rows are the individual properties; and 3D on SVG elements.
+
+- **Rows:** `rotate` widens from one f32 to an axis and an angle. `translate` gains z. There are new rows for `perspective`, `perspective-origin` and `backface-visibility`.
+- **Kernel:** hit testing and the agent's `tree` geometry go through the inverse projection. A tap on a tilted card must land on the pixel it shows, and `layout <node>` reports the projected bounds. This is the stage's real kernel cost.
+- **Web:** native.
+- **Apple:** `CATransform3D` on the layer. The parent's `perspective` becomes `sublayerTransform.m34 = -1/d` about `perspective-origin`. Core Animation flattens sublayers by default, which is CSS's `flat`. `isDoubleSided` is `backface-visibility`. Rotation about x and y animates on the render server like today's 2D transforms.
+- **Linux (Q3):** Vello 0.10 and tiny-skia 0.12 draw affine transforms only. Vello's image command carries a 2×2 matrix and a translation, and tiny-skia's `Transform` has six fields; neither has a perspective term. Skia proper has one (`SkMatrix` is 3×3, and `SkM44` exists). Even so, Chrome does not draw CSS 3D by rasterizing in perspective: its compositor draws each 3D layer as a cached texture on a projected quad, and Core Animation does the same. The Linux host follows them:
+  - The subtree under a 3D transform renders flat into an island (the LLP 1055.000 route), cached until its content changes.
+  - **Vello:** a patch adds a projective image brush. The image command gains a perspective row (two more floats), and the fine shader divides by w when it computes the sample coordinate. The projected quad itself is an ordinary path fill, a four-point polygon. The patch goes on `vendor/vello` (`exact-vello`, which today serves only Canvas 2D), the Linux painter moves onto it so the tree has one Vello, and the change is proposed upstream to Linebender.
+  - **tiny-skia:** a CPU inverse-homography warp with bilinear sampling, in `host/raster` beside the other island code.
+  - **Fallback:** if the Vello patch is not working after three rounds, Linux draws the orthographic projection instead: the rotation's affine 2×2 without foreshortening, which both backends draw today. Flips, tilts and back faces stay right, only without perspective. This is declared in LLP 1001 until the patch lands.
+- **Motion:** axis-angle rotations interpolate by slerp when the axes differ, as CSS does. Perspective interpolates as a length.
+
+## 4. Deferred
+
+### D9. `filter` and `mix-blend-mode` on boxes
+
+On iOS, `CALayer.filters` and `compositingFilter` are documented as unsupported. SwiftUI's `.blur()` and `.blendMode()` use private `CAFilter`. That risks App Store rejection and can break silently in an OS update, so it is rejected. The public route is LLP 1055.000's island: render the subtree at device scale, run the filter chain, composite. It works, and SVG already uses it. But it costs one filter pass per frame while anything under it animates or scrolls, and a one-line `filter: blur(4px)` gives an author no hint of that.
+
+**Return trigger:** a port that needs a static filtered box, such as a greyed-out disabled card or a blurred placeholder image. Then `filter` on a box is admitted with the island route and its per-frame cost declared in LLP 1001, and `mix-blend-mode` follows with the same route. `backdrop-filter`'s other functions (`saturate()`, `brightness()`) stay refused for the same reason.
+
+## 5. iOS affordances with no CSS name
+
+*Ruled (Charlie, 2026-10-02): "do all of them."* These follow the `press-scale` and LLP 1035.004 precedent: a declared thing, rendered by the host that has it, with the web's form declared rather than imitated. Where WebKit already has a spelling, it is used. Otherwise the name is a plain non-CSS row or prop, declared as such in LLP 1001. The names below were approved with the rest (Charlie, 2026-10-02: "assume they are fine").
+
+| | Proposed spelling | Apple | Web | Linux |
+|---|---|---|---|---|
+| D10 | `symbol-rendering: monochrome \| hierarchical \| palette \| multicolor` and `symbol-palette: <color>{1,3}` on a `symbol:` image | `UIImage.SymbolConfiguration` rendering mode and palette colours | monochrome in `color` | empty, as symbols are today |
+| D11 | `symbol-value: none \| <number 0–1>` | `UIImage(systemName:variableValue:)` | full symbol | empty |
+| D12 | `symbol-effect: none \| bounce \| pulse \| wiggle \| breathe \| rotate \| variable-color \| scale \| replace`, plus `symbolEffectValue=<expr>`: a discrete effect (`bounce`, `wiggle`) plays each time the value changes, an indefinite one runs while set, and `replace` plays when the source changes | `addSymbolEffect` / `setSymbolImage(_:contentTransition:)` | keyframe stand-ins for bounce, pulse and scale; nothing for the rest (declared) | nothing |
+| D13 | Vibrancy as colours, in WebKit's spellings: `-apple-system-label`, `-apple-system-secondary-label`, `-apple-system-tertiary-label`, `-apple-system-quaternary-label`, `-apple-system-separator`, and a fill colour checked against WebKit's keyword list before it is named. Under a `backgroundMaterial` they are vibrant; elsewhere they are the plain system colours | `UIVibrancyEffect(blurEffect:style:)` wrapping the node under a material; `UIColor.label` etc. elsewhere | WebKit's own names in Safari; a `light-dark()` pair elsewhere | the `light-dark()` pair |
+| D14 | `press-haptic: none \| selection \| impact-light \| impact-medium \| impact-heavy \| impact-soft \| impact-rigid`, a host-owned row like `press-scale` (no runner round trip), and a `haptic("success" \| "warning" \| "error" \| …)` action for app logic | `UIImpactFeedbackGenerator`, `UISelectionFeedbackGenerator`, `UINotificationFeedbackGenerator`, prepared on touch-down; macOS `NSHapticFeedbackManager` on a Force Touch trackpad | `navigator.vibrate` where it exists; nothing on iOS Safari | nothing |
+| D15 | `content-transition: none \| numeric \| numeric-countdown` on text: digits roll when the string changes | a per-glyph roll in the text layer, as SwiftUI's `.numericText` looks; UIKit has no public equivalent, so it is built from per-digit layers | a per-digit roll in the runtime, linked by use | a per-digit roll in the painter |
+| D16 | `scroll-edge-effect: automatic \| soft \| hard \| none`, per axis edge on a scroll container | `UIScrollEdgeEffect` (iOS 26) | a `mask-image` fade (D2) for `soft`; a hairline for `hard` | the same as the web |
+| D17 | `hover-effect: auto \| highlight \| lift \| hover \| none` (iPad pointer) | `UIPointerInteraction` with `UIPointerEffect` | `:hover`-style tint for `highlight`, nothing else (declared) | nothing |
+| D18 | `smart-invert: auto \| ignore`. `ignore` is the default on `image`, `video` and `canvas` | `accessibilityIgnoresInvertColors` | nothing (Safari has only the `inverted-colors` media query) | nothing |
+
+- **D14 is the only one with an action.** A haptic on press must fire on touch-down with no runner round trip, as `press-scale` does. A haptic on a state change (a swipe passing its threshold, a save succeeding) belongs to app logic.
+- **D15 is the most work.** UIKit has no public numeric content transition, so iOS builds it from per-digit layers. Its look is matched to SwiftUI's by eye, with no parity oracle; the RFC says so.
+- **D17 overlaps LLP 1075.003**, which can already attach a `UIPointerInteraction` through a hook. The declared row is the common case without native code; the hook stays the escape hatch.
+- **D18's default** (`ignore` on media) is what Apple's own apps do, so it is verified with Smart Invert on in the simulator.
+
+## 6. Verification
+
+Each stage, before it lands:
+
+- **Chrome as oracle.** Every admitted form gets an `fx-*` box in an existing gallery app (no new app). `scripts/parity.mjs` crops each box from the iOS simulator, macOS and Linux screenshots and compares it with Chrome's within LLP 1053 G2's tolerances.
+- **Refusals.** Contract CLI tests show each refused form named at compile time, and named at run time for a computed string.
+- **On a device.** A frame-level trace on an iPhone with the effect over scrolling content (D1 with clipping, D2, D4, D6), compared against the same screen without it, following the perf program's protocol. A stage that adds late frames does not land.
+- **Size.** `bun scripts/metrics.mjs`: a plan without the rows has unchanged web-core bytes.
+- **Driven.** `bun scripts/agent.mjs ios tree "screenshot …"` on the gallery page, plus a tap on a D8 tilted card that lands where it shows.
+
+## 7. Open questions for Charlie
+
+- **Q1.** *Ruled 2026-10-02:* the take is waived.
+- **Q2.** *Ruled 2026-10-02 (Charlie's proposal):* two names, `squircle` for CSS's shape and `-apple-continuous` for Apple's, each the same shape on every host (D1).
+- **Q3.** 3D on Linux: a Vello patch (a projective image brush) plus a tiny-skia warp, with the orthographic projection as the fallback (D8). *Ruled 2026-10-02.*
+- **Q4.** *Ruled 2026-10-02:* one list row replaces the four.
+- **Q5.** *Ruled 2026-10-02:* linked in place of 1035.004.000, which is Implemented.
+- **Q6.** *Ruled 2026-10-02:* all of them, with §5's names.
+- **Q7.** *Ruled 2026-10-02:* Claude implements once the open questions are ruled, then a sanity review by Astra and Grok.
