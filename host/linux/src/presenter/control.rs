@@ -3,6 +3,20 @@
 //! state as HTML's `input` then `change`.
 use super::*;
 
+/// Fixed geometry used by Linux's own painters. Text-bearing controls are
+/// measured from their painted labels in `size_controls` instead.
+fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
+    match kind {
+        exact_kernel::ControlKind::Checkbox => Some((13.0, 13.0)),
+        exact_kernel::ControlKind::Switch => Some((38.0, 22.0)),
+        // Linux's file picker activation is native, but its visible control
+        // is the same painted square as a checkbox until the picker opens.
+        exact_kernel::ControlKind::File => Some((13.0, 13.0)),
+        exact_kernel::ControlKind::Range => Some((129.0, 16.0)),
+        _ => None,
+    }
+}
+
 impl<D: DataSource> Presenter<D> {
     /// Toggle `id` if it is an enabled checkbox; false if it is not one. A
     /// bound checkbox draws the committed `checked`, so an action that
@@ -228,17 +242,7 @@ impl<D: DataSource> Presenter<D> {
                 let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
                     continue;
                 };
-                let fixed = match kind {
-                    exact_kernel::ControlKind::Checkbox => Some((13.0, 13.0)),
-                    exact_kernel::ControlKind::Switch => Some((38.0, 22.0)),
-                    // Linux's file picker activation is native, but its
-                    // visible control is the same painted square as a
-                    // checkbox until the picker opens.
-                    exact_kernel::ControlKind::File => Some((13.0, 13.0)),
-                    exact_kernel::ControlKind::Range => Some((129.0, 16.0)),
-                    _ => None,
-                };
-                if let Some(size) = fixed {
+                if let Some(size) = fixed_painted_size(kind) {
                     sizes.push((id, size));
                     continue;
                 }
@@ -280,5 +284,26 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixed_painted_size;
+    use exact_kernel::ControlKind;
+
+    #[test]
+    fn fixed_controls_report_the_geometry_linux_paints() {
+        assert_eq!(
+            fixed_painted_size(ControlKind::Checkbox),
+            Some((13.0, 13.0))
+        );
+        assert_eq!(fixed_painted_size(ControlKind::Switch), Some((38.0, 22.0)));
+        assert_eq!(fixed_painted_size(ControlKind::File), Some((13.0, 13.0)));
+        assert_eq!(fixed_painted_size(ControlKind::Range), Some((129.0, 16.0)));
+        assert_eq!(fixed_painted_size(ControlKind::Select), None);
+        assert_eq!(fixed_painted_size(ControlKind::Date), None);
+        assert_eq!(fixed_painted_size(ControlKind::Time), None);
+        assert_eq!(fixed_painted_size(ControlKind::DateTimeLocal), None);
     }
 }
