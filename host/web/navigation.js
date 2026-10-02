@@ -2,6 +2,8 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let last = null;
 let refused = new WeakMap();
+// The tabpanels each root last hid or showed: one it stops naming shows again.
+let managed = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [];
@@ -18,7 +20,7 @@ const panelsOf = nav => {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
       .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
-      .filter(panel => panel?.getAttribute("role") === "tabpanel");
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
     if (panels.length) return panels;
   }
   return [];
@@ -183,6 +185,10 @@ export const navigation = {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       const key = nav.getAttribute("navigationKey");
       const panels = panelsOf(nav);
+      for (const panel of managed.get(nav) ?? []) {
+        if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
+      }
+      managed.set(nav, panels);
       const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
       const at = stacks.findIndex(routes => routes.some(route => route.getAttribute("navigationKey") === key));
       if (at < 0) {

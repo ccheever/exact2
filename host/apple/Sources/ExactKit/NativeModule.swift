@@ -551,11 +551,12 @@ final class NativeViews {
         #else
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
-        owner.addSubview(view)
         entry.handle = handle
         entry.view = view
         #if os(iOS)
-        contain(entry, table: table)
+        contain(entry, table: table) { owner.addSubview(view) }
+        #else
+        owner.addSubview(view)
         #endif
         entry.props = props
         entry.state = "ready"
@@ -656,11 +657,7 @@ final class NativeViews {
         #endif
         if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
         #if os(iOS)
-        if let screen = entry.screen {
-            screen.willMove(toParent: nil)
-            screen.removeFromParent()
-            entry.screen = nil
-        }
+        release(entry)
         #endif
         entry.view?.removeFromSuperview()
         if let handle = entry.handle, case .success(let table)? = NativeProcess.table {
@@ -787,18 +784,45 @@ extension NodeView {
 extension NativeViews {
     /// A native screen (LLP 1075.003 §3.6): its controller becomes a child
     /// of the controller its node shows in (a route's), so UIKit gives it
-    /// appearance calls, the safe area and traits.
-    fileprivate func contain(_ entry: NativeEntry, table: NativeTable) {
-        guard let handle = entry.handle, let made = table.platformController?(handle),
-              let owner = entry.owner else { return }
+    /// appearance calls, the safe area and traits, in UIKit's order: added
+    /// as a child, its view `insert`ed, then moved in. A node created in the
+    /// batch that mounts its route is in no controller yet: it is contained
+    /// once that batch is applied.
+    fileprivate func contain(_ entry: NativeEntry, table: NativeTable, retry: Bool = true, insert: () -> Void = {}) {
+        guard let handle = entry.handle, let made = table.platformController?(handle), let owner = entry.owner else { return insert() }
         let screen = Unmanaged<UIViewController>.fromOpaque(made).takeUnretainedValue()
         var responder: UIResponder? = owner
         while let next = responder, !(next is UIViewController) { responder = next.next }
-        guard let parent = responder as? UIViewController else { return log("\(entry.name) #\(entry.id): a screen with no controller to hold it") }
-        parent.addChild(screen)
-        screen.didMove(toParent: parent)
+        guard let parent = responder as? UIViewController else {
+            insert()
+            guard retry, let presenter = owner.presenter else { return log("\(entry.name) #\(entry.id): a screen with no controller to hold it") }
+            presenter.afterBatch { [weak self, weak entry] in
+                guard let self, let entry, self.entries[entry.id] === entry, entry.screen == nil,
+                      case .success(let table)? = NativeProcess.table else { return }
+                self.contain(entry, table: table, retry: false)
+            }
+            return
+        }
+        if screen.parent != nil, screen.parent !== parent {
+            screen.willMove(toParent: nil)
+            screen.removeFromParent()
+        }
+        let adds = screen.parent !== parent
+        if adds { parent.addChild(screen) }
+        insert()
+        if adds { screen.didMove(toParent: parent) }
         entry.screen = screen
-        log("\(entry.name) #\(entry.id): a screen in \(type(of: parent))")
+        if adds { log("\(entry.name) #\(entry.id): a screen in \(type(of: parent))") }
+    }
+
+    /// A screen's view leaves with its controller, in UIKit's order; a plain
+    /// module view just leaves.
+    fileprivate func release(_ entry: NativeEntry) {
+        guard let screen = entry.screen else { return }
+        screen.willMove(toParent: nil)
+        entry.view?.removeFromSuperview()
+        screen.removeFromParent()
+        entry.screen = nil
     }
 
     /// Parked instances per tag, and the rows one instance serves before it
@@ -831,6 +855,7 @@ extension NativeViews {
         if list.count >= Self.reuseCap { discard(list.removeFirst()) }
         view.alpha = 1
         view.isHidden = false
+        release(entry)
         view.removeFromSuperview()
         entry.nonce = 0; entry.revealing = false; entry.sizing = false; entry.owner = nil
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -872,7 +897,7 @@ extension NativeViews {
         // often the next row's, until the node is laid out (`laidOut`) — a
         // map's resize to nothing and back costs as much as its reset.
         if owner.bounds.isEmpty { view.autoresizingMask = []; entry.sizing = true } else { view.frame = owner.bounds }
-        owner.addSubview(view)
+        contain(entry, table: table) { owner.addSubview(view) }
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
         entry.props = props
         entry.state = "ready"

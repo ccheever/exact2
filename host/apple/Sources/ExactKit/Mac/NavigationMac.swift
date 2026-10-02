@@ -6,12 +6,14 @@ final class NavigationHost {
     unowned let presenter: Presenter
     private var refused: [UInt32: String] = [:]
     private var gates: [UInt32: [Bool]] = [:]
+    /// The tabpanels a root last hid or showed: one it stops naming shows again.
+    private var panels: Set<UInt32> = []
     /// The ops that can change what hides or disables a node: a frame, a
     /// paint or a presentation value (every frame of an animation) cannot,
     /// and each write posts an accessibility notification.
     private static let gating: Set<BatchOp.Kind> = [.create, .props, .style, .children, .roots]
     init(presenter: Presenter) { self.presenter = presenter }
-    func reset() { refused.removeAll(); gates.removeAll() }
+    func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll() }
 
     func sync(_ batch: Batch, reparented: Set<UInt32> = []) {
         var touched = Set<UInt32>()
@@ -28,6 +30,12 @@ final class NavigationHost {
                 subtrees.formUnion(op.ids)
             }
         }
+        func gate(_ node: NodeView, hidden: Bool, inert: Bool) {
+            if node.isHidden != hidden || node.routeInert != inert { subtrees.insert(node.id) }
+            node.isHidden = hidden
+            node.routeInert = inert
+        }
+        var managed = Set<UInt32>()
         for nav in presenter.carrying("navigationBack") {
             let key = nav.props["navigationKey"] ?? ""
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
@@ -41,15 +49,14 @@ final class NavigationHost {
                     refused[nav.id] = key
                     presenter.session?.log("navigationKey \"\(key)\" matches no route; the stack is unchanged")
                 }
+                managed.formUnion((tabs?.panels ?? []).map(\.id))
                 continue
             }
             refused.removeValue(forKey: nav.id)
-            func gate(_ node: NodeView, hidden: Bool, inert: Bool) {
-                if node.isHidden != hidden || node.routeInert != inert { subtrees.insert(node.id) }
-                node.isHidden = hidden
-                node.routeInert = inert
+            for (index, panel) in (tabs?.panels ?? []).enumerated() {
+                gate(panel, hidden: index != at, inert: index != at)
+                managed.insert(panel.id)
             }
-            for (index, panel) in (tabs?.panels ?? []).enumerated() { gate(panel, hidden: index != at, inert: index != at) }
             for (stack, routes) in stacks.enumerated() {
                 // The selected stack shows the route the root names; another
                 // keeps its top laid out under its hidden panel.
@@ -60,6 +67,10 @@ final class NavigationHost {
                 }
             }
         }
+        for id in panels.subtracting(managed) {
+            if let panel = presenter.views[id] { gate(panel, hidden: false, inert: false) }
+        }
+        panels = managed
         // Reuse the presenter's ancestor inert gate for focus/input. AppKit's
         // accessibility subtree is suppressed as HTML inert suppresses it.
         for id in touched {

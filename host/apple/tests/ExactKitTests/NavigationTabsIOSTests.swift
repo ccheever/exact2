@@ -142,19 +142,21 @@ final class NavigationTabsIOSTests: XCTestCase {
     }
 
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a
-    /// unit test reaches: Exact names no content scroll view to UIKit while
-    /// titles are fixed, so a minimize behavior a hook sets has nothing to
-    /// follow and the content area holds under scrolling. A finger's scroll
-    /// (UIKit's own heuristics) is owed to a device check (LLP 1075.003 §6).
+    /// unit test reaches: a route whose title stays still (Detail's, inline)
+    /// names no content scroll view to UIKit, so a minimize behavior a hook
+    /// sets has nothing to follow and the content area holds under scrolling.
+    /// A finger's scroll (UIKit's own heuristics) is owed to a device check
+    /// (LLP 1075.003 §6).
     func testAMinimizeBehaviorFollowsNoScrollWhileExactNamesNone() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("tabBarMinimizeBehavior is iOS 26") }
         let session = try fixture("tabs-minimize")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         tabs.tabBarMinimizeBehavior = .onScrollDown
-        tapTab(tabs, 1)
-        until("Second selected") { tabs.selectedIndex == 1 }
-        let route = try XCTUnwrap((tabs.selectedViewController as? UINavigationController)?.topViewController)
-        let scroll = try XCTUnwrap(try node(session, "list-second").scroll)
+        try tapNode(session, "detail")
+        until("detail pushed") { session.presenter.navigation.primaryNavigation?.viewControllers.count == 2 }
+        let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        XCTAssertNil(route.contentScrollView(for: .top), "a still title names no scroller")
+        let scroll = try XCTUnwrap(try node(session, "list-detail").scroll)
         spin(0.3)
         let before = route.view.safeAreaInsets.bottom, frame = tabs.tabBar.frame
         for y in stride(from: 0, through: 600, by: 20) {
@@ -181,19 +183,51 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(tabs.viewControllers?.count, 2)
     }
 
-    func testAHookMadeItemPressedAfterItsSessionEndsDoesNothing() throws {
+    /// A hook-made item clicks its authored control while its route lives,
+    /// and reaches nothing once the route ends: not the node that takes its
+    /// id after the plan reloads in the same session, not a destroyed one.
+    func testAHookMadeItemDoesNothingOnceItsRouteEnds() throws {
         let session = try fixture("tabs-ended", module: true)
         defer { NativeViews.uninstallTable() }
         let log = { session.agent(#"{"op":"logs","since":0}"#) }
+        let composed = { (try? self.node(session, "composed"))?.accessibleText ?? "" }
         until("hooks replayed") { log().contains("hook route 0: built") }
-        let home = try XCTUnwrap(session.presenter.navigation.tabNavigations[session.presenter.navigation.tabPanels[0]]?.viewControllers.first)
+        let navigation = session.presenter.navigation
+        let home = try XCTUnwrap(navigation.tabNavigations[navigation.tabPanels[0]]?.viewControllers.first)
         let more = try XCTUnwrap(home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" })
         let target = try XCTUnwrap(more.target as? NSObject), action = try XCTUnwrap(more.action)
+        _ = target.perform(action, with: more)
+        until("the live item clicks Compose") { composed() == "composed 1" }
+        // The plan boots again in this session: its routes end, ids restart.
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        let before = try node(session, "composed")
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        until("the plan booted again") { (try? self.node(session, "composed")).map { $0 !== before } == true }
+        spin(0.3)
+        let after = composed()
+        _ = target.perform(action, with: more)
+        spin(0.3)
+        XCTAssertEqual(composed(), after, "an ended route's item presses nothing")
         sessions.removeAll { $0 === session }
         session.destroy()
-        // The handle's session is gone: the click finds none and does nothing.
         _ = target.perform(action, with: more)
         spin(0.1)
+    }
+
+    /// With the module loaded, a module view is made as its node is, in the
+    /// batch that mounts its route: a screen is contained once that batch
+    /// is applied, when the route has its controller.
+    func testAScreenMadeWithItsRouteIsContainedOnceTheRouteMounts() throws {
+        let session = try fixture("tabs-screen", module: true)
+        defer { NativeViews.uninstallTable() }
+        until("the module connected") { session.agent(#"{"op":"logs","since":0}"#).contains("hook route 0: built") }
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        spin(0.3)
+        let navigation = session.presenter.navigation
+        let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
+        until("the screen is contained") { route.children.count == 1 }
+        XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }
 
     func testTheTabsHookAContainerTheAppOwnsAndANativeScreen() throws {

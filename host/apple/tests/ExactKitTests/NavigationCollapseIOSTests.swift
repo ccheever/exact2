@@ -8,7 +8,9 @@ import XCTest
 /// scrollport's top, which under the bar is the bar's bottom whatever its
 /// height — UIKit keeps the offset plus that inset fixed as the title
 /// collapses — so an authored offset lands where the browser's does (0, 80,
-/// the middle, the end of what shows), and 0 rests with the title expanded.
+/// the middle, the end of what shows). At rest, CSS 0, the title is
+/// expanded; an authored 0 after a collapse lands at 0 under the bar as it
+/// is, and the title expands when the user pulls.
 /// Gestures (a finger's collapse, pull to top, a held sheet) need real
 /// touches, which a unit test has none of.
 final class NavigationCollapseIOSTests: XCTestCase {

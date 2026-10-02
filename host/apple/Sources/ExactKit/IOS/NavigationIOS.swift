@@ -74,7 +74,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// What holds the tabs: Exact's tab controller, or a container the app's
     /// `tabContainer` hook returned (LLP 1075.003 §3.6).
     var tabOwner: UIViewController?
-    var tabsHooked = false, routerTab = -1
+    var tabsHooked = false, tabContainerAsked = false, routerTab = -1
     var tabNavigations: [UInt32: UINavigationController] = [:]
     var tabPanels: [UInt32] = []
     /// How many routes the selected stack declared at the last projection.
@@ -334,6 +334,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for (id, c) in controllers where !routeIDs.contains(id) { end(c) }
         controllers = controllers.filter { routeIDs.contains($0.key) }
         presenter.modals.updatePermissions()
+        if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
     }
@@ -570,7 +571,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             presenter.session?.view?.fit()
             presenter.flushPendingFocus()
-            recordOwned(navigationController)
+            recordPop(navigationController)
         }
         let source = interactiveSource
         interactiveSource = nil

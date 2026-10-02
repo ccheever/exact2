@@ -109,7 +109,7 @@ extension NativeViews {
     /// `tabs` for Exact's tab container (`built`), or its end.
     func tabsHook(_ controller: AnyObject?, event: UInt32, index: Int = 0) {
         guard hooksConnected, let instance, let (tabs, _) = tabCalls else { return }
-        if event != 2 { session?.log("hook tabs: \(["built", "retired", "", "the app's container retired"][Int(min(event, 3))])") }
+        session?.log("hook tabs: \(["built", "retired", "the router selected tab \(index) in the app's container", "the app's container retired"][Int(min(event, 3))])")
         tabs(instance, event, controller.map { Unmanaged.passUnretained($0).toOpaque() }, UInt32(index))
     }
 

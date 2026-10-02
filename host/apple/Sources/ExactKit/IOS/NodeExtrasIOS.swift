@@ -77,6 +77,8 @@ final class NodeExtras {
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0
+    /// What the style last said of the scroll view's indicators and deceleration.
+    var scrollWritten: String?
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
     weak var activeReadingAnchor: NodeView?
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
@@ -154,6 +156,7 @@ extension NodeView {
 extension NodeView {
     var scrollOrigin: CGFloat { get { extras?.scrollOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.scrollOrigin = newValue } } }
     var scrollCollapsed: CGFloat { get { extras?.scrollCollapsed ?? 0 } set { if newValue != 0 || extras != nil { more.scrollCollapsed = newValue } } }
+    var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
     /// top inset when a collapsing title's bar insets it — the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset

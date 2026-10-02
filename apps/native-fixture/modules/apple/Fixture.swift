@@ -141,10 +141,13 @@ final class Screen: ExactNativeInstance {
 #if os(iOS)
 /// A hook-made control that stands for an authored one: it clicks it, so the
 /// agent, tapping the authored control, runs the same handler.
+/// The route is held weakly: the bar item holds this target, and the route's
+/// controller holds the bar item.
 private final class Click: NSObject {
-    let route: ExactRoute, id: String
+    weak var route: ExactRoute?
+    let id: String
     init(_ route: ExactRoute, _ id: String) { self.route = route; self.id = id }
-    @objc func click() { route.element(id)?.click() }
+    @objc func click() { route?.element(id)?.click() }
 }
 
 /// A cross-fade for every push and pop: an app's custom transition, through

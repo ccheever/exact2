@@ -295,7 +295,7 @@ public final class ExactRoute {
             return nil
         }
         let node = hooks.resolve(route: key, id: id)
-        return node == 0 ? nil : ExactElement(id: id, node: node, route: key, hooks: hooks)
+        return node == 0 ? nil : ExactElement(id: id, node: node, route: self, hooks: hooks)
     }
 }
 
@@ -321,7 +321,8 @@ public final class ExactTabs {
 public struct ExactTab {
     public let name: String
     public let controller: UINavigationController
-    public let item: UITabBarItem
+    /// The controller's item, which Exact updates in place as the authored tab changes.
+    public var item: UITabBarItem { controller.tabBarItem }
 }
 
 /// What a container the app owns holds (LLP 1075.003 §3.6): each tab's
@@ -332,6 +333,8 @@ public final class ExactTabContents {
     public internal(set) var selected: Int
     /// The router selected another tab: show it.
     public var onSelect: ((Int) -> Void)?
+    /// False once Exact retired the container: `select` then does nothing.
+    public internal(set) var isLive = true
     let tabNodes: [UInt32]
     weak var hooks: ExactHooks?
     init(tabs: [ExactTab], selected: Int, tabNodes: [UInt32], hooks: ExactHooks) {
@@ -340,8 +343,8 @@ public final class ExactTabContents {
     /// The container selected a tab: Exact presses its authored tab, and the
     /// router decides (its history, its pop to root on a second press).
     public func select(_ index: Int) {
-        guard let hooks, tabNodes.indices.contains(index), !hooks.act(tabNodes[index], 0) else { return }
-        hooks.log("tabs: select(\(index)) refused")
+        guard let hooks else { return }
+        guard isLive, tabNodes.indices.contains(index), hooks.act(tabNodes[index], 0) else { return hooks.log("tabs: select(\(index)) refused") }
     }
 }
 
@@ -350,14 +353,17 @@ public final class ExactTabContents {
 public final class ExactElement {
     /// Its HTML id.
     public let id: String
-    let node: UInt32, route: String
+    let node: UInt32, key: String
+    /// The route it was resolved in: once that ends (a pop, a reload), the
+    /// element does nothing, so a saved one never reaches a later node.
+    weak var route: ExactRoute?
     weak var hooks: ExactHooks?
-    init(id: String, node: UInt32, route: String, hooks: ExactHooks) {
-        self.id = id; self.node = node; self.route = route; self.hooks = hooks
+    init(id: String, node: UInt32, route: ExactRoute, hooks: ExactHooks) {
+        self.id = id; self.node = node; key = route.key; self.route = route; self.hooks = hooks
     }
     private func act(_ action: UInt32, _ name: String) {
-        guard let hooks, !hooks.act(node, action) else { return }
-        hooks.log("route \(route): \(name)() on #\(id) refused")
+        guard let hooks else { return }
+        guard route?.isLive == true, hooks.act(node, action) else { return hooks.log("route \(key): \(name)() on #\(id) refused") }
     }
     /// Press it, as HTMLElement.click() does: its `press` handler runs.
     public func click() { act(0, "click") }
@@ -624,10 +630,15 @@ private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsaf
           let key = object["key"] as? String else { return }
     let data = ExactData(object["data"] as? [String: String] ?? [:])
     let view = Unmanaged<UIViewController>.fromOpaque(controller).takeUnretainedValue()
-    if event == 2 {
-        guard let route = hooks.routes.removeValue(forKey: key), route.controller === view else { return }
+    // A route node replaced under the same key is a new controller: the old
+    // one's handle ends before the new one's first call, whichever arrives first.
+    func end(_ route: ExactRoute) {
+        hooks.routes.removeValue(forKey: route.key)
         route.isLive = false
         m.routeEnded(route)
+    }
+    if event == 2 {
+        if let route = hooks.routes[key], route.controller === view { end(route) }
         return
     }
     let route: ExactRoute
@@ -636,6 +647,7 @@ private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsaf
         route.isNew = false
         route.data = data
     } else {
+        if let old = hooks.routes[key] { end(old) }
         route = ExactRoute(key: key, controller: view, data: data, hooks: hooks)
         hooks.routes[key] = route
     }
@@ -660,6 +672,7 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
     case 1:
         hooks.tabs = nil
     case 3:
+        hooks.contents?.isLive = false
         hooks.contents = nil
     default:
         guard let contents = hooks.contents, contents.tabs.indices.contains(Int(index)) else { return }
@@ -679,7 +692,7 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
           let names = object["names"] as? [String], let nodes = object["nodes"] as? [NSNumber], names.count == Int(count) else { return nil }
     let navs = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UINavigationController>.fromOpaque($0).takeUnretainedValue() } }
     guard navs.count == names.count else { return nil }
-    let tabs = zip(names, navs).map { ExactTab(name: $0, controller: $1, item: $1.tabBarItem) }
+    let tabs = zip(names, navs).map { ExactTab(name: $0, controller: $1) }
     let contents = ExactTabContents(tabs: tabs, selected: object["selected"] as? Int ?? 0, tabNodes: nodes.map(\.uint32Value), hooks: hooks)
     guard let container = m.tabContainer(contents) else { return nil }
     hooks.contents = contents

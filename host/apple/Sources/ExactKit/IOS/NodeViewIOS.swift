@@ -1099,6 +1099,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
             addSubview(sv)
             scroll = sv
+            scrollWritten = nil
             updateRefresh()
         }
         if !scrolls, let sv = scroll {
@@ -1107,14 +1108,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             sv.removeFromSuperview()
             scroll = nil
         }
-        scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
+        // Indicators and deceleration are the app's once a hook sets them
+        // (LLP 1075.003 §3.5): written when what the style says changes.
+        let snap = style["scroll_snap_type"]?.string == "x mandatory"
         let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
-        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
+            scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
+            sv.decelerationRate = snap ? .fast : .normal
+            sv.showsHorizontalScrollIndicator = ox == "scroll" && indicators
+            sv.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        }
         updateKeyboardDismissal()
         fitScroll()
         // A waiting scroll clips as its scroll view would.

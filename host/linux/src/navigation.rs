@@ -1,6 +1,6 @@
 //! @ref LLP 1038 D6 — the browser's route visibility rule, without a view mirror.
 use exact_kernel::{Kernel, PropId, ViewId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const POPOVER_UNSUPPORTED: &str = "Linux does not support popover presentation";
 
@@ -89,6 +89,8 @@ fn tab_panels(kernel: &Kernel, children: &[ViewId]) -> Vec<ViewId> {
 #[derive(Default)]
 pub(crate) struct Navigation {
     routes: BTreeMap<ViewId, (bool, bool)>,
+    /// The tabpanels a root last hid or showed: one it stops naming shows again.
+    panels: BTreeSet<ViewId>,
     refused: BTreeMap<ViewId, String>,
     popovers: bool,
 }
@@ -98,6 +100,7 @@ impl Navigation {
         self.routes.retain(|id, _| kernel.node(*id).is_some());
         self.refused.retain(|id, _| kernel.node(*id).is_some());
         let mut logs = Vec::new();
+        let before = std::mem::take(&mut self.panels);
         self.popovers = false;
         for id in order {
             let Some(nav) = kernel.node(*id) else {
@@ -119,6 +122,7 @@ impl Navigation {
             };
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let panels = tab_panels(kernel, &nav.children());
+            self.panels.extend(panels.iter().copied());
             let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
                 vec![route_rows(&nav.children())]
             } else {
@@ -172,6 +176,9 @@ impl Navigation {
                     }
                 }
             }
+        }
+        for panel in before.difference(&self.panels) {
+            self.routes.remove(panel);
         }
         logs
     }

@@ -1,8 +1,8 @@
 // @ref LLP 1075.003 §3.7 — a navigation root's tabs, as the web finds them
 // (`host/web/navigation.js` `panelsOf`): the tabpanels its own tablist's
 // tabs name with `aria-controls`, in tab order. Each panel holds one tab's
-// stack — its route rows — and every tab's stack stays mounted. A tablist
-// inside a route is that route's, never the root's. Shared by the AppKit
+// stack — its route rows — and every tab's stack stays mounted. A tablist or
+// a panel inside a route is that route's, never the root's. Shared by the AppKit
 // presenter (hidden and inert, LLP 1038 D6's rule) and the UIKit one (a
 // tab bar controller, one navigation controller a tab).
 import Foundation
@@ -25,7 +25,7 @@ struct NavigationTabs {
             for case let tab as NodeView in list.container.subviews where tab.props["accessibilityRole"] == "tab" {
                 guard let name = tab.props["accessibilityControls"],
                       let panel = presenter.carrying("id").first(where: {
-                          $0.props["id"] == name && $0.props["accessibilityRole"] == "tabpanel" && $0.isDescendant(of: root)
+                          $0.props["id"] == name && $0.props["accessibilityRole"] == "tabpanel" && owner(of: $0) === root
                       }) else { continue }
                 tabs.append(tab)
                 panels.append(panel)

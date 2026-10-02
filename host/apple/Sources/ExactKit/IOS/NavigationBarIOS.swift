@@ -33,6 +33,8 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"]
             disabled = button.disabled
         }
+        /// Everything a bar item is made from.
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled)" }
     }
     let header: NodeView
     let title: String
@@ -131,8 +133,11 @@ extension NavigationHost {
     }
 
     /// A navigation controller for a stack whose first route is `first`:
-    /// Exact's delegate, the bar's visibility and its large-title default
-    /// from the plan, then the `navigation` hook (LLP 1075.003 Q3 (c)).
+    /// Exact's delegate, the bar's visibility from the plan, then the
+    /// `navigation` hook (LLP 1075.003 Q3 (c)). Large titles are on, and each
+    /// route's item says whether its title is large, so a level-1 heading
+    /// pushed over an inline one is large; `prefersLargeTitles` is the app's
+    /// from the hook on (§3.5).
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
         let shape = first.flatMap { HeaderShape(route: $0, back: container?.props["navigationBack"]) }
@@ -141,7 +146,7 @@ extension NavigationHost {
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
         nav.delegate = stack.proxy
-        nav.navigationBar.prefersLargeTitles = shape?.level == 1
+        nav.navigationBar.prefersLargeTitles = true
         if presenter.session?.natives.hooksConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHook(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hooked = true
@@ -183,8 +188,11 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.id))|\($0.trailing.map(\.id))|\(($0.leading + $0.trailing).map(\.disabled))" } ?? "-")|\(canGoBack)"
-            let signature = "\(source)|\(dataset ?? "")|\(scroll.map { "\(ObjectIdentifier($0))" } ?? "-")"
+            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source))|\($0.trailing.map(\.source))" } ?? "-")|\(canGoBack)"
+            // The hook runs again after anything Exact wrote to the item (the
+            // Back control the route above gives it, too) and when the route
+            // moves to another stack (a root whose tabs changed).
+            let signature = "\(source)|\(c.backSource ?? "")|\(ObjectIdentifier(nav))|\(dataset ?? "")|\(scroll.map { "\(ObjectIdentifier($0))" } ?? "-")"
             if c.projectedSource != source {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
@@ -210,7 +218,7 @@ extension NavigationHost {
         }
         guard shows else { return }
         item.title = shape?.title
-        item.largeTitleDisplayMode = shape == nil ? .automatic : shape!.level == 1 ? .always : .never
+        item.largeTitleDisplayMode = shape?.level == 1 ? .always : .never
         item.hidesBackButton = !canGoBack
         item.leftItemsSupplementBackButton = true
         c.barPresses = []
@@ -305,7 +313,10 @@ extension NavigationHost {
         switch action {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
-            presenter.afterBatch { [weak presenter = self.presenter] in presenter?.press(id) }
+            // Still the node it was when asked: a reload restarts node ids.
+            presenter.afterBatch { [weak presenter = self.presenter, weak node] in
+                if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
+            }
         case 1: presenter.afterBatch { [weak presenter = self.presenter, weak node] in if let node { presenter?.focusNode(node) } }
         case 2: presenter.afterBatch { [weak node] in if let node { _ = (node.textArea ?? node.field ?? node).resignFirstResponder() } }
         default: return false
@@ -396,11 +407,19 @@ extension NavigationHost {
         return trust != "production"
     }()
 
-    /// Record the controllers Exact set on a stack, or UIKit's own when it
-    /// completes a transition (`didShow`).
+    /// Record the controllers Exact set on a stack.
     func recordOwned(_ nav: UINavigationController) {
         guard NavigationHost.checksOwnership else { return }
         stacks[ObjectIdentifier(nav)]?.written = nav.viewControllers.map(ObjectIdentifier.init)
+    }
+
+    /// UIKit completed a transition (`didShow`): a pop the user made (UIKit's
+    /// back button, the edge swipe) leaves a prefix of what Exact wrote, and
+    /// is recorded; any other change is not Exact's and stays to be reported.
+    func recordPop(_ nav: UINavigationController) {
+        guard NavigationHost.checksOwnership, let stack = stacks[ObjectIdentifier(nav)] else { return }
+        let now = nav.viewControllers.map(ObjectIdentifier.init)
+        if now.count <= stack.written.count, Array(stack.written.prefix(now.count)) == now { stack.written = now }
     }
 
     /// Before each batch: compare what Exact owns on each hooked object with
@@ -418,6 +437,10 @@ extension NavigationHost {
             if nav.delegate !== stack.proxy { say("navigation \(stack.label)", "delegate") }
             if nav.isNavigationBarHidden == barShows(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
+            if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
+            if #available(iOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
+                say("navigation \(stack.label)", "the content pop gesture's delegate")
+            }
         }
         for c in controllers.values where c.hooked && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
@@ -430,7 +453,8 @@ extension NavigationHost {
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
     /// refresh control insets it while it spins), no automatic adjustment,
     /// the node as its delegate, the authored keyboard dismissal. The offset
-    /// and the content size move with the user and with layout.
+    /// and the content size are Exact's too but are not checked: they move
+    /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, collapsing: Bool) -> [String] {
         var out: [String] = []
         if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }

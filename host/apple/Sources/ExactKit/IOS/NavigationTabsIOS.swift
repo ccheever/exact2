@@ -33,17 +33,17 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
     }
 }
 
-/// A tab bar item an authored tab can supply: one symbol and one label.
+/// A tab bar item an authored tab supplies: its symbol, if it has one, and
+/// its label (a text-only tab is a title-only item).
 private struct TabFace: Equatable {
-    let base: String, title: String, disabled: Bool
-    init?(_ tab: NodeView) {
+    let base: String?, title: String, disabled: Bool
+    init(_ tab: NodeView) {
         var symbol: String?, label = tab.props["accessibilityLabel"] ?? ""
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
         }
-        guard let symbol else { return nil }
-        base = symbol.hasSuffix(".fill") ? String(symbol.dropLast(5)) : symbol
+        base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
     }
@@ -61,13 +61,20 @@ extension NavigationHost {
     /// authored tablist (LLP 1021 D4's one presentation).
     var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.agentMode }
 
+    /// What a tab other than the selected one holds: its stack up to its
+    /// first presentation. A sheet is presented only over the selected tab;
+    /// another tab's stays the router's until that tab is selected again.
+    func base(_ stack: [RouteController]) -> [RouteController] {
+        Array(stack[NavigationRules.segments(presentations: stack.map { $0.node.props["navigationPresentation"] })[0]])
+    }
+
     /// Build the stacks, a stack a panel, and what holds them, before any
     /// child is laid out: the app's container when its module, already
     /// connected, returns one; else Exact's tab controller.
     func installTabs(_ p: Projection, _ tabs: NavigationTabs, first: [RouteController], in parent: UIViewController) {
         var navs: [UINavigationController] = []
         for (index, panel) in tabs.panels.enumerated() {
-            let stack = index == p.at ? first : p.wanted[index]
+            let stack = index == p.at ? first : base(p.wanted[index])
             let nav = makeNavigation(first: stack.first?.node)
             prepareRoutes(stack, in: nav)
             nav.setViewControllers(stack, animated: false)
@@ -81,6 +88,7 @@ extension NavigationHost {
         routerTab = p.at
         syncItems(tabs, navs: navs)
         let owned = askTabContainer(tabs, navs: navs, selected: p.at)
+        tabContainerAsked = presenter.session?.natives.hooksConnected == true
         let holder: UIViewController = owned ?? {
             let container = UITabBarController()
             tabProxy.host = self
@@ -120,11 +128,18 @@ extension NavigationHost {
     /// At a cold launch the module connects after first pixel: Exact's tab
     /// controller hears `tabs`, then `tabContainer` may take its stacks into
     /// the app's own container; the content moves once (LLP 1075.003 Q3 (c)).
+    /// A sheet presented over the tabs keeps the controller it was presented
+    /// from: the app's container takes their place once nothing is presented
+    /// (each batch asks again until then).
     func replayTabs() {
-        guard !tabsHooked, let container = tabController, let natives = presenter.session?.natives, natives.hooksConnected,
+        guard let container = tabController, let natives = presenter.session?.natives, natives.hooksConnected else { return }
+        if !tabsHooked {
+            tabsHooked = true
+            natives.tabsHook(container, event: 0)
+        }
+        guard !tabContainerAsked, presenter.modals.routes.isEmpty, !presenter.modals.inTransition, presentedNavigations.isEmpty,
               let root = self.container, let tabs = NavigationTabs.of(root, presenter), let parent = container.parent else { return }
-        tabsHooked = true
-        natives.tabsHook(container, event: 0)
+        tabContainerAsked = true
         let navs = tabPanels.compactMap { tabNavigations[$0] }
         container.setViewControllers([], animated: false)
         guard let owned = askTabContainer(tabs, navs: navs, selected: routerTab) else {
@@ -156,6 +171,8 @@ extension NavigationHost {
         if tabOwner != nil { retireTabs() } else if let nav = primaryNavigation {
             retireStack(nav)
             nav.delegate = nil
+            // Its routes go into the new containers: they leave this one first.
+            nav.setViewControllers([], animated: false)
             nav.willMove(toParent: nil)
             nav.view.removeFromSuperview()
             nav.removeFromParent()
@@ -169,7 +186,7 @@ extension NavigationHost {
         let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
         guard navs.count == tabs.panels.count else { return }
         for (index, nav) in navs.enumerated() where index != p.at {
-            let stack = p.wanted[index]
+            let stack = base(p.wanted[index])
             prepareRoutes(stack, in: nav)
             if nav.viewControllers.count != stack.count || !zip(nav.viewControllers, stack).allSatisfy({ $0 === $1 }) {
                 nav.setViewControllers(stack, animated: false)
@@ -186,20 +203,22 @@ extension NavigationHost {
         syncItems(tabs, navs: navs)
     }
 
-    /// The items, from the authored tabs, written when a tab's face changes.
+    /// The items, from the authored tabs: each tab's own item, written in
+    /// place when its face changes, so what else the app set on it (a badge)
+    /// and a handle to it stay good.
     private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
         let faces = tabs.tabs.map(TabFace.init)
-        let signature = faces.map { $0.map { "\($0.base)|\($0.title)|\($0.disabled)" } ?? "-" }
-        guard signature != tabItems else { return }
-        tabItems = signature
-        for (nav, face) in zip(navs, faces) {
-            guard let face else { continue }
-            let image = UIImage(systemName: face.base)
-            let item = UITabBarItem(title: face.title, image: image, selectedImage: UIImage(systemName: face.base + ".fill") ?? image)
-            item.accessibilityIdentifier = face.base
+        let signature = faces.map { "\($0.base ?? "")|\($0.title)|\($0.disabled)" }
+        for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
+            let item: UITabBarItem = nav.tabBarItem
+            let image = face.base.flatMap { UIImage(systemName: $0) }
+            item.title = face.title
+            item.image = image
+            item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
+            item.accessibilityIdentifier = face.base ?? face.title
             item.isEnabled = !face.disabled
-            nav.tabBarItem = item
         }
+        tabItems = signature
     }
 
     /// The bar would select `controller`: press its authored tab.
@@ -216,6 +235,8 @@ extension NavigationHost {
         for nav in tabPanels.compactMap({ tabNavigations[$0] }) {
             retireStack(nav)
             nav.delegate = nil
+            // Its routes may go into the next containers (a remount, new tabs).
+            nav.setViewControllers([], animated: false)
         }
         if tabsHooked, tabController != nil { presenter.session?.natives.tabsHook(tabController, event: 1) }
         if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHook(nil, event: 3) }
@@ -228,6 +249,7 @@ extension NavigationHost {
         tabController = nil
         tabOwner = nil
         tabsHooked = false
+        tabContainerAsked = false
         routerTab = -1
         tabNavigations = [:]
         tabPanels = []

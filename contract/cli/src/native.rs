@@ -38,9 +38,12 @@ pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
     let words = value
         .as_array()
         .ok_or("app.json `data` is a list of data-* words, without the `data-`")?;
+    let mut seen = std::collections::BTreeSet::new();
     words
         .iter()
         .map(|word| match word.as_str() {
+            // Each word is one member of the Swift module's typed keys.
+            Some(w) if !seen.insert(w) => Err(format!("app.json `data`: `{w}` is listed twice")),
             Some(w)
                 if contract_lower::dataset::is_word(w)
                     && !contract_lower::dataset::reserved(w) =>

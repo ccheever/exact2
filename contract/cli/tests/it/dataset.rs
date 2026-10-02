@@ -175,4 +175,12 @@ fn a_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
     );
     let errors = bad.compile().unwrap_err();
     assert_eq!(errors[0].id, "app-manifest", "{errors:?}");
+    // Each word is one Swift key: a word listed twice would be two.
+    let twice = App::new(
+        "twice",
+        r#","data":["title","title"]"#,
+        r#"column data-title="Inbox""#,
+    );
+    let errors = twice.compile().unwrap_err();
+    assert!(errors[0].message.contains("listed twice"), "{errors:?}");
 }
