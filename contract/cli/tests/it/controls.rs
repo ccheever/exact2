@@ -153,6 +153,25 @@ fn the_compiler_names_what_a_control_takes() {
         "input type=\"checkbox\" role=\"switch\" checked=on change=set appearance=\"none\""
     ))
     .is_ok());
+    // Known non-text HTML controls never silently become TextInput nodes.
+    // The button element is Exact's supported action spelling; radio-group
+    // semantics have not been admitted.
+    for kind in [
+        "radio", "RADIO", "button", "Button", "submit", "reset", "image",
+    ] {
+        for spelling in [format!("\"{kind}\""), format!("on ? \"text\" : \"{kind}\"")] {
+            let e = refused(&format!(
+                "component App\n  state on = false\n  view\n    input type={spelling}\n"
+            ));
+            assert!(
+                e.contains("lower-input-type")
+                    && e.contains("non-text control")
+                    && e.contains(&kind.to_ascii_lowercase()),
+                "{spelling}: {e}"
+            );
+        }
+    }
+    assert!(contract::compile(&app("input type=\"CHECKBOX\" checked=on change=set")).is_ok());
 }
 
 #[test]

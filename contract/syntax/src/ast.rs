@@ -695,13 +695,36 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// The control an `input`'s literal `type` names; `None` for a text field's
 /// (`text`, `password`, `email`, …).
 fn control_type(t: &str) -> Option<&'static str> {
-    match t {
-        "checkbox" => Some("checkbox"),
-        "file" => Some("file"),
-        "range" => Some("range"),
-        "date" => Some("date"),
-        "time" => Some("time"),
-        "datetime-local" => Some("datetime-local"),
+    [
+        "checkbox",
+        "file",
+        "range",
+        "date",
+        "time",
+        "datetime-local",
+    ]
+    .into_iter()
+    .find(|kind| t.eq_ignore_ascii_case(kind))
+}
+
+/// A non-text HTML `input` kind Exact has not admitted. HTML classifies the
+/// `type` attribute ASCII-case-insensitively; return the authored spelling so
+/// a refusal can name the value that would change the DOM's node kind.
+pub fn unsupported_input_type(value: &Expr) -> Option<&str> {
+    match value {
+        Expr::Str(kind, _)
+            if ["radio", "button", "submit", "reset", "image"]
+                .into_iter()
+                .any(|candidate| kind.eq_ignore_ascii_case(candidate)) =>
+        {
+            Some(kind)
+        }
+        Expr::Ternary(_, yes, no, _) => {
+            unsupported_input_type(yes).or_else(|| unsupported_input_type(no))
+        }
+        Expr::Match { some, none, .. } => {
+            unsupported_input_type(some).or_else(|| unsupported_input_type(none))
+        }
         _ => None,
     }
 }
@@ -714,7 +737,7 @@ fn control_type(t: &str) -> Option<&'static str> {
 /// control the compiler has to know (LLP 1069.001 D1).
 pub fn text_input_type(value: &Expr) -> bool {
     match value {
-        Expr::Str(t, _) => control_type(t).is_none(),
+        Expr::Str(t, _) => control_type(t).is_none() && unsupported_input_type(value).is_none(),
         Expr::Ternary(_, a, b, _) => text_input_type(a) && text_input_type(b),
         _ => false,
     }

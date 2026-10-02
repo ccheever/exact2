@@ -3,6 +3,20 @@
 //! state as HTML's `input` then `change`.
 use super::*;
 
+/// Fixed geometry used by Linux's own painters. Text-bearing controls are
+/// measured from their painted labels in `size_controls` instead.
+fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
+    match kind {
+        exact_kernel::ControlKind::Checkbox => Some((13.0, 13.0)),
+        exact_kernel::ControlKind::Switch => Some((38.0, 22.0)),
+        // Linux's file picker activation is native, but its visible control
+        // is the same painted square as a checkbox until the picker opens.
+        exact_kernel::ControlKind::File => Some((13.0, 13.0)),
+        exact_kernel::ControlKind::Range => Some((129.0, 16.0)),
+        _ => None,
+    }
+}
+
 impl<D: DataSource> Presenter<D> {
     /// Toggle `id` if it is an enabled checkbox; false if it is not one. A
     /// bound checkbox draws the committed `checked`, so an action that
@@ -210,9 +224,9 @@ impl<D: DataSource> Presenter<D> {
         Some(id)
     }
 
-    /// Each select's size, which Linux reports as the other hosts do (LLP
-    /// 1069.001 D3): its widest option in its own font, with room for the
-    /// chevron and Chrome's padding.
+    /// Each control's painted size, which Linux reports as the other hosts
+    /// do (LLP 1069.001 D3). Fixed painted widgets use the geometry their
+    /// painter was designed for; fields measure the text they paint.
     pub(crate) fn size_controls(&mut self) {
         let mut sizes = Vec::new();
         {
@@ -225,20 +239,29 @@ impl<D: DataSource> Presenter<D> {
                 if node.node_type != NodeType::Control {
                     continue;
                 }
+                let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
+                    continue;
+                };
+                if let Some(size) = fixed_painted_size(kind) {
+                    sizes.push((id, size));
+                    continue;
+                }
                 // A select fits its widest option; a date control its
-                // widest value (D3).
-                let labels: Vec<String> = match node.props.str(PropId::Type) {
-                    Some("select") => kernel
+                // widest painted value (D3).
+                let labels: Vec<String> = match kind {
+                    exact_kernel::ControlKind::Select => kernel
                         .select_choices(id)
                         .into_iter()
                         .map(|c| c.label)
                         .collect(),
-                    Some("date") => vec!["0000-00-00".into()],
-                    Some("time") => vec!["00:00:00".into()],
-                    Some("datetime-local") => vec!["0000-00-00T00:00".into()],
+                    exact_kernel::ControlKind::Date => vec!["0000-00-00".into()],
+                    exact_kernel::ControlKind::Time => vec!["00:00:00".into()],
+                    exact_kernel::ControlKind::DateTimeLocal => {
+                        vec!["0000-00-00T00:00".into()]
+                    }
                     _ => continue,
                 };
-                let chevron = if node.props.str(PropId::Type) == Some("select") {
+                let chevron = if kind == exact_kernel::ControlKind::Select {
                     30.0
                 } else {
                     12.0
@@ -261,5 +284,26 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixed_painted_size;
+    use exact_kernel::ControlKind;
+
+    #[test]
+    fn fixed_controls_report_the_geometry_linux_paints() {
+        assert_eq!(
+            fixed_painted_size(ControlKind::Checkbox),
+            Some((13.0, 13.0))
+        );
+        assert_eq!(fixed_painted_size(ControlKind::Switch), Some((38.0, 22.0)));
+        assert_eq!(fixed_painted_size(ControlKind::File), Some((13.0, 13.0)));
+        assert_eq!(fixed_painted_size(ControlKind::Range), Some((129.0, 16.0)));
+        assert_eq!(fixed_painted_size(ControlKind::Select), None);
+        assert_eq!(fixed_painted_size(ControlKind::Date), None);
+        assert_eq!(fixed_painted_size(ControlKind::Time), None);
+        assert_eq!(fixed_painted_size(ControlKind::DateTimeLocal), None);
     }
 }

@@ -2711,6 +2711,7 @@
       "bit": 149,
       "field": "appearance",
       "codec": "enum:Appearance",
+      "layout": true,
       "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
     },
     {

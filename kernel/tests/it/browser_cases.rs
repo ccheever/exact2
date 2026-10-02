@@ -45,6 +45,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "aspect-ratio" => &[AspectRatio],
             "display" => &[Display],
             "box-sizing" => &[BoxSizing],
+            "appearance" => &[Appearance],
             "direction" => &[Direction],
             "flex-direction" => &[FlexDirection],
             "flex-wrap" => &[FlexWrap],
