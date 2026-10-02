@@ -634,7 +634,9 @@ editor still asked "Delete this note?" and sent `deleteNote("")`; that
 question is now part of the record the constructor resets. Twelve field
 derives became four (`loaded`, `fields`, `base`, `reference`) and `dirty` is
 `fields != reference`: 20 slots and 22 derives became 11 and 14, the plan
-24,086 bytes 23,525. One wasm-target drive (two notes; save, edit while
+24,086 bytes 23,525, the source (after D1's rewrite) 327 lines 290. The JS
+target was not driven through the editor: it still ignores typing there
+(LLP 1035.005.000 §6), as before the change. One wasm-target drive (two notes; save, edit while
 saving, discard, switch, a blocked switch while dirty, pin, cancel and
 confirm delete, search, backup and restore) gives the same 14 states before
 and after but the last, where only the stale question is gone. A keystroke

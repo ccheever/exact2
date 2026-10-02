@@ -52,7 +52,7 @@ shape Session
 
 // Ending a session starts the next one with every field named: a field added
 // to `Session` is reset here, or the app does not compile.
-fn next(noteId: string, ended: Session): Session = Session(noteId=noteId, savedId="", draft=none, original=none, version=ended.version + 1, confirmDelete=false)
+fn nextSession(noteId: string, ended: Session): Session = Session(noteId=noteId, savedId="", draft=none, original=none, version=ended.version + 1, confirmDelete=false)
 
 component Fieldnotes
   state query = ""
@@ -103,10 +103,10 @@ component Fieldnotes
       session = Session(session, draft=some(Fields(fields, pinned=not fields.pinned)))
   action edit(id: string)
     send opened = openNote(id, session.version + 1)
-    session = next(id, session)
+    session = nextSession(id, session)
     focus("note-body")
   action newNote
-    session = next("", session)
+    session = nextSession("", session)
     query = ""
     backups = false
     focus("note-title")
@@ -153,7 +153,7 @@ component Fieldnotes
     confirmRestore = false
     importPath = ""
     importName = ""
-    session = next("", session)
+    session = nextSession("", session)
   action shareNote
     share(title=fields.title, text=fields.body)
   action askDelete
@@ -162,7 +162,7 @@ component Fieldnotes
     session = Session(session, confirmDelete=false)
   action remove
     send status = deleteNote(editingId)
-    session = next("", session)
+    session = nextSession("", session)
 
   view
     main testId="fieldnotes" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="#f6f3eb" color="#263f35" padding=16 gap=16

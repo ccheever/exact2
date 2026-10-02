@@ -117,8 +117,8 @@ component InteractionGallery
     if value == "windowed" or value == "manual" or value == "eager"
       rendering = value
 
-  // An action reads state as it was before it ran, so each stop is written
-  // out where it is used.
+  // An action reads state as it was before it ran, so the later lines read
+  // each stop from its `let`, not from the slot just assigned.
   action chooseSheet(value: number)
     let full = sheetFullOf(frame("sheet-bay"), sheetFull)
     let read = sheetReadOf(measure("reading-sheet"), full, sheetRead)
