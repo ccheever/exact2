@@ -52,7 +52,17 @@ private struct Shortcut {
         if ["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].contains(key) {
             return NodeView.keyName(event) == key
         }
-        return event.charactersIgnoringModifiers?.lowercased() == keyEquivalent.lowercased()
+        // Option changes the logical key (Option-C can produce ç). An empty
+        // character is a dead key, not the unmodified letter. Control may
+        // instead emit a control character; retranslate with glyph modifiers.
+        var characters = event.charactersIgnoringModifiers
+        if modifiers.contains(.option) {
+            characters = event.characters
+            if modifiers.contains(.control), characters?.unicodeScalars.contains(where: { $0.value < 0x20 }) == true {
+                characters = event.characters(byApplyingModifiers: event.modifierFlags.intersection([.shift, .capsLock, .option]))
+            }
+        }
+        return characters?.lowercased() == keyEquivalent.lowercased()
     }
     func permits(_ responder: NSResponder?) -> Bool {
         // A declared command can use Command/Control inside an editor. Text,
@@ -60,6 +70,25 @@ private struct Shortcut {
         // Escape retains the existing application's cancel shortcut.
         key == "Escape" || !modifiers.intersection([.command, .control]).isEmpty
             || (responder as? NSView)?.inputContext == nil
+    }
+}
+
+/// AppKit accepts extra Shift for some equivalents, including Return and arrows.
+/// Filter only while looking up a shortcut: labels and ordinary menu selection
+/// (including Return on the highlighted item) retain AppKit's usual behavior.
+final class ShortcutMenu: NSMenu {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // AppKit caches equivalents internally, so its stored value must be
+        // cleared for the lookup. Restore from current declarations: a command
+        // may synchronously update the plan and its menu while being dispatched.
+        let suppressed: [(NSMenuItem, ShortcutHost)] = items.compactMap { item in
+            guard let host = item.target as? ShortcutHost, !item.keyEquivalent.isEmpty,
+                  host.menuEquivalent(item, matching: event).isEmpty else { return nil }
+            item.keyEquivalent = ""
+            return (item, host)
+        }
+        defer { for (item, host) in suppressed { item.keyEquivalent = host.menuEquivalent(item) } }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -72,7 +101,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private let fileSeparator = NSMenuItem.separator()
     private let settingsSeparator = NSMenuItem.separator()
     init(presenter: Presenter) { self.presenter = presenter }
-    func attach(_ file: NSMenu, application: NSMenu? = nil, navigation: NSMenu? = nil) {
+    func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil) {
         for item in Array(items.values) + [fileSeparator, settingsSeparator] { item.menu?.removeItem(item) }
         fileMenu = file
         applicationMenu = application
@@ -101,6 +130,13 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
               }) else { return false }
         if !event.isARepeat && !view.disabled { presenter?.press(view.id) }
         return true
+    }
+    fileprivate func menuEquivalent(_ item: NSMenuItem, matching event: NSEvent? = nil) -> String {
+        guard let id = (item.representedObject as? NSNumber)?.uint32Value,
+              let view = presenter?.views[id],
+              let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) }) else { return "" }
+        if let event, !shortcut.matches(event) { return "" }
+        return shortcut.keyEquivalent
     }
     func sync() {
         guard let fileMenu else { return }

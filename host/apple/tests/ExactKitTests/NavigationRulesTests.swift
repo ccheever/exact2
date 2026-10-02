@@ -250,6 +250,12 @@ final class NavigationRulesTests: XCTestCase {
 }
 
 final class MacShortcutTests: XCTestCase {
+    private final class MenuAction: NSObject {
+        let body: () -> Void
+        init(_ body: @escaping () -> Void) { self.body = body }
+        @objc func invoke(_ sender: Any?) { body() }
+    }
+
     private func window(_ presenter: Presenter) -> NSWindow {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
@@ -269,10 +275,10 @@ final class MacShortcutTests: XCTestCase {
     }
 
     private func event(_ key: String, window: NSWindow, modifiers: NSEvent.ModifierFlags = .command,
-                       code: UInt16 = 0, repeat repeating: Bool = false) -> NSEvent {
+                       code: UInt16 = 0, ignoring: String? = nil, repeat repeating: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
                          timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                         characters: key, charactersIgnoringModifiers: key, isARepeat: repeating, keyCode: code)!
+                         characters: key, charactersIgnoringModifiers: ignoring ?? key, isARepeat: repeating, keyCode: code)!
     }
 
     func testNamedKeysPrintablePlusAndContextKeysReachTheirDeclaredAction() {
@@ -323,10 +329,68 @@ final class MacShortcutTests: XCTestCase {
         _ = button(1, "Send", "Meta+Shift+Enter", in: presenter)
         _ = button(2, "Previous", "Meta+ArrowUp", in: presenter)
         _ = button(3, "Zoom In", "Meta+Shift+Plus", in: presenter)
-        let menu = NSMenu(title: "File")
+        let menu = ShortcutMenu(title: "File")
         presenter.shortcuts.attach(menu)
         XCTAssertEqual(Array(menu.items.prefix(3)).map(\.keyEquivalent), ["\r", "\u{f700}", "+"])
         XCTAssertEqual(menu.items[0].keyEquivalentModifierMask, [.command, .shift])
+    }
+
+    func testMenuFallbackRejectsExtraModifiersAndRestoresEquivalents() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let node = button(1, "Command", "Meta+Enter", in: presenter)
+        let menu = ShortcutMenu(title: "File")
+        menu.autoenablesItems = false
+        presenter.shortcuts.attach(menu)
+        for (name, key, code) in [("Enter", "\r", UInt16(36)), ("ArrowUp", "\u{f700}", UInt16(126))] {
+            node.props["accessibilityKeyShortcuts"] = "Meta+" + name
+            presenter.shortcuts.sync()
+            let item = menu.items[0]
+            let shifted = event(key, window: window, modifiers: [.command, .shift], code: code)
+            XCTAssertFalse(presenter.shortcuts.perform(shifted))
+            XCTAssertFalse(menu.performKeyEquivalent(with: shifted), name)
+            XCTAssertEqual(item.keyEquivalent, key, "The visible menu equivalent must survive filtering")
+            XCTAssertTrue(menu.performKeyEquivalent(with: event(key, window: window, code: code)), name)
+            node.props["accessibilityKeyShortcuts"] = "Meta+Shift+" + name
+            presenter.shortcuts.sync()
+            XCTAssertTrue(menu.performKeyEquivalent(with: shifted), name)
+        }
+        // Unowned commands still use AppKit, and a top-level menu must recurse
+        // through the filtered submenu rather than bypassing it.
+        let bar = NSMenu(title: "Main")
+        bar.addItem(withTitle: "File", action: nil, keyEquivalent: "").submenu = menu
+        node.props["accessibilityKeyShortcuts"] = "Meta+Enter"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(bar.performKeyEquivalent(with: event("\r", window: window, modifiers: [.command, .shift], code: 36)))
+        let ordinary = menu.addItem(withTitle: "Ordinary", action: nil, keyEquivalent: "x")
+        ordinary.keyEquivalentModifierMask = .command
+        let update = MenuAction {
+            node.props["accessibilityKeyShortcuts"] = "Meta+ArrowUp"
+            presenter.shortcuts.sync()
+        }
+        ordinary.target = update
+        ordinary.action = #selector(MenuAction.invoke(_:))
+        XCTAssertTrue(menu.performKeyEquivalent(with: event("x", window: window)))
+        XCTAssertEqual(menu.items[0].keyEquivalent, "\u{f700}", "Dispatch must not restore a stale equivalent over a plan update")
+    }
+
+    func testOptionMatchesProducedCharactersAndDoesNotMatchDeadKeys() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let node = button(1, "Context", "Alt+c Alt+e", in: presenter)
+        var presses = 0
+        presenter.onPress = { _ in presses += 1 }
+        let cedilla = event("ç", window: window, modifiers: .option, code: 8, ignoring: "c")
+        XCTAssertFalse(presenter.shortcuts.perform(cedilla))
+        XCTAssertFalse(presenter.shortcuts.perform(event("", window: window, modifiers: .option, code: 14, ignoring: "e")))
+        node.props["accessibilityKeyShortcuts"] = "Alt+ç"
+        XCTAssertTrue(presenter.shortcuts.perform(cedilla))
+        XCTAssertEqual(presses, 1)
+        let editor = NSTextView(frame: .zero)
+        presenter.root.addSubview(editor)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertFalse(presenter.shortcuts.perform(cedilla), "Option text still belongs to the editor")
+        XCTAssertEqual(presses, 1)
     }
 
     func testEditorKeepsTypingAndCompositionButPermitsDeclaredCommands() {
@@ -369,7 +433,7 @@ final class MacShortcutTests: XCTestCase {
         presenter.onPress = { presses.append($0) }
         XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window, modifiers: [], code: 8)))
         XCTAssertFalse(presenter.shortcuts.perform(event("\u{f701}", window: window, modifiers: [], code: 125)))
-        let menu = NSMenu(title: "File")
+        let menu = ShortcutMenu(title: "File")
         presenter.shortcuts.attach(menu)
         let send = event("\r", window: window, modifiers: [.command, .shift], code: 36)
         // XCTest has no application event loop/key window. The menu must not
@@ -665,7 +729,7 @@ final class MacToolbarTests: XCTestCase {
         defer { p.toolbar.detach(); w.close() }
         action.props.removeValue(forKey: "accessibilityKeyShortcuts")
         p.toolbar.attach(to: w)
-        let menu = NSMenu(title: "File")
+        let menu = ShortcutMenu(title: "File")
         p.shortcuts.attach(menu)
         XCTAssertEqual(menu.items.first?.title, "Compose")
         XCTAssertEqual(menu.items.first?.keyEquivalent, "")

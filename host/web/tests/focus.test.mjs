@@ -116,7 +116,11 @@ test('declared shortcuts support named keys and leave text input and composition
       expect(key(name,mods).prevented).toBe(true);expect(presses).toBe(before+1);
       expect(key(name,{...mods,altKey:true}).prevented).toBeUndefined();expect(presses).toBe(before+1);
     }
+    chord='Alt+c';expect(key('ç',{altKey:true}).prevented).toBeUndefined();
+    chord='Alt+e';expect(key('Dead',{altKey:true}).prevented).toBeUndefined();
+    chord='Alt+ç';expect(key('ç',{altKey:true}).prevented).toBe(true);
     editing=true;
+    expect(key('ç',{altKey:true}).prevented).toBeUndefined();
     for(const [declaration,name,mods] of [['c','c',{}],['ArrowUp','ArrowUp',{}],['Space',' ',{}],['Alt+c','c',{altKey:true}]]) {
       chord=declaration;expect(key(name,mods).prevented).toBeUndefined();
     }
