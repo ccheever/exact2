@@ -857,6 +857,7 @@ impl<'a> Lowerer<'a> {
                     .as_ref()
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
+                tags::check_transform_drag_handlers(expanded)?;
                 // @ref LLP 1024 D1 — a module tag's own attribute named like
                 // a row its box never uses is refused, not bound to nothing;
                 // a class's rows are the style's, never a prop. By name over
