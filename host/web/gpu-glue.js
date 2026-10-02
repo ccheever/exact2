@@ -33,7 +33,8 @@ document.head.append(inputStyle);
 let loaded = false, loadMs;
 let recoveringDevice;
 let pendingCutover;
-let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
+const RECOVERY_LIMIT = 5;
+let recoveryTimer, recoveryFailures = 0, recoveryErrorLogged = false, lossDuringRecovery = false;
 let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
@@ -186,7 +187,7 @@ function installCanvas(old, entry) {
   if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
 }
 function recoverDevice() {
-  if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
+  if (recoveringDevice || recoveryTimer || recoveryFailures >= RECOVERY_LIMIT || !loaded) return recoveringDevice;
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
@@ -196,7 +197,7 @@ function recoverDevice() {
     if (gpu !== module) { for (const [, e] of staged) e.el.remove(); return; }
     if (["healthy", "no device"].includes(outcome.status)) {
       for (const [, e] of staged) e.el.remove();
-      api.recovery = outcome; recoveryFailures = 0; return;
+      api.recovery = outcome; recoveryFailures = 0; recoveryErrorLogged = false; return;
     }
     if (outcome.status !== "recovered") throw new Error(JSON.stringify(outcome));
     pendingCutover = {module, staged, outcome};
@@ -213,6 +214,7 @@ function recoverDevice() {
     pendingCutover = null;
     api.recovery = outcome;
     recoveryFailures = 0;
+    recoveryErrorLogged = false;
     schedule();
   })().catch(error => {
     for (const [old, entry] of staged) {
@@ -227,10 +229,26 @@ function recoverDevice() {
       }
       if (!pendingCutover) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
     }
-    recoveryFailures++;
-    if (recoveryFailures < 5) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
-    api.recovery = {status:"failed", error:String(error)};
-    exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
+    const message = String(error);
+    // An adapter cannot appear during this page's recovery episode. Retrying
+    // requestAdapter after it has said none exists only churns Chromium's
+    // failed WebGPU presentation path and can starve the renderer itself.
+    // Other device-loss failures retain the bounded exponential retry.
+    const noDevice = /(?:^|\b)no adapter:/i.test(message);
+    recoveryFailures = noDevice ? RECOVERY_LIMIT : recoveryFailures + 1;
+    if (noDevice) for (const entry of surfaces.values()) {
+      // Drop any last presented bitmap. The wrapper and its DOM children stay
+      // intact; the surface contributes transparent pixels over its background.
+      entry.wants = false;
+      entry.el.width = 1;
+      entry.el.height = 1;
+    }
+    if (!noDevice && recoveryFailures < RECOVERY_LIMIT) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
+    api.recovery = {status:noDevice ? "no device" : "failed", error:message};
+    if (!recoveryErrorLogged) {
+      recoveryErrorLogged = true;
+      exact.devError?.(message); console.error("exact gpu recovery:", error);
+    }
   }).finally(() => { recoveringDevice = null; if (lossDuringRecovery && !recoveryFailures) queueMicrotask(recoverDevice); });
   return recoveringDevice;
 }

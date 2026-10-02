@@ -221,6 +221,25 @@ test('failed recovery removes clones and backs off instead of retrying each fram
   assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
 });
 
+test('a missing adapter is terminal for the loss episode and is reported once', async () => {
+  const f=await fixture();
+  // This recovery test has no runner record consumer; keep creation local to
+  // the GPU harness instead of entering glue.js's extracted batch fixture.
+  f.gpu.gpu_published=()=>undefined;
+  const canvas=f.create(1).canvas;
+  let attempts=0;
+  f.gpu.gpu_render=()=>3;
+  f.gpu.gpu_recover=async()=>{attempts++;throw new Error('no adapter: no suitable graphics adapter found');};
+  f.exact.gpu.deviceLost();
+  await new Promise(r=>setTimeout(r,150));
+  for(let i=0;i<10;i++) { f.frame(); f.exact.gpu.deviceLost(); }
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(attempts,1);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+});
+
 
 test('restore diagnostics wrap an already named refusal exactly once', async () => {
   const f=await fixture({refuse:()=>true,error:'restore refused: EXSIM v5 awaits declared assets'});
