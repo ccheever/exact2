@@ -132,7 +132,7 @@ while let line = readLine() {
           let op = req["op"] as? String else { reply(["error": "unreadable request"]); continue }
     switch op {
     case "trusted":
-        reply(["trusted": AXIsProcessTrusted(), "locked": screenLocked()])
+        reply(["trusted": AXIsProcessTrusted(), "locked": screenLocked(), "capture": CGPreflightScreenCaptureAccess()])
     case "window":
         let title = req["title"] as? String ?? ""
         let windows = ordinaryWindows().filter(showsSimulators)
