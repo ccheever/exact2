@@ -1074,8 +1074,8 @@ impl Painter {
                             ts,
                         );
                     }
-                    self.text_shadow(node, &shown, &palette, (content.0, content.1), ts);
                     let kernel = walk.scene.kernel;
+                    self.text_shadow(kernel, &shown, &palette, (content.0, content.1), ts);
                     self.text_clip(
                         node,
                         kernel,
@@ -1085,7 +1085,7 @@ impl Painter {
                         rect,
                         ts,
                     );
-                    if !self.text_stroke(node, &shown, &palette, (content.0, content.1), ts) {
+                    if !self.text_stroke(kernel, &shown, &palette, (content.0, content.1), ts) {
                         let mut engine = self.text.borrow_mut();
                         self.backend.text(
                             &mut engine,

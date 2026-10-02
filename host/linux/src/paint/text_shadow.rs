@@ -1,11 +1,11 @@
-//! CSS `text-shadow` (LLP 1077 D3): the paragraph's glyphs in the shadow's
-//! colour, drawn on the CPU into an island over their reach, blurred (σ is
-//! half CSS's radius) and placed under the text by either backend.
+//! CSS `text-shadow` (LLP 1077 D3): runs sharing shadow geometry are drawn
+//! in their shadow colours into one CPU island over the paragraph's reach,
+//! blurred (σ is half CSS's radius) and placed under all glyphs.
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
 use exact_kernel::style::GlyphShadow;
-use exact_kernel::{StyleId, StyleMask};
+use exact_kernel::{Kernel, StyleId, StyleMask};
 use std::sync::Arc;
 use tiny_skia::Transform;
 
@@ -13,48 +13,62 @@ impl Painter {
     /// The shadow of `paragraph` painted at `origin`, before its text.
     pub(super) fn text_shadow(
         &mut self,
-        node: &exact_kernel::NodeRef<'_>,
+        kernel: &Kernel,
         paragraph: &Paragraph,
         palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
     ) {
-        let style = node.computed_style(StyleMask::of(StyleId::TextShadow));
-        let Some(&GlyphShadow {
-            color,
-            offset,
-            blur,
-        }) = style.text_shadow.shadow()
-        else {
-            return;
-        };
-        let sigma = blur / 2.0;
-        let reach = 3.0 * sigma + 1.0;
-        let rect: Rect4 = (
-            origin.0 + offset.x - reach,
-            origin.1 + offset.y - reach,
-            paragraph.width + 2.0 * reach,
-            paragraph.height + 2.0 * reach,
-        );
-        // `currentcolor` is each run's own colour.
-        let dark = self.dark;
-        let shadowed: Vec<RunPaint> = palette
-            .iter()
-            .map(|r| RunPaint {
-                color: color.map_or(r.color, |c| super::rgba(c.resolve(dark))),
-                source: r.source,
-            })
-            .collect();
-        let at = (origin.0 + offset.x, origin.1 + offset.y);
-        let Some(mut pixels) = self.island(rect, |p, t| {
-            let text = p.text.clone();
-            let mut engine = text.borrow_mut();
-            p.backend.text(&mut engine, paragraph, &shadowed, at, t);
-        }) else {
-            return;
-        };
-        let (w, h) = (pixels.width() as usize, pixels.height() as usize);
-        exact_svg_raster::backdrop_blur(pixels.data_mut(), w, h, sigma * self.scale);
-        self.backend.island_image(Arc::new(pixels), rect, ts, 0);
+        let mut groups: Vec<(GlyphShadow, Vec<RunPaint>)> = Vec::new();
+        for (i, run) in palette.iter().enumerate() {
+            let Some(node) = kernel.node(run.source) else {
+                continue;
+            };
+            let style = node.computed_style(StyleMask::of(StyleId::TextShadow));
+            let Some(&shadow) = style.text_shadow.shadow() else {
+                continue;
+            };
+            let group = groups
+                .iter()
+                .position(|(s, _)| s.offset == shadow.offset && s.blur == shadow.blur)
+                .unwrap_or_else(|| {
+                    groups.push((
+                        shadow,
+                        palette
+                            .iter()
+                            .map(|r| RunPaint {
+                                color: [0; 4],
+                                ..*r
+                            })
+                            .collect(),
+                    ));
+                    groups.len() - 1
+                });
+            // Resolve `currentcolor` from this run's presented colour.
+            groups[group].1[i].color = shadow
+                .color
+                .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
+        }
+        for (GlyphShadow { offset, blur, .. }, shadowed) in groups {
+            let sigma = blur / 2.0;
+            let reach = 3.0 * sigma + 1.0;
+            let rect: Rect4 = (
+                origin.0 + offset.x - reach,
+                origin.1 + offset.y - reach,
+                paragraph.width + 2.0 * reach,
+                paragraph.height + 2.0 * reach,
+            );
+            let at = (origin.0 + offset.x, origin.1 + offset.y);
+            let Some(mut pixels) = self.island(rect, |p, t| {
+                let text = p.text.clone();
+                let mut engine = text.borrow_mut();
+                p.backend.text(&mut engine, paragraph, &shadowed, at, t);
+            }) else {
+                continue;
+            };
+            let (w, h) = (pixels.width() as usize, pixels.height() as usize);
+            exact_svg_raster::backdrop_blur(pixels.data_mut(), w, h, sigma * self.scale);
+            self.backend.island_image(Arc::new(pixels), rect, ts, 0);
+        }
     }
 }
