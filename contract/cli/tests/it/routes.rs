@@ -427,7 +427,7 @@ component App
     label = value
   action visit
     nav = push(nav, "/post/1")
-  action visitOther writes nav
+  action visitOther
     nav = push(nav, "/post/2")
   view
     main
