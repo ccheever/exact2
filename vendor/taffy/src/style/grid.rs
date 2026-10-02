@@ -480,27 +480,25 @@ impl<S: CheapCloneStr> FromCss for GridPlacement<S> {
         while !parser.is_exhausted() {
             let token = parser.next()?.clone();
             match &token {
-                Token::Ident(s) => match s.as_ref() {
-                    "auto" => {
+                Token::Ident(s) if s.eq_ignore_ascii_case("auto") => {
                         if span || number.is_some() || ident.is_some() {
                             return Err(parser.new_unexpected_token_error(token));
                         }
                         parser.expect_exhausted()?;
                         return Ok(Self::Auto);
-                    }
-                    "span" => {
+                }
+                Token::Ident(s) if s.eq_ignore_ascii_case("span") => {
                         if span {
                             return Err(parser.new_unexpected_token_error(token));
                         }
                         span = true;
-                    }
-                    other => {
+                }
+                Token::Ident(s) => {
                         if ident.is_some() {
                             return Err(parser.new_unexpected_token_error(token));
                         }
-                        ident = Some(S::from(other));
-                    }
-                },
+                        ident = Some(S::from(s.as_ref()));
+                }
                 Token::Number { int_value: Some(value), .. } if *value != 0 => {
                     if number.is_some() {
                         return Err(parser.new_unexpected_token_error(token));
@@ -790,20 +788,19 @@ impl FromCss for MaxTrackSizingFunction {
     fn from_css<'i>(parser: &mut Parser<'i, '_>) -> CssParseResult<'i, Self> {
         let token = parser.next()?.clone();
         match token {
+            Token::Number { value, .. } if value == 0.0 => Ok(Self::ZERO),
             Token::Percentage { unit_value, .. } => Ok(Self::percent(unit_value)),
-            Token::Dimension { unit, value, .. } if unit == "px" => Ok(Self::length(value)),
-            Token::Dimension { unit, value, .. } if unit == "fr" && value.is_sign_positive() => Ok(Self::fr(value)),
-            Token::Ident(ref ident) => match ident.as_ref() {
-                "auto" => Ok(Self::auto()),
-                "min-content" => Ok(Self::min_content()),
-                "max-content" => Ok(Self::max_content()),
-                _ => Err(parser.new_unexpected_token_error(token))?,
-            },
-            Token::Function(ref name) if name.as_ref() == "fit-content" => parser.parse_nested_block(|parser| {
+            Token::Dimension { unit, value, .. } if unit.eq_ignore_ascii_case("px") => Ok(Self::length(value)),
+            Token::Dimension { unit, value, .. } if unit.eq_ignore_ascii_case("fr") && value.is_sign_positive() => Ok(Self::fr(value)),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("auto") => Ok(Self::auto()),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("min-content") => Ok(Self::min_content()),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("max-content") => Ok(Self::max_content()),
+            Token::Function(ref name) if name.eq_ignore_ascii_case("fit-content") => parser.parse_nested_block(|parser| {
                 let token = parser.next()?.clone();
                 match token {
+                    Token::Number { value, .. } if value == 0.0 => Ok(Self::fit_content_px(0.0)),
                     Token::Percentage { unit_value, .. } => Ok(Self::fit_content_percent(unit_value)),
-                    Token::Dimension { unit, value, .. } if unit == "px" => Ok(Self::fit_content_px(value)),
+                    Token::Dimension { unit, value, .. } if unit.eq_ignore_ascii_case("px") => Ok(Self::fit_content_px(value)),
                     token => Err(parser.new_unexpected_token_error(token))?,
                 }
             }),
@@ -1195,14 +1192,12 @@ impl FromCss for MinTrackSizingFunction {
     fn from_css<'i>(parser: &mut Parser<'i, '_>) -> CssParseResult<'i, Self> {
         let token = parser.next()?.clone();
         match token {
+            Token::Number { value, .. } if value == 0.0 => Ok(Self::ZERO),
             Token::Percentage { unit_value, .. } => Ok(Self::percent(unit_value)),
-            Token::Dimension { unit, value, .. } if unit == "px" => Ok(Self::length(value)),
-            Token::Ident(ref ident) => match ident.as_ref() {
-                "auto" => Ok(Self::auto()),
-                "min-content" => Ok(Self::min_content()),
-                "max-content" => Ok(Self::max_content()),
-                _ => Err(parser.new_unexpected_token_error(token))?,
-            },
+            Token::Dimension { unit, value, .. } if unit.eq_ignore_ascii_case("px") => Ok(Self::length(value)),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("auto") => Ok(Self::auto()),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("min-content") => Ok(Self::min_content()),
+            Token::Ident(ref ident) if ident.eq_ignore_ascii_case("max-content") => Ok(Self::max_content()),
             token => Err(parser.new_unexpected_token_error(token))?,
         }
     }
@@ -1582,8 +1577,8 @@ impl FromCss for RepetitionCount {
             Token::Number { int_value: Some(value), .. } if value.is_positive() => {
                 Ok(Self::Count(saturating_u16(value)))
             }
-            Token::Ident(ident) if ident == "auto-fit" => Ok(Self::AutoFit),
-            Token::Ident(ident) if ident == "auto-fill" => Ok(Self::AutoFill),
+            Token::Ident(ident) if ident.eq_ignore_ascii_case("auto-fit") => Ok(Self::AutoFit),
+            Token::Ident(ident) if ident.eq_ignore_ascii_case("auto-fill") => Ok(Self::AutoFill),
             token => Err(parser.new_unexpected_token_error(token))?,
         }
     }

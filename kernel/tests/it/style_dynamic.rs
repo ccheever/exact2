@@ -2,7 +2,7 @@
 //! untyped value into a row, refused typed, nothing changed on refusal.
 
 use exact_kernel::{
-    Color, ColorValue, Dimension, StyleId, StyleProps, StyleValue, StyleValueError,
+    Color, ColorValue, Dimension, RowValue, StyleId, StyleProps, StyleValue, StyleValueError,
 };
 
 #[test]
@@ -284,6 +284,83 @@ fn refusals_are_typed_and_change_nothing() {
         assert_eq!(s.set_dynamic(id, &value), Err(expected));
     }
     assert_eq!(s, before, "a refused write changes nothing");
+}
+
+#[test]
+fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
+    let mut style = StyleProps::default();
+    for (id, value, want) in [
+        (StyleId::GridTemplateColumns, StyleValue::Auto, "auto"),
+        (StyleId::GridTemplateRows, StyleValue::Percent(25.0), "25%"),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("100PX".into()),
+            "100PX",
+        ),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("repeat(auto-fit, minmax(80px, 1fr))".into()),
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        (
+            StyleId::GridTemplateRows,
+            StyleValue::Text("fit-content(40px)".into()),
+            "fit-content(40px)",
+        ),
+        (StyleId::GridColumn, StyleValue::Number(2.0), "2"),
+        (StyleId::GridRow, StyleValue::Auto, "auto"),
+        (
+            StyleId::GridColumn,
+            StyleValue::Text("auto / span 2".into()),
+            "auto / span 2",
+        ),
+    ] {
+        style
+            .set_dynamic(id, &value)
+            .unwrap_or_else(|e| panic!("{id:?}: {e:?}"));
+        let got = match style.get(id) {
+            RowValue::Tracks(value) => value.css().to_string(),
+            RowValue::Placement(value) => value.css(),
+            value => panic!("{id:?}: unexpected {value:?}"),
+        };
+        assert_eq!(got, want, "{id:?}");
+    }
+
+    let before = style.grid_template_columns.clone();
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::GridTemplateColumns,
+            &StyleValue::Text("repeat(2, repeat(2, 40px))".into()),
+        ),
+        Err(StyleValueError::BadGridTracks {
+            style: StyleId::GridTemplateColumns,
+        })
+    );
+    assert_eq!(style.grid_template_columns, before);
+
+    style
+        .set_dynamic(StyleId::GridAutoFlow, &StyleValue::Text("DENSE".into()))
+        .unwrap();
+    assert_eq!(style.get(StyleId::GridAutoFlow), RowValue::Enum("dense"));
+    style
+        .set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("SAFE CENTER".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        style.get(StyleId::JustifyItems),
+        RowValue::Enum("safe center")
+    );
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("left legacy".into()),
+        ),
+        Err(StyleValueError::UnknownEnumValue {
+            style: StyleId::JustifyItems,
+        })
+    );
 }
 
 #[test]

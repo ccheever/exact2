@@ -761,30 +761,64 @@ fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
         r#"component App
   state alternate = false
   view
-    box display="grid" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr 25%") grid-template-rows="40px auto" grid-auto-flow="column-dense" justify-items="center"
+    box display="grid" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr 25%") grid-template-rows="40px auto" grid-auto-flow="column dense" justify-items="center"
       box grid-column="-3 / span 2" grid-row="2 / -1"
 "#,
     )
     .unwrap();
 
+    for (name, value) in [
+        ("grid-template-columns", "auto"),
+        ("grid-template-rows", "25%"),
+        ("grid-column", "2"),
+        ("grid-row", "auto / span 2"),
+        ("grid-template-columns", "100PX"),
+        (
+            "grid-template-columns",
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        ("grid-template-columns", "fit-content(40px)"),
+        ("grid-auto-flow", "DENSE"),
+        ("justify-items", "SAFE CENTER"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        contract::compile(&source).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
+    }
+
+    contract::compile("component App\n  view\n    box grid-column=2\n").unwrap();
+
     for (name, value, message) in [
         (
             "grid-template-columns",
-            "repeat(auto-fit, 1fr)",
-            "up to 32 CSS grid tracks",
+            "repeat(2, repeat(2, 40px))",
+            "kernel can lay out",
         ),
         (
             "grid-template-rows",
             "minmax(1fr, 20px)",
-            "up to 32 CSS grid tracks",
+            "kernel can lay out",
         ),
-        ("grid-column", "0 / auto", "nonzero line number"),
-        ("grid-row", "span 0", "nonzero line number"),
+        ("grid-column", "0 / auto", "nonzero or named line"),
+        ("grid-row", "span 0", "nonzero or named line"),
     ] {
         let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
         assert!(error.message.contains(message), "{name}={value}: {error:?}");
+    }
+
+    for (name, value) in [
+        ("grid-template-columns", "subgrid [rails]"),
+        ("grid-template-columns", "10em 1fr"),
+        ("grid-column", "inherit"),
+        ("grid-column", "calc(1 + 1)"),
+        ("justify-items", "last baseline"),
+        ("justify-items", "left legacy"),
+        ("justify-items", "var(--items)"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
     }
 }
 

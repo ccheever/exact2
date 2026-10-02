@@ -248,7 +248,7 @@ impl Codec {
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
-            Codec::Placement => format!("w.placement({access});"),
+            Codec::Placement => format!("w.placement(&{access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
             Codec::Animations => format!("w.animations(&{access});"),
             Codec::CssValue { .. } => format!("w.string(&{access}.css());"),
@@ -259,7 +259,11 @@ impl Codec {
     fn is_copy(&self) -> bool {
         !matches!(
             self,
-            Codec::Tracks | Codec::Transitions | Codec::Animations | Codec::CssValue { .. }
+            Codec::Tracks
+                | Codec::Placement
+                | Codec::Transitions
+                | Codec::Animations
+                | Codec::CssValue { .. }
         )
     }
 }

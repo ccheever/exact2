@@ -11,6 +11,12 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 const SCHEMA_PATH: &str = "tables/schema.json";
+const CODEC_PATHS: [&str; 4] = [
+    "../vendor/taffy/src/style/grid.rs",
+    "build/codec.rs",
+    "src/style/grid.rs",
+    "src/wire/codec.rs",
+];
 const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 #[derive(Deserialize)]
 struct Schema {
@@ -102,10 +108,23 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
 include!("build/names.rs");
 include!("build/codec.rs");
 include!("build/validate.rs");
-fn digest(canonical: &str) -> u64 {
+fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
     hasher.update(canonical.as_bytes());
+    for (path, source) in codecs {
+        hasher.update(b"\0wire-codec\0");
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        // Tests do not define bytes on the wire. Excluding them also lets the
+        // digest snapshot test live beside the codec without hashing itself.
+        hasher.update(
+            source
+                .split_once("\n#[cfg(test)]\n")
+                .map_or(source.as_str(), |(production, _)| production)
+                .as_bytes(),
+        );
+    }
     let bytes = hasher.finalize();
     let mut first = [0u8; 8];
     first.copy_from_slice(&bytes[..8]);
@@ -191,7 +210,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -229,7 +248,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     ));
     writeln!(
         w,
-        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema."
+        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema and wire codec sources."
     )
     .unwrap();
     writeln!(w, "pub const SCHEMA_DIGEST: u64 = {digest:#018x};").unwrap();
@@ -1166,7 +1185,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
             }
             Codec::Tracks => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.0.len() > MAX_GRID_TRACKS {{ return Err(StyleDomainError::TooManyTracks {{ style: StyleId::{id}, count: self.{field}.0.len() }}); }}").unwrap();
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
             }
             Codec::Placement => {
@@ -1234,6 +1252,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::ColorValue => "value.color_value(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
+            Codec::Enum(name) if matches!(name.as_str(), "GridAutoFlow" | "JustifyItems") => format!(
+                "{name}::from_css(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
+            ),
             Codec::Enum(name) => format!(
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
@@ -1243,8 +1264,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
-            Codec::Tracks => "GridTracks::parse(value.text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
-            Codec::Placement => "GridPlacement::parse(value.text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
+            Codec::Tracks => "GridTracks::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
+            Codec::Placement => "GridPlacement::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
             Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
@@ -1304,7 +1325,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
-            Codec::Placement => format!("RowValue::Placement(self.{f})"),
+            Codec::Placement => format!("RowValue::Placement(&self.{f})"),
             Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
             Codec::Animations => format!("RowValue::Animations(&self.{f})"),
             Codec::CssValue { variant, .. } => format!("RowValue::{variant}(&self.{f})"),
@@ -1402,6 +1423,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build/validate.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
+    for path in CODEC_PATHS {
+        println!("cargo:rerun-if-changed={path}");
+    }
     let raw = fs::read_to_string(SCHEMA_PATH).expect("read tables/schema.json");
     let schema: Schema = serde_json::from_str(&raw).expect("parse tables/schema.json");
     validate(&schema);
@@ -1412,7 +1436,16 @@ fn main() {
     // comment must not rotate the digest and refuse every producer.
     let value = strip_prose(value);
     let canonical = serde_json::to_string(&value).expect("serialize canonical schema");
-    let digest = digest(&canonical);
+    let codecs = CODEC_PATHS
+        .iter()
+        .map(|path| {
+            (
+                *path,
+                fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    let digest = digest(&canonical, &codecs);
     let code = generate(&schema, digest);
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("schema.rs");
     fs::write(&out, code).expect("write generated schema.rs");

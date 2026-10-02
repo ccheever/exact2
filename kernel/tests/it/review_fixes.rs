@@ -373,27 +373,20 @@ fn structured_style_domain_matches_wire_and_export() {
         ],
     )
     .unwrap();
+    let mut overlarge = StyleProps::default();
+    overlarge.grid_template_columns = GridTracks::from_tracks(vec![GridTrack::Fr(1.0); 10_001]);
+    overlarge.mask.set(StyleId::GridTemplateColumns);
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 1,
+            patch: Box::new(overlarge),
+        }],
+    )
+    .unwrap();
     let before = k.export(None).unwrap();
     let epoch = k.epoch();
-
-    let mut too_many = StyleProps::default();
-    too_many.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 33]);
-    too_many.mask.set(StyleId::GridTemplateColumns);
-    assert_eq!(
-        k.apply(
-            0,
-            2,
-            &[Op::SetStyle {
-                id: 1,
-                patch: Box::new(too_many),
-            }],
-        ),
-        Err(KernelError::Apply(ApplyError::TooManyTracks {
-            op_index: 0,
-            style: StyleId::GridTemplateColumns,
-            count: 33,
-        }))
-    );
 
     let mut auto_padding = StyleProps::default();
     auto_padding.padding_top = Dimension::Auto;
@@ -419,7 +412,7 @@ fn structured_style_domain_matches_wire_and_export() {
     assert_eq!(k.export(None).unwrap(), before);
 
     let mut maximum = StyleProps::default();
-    maximum.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 32]);
+    maximum.grid_template_columns = GridTracks::parse("repeat(10000, 1fr)").unwrap();
     maximum.mask.set(StyleId::GridTemplateColumns);
     maximum.padding_top = Dimension::Points(4.0);
     maximum.mask.set(StyleId::PaddingTop);
@@ -431,7 +424,10 @@ fn structured_style_domain_matches_wire_and_export() {
     };
     k.apply(0, 5, std::slice::from_ref(&valid_style)).unwrap();
     let snapshot = export::decode(&k.export(None).unwrap()).unwrap();
-    assert_eq!(snapshot.styles[0].grid_template_columns.0.len(), 32);
+    assert_eq!(
+        snapshot.styles[0].grid_template_columns.css(),
+        "repeat(10000, 1fr)"
+    );
     assert_eq!(snapshot.styles[0].padding_top, Dimension::Points(4.0));
     assert_eq!(snapshot.styles[0].width, Dimension::Auto);
 

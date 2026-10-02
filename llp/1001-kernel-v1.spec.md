@@ -26,7 +26,10 @@ are on it and the code exists. It is not a promise about anything not yet built.
 vocabularies, symbol roles and their host mappings, and opcodes are declared. `kernel/build.rs` generates from it — into
 `OUT_DIR`, never committed — the Rust enums, `StyleProps` and its mask, the
 patch/clear operations, the wire codec for style rows, and `SCHEMA_DIGEST`
-(domain-separated SHA-256 of the canonical JSON, first 8 bytes, little-endian).
+(domain-separated SHA-256 of the canonical JSON and the production wire-codec
+sources, first 8 bytes, little-endian). Hashing both makes any handwritten or
+generated codec edit a protocol rotation even when its schema row is unchanged;
+the codec byte/digest snapshot fails if that coupling is removed.
 Every EXWF frame carries the digest; a producer generated from a different table is
 refused at decode (`DecodeError::SchemaDigestMismatch`).
 
@@ -382,6 +385,29 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
   will resolve (D5), and as `--exact-timeline-scope` for the glue's lookup.
 
 Declared deviations, and beside each what is CSS's own:
+**CSS grid's supported grammar follows Chrome's.** Track templates preserve
+named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
+percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
+maxima. Placement accepts numeric and named lines and spans. Keywords and units
+are ASCII-case-insensitive; nested `repeat()` is refused as invalid CSS.
+The following Chrome-valid forms are the complete declared grid grammar gaps:
+
+- `subgrid`; Taffy has no subgrid layout algorithm;
+- track lengths in units other than px, and calculated/custom/environment
+  track or placement values (`calc()`, `min()`, `max()`, `clamp()`, `var()`,
+  `env()`); Taffy's portable value has no browser unit context, cascade or
+  calculation resolver;
+- CSS-wide keywords (`inherit`, `initial`, `unset`, `revert`, `revert-layer`)
+  on all six rows, plus custom/environment values on `justify-items`; kernel
+  style rows store specified values without a CSS cascade;
+- `justify-items: last baseline` and its `legacy` modes; Taffy exposes neither
+  alignment mode.
+
+Literal declarations in those gaps are compile errors. The JS target filters
+the same forms before asking Chrome to set a dynamic declaration, so it cannot
+lay out a value native cleared. Other invalid dynamic grammar is left to
+Chrome's parser and is dropped exactly as the kernel parser drops it.
+
 `position` is CSS's (LLP 1074 T1, 2026-09-30): `static | relative | absolute`,
 `static` initially. An absolutely positioned box is placed against its nearest
 positioned ancestor, or the root, and sits at its static position on an axis
@@ -633,9 +659,11 @@ nothing (`tests/wire.rs::a_malformed_frame_applies_nothing`).
 Value grammars: dimension = kind byte (0 auto, 1 points, 2 percent) + f32;
 **percent is authored 0–100** on the wire and in storage and converted to Taffy's
 fraction exactly once (`style.rs`); `auto` is admitted per row (`admitsAuto`) and is
-a rejection elsewhere (`AutoNotAdmitted`); colors are `0xRRGGBBAA`; grid tracks are
-a closed six-kind grammar (fr, points, percent, auto, min-content, max-content, ≤32
-tracks); enum bytes outside their vocabulary are rejected, never defaulted.
+a rejection elsewhere (`AutoNotAdmitted`); colors are `0xRRGGBBAA`; grid templates
+and placements are length-prefixed canonical CSS strings, reparsed and domain-
+validated at decode; Taffy clamps an overlarge grid to 10,000 tracks as CSS
+Grid requires. Enum bytes outside
+their vocabulary are rejected, never defaulted.
 
 ## 5. Layout proportional to change (WS-H)
 

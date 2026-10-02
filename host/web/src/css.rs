@@ -204,14 +204,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 "font-variant-numeric:{};",
                 exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
             ),
-            // The schema keeps dense as one enum word; CSS spells it as two.
             (StyleId::GridAutoFlow, RowValue::Enum(flow)) => {
                 out.push_str("grid-auto-flow:");
-                out.push_str(match *flow {
-                    "row-dense" => "row dense",
-                    "column-dense" => "column dense",
-                    other => other,
-                });
+                out.push_str(flow);
                 out.push(';');
             }
             _ if lowered(id, &value) => {
@@ -1028,7 +1023,7 @@ mod declaration_tests {
             (StyleId::GridRow, t("2 / -1"), "grid-row:2 / -1;"),
             (
                 StyleId::GridAutoFlow,
-                t("row-dense"),
+                t("row dense"),
                 "grid-auto-flow:row dense;",
             ),
             (StyleId::JustifyItems, t("center"), "justify-items:center;"),

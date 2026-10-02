@@ -24,8 +24,9 @@
 //   headless on the Linux host (`agent.mjs linux`, the data app's release
 //   binary, built by --build), driven by the same steps on the same plan,
 //   its state and tree compared with the wasm page's (`linux` failures).
-//   Layout and pixels are the Linux host's own and are not compared. The
-//   only normalization is the route stack's browser location (`linuxView`);
+//   A plan marked `// linux: layout` also compares its testId boxes with the
+//   wasm page to 0.5 px. Pixels remain the Linux host's own and are not
+//   compared. The only normalization is the route stack's browser location (`linuxView`);
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
@@ -189,6 +190,7 @@ async function drive(t, report, fail, dir, ws, js) {
     const compare = async step => {
       let st = 0;
       let linuxLayout = null;
+      let linuxReport = null;
       const [sw, sj] = await Promise.all([W.state(), J.state().catch(e => ({ error: e.message }))]);
       if (sj.error) { fail(step, `state: js ${sj.error}`); st++; }
       else { const o = []; for (const k of STATE_KEYS) diffJSON(sw[k], sj[k], k, o); o.forEach(x => fail(step, 'state ' + x)); st += o.length; }
@@ -200,7 +202,8 @@ async function drive(t, report, fail, dir, ws, js) {
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
-        report.steps.push({ target: t.name, step, reference: 'linux', differences: o.length });
+        linuxReport = { target: t.name, step, reference: 'linux', differences: o.length };
+        report.steps.push(linuxReport);
       });
       const [lw, lj] = await Promise.all([W.layout(), J.layout()]);
       const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
@@ -208,6 +211,7 @@ async function drive(t, report, fail, dir, ws, js) {
         const ol = diffLayout(lw, linuxLayout, 'kernel');
         ol.forEach(x => fail(step, x));
         st += ol.length;
+        linuxReport.differences += ol.length;
       }
       // Paint facts are part of parity even when boxes happen not to overlap.
       const paint = `Array.from(document.querySelectorAll('#exact-root > *, #exact-root [data-testid]'), e => { const s = getComputedStyle(e); return [e.dataset.testid ?? '$root', s.isolation, s.position]; })`;

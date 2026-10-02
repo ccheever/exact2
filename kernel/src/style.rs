@@ -12,8 +12,8 @@ use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
-    FlexWrap, GridAutoFlow, JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleMask,
-    StyleProps,
+    FlexWrap, GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType,
+    StyleId, StyleMask, StyleProps,
 };
 
 mod backdrop;
@@ -22,14 +22,17 @@ pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
-use grid::{grid_line, track};
-pub use grid::{GridLine, GridPlacement, GridTrack, GridTrackMax, GridTrackMin, GridTracks};
+use grid::grid_line;
+pub use grid::{
+    GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
+};
 pub mod relative;
 mod shadow;
 pub use shadow::BoxShadow;
 
-/// Largest grid track list the closed grammar carries.
-pub const MAX_GRID_TRACKS: usize = 32;
+/// Largest explicit grid Taffy lays out on one axis.
+pub const MAX_GRID_TRACKS: usize = 10_000;
 
 /// An edge of the viewport: which safe-area inset an `env()` length names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -905,7 +908,7 @@ pub enum RowValue<'a> {
     /// Grid tracks.
     Tracks(&'a GridTracks),
     /// A grid placement.
-    Placement(GridPlacement),
+    Placement(&'a GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
     /// The `animation` row (LLP 1055 D5).
@@ -1012,6 +1015,45 @@ fn align_items(v: AlignItems) -> Option<taffy::style::AlignItems> {
     })
 }
 
+fn justify_items(v: JustifyItems, direction: Direction) -> Option<taffy::style::AlignItems> {
+    use taffy::style::AlignItems as T;
+    Some(match v {
+        JustifyItems::Normal => return None,
+        JustifyItems::Stretch => T::STRETCH,
+        JustifyItems::Baseline => T::BASELINE,
+        JustifyItems::Center | JustifyItems::UnsafeCenter => T::CENTER,
+        JustifyItems::Start | JustifyItems::UnsafeStart => T::START,
+        JustifyItems::End | JustifyItems::UnsafeEnd => T::END,
+        JustifyItems::SelfStart | JustifyItems::UnsafeSelfStart => T::SELF_START,
+        JustifyItems::SelfEnd | JustifyItems::UnsafeSelfEnd => T::SELF_END,
+        JustifyItems::FlexStart | JustifyItems::UnsafeFlexStart => T::FLEX_START,
+        JustifyItems::FlexEnd | JustifyItems::UnsafeFlexEnd => T::FLEX_END,
+        JustifyItems::Left | JustifyItems::UnsafeLeft => match direction {
+            Direction::Ltr => T::START,
+            Direction::Rtl => T::END,
+        },
+        JustifyItems::Right | JustifyItems::UnsafeRight => match direction {
+            Direction::Ltr => T::END,
+            Direction::Rtl => T::START,
+        },
+        JustifyItems::SafeCenter => T::SAFE_CENTER,
+        JustifyItems::SafeStart => T::SAFE_START,
+        JustifyItems::SafeEnd => T::SAFE_END,
+        JustifyItems::SafeSelfStart => T::SAFE_SELF_START,
+        JustifyItems::SafeSelfEnd => T::SAFE_SELF_END,
+        JustifyItems::SafeFlexStart => T::SAFE_FLEX_START,
+        JustifyItems::SafeFlexEnd => T::SAFE_FLEX_END,
+        JustifyItems::SafeLeft => match direction {
+            Direction::Ltr => T::SAFE_START,
+            Direction::Rtl => T::SAFE_END,
+        },
+        JustifyItems::SafeRight => match direction {
+            Direction::Ltr => T::SAFE_END,
+            Direction::Rtl => T::SAFE_START,
+        },
+    })
+}
+
 fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
     match v {
         AlignSelf::Auto => None,
@@ -1054,8 +1096,43 @@ fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
     match v {
         GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
         GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
-        GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
+        GridAutoFlow::Dense | GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
         GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
+    }
+}
+
+impl GridAutoFlow {
+    pub(crate) fn from_css(text: &str) -> Option<Self> {
+        let words = text
+            .split_ascii_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>();
+        match words.as_slice() {
+            [row] if row == "row" => Some(Self::Row),
+            [column] if column == "column" => Some(Self::Column),
+            [dense] if dense == "dense" => Some(Self::Dense),
+            [a, b] if (a == "row" && b == "dense") || (a == "dense" && b == "row") => {
+                Some(Self::RowDense)
+            }
+            [a, b] if (a == "column" && b == "dense") || (a == "dense" && b == "column") => {
+                Some(Self::ColumnDense)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl JustifyItems {
+    pub(crate) fn from_css(text: &str) -> Option<Self> {
+        let mut value = text
+            .split_ascii_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if value == "first baseline" {
+            value = "baseline".into();
+        }
+        Self::from_name(&value)
     }
 }
 
@@ -1215,32 +1292,24 @@ impl StyleProps {
         s.align_items = align_items(self.align_items);
         s.align_self = align_self(self.align_self);
         s.align_content = align_content(self.align_content);
-        s.justify_items = align_items(self.justify_items);
+        s.justify_items = justify_items(self.justify_items, self.direction);
         s.gap = taffy::geometry::Size {
             width: length(self.column_gap),
             height: length(self.row_gap),
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self
-            .grid_template_columns
-            .0
-            .iter()
-            .map(|t| track(*t).into())
-            .collect();
-        s.grid_template_rows = self
-            .grid_template_rows
-            .0
-            .iter()
-            .map(|t| track(*t).into())
-            .collect();
+        s.grid_template_columns = self.grid_template_columns.taffy_components();
+        s.grid_template_column_names = self.grid_template_columns.line_names();
+        s.grid_template_rows = self.grid_template_rows.taffy_components();
+        s.grid_template_row_names = self.grid_template_rows.line_names();
         s.grid_column = taffy::geometry::Line {
-            start: grid_line(self.grid_column.start),
-            end: grid_line(self.grid_column.end),
+            start: grid_line(&self.grid_column.start),
+            end: grid_line(&self.grid_column.end),
         };
         s.grid_row = taffy::geometry::Line {
-            start: grid_line(self.grid_row.start),
-            end: grid_line(self.grid_row.end),
+            start: grid_line(&self.grid_row.start),
+            end: grid_line(&self.grid_row.end),
         };
         s
     }

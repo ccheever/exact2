@@ -1,12 +1,20 @@
 //! CSS grid track and placement values.
 //!
-//! The wire keeps a small, closed subset of CSS Grid: fixed repetitions are
-//! expanded into at most 32 tracks, and each track is a breadth or `minmax()`.
-//! Keeping the parser here gives Contract literals and runtime writes the same
-//! grammar that the kernel lowers to Taffy and the web prints back to CSS.
+//! Taffy's parser supplies CSS tokenization (including escaped identifiers),
+//! while this module applies the template-wide rules and keeps the portable
+//! subset explicit. The same parser serves literals, runtime writes and wire
+//! decode; the web only excludes the few valid forms Taffy cannot run.
 
-use taffy::prelude::{auto, fr, length, line, max_content, min_content, minmax, percent, span};
-use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
+use taffy::prelude::{
+    auto, fit_content, fr, length, line, max_content, min_content, minmax, percent, span,
+};
+use taffy::style::{
+    ExpandedMaxTrackSizingFunction as TaffyMax, ExpandedMinTrackSizingFunction as TaffyMin,
+    GridPlacement as TaffyPlacement, GridTemplateComponent as TaffyComponent,
+    GridTemplateRepetition as TaffyRepeat, GridTemplateTracks as TaffyTracks,
+    MaxTrackSizingFunction, MinTrackSizingFunction, RepetitionCount as TaffyRepeatCount,
+    TrackSizingFunction,
+};
 
 use super::MAX_GRID_TRACKS;
 
@@ -42,7 +50,16 @@ pub enum GridTrackMax {
     MaxContent,
 }
 
-/// One grid track under the closed portable grammar.
+/// The limit of `fit-content()`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GridFitContent {
+    /// Layout points.
+    Points(f32),
+    /// Percent of the grid container, authored as 0–100.
+    Percent(f32),
+}
+
+/// One non-repeated CSS grid track.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridTrack {
     /// A flexible fraction of the free space.
@@ -57,192 +74,349 @@ pub enum GridTrack {
     MinContent,
     /// Max-content.
     MaxContent,
+    /// `fit-content(<length-percentage>)`.
+    FitContent(GridFitContent),
     /// Separate minimum and maximum track breadths.
     MinMax(GridTrackMin, GridTrackMax),
 }
 
-/// A grid template: an ordered track list.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct GridTracks(pub Vec<GridTrack>);
+/// A `repeat()` count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridRepeatCount {
+    /// A fixed positive repetition count.
+    Count(u16),
+    /// Fill the available space and retain empty tracks.
+    AutoFill,
+    /// Fill the available space and collapse empty tracks.
+    AutoFit,
+}
+
+/// A preserved `repeat()` component. Automatic repetition cannot be expanded
+/// before Taffy knows the grid container's available size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridRepeat {
+    /// Fixed, auto-fill or auto-fit repetition.
+    pub count: GridRepeatCount,
+    /// The non-repeated track list in the function.
+    pub tracks: Vec<GridTrack>,
+    /// Names on each line in the repeated fragment.
+    pub line_names: Vec<Vec<String>>,
+}
+
+/// One component of a grid template.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridTrackComponent {
+    /// One track.
+    Single(GridTrack),
+    /// A fixed or automatic repetition.
+    Repeat(GridRepeat),
+}
+
+/// A grid template, including the names on its explicit lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridTracks {
+    components: Vec<GridTrackComponent>,
+    line_names: Vec<Vec<String>>,
+    css: String,
+}
+
+impl Default for GridTracks {
+    fn default() -> Self {
+        Self {
+            components: Vec::new(),
+            line_names: Vec::new(),
+            css: "none".into(),
+        }
+    }
+}
 
 impl GridTracks {
-    /// Parse the closed CSS grammar used by dynamic style values.
+    /// Construct a template from individual tracks (the in-process test and
+    /// host convenience form).
+    pub fn from_tracks(tracks: Vec<GridTrack>) -> Self {
+        let css = if tracks.is_empty() {
+            "none".into()
+        } else {
+            tracks.iter().map(track_css).collect::<Vec<_>>().join(" ")
+        };
+        let line_names = vec![Vec::new(); tracks.len().saturating_add(1)];
+        Self {
+            components: tracks.into_iter().map(GridTrackComponent::Single).collect(),
+            line_names,
+            css,
+        }
+    }
+
+    /// Parse the CSS grammar Taffy can lay out. `subgrid`, non-pixel CSS
+    /// lengths and calculated lengths are valid CSS but have no Taffy value.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if text.eq_ignore_ascii_case("none") {
             return Some(Self::default());
         }
-        let mut tracks = Vec::new();
-        parse_list(text, &mut tracks)?;
-        (!tracks.is_empty() && tracks.len() <= MAX_GRID_TRACKS).then_some(Self(tracks))
+        if text.is_empty() || fit_content_inside_minmax(text) {
+            return None;
+        }
+        let parsed = text
+            .parse::<TaffyTracks<String, TaffyComponent<String>>>()
+            .ok()?;
+        let components = parsed
+            .tracks
+            .into_iter()
+            .map(component_from_taffy)
+            .collect::<Option<Vec<_>>>()?;
+        let value = Self {
+            components,
+            line_names: parsed.line_names,
+            css: text.into(),
+        };
+        value.is_valid().then_some(value)
     }
 
-    /// The canonical CSS declaration value.
-    pub fn css(&self) -> String {
-        if self.0.is_empty() {
-            return "none".into();
-        }
-        self.0.iter().map(track_css).collect::<Vec<_>>().join(" ")
+    /// The CSS declaration value. Parsed values retain the browser-accepted
+    /// token spelling; in-process constructors use a canonical spelling.
+    pub fn css(&self) -> &str {
+        &self.css
     }
 
     /// Whether every track size is finite.
     pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|track| match *track {
-            GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v.is_finite(),
-            GridTrack::MinMax(min, max) => min_finite(min) && max_finite(max),
-            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
-        })
+        self.components.iter().all(component_finite)
     }
 
-    /// Whether every numeric breadth is nonnegative, as CSS requires.
+    /// Whether this is a structurally valid template in Taffy's supported CSS
+    /// subset, bounded by the engine's explicit-grid limit.
     pub(crate) fn is_valid(&self) -> bool {
-        self.0.iter().all(|track| match *track {
-            GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v >= 0.0,
-            GridTrack::MinMax(min, max) => min_nonnegative(min) && max_nonnegative(max),
-            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
-        })
+        if self.components.is_empty() {
+            return self.css.eq_ignore_ascii_case("none");
+        }
+        if self.line_names.len() != self.components.len() + 1
+            || !self
+                .line_names
+                .iter()
+                .flatten()
+                .all(|name| valid_grid_ident(name))
+            || !self.components.iter().all(component_valid)
+        {
+            return false;
+        }
+        let auto_repeats = self
+            .components
+            .iter()
+            .filter(|component| {
+                matches!(
+                    component,
+                    GridTrackComponent::Repeat(GridRepeat {
+                        count: GridRepeatCount::AutoFill | GridRepeatCount::AutoFit,
+                        ..
+                    })
+                )
+            })
+            .count();
+        auto_repeats == 0 || (auto_repeats == 1 && self.components.iter().all(component_is_fixed))
     }
 
     /// `count` equal `1fr` tracks.
     pub fn equal(count: usize) -> Self {
-        Self(vec![GridTrack::Fr(1.0); count.min(MAX_GRID_TRACKS)])
+        Self::from_tracks(vec![GridTrack::Fr(1.0); count.min(MAX_GRID_TRACKS)])
+    }
+
+    pub(crate) fn taffy_components(&self) -> Vec<TaffyComponent<String>> {
+        self.components.iter().map(component_to_taffy).collect()
+    }
+
+    pub(crate) fn line_names(&self) -> Vec<Vec<String>> {
+        self.line_names.clone()
     }
 }
 
-fn parse_list(text: &str, out: &mut Vec<GridTrack>) -> Option<()> {
-    let bytes = text.as_bytes();
-    let mut at = 0;
-    while at < bytes.len() {
-        while at < bytes.len() && bytes[at].is_ascii_whitespace() {
-            at += 1;
+fn component_from_taffy(value: TaffyComponent<String>) -> Option<GridTrackComponent> {
+    match value {
+        TaffyComponent::Single(track) => track_from_taffy(track).map(GridTrackComponent::Single),
+        TaffyComponent::Repeat(repeat) => Some(GridTrackComponent::Repeat(GridRepeat {
+            count: match repeat.count {
+                TaffyRepeatCount::Count(n) => GridRepeatCount::Count(n),
+                TaffyRepeatCount::AutoFill => GridRepeatCount::AutoFill,
+                TaffyRepeatCount::AutoFit => GridRepeatCount::AutoFit,
+            },
+            tracks: repeat
+                .tracks
+                .into_iter()
+                .map(track_from_taffy)
+                .collect::<Option<Vec<_>>>()?,
+            line_names: repeat.line_names,
+        })),
+    }
+}
+
+fn component_to_taffy(value: &GridTrackComponent) -> TaffyComponent<String> {
+    match value {
+        GridTrackComponent::Single(track) => TaffyComponent::Single(track_to_taffy(*track)),
+        GridTrackComponent::Repeat(repeat) => TaffyComponent::Repeat(TaffyRepeat {
+            count: match repeat.count {
+                GridRepeatCount::Count(n) => TaffyRepeatCount::Count(n),
+                GridRepeatCount::AutoFill => TaffyRepeatCount::AutoFill,
+                GridRepeatCount::AutoFit => TaffyRepeatCount::AutoFit,
+            },
+            tracks: repeat.tracks.iter().copied().map(track_to_taffy).collect(),
+            line_names: repeat.line_names.clone(),
+        }),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum GridTrackMaxExpanded {
+    Track(GridTrackMax),
+    FitContentPoints(f32),
+    FitContentPercent(f32),
+}
+
+fn track_from_taffy(value: TrackSizingFunction) -> Option<GridTrack> {
+    let min = min_from_taffy(value.min_sizing_function().expand())?;
+    let max = max_from_taffy(value.max_sizing_function().expand())?;
+    Some(match (min, max) {
+        (_, GridTrackMaxExpanded::FitContentPoints(v)) => {
+            GridTrack::FitContent(GridFitContent::Points(v))
         }
-        if at == bytes.len() {
-            break;
+        (_, GridTrackMaxExpanded::FitContentPercent(v)) => {
+            GridTrack::FitContent(GridFitContent::Percent(v))
         }
-        let start = at;
-        let mut depth = 0u8;
-        while at < bytes.len() {
-            match bytes[at] {
-                b'(' => depth = depth.checked_add(1)?,
-                b')' => {
-                    depth = depth.checked_sub(1)?;
-                }
-                c if c.is_ascii_whitespace() && depth == 0 => break,
-                _ => {}
+        (GridTrackMin::Auto, GridTrackMaxExpanded::Track(GridTrackMax::Fr(v))) => GridTrack::Fr(v),
+        (GridTrackMin::Auto, GridTrackMaxExpanded::Track(GridTrackMax::Auto)) => GridTrack::Auto,
+        (GridTrackMin::MinContent, GridTrackMaxExpanded::Track(GridTrackMax::MinContent)) => {
+            GridTrack::MinContent
+        }
+        (GridTrackMin::MaxContent, GridTrackMaxExpanded::Track(GridTrackMax::MaxContent)) => {
+            GridTrack::MaxContent
+        }
+        (GridTrackMin::Points(a), GridTrackMaxExpanded::Track(GridTrackMax::Points(b)))
+            if a == b =>
+        {
+            GridTrack::Points(a)
+        }
+        (GridTrackMin::Percent(a), GridTrackMaxExpanded::Track(GridTrackMax::Percent(b)))
+            if a == b =>
+        {
+            GridTrack::Percent(a)
+        }
+        (min, GridTrackMaxExpanded::Track(max)) => GridTrack::MinMax(min, max),
+    })
+}
+
+fn min_from_taffy(value: TaffyMin) -> Option<GridTrackMin> {
+    Some(match value {
+        TaffyMin::Length(v) => GridTrackMin::Points(v),
+        TaffyMin::Percent(v) => GridTrackMin::Percent(v * 100.0),
+        TaffyMin::Auto => GridTrackMin::Auto,
+        TaffyMin::MinContent => GridTrackMin::MinContent,
+        TaffyMin::MaxContent => GridTrackMin::MaxContent,
+        TaffyMin::Calc(_) => return None,
+    })
+}
+
+fn max_from_taffy(value: TaffyMax) -> Option<GridTrackMaxExpanded> {
+    Some(match value {
+        TaffyMax::Fr(v) => GridTrackMaxExpanded::Track(GridTrackMax::Fr(v)),
+        TaffyMax::Length(v) => GridTrackMaxExpanded::Track(GridTrackMax::Points(v)),
+        TaffyMax::Percent(v) => GridTrackMaxExpanded::Track(GridTrackMax::Percent(v * 100.0)),
+        TaffyMax::Auto => GridTrackMaxExpanded::Track(GridTrackMax::Auto),
+        TaffyMax::MinContent => GridTrackMaxExpanded::Track(GridTrackMax::MinContent),
+        TaffyMax::MaxContent => GridTrackMaxExpanded::Track(GridTrackMax::MaxContent),
+        TaffyMax::FitContentPx(v) => GridTrackMaxExpanded::FitContentPoints(v),
+        TaffyMax::FitContentPercent(v) => GridTrackMaxExpanded::FitContentPercent(v * 100.0),
+        TaffyMax::Calc(_) => return None,
+    })
+}
+
+fn component_finite(value: &GridTrackComponent) -> bool {
+    match value {
+        GridTrackComponent::Single(track) => track_finite(*track),
+        GridTrackComponent::Repeat(repeat) => repeat.tracks.iter().copied().all(track_finite),
+    }
+}
+
+fn component_valid(value: &GridTrackComponent) -> bool {
+    match value {
+        GridTrackComponent::Single(track) => track_valid(*track),
+        GridTrackComponent::Repeat(repeat) => {
+            !repeat.tracks.is_empty()
+                && repeat.line_names.len() == repeat.tracks.len() + 1
+                && repeat
+                    .line_names
+                    .iter()
+                    .flatten()
+                    .all(|name| valid_grid_ident(name))
+                && !matches!(repeat.count, GridRepeatCount::Count(0))
+                && repeat.tracks.iter().copied().all(track_valid)
+        }
+    }
+}
+
+fn component_is_fixed(value: &GridTrackComponent) -> bool {
+    match value {
+        GridTrackComponent::Single(track) => track_is_fixed(*track),
+        GridTrackComponent::Repeat(repeat) => repeat.tracks.iter().copied().all(track_is_fixed),
+    }
+}
+
+fn track_is_fixed(value: GridTrack) -> bool {
+    match value {
+        GridTrack::Points(_) | GridTrack::Percent(_) => true,
+        GridTrack::MinMax(min, max) => {
+            matches!(min, GridTrackMin::Points(_) | GridTrackMin::Percent(_))
+                || matches!(max, GridTrackMax::Points(_) | GridTrackMax::Percent(_))
+        }
+        GridTrack::Fr(_)
+        | GridTrack::Auto
+        | GridTrack::MinContent
+        | GridTrack::MaxContent
+        | GridTrack::FitContent(_) => false,
+    }
+}
+
+fn track_finite(value: GridTrack) -> bool {
+    match value {
+        GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v.is_finite(),
+        GridTrack::FitContent(GridFitContent::Points(v) | GridFitContent::Percent(v)) => {
+            v.is_finite()
+        }
+        GridTrack::MinMax(min, max) => min_finite(min) && max_finite(max),
+        GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
+    }
+}
+
+fn track_valid(value: GridTrack) -> bool {
+    track_finite(value)
+        && match value {
+            GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v >= 0.0,
+            GridTrack::FitContent(GridFitContent::Points(v) | GridFitContent::Percent(v)) => {
+                v >= 0.0
             }
-            at += 1;
+            GridTrack::MinMax(min, max) => min_nonnegative(min) && max_nonnegative(max),
+            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
         }
-        if depth != 0 {
-            return None;
-        }
-        parse_component(&text[start..at], out)?;
-        if out.len() > MAX_GRID_TRACKS {
-            return None;
-        }
-    }
-    Some(())
-}
-
-fn parse_component(text: &str, out: &mut Vec<GridTrack>) -> Option<()> {
-    if let Some(args) = function(text, "repeat") {
-        let (count, body) = split_comma(args)?;
-        let count = count.trim().parse::<u16>().ok().filter(|n| *n > 0)? as usize;
-        let mut repeated = Vec::new();
-        parse_list(body.trim(), &mut repeated)?;
-        if repeated.is_empty() || repeated.len().checked_mul(count)? > MAX_GRID_TRACKS - out.len() {
-            return None;
-        }
-        for _ in 0..count {
-            out.extend_from_slice(&repeated);
-        }
-        return Some(());
-    }
-    out.push(parse_track(text)?);
-    Some(())
-}
-
-fn parse_track(text: &str) -> Option<GridTrack> {
-    if let Some(args) = function(text, "minmax") {
-        let (min, max) = split_comma(args)?;
-        return Some(GridTrack::MinMax(
-            parse_min(min.trim())?,
-            parse_max(max.trim())?,
-        ));
-    }
-    match parse_max(text)? {
-        GridTrackMax::Fr(v) => Some(GridTrack::Fr(v)),
-        GridTrackMax::Points(v) => Some(GridTrack::Points(v)),
-        GridTrackMax::Percent(v) => Some(GridTrack::Percent(v)),
-        GridTrackMax::Auto => Some(GridTrack::Auto),
-        GridTrackMax::MinContent => Some(GridTrack::MinContent),
-        GridTrackMax::MaxContent => Some(GridTrack::MaxContent),
-    }
-}
-
-fn function<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    text.strip_prefix(name)?
-        .strip_prefix('(')?
-        .strip_suffix(')')
-}
-
-fn split_comma(text: &str) -> Option<(&str, &str)> {
-    let mut depth = 0u8;
-    let mut comma = None;
-    for (i, byte) in text.bytes().enumerate() {
-        match byte {
-            b'(' => depth = depth.checked_add(1)?,
-            b')' => depth = depth.checked_sub(1)?,
-            b',' if depth == 0 && comma.replace(i).is_some() => return None,
-            _ => {}
-        }
-    }
-    let comma = comma?;
-    Some((&text[..comma], &text[comma + 1..]))
-}
-
-fn number(text: &str, suffix: &str) -> Option<f32> {
-    let value = exact_num::parse_f32(text.strip_suffix(suffix)?).ok()?;
-    (value.is_finite() && value >= 0.0).then_some(value)
-}
-
-fn parse_min(text: &str) -> Option<GridTrackMin> {
-    if let Some(v) = number(text, "px") {
-        Some(GridTrackMin::Points(v))
-    } else if let Some(v) = number(text, "%") {
-        Some(GridTrackMin::Percent(v))
-    } else if text == "0" {
-        Some(GridTrackMin::Points(0.0))
-    } else {
-        Some(match text {
-            "auto" => GridTrackMin::Auto,
-            "min-content" => GridTrackMin::MinContent,
-            "max-content" => GridTrackMin::MaxContent,
-            _ => return None,
-        })
-    }
-}
-
-fn parse_max(text: &str) -> Option<GridTrackMax> {
-    if let Some(v) = number(text, "fr") {
-        Some(GridTrackMax::Fr(v))
-    } else if let Some(v) = number(text, "px") {
-        Some(GridTrackMax::Points(v))
-    } else if let Some(v) = number(text, "%") {
-        Some(GridTrackMax::Percent(v))
-    } else if text == "0" {
-        Some(GridTrackMax::Points(0.0))
-    } else {
-        Some(match text {
-            "auto" => GridTrackMax::Auto,
-            "min-content" => GridTrackMax::MinContent,
-            "max-content" => GridTrackMax::MaxContent,
-            _ => return None,
-        })
-    }
 }
 
 fn scalar(value: f32, suffix: &str) -> String {
     format!("{}{suffix}", exact_num::Shortest32(value))
+}
+
+fn track_css(value: &GridTrack) -> String {
+    match *value {
+        GridTrack::Fr(v) => scalar(v, "fr"),
+        GridTrack::Points(v) => scalar(v, "px"),
+        GridTrack::Percent(v) => scalar(v, "%"),
+        GridTrack::Auto => "auto".into(),
+        GridTrack::MinContent => "min-content".into(),
+        GridTrack::MaxContent => "max-content".into(),
+        GridTrack::FitContent(GridFitContent::Points(v)) => {
+            format!("fit-content({})", scalar(v, "px"))
+        }
+        GridTrack::FitContent(GridFitContent::Percent(v)) => {
+            format!("fit-content({})", scalar(v, "%"))
+        }
+        GridTrack::MinMax(min, max) => format!("minmax({}, {})", min_css(min), max_css(max)),
+    }
 }
 
 fn min_css(value: GridTrackMin) -> String {
@@ -263,18 +437,6 @@ fn max_css(value: GridTrackMax) -> String {
         GridTrackMax::Auto => "auto".into(),
         GridTrackMax::MinContent => "min-content".into(),
         GridTrackMax::MaxContent => "max-content".into(),
-    }
-}
-
-fn track_css(value: &GridTrack) -> String {
-    match *value {
-        GridTrack::Fr(v) => scalar(v, "fr"),
-        GridTrack::Points(v) => scalar(v, "px"),
-        GridTrack::Percent(v) => scalar(v, "%"),
-        GridTrack::Auto => "auto".into(),
-        GridTrack::MinContent => "min-content".into(),
-        GridTrack::MaxContent => "max-content".into(),
-        GridTrack::MinMax(min, max) => format!("minmax({}, {})", min_css(min), max_css(max)),
     }
 }
 
@@ -306,7 +468,7 @@ fn max_nonnegative(value: GridTrackMax) -> bool {
     }
 }
 
-pub(crate) fn track(value: GridTrack) -> TrackSizingFunction {
+fn track_to_taffy(value: GridTrack) -> TrackSizingFunction {
     match value {
         GridTrack::Fr(v) => fr(v),
         GridTrack::Points(v) => length(v),
@@ -314,6 +476,8 @@ pub(crate) fn track(value: GridTrack) -> TrackSizingFunction {
         GridTrack::Auto => auto(),
         GridTrack::MinContent => min_content(),
         GridTrack::MaxContent => max_content(),
+        GridTrack::FitContent(GridFitContent::Points(v)) => fit_content(length(v)),
+        GridTrack::FitContent(GridFitContent::Percent(v)) => fit_content(percent(v / 100.0)),
         GridTrack::MinMax(min, max) => minmax(min_track(min), max_track(max)),
     }
 }
@@ -339,26 +503,60 @@ fn max_track(value: GridTrackMax) -> MaxTrackSizingFunction {
     }
 }
 
+fn fit_content_inside_minmax(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut stack: Vec<&str> = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'(' {
+            let mut start = at;
+            while start > 0
+                && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'-')
+            {
+                start -= 1;
+            }
+            let name = &lower[start..at];
+            if name == "fit-content" && stack.contains(&"minmax") {
+                return true;
+            }
+            stack.push(name);
+        } else if bytes[at] == b')' {
+            stack.pop();
+        }
+        at += 1;
+    }
+    false
+}
+
 /// One edge of a grid placement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum GridLine {
     /// Auto-placed.
     #[default]
     Auto,
     /// A 1-based line index (negative counts from the end).
     Line(i16),
+    /// The nth line with a custom name (`0` means the first).
+    NamedLine(String, i16),
     /// Span this many tracks.
     Span(u16),
+    /// Span to the nth line with a custom name (`0` means the first).
+    NamedSpan(String, u16),
 }
 
 impl GridLine {
-    pub(crate) fn is_valid(self) -> bool {
-        !matches!(self, GridLine::Line(0) | GridLine::Span(0))
+    pub(crate) fn is_valid(&self) -> bool {
+        match self {
+            GridLine::Line(0) | GridLine::Span(0) => false,
+            GridLine::NamedLine(name, _) | GridLine::NamedSpan(name, _) => valid_grid_ident(name),
+            GridLine::Auto | GridLine::Line(_) | GridLine::Span(_) => true,
+        }
     }
 }
 
 /// An item's placement on one grid axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GridPlacement {
     /// Start edge.
     pub start: GridLine,
@@ -367,58 +565,133 @@ pub struct GridPlacement {
 }
 
 impl GridPlacement {
-    /// Parse `<line> [ / <line> ]?`, including `auto`, negative lines and spans.
+    /// Parse `<grid-line> [ / <grid-line> ]?`, including named lines.
     pub fn parse(text: &str) -> Option<Self> {
-        let mut sides = text.split('/');
-        let start = parse_line(sides.next()?.trim())?;
-        let end = match sides.next() {
-            Some(value) => parse_line(value.trim())?,
-            None => GridLine::Auto,
+        let text = text.trim();
+        if is_css_wide_keyword(text) {
+            return None;
+        }
+        let (start, end) = split_placement(text)?;
+        let start = placement_from_taffy(start.parse::<TaffyPlacement<String>>().ok()?);
+        let end = match end {
+            Some(value) => placement_from_taffy(value.parse::<TaffyPlacement<String>>().ok()?),
+            // CSS Grid §7.3.1: an omitted end copies a bare custom-ident;
+            // every other start defaults the end to auto.
+            None => match &start {
+                GridLine::NamedLine(name, 0) => GridLine::NamedLine(name.clone(), 0),
+                _ => GridLine::Auto,
+            },
         };
-        sides.next().is_none().then_some(Self { start, end })
+        let value = Self { start, end };
+        value.is_valid().then_some(value)
+    }
+
+    /// Construct a placement from its typed lines.
+    pub fn from_lines(start: GridLine, end: GridLine) -> Self {
+        Self { start, end }
     }
 
     /// The canonical CSS declaration value.
-    pub fn css(self) -> String {
-        format!("{} / {}", line_css(self.start), line_css(self.end))
+    pub fn css(&self) -> String {
+        if self.end == GridLine::Auto {
+            line_css(&self.start)
+        } else {
+            format!("{} / {}", line_css(&self.start), line_css(&self.end))
+        }
     }
 
-    pub(crate) fn is_valid(self) -> bool {
+    pub(crate) fn is_valid(&self) -> bool {
         self.start.is_valid() && self.end.is_valid()
     }
 }
 
-fn parse_line(text: &str) -> Option<GridLine> {
-    if text == "auto" {
-        return Some(GridLine::Auto);
-    }
-    if let Some(span) = text.strip_prefix("span ") {
-        return span
-            .trim()
-            .parse::<u16>()
-            .ok()
-            .filter(|n| *n > 0)
-            .map(GridLine::Span);
-    }
-    text.parse::<i16>()
-        .ok()
-        .filter(|n| *n != 0)
-        .map(GridLine::Line)
+fn is_css_wide_keyword(text: &str) -> bool {
+    ["inherit", "initial", "unset", "revert", "revert-layer"]
+        .iter()
+        .any(|keyword| text.eq_ignore_ascii_case(keyword))
 }
 
-fn line_css(line: GridLine) -> String {
-    match line {
+fn valid_grid_ident(name: &str) -> bool {
+    ![
+        "auto",
+        "span",
+        "default",
+        "inherit",
+        "initial",
+        "unset",
+        "revert",
+        "revert-layer",
+    ]
+    .iter()
+    .any(|keyword| name.eq_ignore_ascii_case(keyword))
+}
+
+fn split_placement(text: &str) -> Option<(&str, Option<&str>)> {
+    if text.is_empty() {
+        return None;
+    }
+    let mut slash = None;
+    let mut escaped = false;
+    for (i, byte) in text.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'/' && slash.replace(i).is_some() {
+            return None;
+        }
+    }
+    Some(match slash {
+        Some(i) => (text[..i].trim(), Some(text[i + 1..].trim())),
+        None => (text, None),
+    })
+}
+
+fn placement_from_taffy(value: TaffyPlacement<String>) -> GridLine {
+    match value {
+        TaffyPlacement::Auto => GridLine::Auto,
+        TaffyPlacement::Line(line) => GridLine::Line(line.as_i16()),
+        TaffyPlacement::NamedLine(name, index) => GridLine::NamedLine(name, index),
+        TaffyPlacement::Span(count) => GridLine::Span(count),
+        TaffyPlacement::NamedSpan(name, count) => GridLine::NamedSpan(name, count),
+    }
+}
+
+fn css_ident(name: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        let safe = ch == '-' || ch == '_' || ch.is_ascii_alphanumeric() || !ch.is_ascii();
+        let leading_digit =
+            ch.is_ascii_digit() && (i == 0 || (i == 1 && name.as_bytes().first() == Some(&b'-')));
+        if safe && !leading_digit {
+            out.push(ch);
+        } else {
+            out.push('\\');
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn line_css(value: &GridLine) -> String {
+    match value {
         GridLine::Auto => "auto".into(),
         GridLine::Line(n) => n.to_string(),
+        GridLine::NamedLine(name, 0) => css_ident(name),
+        GridLine::NamedLine(name, n) => format!("{n} {}", css_ident(name)),
         GridLine::Span(n) => format!("span {n}"),
+        GridLine::NamedSpan(name, 0) => format!("span {}", css_ident(name)),
+        GridLine::NamedSpan(name, n) => format!("span {n} {}", css_ident(name)),
     }
 }
 
-pub(crate) fn grid_line(value: GridLine) -> taffy::style::GridPlacement {
+pub(crate) fn grid_line(value: &GridLine) -> TaffyPlacement<String> {
     match value {
-        GridLine::Auto => taffy::style::GridPlacement::Auto,
-        GridLine::Line(i) => line(i),
-        GridLine::Span(n) => span(n),
+        GridLine::Auto => TaffyPlacement::Auto,
+        GridLine::Line(i) => line(*i),
+        GridLine::NamedLine(name, i) => TaffyPlacement::NamedLine(name.clone(), *i),
+        GridLine::Span(n) => span(*n),
+        GridLine::NamedSpan(name, n) => TaffyPlacement::NamedSpan(name.clone(), *n),
     }
 }
 
@@ -427,28 +700,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn css_track_grammar_is_bounded_and_canonical() {
-        let tracks =
-            GridTracks::parse("repeat(2, 1fr minmax(80px, 25%)) auto min-content max-content")
-                .unwrap();
-        assert_eq!(tracks.0.len(), 7);
-        assert_eq!(
-            tracks.css(),
-            "1fr minmax(80px, 25%) 1fr minmax(80px, 25%) auto min-content max-content"
-        );
-        assert!(GridTracks::parse("repeat(33, 1fr)").is_none());
-        assert!(GridTracks::parse("minmax(1fr, 20px)").is_none());
-        assert!(GridTracks::parse("-1px").is_none());
+    fn css_track_grammar_carries_taffys_css_forms() {
+        for value in [
+            "auto",
+            "25%",
+            "100PX",
+            "fit-content(40px)",
+            "fit-content(0)",
+            "minmax(0, 1fr)",
+            "repeat(auto-fit, minmax(80px, 1fr))",
+            "repeat(auto-fit, minmax(0, 1fr))",
+            "[start] 40px [middle] 1fr [end]",
+        ] {
+            assert!(GridTracks::parse(value).is_some(), "{value}");
+        }
+        for value in [
+            "repeat(2, repeat(2, 40px))",
+            "minmax(1fr, 20px)",
+            "minmax(auto, fit-content(40px))",
+            "1fr repeat(auto-fit, 40px)",
+            "subgrid",
+            "[auto] 1fr",
+        ] {
+            assert!(GridTracks::parse(value).is_none(), "{value}");
+        }
     }
 
     #[test]
-    fn css_placement_carries_lines_spans_and_negative_lines() {
-        assert_eq!(
-            GridPlacement::parse("2 / span 3").unwrap().css(),
-            "2 / span 3"
-        );
-        assert_eq!(GridPlacement::parse("-2").unwrap().css(), "-2 / auto");
+    fn css_placement_carries_numbers_spans_and_named_lines() {
+        for value in [
+            "2",
+            "AUTO",
+            "auto / SPAN 2",
+            "2 rail / span 3 rail",
+            "rail / span rail",
+        ] {
+            assert!(GridPlacement::parse(value).is_some(), "{value}");
+        }
         assert!(GridPlacement::parse("0 / auto").is_none());
         assert!(GridPlacement::parse("span 0").is_none());
+        assert!(GridPlacement::parse("inherit").is_none());
+        assert!(GridPlacement::parse("2 inherit").is_none());
+        assert!(GridPlacement::parse("1 / 2 / 3").is_none());
+        assert_eq!(GridPlacement::parse("rail").unwrap().css(), "rail / rail");
+        assert_eq!(GridPlacement::parse("2 rail").unwrap().css(), "2 rail");
     }
 }
