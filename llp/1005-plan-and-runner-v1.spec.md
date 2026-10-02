@@ -96,9 +96,17 @@ A stack machine over values with a small locals stack. Opcodes: literals
 LoadParam LoadItem LoadBound LoadLocal`), structure (`Field Record List`),
 arithmetic and comparison (`Add Sub Mul Div Rem Neg Eq Ne Lt Le Gt Ge Not
 Concat`), control (`Jump JumpIfFalse JumpIfNone Unwrap`), `Call <Stdlib>`,
-effects (`StoreSlot Command`), stack (`Pop BindLocal DropLocal`), `Return`.
+effects (`StoreSlot Send Refresh Command`), stack (`Pop BindLocal DropLocal`), `Return`.
 `LoadItem`/`LoadBound` take a depth in region frames (0 = innermost).
-`StoreSlot` outside an action's declared `writes` is `Trap::WriteNotDeclared`.
+An action's `writes` row is its allowlist: a `StoreSlot`, or a `Send` (whose
+mutation's slot it writes), naming a slot outside it is
+`Trap::WriteNotDeclared`, and code that is not an action's body (a derive, a
+resource's arguments, an initializer, a handler's arguments) runs with an
+empty one. Contract declares no writes (LLP 1035.005.000 D1, 2026-10-02: an
+authored `writes` clause is `syntax-writes-clause`): lowering sets the row to
+exactly the slots the body assigns or sends through every branch, in slot
+order (`Action::effects`, LLP 1006 §2), so a compiled plan never meets the
+trap; it guards a plan assembled by hand or corrupted.
 A derive or resource read before it settles this update is `Trap::Pending`
 (§6). A `List`, `Record` or `Some` whose expanded tree — a shared value
 counted in every place it appears, as equality, shape checks and encoding
@@ -284,7 +292,8 @@ numbers as UTF-8 `left,top`; malformed coordinates are refused.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
-rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`;
+rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`
+and `Send` (§4);
 its commands (`capability-call`) are collected and returned by
 `take_commands()` after commit, in order — and every host reads them after
 each commit and carries them to its presenter as `command` ops (2026-08-30;
