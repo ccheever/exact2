@@ -49,7 +49,7 @@ component Row
     press: string
   view
     button press=press(dep.id) aria-label=`Train ${dep.train}`
-      text formatCountdownMinutes(dep.at, nowMs) font-size=(1 + 2) * 3
+      text countdownText(dep.at, nowMs) font-size=(1 + 2) * 3
 "#;
 
 #[test]

@@ -114,13 +114,16 @@ jumps by label; a compiler never writes a raw byte.
 
 ## 5. The roster (`runner/src/stdlib.rs`)
 
-Each `stdlib` entry has one body: `now`, `formatClockTime` (UTC `h:mm AM`),
-`formatCountdownMinutes`, `formatDistance` (miles, one decimal, `nearby` under
-0.1), `formatWalk` (80 m/min), `length` (text in UTF-16 code units, as the
+Each `stdlib` entry has one body: `now`, `formatTime` (`h:mm AM`, LLP
+1054.000.003), `length` (text in UTF-16 code units, as the
 web's `String.length` and `maxlength` count), `isEmpty`, `toString` (integers print
 as JavaScript does), `floor`, `max`, `min`, and `at` (`Array.prototype.at` as
 an option, appended 2026-09-28 at the table's end so earlier ordinals hold;
-LLP 1006 §3). Deterministic and locale-free by
+LLP 1006 §3). `formatCountdownMinutes`, `formatDistance` and `formatWalk`
+were Caltrain's wording and are Caltrain `fn`s since 2026-10-02 (LLP
+1035.005.000 D8, LLP 1006 §5); deleting their rows moved every later entry's
+ordinal down three, so the format digest changed and every host re-bakes.
+Deterministic and locale-free by
 design. The compiler type-checks calls against the same table (LLP 1006 §3).
 
 LLP 1038 D3 adds these signatures, preserving the existing roster entries

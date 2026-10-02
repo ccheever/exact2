@@ -189,6 +189,10 @@ second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type,
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
 a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
+An app's wording is its own `fn`s, not the roster's (LLP 1035.005.000 D8,
+2026-10-02): `formatCountdownMinutes`, `formatDistance` and `formatWalk`,
+used only by Caltrain, left the roster for Caltrain `fn`s over `floor`, `max`
+and `toString` (§5).
 **Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
 and `action` (never a resource, mutation, or task — `type-child-resource`);
 `expand` lifts them into the root per use, renamed apart, a derive as a
@@ -547,7 +551,8 @@ build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `contract/corpus/now-screen.contract` is the runner's hand-built plan as
 Contract; the corpus test compiles it, round-trips the bytes, bakes, boots,
 and asserts the same behavior the hand-built test asserts (keyed reorder,
-`when` flip, timers, commands) — proven at both ends. `rejects.txt` holds one
+`when` flip, timers, commands, and the countdown's whole minutes, which both
+spell `toString(max(0, -floor(-((at - now) / 60000))))`) — proven at both ends. `rejects.txt` holds one
 fixture per diagnostic id, each refused with exactly its id. The
 app itself is the integration fixture (`apps/caltrain/tests/app.rs`).
 
@@ -581,6 +586,20 @@ regions, 9,893 bytes. `caltrain-data` implements `DataSource` for
 `defaultLocation`, `stations`, `nearest`, `station`, `board`, `search` over a
 seeded nine-station corridor with clock-face departures — exact1's `data.ts`,
 in Rust, one implementation for every host and for the bake.
+
+Its wording is four `fn`s at the top of `app.contract` (LLP 1035.005.000 D8,
+2026-10-02), the strings the roster's former formatters printed:
+`countdownText(at, now)` is the whole minutes to a departure, rounded up
+(`-floor(-x)`), never below 0; `distanceText(m)` is `nearby` under 0.1 mi,
+else the miles rounded to tenths (`floor(x * 10 + 0.5)`, which is
+`Math.round` for the positive tenths it sees) and printed by `tenthsText` as
+whole and tenth apart, so 2 prints `2.0 mi`; `walkText(m)` is at least
+`1 min walk`, at 80 m a minute, rounded up. Before the roster rows were
+deleted, each old formatter and its `fn` printed the same string on the Rust
+VM (Linux host) and the JS target for 2,670 inputs: distances at 0, at and
+around 0.1 mi (160.9344 m), at and one ulp around every half-tenth and whole
+tenth to 20 mi, up to 10⁹ km; walks at 0, 1, 79, 80, 81, 160 and negative;
+countdowns negative, 0, 1 ms, 59,999–60,001 ms and 10¹² ms.
 
 ## 6. Identity and refusal (LLP 1004 D3)
 

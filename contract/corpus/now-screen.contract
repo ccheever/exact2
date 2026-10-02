@@ -37,7 +37,7 @@ component Now
       when query == ""
         each d in board key=d.id
           button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
-            text formatCountdownMinutes(d.at, nowMs)
+            text toString(max(0, -floor(-((d.at - nowMs) / 60000))))
       else
         text "searching" testId="searching"
       input value=query input=setQuery testId="search"
