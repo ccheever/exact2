@@ -959,8 +959,8 @@ component Corners
 }
 
 #[test]
-fn corner_radii_refuse_negative_lengths_percentages_and_auto() {
-    for value in ["-1px", "-1%", "auto"] {
+fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
+    for value in ["-1px", "-1%", "auto", "3e38in"] {
         let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
         assert!(contract::compile(&source).is_err(), "{value}");
     }

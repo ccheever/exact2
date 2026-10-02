@@ -561,11 +561,12 @@ impl StyleValue {
                 | StyleId::BorderRadiusTopRight
                 | StyleId::BorderRadiusBottomRight
                 | StyleId::BorderRadiusBottomLeft
-        ) && matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0)
+        ) && (!value.is_finite()
+            || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
         {
             return Err(StyleValueError::WrongKind {
                 style,
-                expected: "nonnegative length or percentage",
+                expected: "nonnegative finite length or percentage",
             });
         }
         Ok(value)

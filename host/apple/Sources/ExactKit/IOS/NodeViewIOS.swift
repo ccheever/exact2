@@ -928,7 +928,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
-        let radius = number("border_radius", number("border_radius_top_left"))
+        applyMaterialRadius()
+    }
+    func applyMaterialRadius() {
+        guard let materialView else { return }
+        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
         if #available(iOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
@@ -1022,7 +1026,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
     /// picture (`BoxFilter`), drawn again after each batch.
-    private var boxFilter: BoxFilter?
+    private(set) var boxFilter: BoxFilter?
     func applyFilter() {
         // A node with no `filter` and none before makes no `BoxFilter` (three
         // layers) to learn so: every styled node passes through here.
@@ -1037,14 +1041,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.remove()
             boxFilter = nil
             presenter?.boxFilters.remove(self)
-            layer.mask = ClipPath.mask(clipPath, clipRule)
+            layer.mask = resolvedClipMask()
         }
     }
 
     func renderFilter() {
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
-        f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.screen.scale ?? traitCollection.displayScale)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale)
     }
 
     override func didMoveToSuperview() {
@@ -1068,7 +1072,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         style = s
         updateSymbol()
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
-        layer.mask = ClipPath.mask(clipPath, clipRule)
+        layer.mask = resolvedClipMask()
         applyFilter()
         updateMaterial()
         syncScroll()
@@ -1194,6 +1198,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
+        if materialView != nil { applyMaterialRadius() }
+        syncEllipticalClip()
         if kind == "image" { presenter?.session?.rasters.resized(self); if raster != nil { applyImageLayer() } }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()

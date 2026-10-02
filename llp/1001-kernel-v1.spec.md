@@ -71,7 +71,10 @@ lengths or percentages. A single `border-radius="50%"` sets each corner;
 percentages resolve independently against the border box's width and height,
 then CSS's common overlap reduction applies. Web keeps the authored percentage;
 Apple and Linux paint elliptical corners, including after a resize. Negative
-literal lengths and percentages and `auto` are refused.
+literal lengths and percentages and `auto` are refused. Each corner still takes
+one length or percentage; paired horizontal/vertical radii and the slash-separated
+`border-radius` shorthand are not implemented. Percentage ellipses do not require
+that separate value-pair syntax.
 
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
 (bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's

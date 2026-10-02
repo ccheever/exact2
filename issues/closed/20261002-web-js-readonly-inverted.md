@@ -49,3 +49,12 @@ gives `a: "one"` and `b: ""`. The emitted module contains
 Fix: apply the wasm host's inversion where the JS target emits an `editable` binding
 (for example, `prop_name` returns the value transform along with the DOM name). Add a
 conformance case with a bound `readonly`; the wasm oracle already gets it right.
+
+## Reverification, 2026-10-02
+
+On current main, the default JS Fieldnotes build accepts title/body edits,
+saves them, and restores both when the note is reopened in a scratch store.
+The Styles conformance plan also blocks typing while a bound readonly is true
+and accepts typing again after it becomes false; compound and literal controls
+agree. Three JS compiler tests pass. Removed the stale Fieldnotes typing entry
+from `QUEUE.md` after this real-browser verification.

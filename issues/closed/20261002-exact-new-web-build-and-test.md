@@ -29,3 +29,15 @@ toolchain:
 Found when a fresh Claude Code session followed the README to build a todo app,
 2026-10-02. It used the README's command instead of `web-build`, and drove the tests from
 the exact2 checkout by hand.
+
+## Host selection and agent passthrough, 2026-10-02
+
+The initial fix used the JS web build, but its generated `test` command still
+hardcoded `web` and had no `agent` verb. The runner now accepts `test <host>`
+and `agent <host> ...`, forwards host arguments and operation strings intact,
+and preserves the app directory, simulator environment and child exit status.
+`test` without a host defaults to web. The creation instructions show both
+commands. Dispatcher tests execute the generated runner from outside the app
+against web, iOS and macOS entry points, including a failed test exit.
+
+The update command also creates a boot test when an older app has no `app.test.contract`, preserving any existing test. Verified by updating and running a real outside app.

@@ -29,3 +29,21 @@ Options: carry horizontal and vertical radii per corner, with percentages resolv
 against the laid-out box, so both percentages and the `/` form work as in CSS. Or keep
 lengths only, declare the deviation in LLP 1001, and make the refusal name the
 workaround.
+
+## Native consumer follow-up, 2026-10-02
+
+The initial paint change left material/backdrop views and video layers reading
+corner percentages as numbers, and equal percentage corners on non-square
+native overflow clips lost their ellipse when the circular layer fast path
+could not represent it. Those consumers now use the resolved corner geometry;
+video clips resolve at the border box and then subtract the content insets.
+Elliptical overflow masks intersect with authored `clip-path` and are rebuilt
+or removed when bounds/styles change. The kernel spec explicitly identifies
+paired-radius and slash syntax as separate, unimplemented syntax.
+
+Regression coverage includes native rendered pixels for an ellipse intersected
+with `clip-path`, resizing, style removal, materials, backdrops and video.
+
+Grok review also caught physical-unit overflow: `3e38in` compiled to an infinite radius. Radius declarations now reject non-finite resolved dimensions; the regression fails before and passes after the guard.
+
+The native review regressions cover restoring the ellipse after a layout surface ends, non-circular clips on Mac text/canvas/iframe nodes, and video geometry refreshed by radius or padding changes without player-prop changes.

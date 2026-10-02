@@ -597,7 +597,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// border box (a 100 pt radius on a 28 pt pill is 14), at the current size.
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = cornerRadii(in: bounds).max() ?? 0
+        materialView.wantsLayer = true
+        guard let materialLayer = materialView.layer else { return }
+        let radius = BorderPaint.clip(materialLayer, in: bounds, radii: cornerSizes(in: bounds))
         if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
             glass.cornerRadius = radius
         } else {
@@ -1044,7 +1046,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
-        layer?.mask = ClipPath.mask(clipPath, clipRule)
+        layer?.mask = resolvedClipMask()
         applyFilter()
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1138,7 +1140,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
     /// picture (`BoxFilter`), drawn again after each batch.
-    private var boxFilter: BoxFilter?
+    private(set) var boxFilter: BoxFilter?
     func applyFilter() {
         // A node with no filter makes no BoxFilter to learn so (three layers
         // per styled node otherwise; iOS's 50e9abf6e).
@@ -1153,7 +1155,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.remove()
             boxFilter = nil
             presenter?.boxFilters.remove(self)
-            layer?.mask = ClipPath.mask(clipPath, clipRule)
+            layer?.mask = resolvedClipMask()
         }
     }
 
@@ -1164,7 +1166,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // properties (`BoxLayerMac.swift`) gets them now, not at the next
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
-        f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.backingScaleFactor ?? 2)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidMoveToSuperview() {
@@ -1191,6 +1193,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
         if materialView != nil { applyMaterialRadius() }
+        if number("backdrop_blur") > 0 { applyBackdrop() }
         // Border, gradient and image sublayers follow the new size.
         if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
     }
@@ -1199,7 +1202,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard kind == "text" else { return }
         wantsLayer = true
         applyShadow()
-        layer?.mask = boxFilter?.hide ?? ClipPath.mask(clipPath, clipRule)
+        layer?.mask = boxFilter?.hide ?? resolvedClipMask()
         layer?.zPosition = usedZIndex
         applyTransform()
     }
