@@ -205,9 +205,9 @@ export async function duoSmoke({ open, check }) {
       await settle(s);
       // Fold: the facts, the panes on the segments, a selection kept across every pose.
       check(byTestId(await s.tree(), 'screen-fold') != null, 'duo-lab opens on the Fold screen');
-      await s.tap('item-3'); await settle(s);
+      await s.tap('item-2'); await settle(s);
       const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-      check(typeof chosen === 'string' && chosen.length > 0, `item-3 selected a detail: ${chosen}`);
+      check(typeof chosen === 'string' && chosen.length > 0, `item-2 selected a detail: ${chosen}`);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
         const t = await s.tree(), text = (id) => byTestId(t, id)?.props.text;
         const two = folded(deg);
