@@ -178,8 +178,8 @@ export function commit(f, what = "commit") {
   Store.persist();
   for (const go of out) go();
   for (const c of cmds) command(...c);
-  // An answer's `then` runs as its own commit, after this one stood.
-  for (const m of landed) if (m.then) setTimeout(() => m.then());
+  // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
+  for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
   return true;
 }
 /** What runs after each commit's tree update (a loaded piece's publication),
@@ -255,20 +255,22 @@ export function frames(action) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
   if (!clock.agent) paint();
 }
-/** Move the clock to `to`, firing each due timer at its own time, in order;
- * a seek fires frame tasks' virtual frames too, the wall clock's (`wall`) none. */
-/** `stop()`, asked after each timer, ends the advance there (the agent's:
- * one that sent a request): true when it stopped short of `to`. Under the
- * agent the journal gets the runner's line for an advance that fired. */
+/** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
+ * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
+ * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time: its journal
+ * line, as the runner's error. Under the agent the journal gets the runner's line for an advance that fired. */
 export function advance(to, wall, stop) {
   let fired = 0, stopped = false;
   for (;;) {
-    let next = null;
+    let next = null, then = null;
     for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
-    if (!next) break;
-    clock.now = next.due;
-    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms;
-    fire(next);
+    // An answer's `then` goes before a timer due at the same time: the answer landed first.
+    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
+    if (!next && !then) break;
+    if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
+    if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
+    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
+    if (fire(then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
     fired++;
     if (stop?.()) { stopped = true; break; }
   }
@@ -278,12 +280,12 @@ export function advance(to, wall, stop) {
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
-function fire(t) { Timing = true; try { t.action(); } finally { Timing = false; } }
+function fire(f) { Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 function drive() {
   clearTimeout(driving);
   let next = Infinity;
-  for (const t of clock.timers) if (!t.frame && t.due < next) next = t.due;
+  for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
 }
@@ -298,7 +300,7 @@ function paint() {
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
-    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t); }
+    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -440,7 +442,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
 export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
-  const m = { ticket: null, then: null };
+  const m = { name, ticket: null, then: null, due: Infinity };
   Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
