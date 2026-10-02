@@ -106,6 +106,7 @@ component DuoLab
   resource feed = feed() as shape list<FeedRow>
   // Shared across the Fold screen's two layouts: a fold mid-reading keeps the item.
   state selected = 1
+  state title = ""
   state draft = ""
   state noteFocused = false
   state sheetPx = 400
@@ -121,6 +122,8 @@ component DuoLab
     nav = back(nav)
   action navigate(location: string)
     nav = open(nav, location)
+  action writeTitle(value: string)
+    title = value
   action write(value: string)
     draft = value
   action focusIn
@@ -182,7 +185,7 @@ component DuoLab
               column padding=16 gap=12
                 button press=openNote testId="open-note" padding=14 border-radius=10 background-color="#1b1a17"
                   text "Push the note screen" font-size=16 font-weight=600 color="#ffffff"
-                text `Draft so far: ${draft == "" ? "(nothing)" : draft}` testId="draft-echo" font-size=14 color="#6b655a"
+                text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="#6b655a"
               column flex=1
               TabBar(tab=nav.tab, select=selectTab)
           when entry.name == "note"
@@ -192,7 +195,7 @@ component DuoLab
                   text "Back" font-size=14 font-weight=600 color="#ffffff"
                 text "Note" font-size=20 font-weight=700 testId="note-title"
               text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="100%" box-sizing="border-box" padding=16 padding-right="calc(env(safe-area-inset-right) + 16px)" padding-bottom="calc(env(safe-area-inset-bottom) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height spring(300, 30, 1)"
+            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(safe-area-inset-right) + 16px)" padding-bottom="calc(env(safe-area-inset-bottom) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height spring(300, 30, 1)"
               column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                 text "Note" font-size=18 font-weight=600
                 text "Drag to resize" font-size=11 color="#6b655a"
@@ -200,6 +203,7 @@ component DuoLab
                 button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="#e6e0d2"
                   text "Dismiss the keyboard" font-size=14 font-weight=600
                 text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="#6b655a"
+              input value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16
               textarea value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16 line-height="22px"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.
