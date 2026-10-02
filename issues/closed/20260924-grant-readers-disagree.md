@@ -43,4 +43,6 @@ and validates the complete returned write set before applying any write.
   Whole-suite legacy projection/transform test failures and the existing
   10k-row theme performance issue are separate from this fix.
 - Measured RealWorld JS entry: 24,943 to 27,845 bytes brotli-11; wasm core:
-  306,204 to 309,825 bytes, below its 304 KiB ceiling.
+  306,204 to 310,135 bytes (+3,931), below its 304 KiB ceiling.
+- Caltrain’s final JS build rendered both pages and launched; station search
+  accepted `Palo` and reported `query=Palo`, `searchFocused=true`.
