@@ -39,13 +39,13 @@ mod height_drag;
 pub use height_drag::HeightDragBinding;
 #[path = "flow_host.rs"]
 mod flow_host;
+mod fold;
 #[path = "layers.rs"]
 pub mod layers;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
-
 /// A reply as the ABI carries it, as the runner's `Outcome`. Kind 8 is one
 /// message of a stream: `event`, `id` and `coalesced` as header lines, the
 /// data as the body (LLP 1016.000).

@@ -939,6 +939,47 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The device's posture and the viewport segments (LLP 1076 D4), set
+    /// only by the agent here: the kernel's grid and `exactViewport`'s
+    /// three fields together — a relayout when a style reads the segments,
+    /// one commit when a resource reads the fields.
+    pub fn set_segments(
+        &mut self,
+        posture: exact_runner::Posture,
+        cols: u32,
+        rows: u32,
+        rects: Vec<exact_kernel::Rect>,
+    ) -> Option<String> {
+        let (Ok(c), Ok(r)) = (u8::try_from(cols), u8::try_from(rows)) else {
+            return Some(format!("segments: {cols}x{rows} is past the kernel's grid"));
+        };
+        let restyled = match self.runner.kernel_mut().set_segments(c, r, rects) {
+            Ok(changed) => changed,
+            Err(e) => return Some(format!("segments: {e:?}")),
+        };
+        let fold = exact_runner::Fold {
+            posture,
+            cols,
+            rows,
+        };
+        match self.runner.set_fold(fold) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) if restyled => {
+                let error = self.layout().err();
+                self.observe_layout();
+                error
+            }
+            Ok(None) => None,
+            Err(e) => Some(format!("segments: {e:?}")),
+        }
+    }
+
     /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
     /// in one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {

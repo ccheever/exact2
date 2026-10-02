@@ -529,7 +529,66 @@ export function environment() {
     "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
     "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+    ...foldEnv(),
   };
+}
+
+// @ref LLP 1076 D6, D7 — the fold as the browser reports it: the Device
+// Posture API's `navigator.devicePosture.type` and the viewport segments
+// `window.viewport.segments` (two or more means a divider splits the
+// viewport; the columns are the distinct lefts, the rows the distinct tops).
+// Where the browser lacks the APIs: `continuous`, 1 × 1, which is also what
+// Chromium reports on a flat display. Under the agent, `prefer posture` and
+// `prefer segments` go through CDP's display-feature and posture overrides
+// (the driver), so the browser's own readings change; where CDP offers
+// none, the driver's substitute lands here (`preferFold`) and stands in for
+// them — the facts and `layout.env`, not CSS's own `env()` resolution.
+let foldSubstitute = null;
+const r2 = (x) => Math.round(x * 100) / 100;
+function readFold() {
+  const posture = globalThis.navigator?.devicePosture?.type === "folded" ? "folded" : "continuous";
+  const segments = globalThis.viewport?.segments;
+  const rects = Array.isArray(segments) && segments.length >= 2 ? segments.map((s) => [s.x, s.y, s.width, s.height]) : [];
+  const cols = rects.length ? new Set(rects.map((r) => r[0])).size : 1, rows = rects.length ? new Set(rects.map((r) => r[1])).size : 1;
+  return { posture, cols, rows, rects };
+}
+export const fold = () => foldSubstitute ?? readFold();
+/** `layout.env`'s four names (LLP 1012 §1). */
+export function foldEnv() {
+  const f = fold();
+  return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
+}
+export function onFold(changed) {
+  globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
+  addEventListener("resize", changed);
+}
+/** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
+export function evenSegments(width, height, cols, rows, gap = 0) {
+  if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
+  if (!(Number.isFinite(gap) && gap >= 0)) throw new Error(`segments: gap ${gap} is not a non-negative length`);
+  if (cols * rows === 1) return [];
+  const span = (total, n) => { const bands = (n - 1) * gap; if (bands >= total) throw new Error(`segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${width} × ${height})`); return (total - bands) / n; };
+  const w = span(width, cols), h = span(height, rows), out = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) out.push([x * (w + gap), y * (h + gap), w, h]);
+  return out;
+}
+/** The agent's substitute (`prefer`'s `fold` group): `posture`, `cols`, `rows`, `gap`; `null` drops it and the browser's own readings return. */
+export function preferFold(request) {
+  if (request == null) { foldSubstitute = null; return foldEnv(); }
+  const next = { ...fold() };
+  let gap = 0, grid = false;
+  for (const [name, raw] of Object.entries(request)) {
+    const n = Number(raw);
+    switch (name) {
+      case "posture": if (raw !== "folded" && raw !== "continuous") throw new Error(`prefer: posture: ${raw} is folded or continuous`); next.posture = raw; break;
+      case "cols": case "rows": if (!(Number.isInteger(n) && n >= 1)) throw new Error(`prefer: segments: ${raw} ${name === "cols" ? "columns" : "rows"} is not a count`); next[name] = n; grid = true; break;
+      case "gap": if (!(Number.isFinite(n) && n >= 0)) throw new Error(`prefer: segments: gap ${raw} is not a length`); gap = n; grid = true; break;
+      default: throw new Error(`prefer: ${name} is not a fold fact this host sets`);
+    }
+  }
+  if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw new Error(`prefer: ${e.message}`); } }
+  foldSubstitute = next;
+  return foldEnv();
 }
 
 // @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the

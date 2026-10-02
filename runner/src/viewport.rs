@@ -116,6 +116,46 @@ impl Fold {
     }
 }
 
+/// The segments a host without a fold makes for the agent's `prefer
+/// segments <cols>x<rows> [gap <points>]` (LLP 1076 D7): the viewport split
+/// evenly, the gap centred on each divider, as `[x, y, w, h]` row-major —
+/// none for 1 × 1. Refused by name: a zero count, a negative or non-finite
+/// gap, a gap wider than the viewport (the dividers leave no room).
+pub fn even_segments(
+    width: f64,
+    height: f64,
+    cols: u32,
+    rows: u32,
+    gap: f64,
+) -> Result<Vec<[f64; 4]>, String> {
+    if cols == 0 || rows == 0 {
+        return Err(format!("segments {cols}x{rows}: each count is at least 1"));
+    }
+    if !gap.is_finite() || gap < 0.0 {
+        return Err(format!("segments: gap {gap} is not a non-negative length"));
+    }
+    if cols * rows == 1 {
+        return Ok(Vec::new());
+    }
+    let span = |total: f64, n: u32| -> Result<f64, String> {
+        let bands = f64::from(n - 1) * gap;
+        if bands >= total {
+            return Err(format!(
+                "segments {cols}x{rows} gap {gap}: the gap is wider than the viewport ({width} × {height})"
+            ));
+        }
+        Ok((total - bands) / f64::from(n))
+    };
+    let (w, h) = (span(width, cols)?, span(height, rows)?);
+    let mut out = Vec::with_capacity((cols * rows) as usize);
+    for y in 0..rows {
+        for x in 0..cols {
+            out.push([f64::from(x) * (w + gap), f64::from(y) * (h + gap), w, h]);
+        }
+    }
+    Ok(out)
+}
+
 /// CSS's user-preference media features (Media Queries 5 §11) a host reads
 /// from the platform: `prefers-reduced-motion: reduce`,
 /// `prefers-reduced-transparency: reduce`, `prefers-contrast` and
@@ -265,7 +305,30 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::{Contrast, Fold, Posture, Preferences, Viewport, FIELDS};
+    use super::{even_segments, Contrast, Fold, Posture, Preferences, Viewport, FIELDS};
+
+    #[test]
+    fn even_segments_split_the_viewport_with_the_gap_centred() {
+        assert!(even_segments(951.0, 669.0, 1, 1, 40.0).unwrap().is_empty());
+        assert_eq!(
+            even_segments(951.0, 669.0, 2, 1, 40.0).unwrap(),
+            vec![[0.0, 0.0, 455.5, 669.0], [495.5, 0.0, 455.5, 669.0]]
+        );
+        assert_eq!(
+            even_segments(100.0, 100.0, 2, 2, 0.0).unwrap(),
+            vec![
+                [0.0, 0.0, 50.0, 50.0],
+                [50.0, 0.0, 50.0, 50.0],
+                [0.0, 50.0, 50.0, 50.0],
+                [50.0, 50.0, 50.0, 50.0]
+            ]
+        );
+        assert!(even_segments(100.0, 100.0, 0, 1, 0.0).is_err());
+        assert!(even_segments(100.0, 100.0, 1, 0, 0.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, 100.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, -1.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, f64::NAN).is_err());
+    }
 
     /// LLP 1076 D2: the three fold fields fill by name; the bake answers
     /// `continuous`, 1, 1.

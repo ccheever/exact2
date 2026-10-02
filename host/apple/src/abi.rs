@@ -1470,6 +1470,7 @@ pub fn with_entry<D: DataSource>(
 }
 
 mod exports;
+pub(crate) mod segments;
 
 #[path = "abi/commands.rs"]
 mod commands;

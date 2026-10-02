@@ -101,3 +101,127 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 ## Not doing
 
 Rotation and Split View on the Duo simulator (the 27.1 beta ignores CoreDevice orientation; LLP 1008); a hinge-angle fact; a posture-driven engine policy (an app chooses, as with reduced motion); container queries (LLP 1039 D5); `env(keyboard-inset-*)` (LLP 1008 §9, still not built).
+
+## As built (core half: D1–D7, D10; 2026-10-02, lane/duo-core)
+
+**Kernel (D3).** `Dimension::Segment(SegmentVar, x, y, plus)` in
+`kernel/src/style.rs`; the grammar, `Edge`, `Env`, `Rect` and `SegmentVar`
+moved to the new `kernel/src/style/env.rs` (style.rs was 1,439 lines).
+`env::parse` returns `Ok(None)` for text that is not an `env()` form at all
+and `Err(EnvRefusal)` for one that names a kernel variable wrongly, so the
+bake refuses by name (D10) through `StyleValueError::BadEnv` — one index,
+three, a negative or non-integer one, one past 15, a fallback argument, an
+unknown variable — and `contract/lower/src/values.rs` prints the reason.
+`Env` grows `cols`, `rows`, `segments: Vec<Rect>` and stops being `Copy`;
+`Env::new(t, r, b, l)` is still the four insets (one segment).
+`Kernel::set_segments(cols, rows, rects)` refuses a zero count, a count
+that is not `cols × rows` (any rect on a 1 × 1 grid), and a non-finite rect
+(`LayoutError::InvalidSegments`); `set_env` sets the insets only and keeps
+the grid; both re-derive and dirty exactly the `uses_env` nodes; a `reset`
+and a rehydration keep both. Wire kinds 8–13 (`SegmentVar` order: width,
+height, top, left, bottom, right) carry the kind byte, **the `f32` the other
+kinds carry (the points `calc()` adds), then the two index bytes `x`, `y`**
+— the RFC's "no float" would have lost the `calc(env(…) ± Npx)` form D3
+asks for, so the float stays and the indices follow it; an index past 15 on
+the wire is `UnknownDimensionKind`. The schema's `_styles` note now names
+kinds 3–13.
+
+Two choices where the RFC left room, both the web's:
+
+- **Edge semantics.** `viewport-segment-bottom` and `-right` are the
+  segment's bottom and right edges measured from the viewport's top and
+  left — a `DOMRect`'s `bottom`/`right`, which is what Chromium's
+  `StyleEnvironmentVariables` sets them to (`segment.bottom()`,
+  `segment.right()`) and what CSS-ENV-1 §2.3's two-column example relies on.
+  D3's parenthetical ("distance from the viewport's bottom edge") was the
+  draft's guess; the parity oracle is Chromium, so the kernel follows it.
+  On the Duo at 130°, `env(viewport-segment-right 0 0)` is 455.5 and
+  `-left 1 0` is 495.5: the band between them is the fold.
+- **Initial value, exactly.** An undefined segment (one segment, or an index
+  past the grid) is invalid at computed-value time. `Dimension::resolve`
+  gives `Auto` as the stand-in, and `StyleProps::to_taffy` substitutes the
+  row's own initial value from the table before lowering — `auto` for a
+  width or an inset, **0 for a margin** (CSS's initial, though the row
+  admits `auto`; Q4's "auto where the row allows it" would have centred a
+  box) — on a clone made only for a style that holds an undefined segment.
+  The authored row is untouched, so the next grid resolves it.
+
+**Runner (D2).** `viewport::FIELDS` gains `devicePosture`,
+`horizontalViewportSegments`, `verticalViewportSegments`, filled from
+`Viewport.fold: Fold { posture: Posture, cols, rows }` (flat by default: the
+bake answers `continuous`, 1, 1; `bake-viewport-field` and the JS target's
+`facts.rs` learn the names from the same slice). `Runner::set_fold` is
+`set_preferences`'s twin through `replace_viewport`; `set_viewport` and
+`set_preferences` keep the fold. `viewport::even_segments(w, h, cols, rows,
+gap)` is the one even split the Linux agent uses (the Swift and JS hosts
+carry the same formula: `Segments.even`, `evenSegments`). `state.device`
+reports the three fields.
+
+**ABI (D4).** `exact_segments(rt, posture, cols, rows, count)` on Apple —
+the rects as `count × 4` little-endian floats in the input buffer, as
+`exact_set_place`'s text travels, since `host/apple` denies `unsafe` and a
+`const float *` would need a raw read (`host/apple/src/host.rs::set_segments`: the kernel's grid,
+the env readers' dictionaries re-sent in preorder, paragraphs, then the
+runner's fold committed into the same batch through `commit_into`, or a
+layout when only styles moved; a count past 255 or the kernel's refusal is
+an error on the batch and changes nothing). The web's wasm host exports
+`exact_segments(posture, cols, rows)` — no rects: the browser resolves the
+lengths itself, the runner answers the fields. Linux: `Host::set_segments`,
+reached from the presenter's `set_segments`, which keeps the rects for
+`layout.env`.
+
+**Apple (D5).** UIKit 27.1 is resolved through the Objective-C runtime
+(`host/apple/Sources/ExactKit/IOS/ReservedRegions.swift`), not compiled
+against: the default Xcode 27.0 SDK lacks `UIViewReservedRegion` and
+`UIHingeInteraction`, and the 27.1 beta ships the same Swift 6.4
+(`swiftlang-6.4.0.34.1`), so neither `#if compiler(>=…)` nor
+`canImport(UIKit, _version:)` can tell the SDKs apart. `-[UIView
+reservedRegionsOfKind:options:]` is called through its IMP with
+`+[UIViewReservedRegionKind divisionRegionKind]` and `IncludeInactive`, each
+region's `frame`, `margins` and `isActive` read by KVC;
+`UIHingeInteraction` is `alloc`/`initWithUpdateHandler:` with a
+`@convention(block)` handler, added as a `UIInteraction`. A 27.0 build finds
+neither class and reports flat; a 27.1 build on the Duo finds both. In
+`ExactViewIOS.fit`, the container's active divisions are moved into the
+viewport's frame (and scaled by an agent window override) and
+`Segments.split` (pure, in the shared `Segments.swift`) cuts columns with
+bands taller than wide and rows with the others, each band with its margins
+belonging to no segment (Q5: UIKit's frame); `folded` while any is active.
+`exact_segments` goes out when the fold changes, beside the insets; the
+hinge interaction's handler calls `setNeedsLayout` (and marks the device as
+having a fold once a hinge is reported). `rebooted()` resends the fold
+unconditionally on iOS and macOS, so every boot — including a dev reload's
+fresh runner — gets `continuous` 1 × 1 at least once, never the bake's
+answer by default. `SegmentsTests.swift` holds the split and the even split
+without a simulator.
+
+**Web (D6).** `navigation.js` reads `navigator.devicePosture.type` and
+`window.viewport.segments` (two or more rects; columns are the distinct
+lefts, rows the distinct tops), `foldEnv()` joins `environment()`, and
+`glue.js` calls `exact_segments` once after boot and on `resize` and the
+posture's `change`. `css.rs` lowers `Dimension::Segment` to CSS-ENV-1's
+text untouched. The JS target's `facts.js` answers the three fields from the
+same readings and re-answers on the same events.
+
+**Agent (D7).** `layout.env` carries `device-posture`,
+`horizontal-viewport-segments`, `vertical-viewport-segments` and
+`viewport-segments` on every host (`AgentIOS`, `AgentMac`, `navigation.js`
+for both web targets, `host/linux/src/presenter.rs`; the Linux pinned test
+and the smoke's env check hold the names). `prefer` gains the `fold` group
+on the wire — `{"fold": {"posture", "cols", "rows", "gap"}}` — and the CLI
+forms `prefer posture folded|continuous` and `prefer segments <cols>x<rows>
+[gap <points>]` (Q3: gap defaults to 0). macOS, Linux and a fold-less iOS
+split their viewport evenly; an iOS device that reported a division or a
+hinge refuses ("the device decides"); `0x1`, `1x0`, a negative gap and a gap
+wider than the viewport are refused by name on every host (D10). On the web
+the driver uses Chromium's own overrides — `Emulation.setDevicePostureOverride`
+and `Emulation.setDisplayFeaturesOverride`, one feature per divider, `gap`
+wide, where the even split puts it — so the page's `navigator.devicePosture`,
+`window.viewport.segments` and CSS's `env(viewport-segment-*)` all change
+(the parity oracle); a browser whose CDP lacks them gets the glue's
+substitute (`preferFold`), which stands in for the facts and `layout.env`
+but not for CSS's own resolution, and says so in `navigation.js`. The
+reply's `fold{…}` is the four `layout.env` names. `agent-inspect.mjs` prints
+`posture P · segments C×R [x,y w×h]…` when the device is not flat.
+
+**Numbers.** (filled in below after the runs)

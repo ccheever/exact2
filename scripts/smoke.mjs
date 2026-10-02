@@ -1174,7 +1174,7 @@ if (deckFixture) {
       let l = await f.layout();
       const env = l.env ?? {};
       const names = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
-      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`);
+      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`); check(['continuous', 'folded'].includes(env['device-posture']) && Number.isInteger(env['horizontal-viewport-segments']) && Number.isInteger(env['vertical-viewport-segments']) && Array.isArray(env['viewport-segments']), `layout.env reports the fold by its four names (LLP 1076 D7): ${JSON.stringify(l.env)}`);
       const [top, right, bottom, left] = names.map((k) => env[k] ?? 0);
       const viewport0 = l.viewport;
       const rootBox = box(l, 'root'), content = box(l, 'content');

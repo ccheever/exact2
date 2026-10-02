@@ -425,6 +425,13 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1076 D4: the device's posture (0 continuous, 1 folded) and the
+ * viewport segments a fold makes — cols × rows rects, row-major, each
+ * x y w h as four little-endian floats in the input buffer (count rects;
+ * none for 1 × 1). Sets the kernel's env(viewport-segment-*) grid and
+ * exactViewport's three fields in one batch, as exact_resize sets the
+ * viewport and preferences together. */
+uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols, uint32_t rows, uint32_t count);
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
  * under paint motion resolves by; a change transitions it (LLP 1062). */
 uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);

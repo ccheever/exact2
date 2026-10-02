@@ -15,8 +15,8 @@ use crate::batch::Batch;
 use crate::style;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
-    Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
-    TextMeasurer, ViewId,
+    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
+    ViewId,
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
@@ -29,6 +29,8 @@ mod arrange_tests;
 pub(crate) mod canvas2d;
 #[path = "content_region/host.rs"]
 mod content_region_host;
+#[path = "fold.rs"]
+mod fold;
 #[path = "height.rs"]
 mod height;
 #[path = "height_drag.rs"]
@@ -1057,32 +1059,6 @@ impl<D: DataSource> Host<D> {
         }
         let mut batch = Batch::new();
         let error = self.layout(&mut batch).err();
-        self.finish(batch, error)
-    }
-
-    /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
-    /// rotation): the kernel's environment is set, every node whose style
-    /// holds an `env()` length gets its dictionary re-sent with the new
-    /// points and is laid out again; the batch carries what moved. Empty
-    /// when nothing reads the insets, or they did not change.
-    pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> String {
-        let mut batch = Batch::new();
-        let error = match self
-            .runner
-            .kernel_mut()
-            .set_env(Env::new(top, right, bottom, left))
-        {
-            Ok(false) => None,
-            Ok(true) => {
-                self.height_targets_dirty = true;
-                for id in self.preorder() {
-                    self.update(id, &mut batch);
-                }
-                self.emit_paragraphs(&mut batch);
-                self.layout(&mut batch).err()
-            }
-            Err(e) => Some(format!("insets: {e:?}")),
-        };
         self.finish(batch, error)
     }
 

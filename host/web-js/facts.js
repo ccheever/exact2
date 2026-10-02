@@ -13,7 +13,7 @@
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
 import { data, Resources, commit, R, Refusal } from "./rt.js";
-import { preferences, onPreferences, pageReporter } from "./navigation.js";
+import { preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
@@ -22,14 +22,18 @@ const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
 const CONTRAST = ["no-preference", "more", "less", "custom"];
 export function viewport(readers) {
   (data.reserved ??= {}).exactViewport = (_, a, name) => {
-    const p = preferences();
+    const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
-      prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light" });
+      prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
+      devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows }); // @ref LLP 1076 D2, D6
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
   addEventListener("resize", changed);
   onPreferences(changed);
+  onFold(changed);
+  // The agent's `prefer` fold group (LLP 1076 D7): an empty one re-reads the browser, a filled one is the substitute.
+  (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
 }
 
 // A release admits no agent mode (LLP 1069.007 D2): its build writes this false.

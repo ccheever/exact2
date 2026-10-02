@@ -1125,14 +1125,21 @@ impl StyleProps {
         // A segment length the environment does not define is invalid at
         // computed-value time (CSS-ENV-1 §2.3): the row takes its initial
         // value, which is the table's default (LLP 1076 D3).
-        let initial;
-        let this = if self.has_undefined_segment(env) {
-            initial = self.with_initial_segments(env);
-            &initial
+        self.env_resolved(env).lower(node_type, env)
+    }
+
+    /// This style with every segment length `env` does not define replaced
+    /// by its row's initial value (CSS-ENV-1 §2.3: invalid at computed-value
+    /// time; LLP 1076 D3) — borrowed when there is none to replace, a copy
+    /// otherwise. Every reader of a style's dimensions goes through this
+    /// before resolving them, so no reader sees the `Auto` stand-in on a row
+    /// that does not admit it.
+    pub fn env_resolved(&self, env: &Env) -> std::borrow::Cow<'_, StyleProps> {
+        if self.has_undefined_segment(env) {
+            std::borrow::Cow::Owned(self.with_initial_segments(env))
         } else {
-            self
-        };
-        this.lower(node_type, env)
+            std::borrow::Cow::Borrowed(self)
+        }
     }
 
     fn has_undefined_segment(&self, env: &Env) -> bool {

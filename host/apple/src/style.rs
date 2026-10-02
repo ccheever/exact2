@@ -86,6 +86,9 @@ fn presenter_ignores(name: &str) -> bool {
 
 /// [`style_json`], with `width` and `height` kept when `keep_size`.
 pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
+    // An undefined segment length is its row's initial value (LLP 1076 D3).
+    let resolved = style.env_resolved(env);
+    let style = &*resolved;
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
     let mut out = String::with_capacity(256);

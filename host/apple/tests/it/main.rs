@@ -13,5 +13,6 @@ mod inherited;
 mod layout_refusal;
 mod paint;
 mod presence;
+mod segments;
 mod textflow;
 mod viewport;

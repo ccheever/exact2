@@ -299,9 +299,13 @@ public final class Agent {
     /// appearance, beneath the app's own `setScheme`. `page`: what
     /// `exactPage()` answers. A fact not named stays as it is; nothing
     /// applies unless every one is known.
+    /// `fold` (LLP 1076 D7): the posture and the segment grid a host without
+    /// a fold makes by splitting its viewport evenly; a device with a fold
+    /// refuses them — it decides.
     func prefer(_ req: [String: Any]) -> [String: Any] {
-        let media = req["media"] as? [String: String], page = req["page"] as? [String: Any]
-        guard media != nil || page != nil else { return ["error": "prefer needs media or page: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
+        guard media != nil || page != nil || fold != nil else { return ["error": "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
         for (name, value) in media ?? [:] {
@@ -335,7 +339,40 @@ public final class Agent {
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "root-font-size": PageFacts.rootFontSize]]
+                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "root-font-size": PageFacts.rootFontSize],
+                "fold": presenter.fold.env]
+    }
+
+    /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and
+    /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
+    /// names its fact (LLP 1076 D10); nothing applies unless all are known.
+    private func preferFold(_ fold: [String: Any]) -> String? {
+        #if os(iOS)
+        if presenter.hasFold { return "prefer: posture and segments: the device decides (it has a fold)" }
+        #endif
+        var next = presenter.fold
+        var gap: CGFloat = 0, grid = false
+        for (name, raw) in fold {
+            let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
+            switch name {
+            case "posture":
+                guard let p = raw as? String, p == "folded" || p == "continuous" else { return "prefer: posture: \(raw) is folded or continuous" }
+                next.posture = p
+            case "cols", "rows":
+                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count" }
+                if name == "cols" { next.cols = Int(n) } else { next.rows = Int(n) }
+                grid = true
+            case "gap":
+                guard let g = number, g.isFinite, g >= 0 else { return "prefer: segments: gap \(raw) is not a length" }
+                gap = CGFloat(g); grid = true
+            default: return "prefer: \(name) is not a fold fact this host sets"
+            }
+        }
+        if grid {
+            do { next.rects = try Segments.even(viewport: presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+        }
+        session.segments(next)
+        return nil
     }
 
     /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a

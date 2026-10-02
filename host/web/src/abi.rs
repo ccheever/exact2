@@ -606,6 +606,21 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The posture and the segment counts (LLP 1076 D4): re-answer the
+    /// viewport resources that read them.
+    pub fn segments(&mut self, posture: u32, cols: u32, rows: u32) -> u32 {
+        let fold = exact_runner::Fold {
+            posture: exact_runner::Posture::from_bits(posture),
+            cols,
+            rows,
+        };
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_fold(fold),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch. The page
     /// reports the size and the display preferences together, on a change
     /// of either (LLP 1061 D4).
@@ -1110,6 +1125,15 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, preferences, now_ms))
+        }
+
+        /// The device's posture (0 continuous, 1 folded) and the viewport
+        /// segment counts (LLP 1076 D4, D6): the browser resolves the
+        /// `env(viewport-segment-*)` lengths itself; the runner answers the
+        /// three `exactViewport` fields. Returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_segments(posture: u32, cols: u32, rows: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().segments(posture, cols, rows))
         }
 
         /// The date: Unix ms at clock zero and minutes east of UTC.
