@@ -274,8 +274,8 @@ fn refusals_are_typed_and_change_nothing() {
         ),
         (
             StyleId::GridTemplateColumns,
-            StyleValue::Number(1.0),
-            StyleValueError::Unsupported {
+            StyleValue::Text("repeat(auto-fit, 1fr)".into()),
+            StyleValueError::BadGridTracks {
                 style: StyleId::GridTemplateColumns,
             },
         ),
@@ -567,6 +567,8 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("url(#m)".into()),
         StyleValue::Text("--t".into()),
         StyleValue::Text("0px 300px".into()),
+        StyleValue::Text("1fr".into()),
+        StyleValue::Text("2 / span 2".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();
@@ -593,15 +595,9 @@ fn every_row_writes_its_own_field_and_no_other() {
             assert_eq!(s.get(other), base.get(other), "{id:?} wrote {other:?}");
         }
     }
-    // Grid rows have no dynamic form; every other row was written.
-    assert_eq!(
-        unwritten,
-        [
-            StyleId::GridTemplateColumns,
-            StyleId::GridTemplateRows,
-            StyleId::GridColumn,
-            StyleId::GridRow
-        ]
+    assert!(
+        unwritten.is_empty(),
+        "rows without a dynamic value: {unwritten:?}"
     );
 }
 

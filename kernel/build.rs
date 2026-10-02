@@ -1167,6 +1167,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             }
             Codec::Tracks => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.0.len() > MAX_GRID_TRACKS {{ return Err(StyleDomainError::TooManyTracks {{ style: StyleId::{id}, count: self.{field}.0.len() }}); }}").unwrap();
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
             }
             Codec::Placement => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
@@ -1242,7 +1243,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
-            Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
+            Codec::Tracks => "GridTracks::parse(value.text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
+            Codec::Placement => "GridPlacement::parse(value.text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
+            Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
             Some((_, rows)) => rows.push((id, row.field.clone())),

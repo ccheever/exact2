@@ -339,6 +339,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                                 count,
                             }
                         }
+                        StyleDomainError::InvalidGridTrack(style) => {
+                            ApplyError::InvalidGridTrack { op_index, style }
+                        }
                         StyleDomainError::InvalidGridSpan(style) => {
                             ApplyError::InvalidGridSpan { op_index, style }
                         }

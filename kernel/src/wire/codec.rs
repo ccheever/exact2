@@ -8,8 +8,8 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
-    Transitions, Vec2, MAX_GRID_TRACKS,
+    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTrackMax,
+    GridTrackMin, GridTracks, Transitions, Vec2, MAX_GRID_TRACKS,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -221,11 +221,14 @@ impl<'a> Reader<'a> {
         Ok([self.color()?, self.color()?])
     }
 
-    /// Read a grid track list: count byte, then (kind byte, `f32`) per track.
+    /// Read a grid track list: count byte, then a kind and its breadth data.
     pub fn tracks(&mut self) -> Result<GridTracks, DecodeError> {
         let tracks = self.tracks_for_style()?;
         if tracks.0.len() > MAX_GRID_TRACKS {
             return Err(DecodeError::TooManyTracks(tracks.0.len()));
+        }
+        if !tracks.is_valid() {
+            return Err(DecodeError::InvalidGridTrack);
         }
         Ok(tracks)
     }
@@ -244,10 +247,38 @@ impl<'a> Reader<'a> {
                 3 => GridTrack::Auto,
                 4 => GridTrack::MinContent,
                 5 => GridTrack::MaxContent,
+                6 => GridTrack::MinMax(self.grid_track_min()?, self.grid_track_max()?),
                 other => return Err(DecodeError::UnknownTrackKind(other)),
             });
         }
         Ok(GridTracks(out))
+    }
+
+    fn grid_track_min(&mut self) -> Result<GridTrackMin, DecodeError> {
+        let kind = self.u8()?;
+        let value = self.f32()?;
+        Ok(match kind {
+            0 => GridTrackMin::Points(value),
+            1 => GridTrackMin::Percent(value),
+            2 => GridTrackMin::Auto,
+            3 => GridTrackMin::MinContent,
+            4 => GridTrackMin::MaxContent,
+            other => return Err(DecodeError::UnknownTrackKind(other.saturating_add(16))),
+        })
+    }
+
+    fn grid_track_max(&mut self) -> Result<GridTrackMax, DecodeError> {
+        let kind = self.u8()?;
+        let value = self.f32()?;
+        Ok(match kind {
+            0 => GridTrackMax::Fr(value),
+            1 => GridTrackMax::Points(value),
+            2 => GridTrackMax::Percent(value),
+            3 => GridTrackMax::Auto,
+            4 => GridTrackMax::MinContent,
+            5 => GridTrackMax::MaxContent,
+            other => return Err(DecodeError::UnknownTrackKind(other.saturating_add(32))),
+        })
     }
 
     fn grid_line(&mut self) -> Result<GridLine, DecodeError> {
@@ -574,10 +605,42 @@ impl Writer {
                 GridTrack::Auto => (3, 0.0),
                 GridTrack::MinContent => (4, 0.0),
                 GridTrack::MaxContent => (5, 0.0),
+                GridTrack::MinMax(min, max) => {
+                    self.u8(6);
+                    self.f32(0.0);
+                    self.grid_track_min(min);
+                    self.grid_track_max(max);
+                    continue;
+                }
             };
             self.u8(kind);
             self.f32(value);
         }
+    }
+
+    fn grid_track_min(&mut self, track: GridTrackMin) {
+        let (kind, value) = match track {
+            GridTrackMin::Points(v) => (0, v),
+            GridTrackMin::Percent(v) => (1, v),
+            GridTrackMin::Auto => (2, 0.0),
+            GridTrackMin::MinContent => (3, 0.0),
+            GridTrackMin::MaxContent => (4, 0.0),
+        };
+        self.u8(kind);
+        self.f32(value);
+    }
+
+    fn grid_track_max(&mut self, track: GridTrackMax) {
+        let (kind, value) = match track {
+            GridTrackMax::Fr(v) => (0, v),
+            GridTrackMax::Points(v) => (1, v),
+            GridTrackMax::Percent(v) => (2, v),
+            GridTrackMax::Auto => (3, 0.0),
+            GridTrackMax::MinContent => (4, 0.0),
+            GridTrackMax::MaxContent => (5, 0.0),
+        };
+        self.u8(kind);
+        self.f32(value);
     }
 
     /// Append a timing function.
@@ -788,6 +851,7 @@ mod tests {
             GridTrack::Auto,
             GridTrack::MinContent,
             GridTrack::MaxContent,
+            GridTrack::MinMax(GridTrackMin::Points(80.0), GridTrackMax::Fr(1.0)),
         ]);
         let placement = GridPlacement {
             start: GridLine::Line(2),
@@ -800,6 +864,13 @@ mod tests {
         let mut r = Reader::new(&bytes);
         assert_eq!(r.tracks().unwrap(), tracks);
         assert_eq!(r.placement().unwrap(), placement);
+
+        let mut w = Writer::new();
+        w.tracks(&GridTracks(vec![GridTrack::Points(-1.0)]));
+        assert_eq!(
+            Reader::new(&w.into_vec()).tracks(),
+            Err(DecodeError::InvalidGridTrack)
+        );
     }
 
     #[test]

@@ -6,8 +6,7 @@
 //! Percentages are authored as points (0–100) on the wire and in storage and
 //! are converted to Taffy's fraction exactly once, here.
 
-use taffy::prelude::{auto, fr, length, line, max_content, min_content, percent, span};
-use taffy::style::TrackSizingFunction;
+use taffy::prelude::{auto, length, percent};
 
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
@@ -22,6 +21,9 @@ pub use backdrop::link as link_backdrop_filter;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
+mod grid;
+use grid::{grid_line, track};
+pub use grid::{GridLine, GridPlacement, GridTrack, GridTrackMax, GridTrackMin, GridTracks};
 pub mod relative;
 mod shadow;
 pub use shadow::BoxShadow;
@@ -953,94 +955,6 @@ pub struct Vec2 {
     pub x: f32,
     /// Vertical.
     pub y: f32,
-}
-
-/// One grid track under the closed portable grammar.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum GridTrack {
-    /// A flexible fraction of the free space.
-    Fr(f32),
-    /// Layout points.
-    Points(f32),
-    /// Percent of the grid container, authored as 0–100.
-    Percent(f32),
-    /// Auto-sized.
-    Auto,
-    /// Min-content.
-    MinContent,
-    /// Max-content.
-    MaxContent,
-}
-
-/// A grid template: an ordered track list.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct GridTracks(pub Vec<GridTrack>);
-
-impl GridTracks {
-    /// Whether every track size is a finite number.
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|t| match *t {
-            GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v.is_finite(),
-            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
-        })
-    }
-
-    /// `count` equal `1fr` tracks.
-    pub fn equal(count: usize) -> Self {
-        GridTracks(vec![GridTrack::Fr(1.0); count.min(MAX_GRID_TRACKS)])
-    }
-}
-
-/// One edge of a grid placement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum GridLine {
-    /// Auto-placed.
-    #[default]
-    Auto,
-    /// A 1-based line index (negative counts from the end).
-    Line(i16),
-    /// Span this many tracks.
-    Span(u16),
-}
-
-impl GridLine {
-    pub(crate) fn is_valid(self) -> bool {
-        !matches!(self, GridLine::Span(0))
-    }
-}
-
-/// An item's placement on one grid axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct GridPlacement {
-    /// Start edge.
-    pub start: GridLine,
-    /// End edge.
-    pub end: GridLine,
-}
-
-impl GridPlacement {
-    pub(crate) fn is_valid(self) -> bool {
-        self.start.is_valid() && self.end.is_valid()
-    }
-}
-
-fn track(t: GridTrack) -> TrackSizingFunction {
-    match t {
-        GridTrack::Fr(v) => fr(v),
-        GridTrack::Points(v) => length(v),
-        GridTrack::Percent(v) => percent(v / 100.0),
-        GridTrack::Auto => auto(),
-        GridTrack::MinContent => min_content(),
-        GridTrack::MaxContent => max_content(),
-    }
-}
-
-fn grid_line(l: GridLine) -> taffy::style::GridPlacement {
-    match l {
-        GridLine::Auto => taffy::style::GridPlacement::Auto,
-        GridLine::Line(i) => line(i),
-        GridLine::Span(n) => span(n),
-    }
 }
 
 fn flex_direction(v: FlexDirection) -> taffy::style::FlexDirection {

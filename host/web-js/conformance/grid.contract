@@ -1,0 +1,33 @@
+// linux: layout
+// CSS grid conformance: the browser's DOM boxes are compared with the Linux
+// host's kernel boxes by conform.mjs. The switch changes a template at runtime.
+component Grid
+  state alternate = false
+  action switchTemplate writes alternate
+    alternate = not alternate
+  view
+    column testId="root" width=420 height=900 box-sizing="border-box" padding=16 gap=16
+      button testId="switch-grid" press=switchTemplate height=32
+        text alternate ? "two tracks" : "three tracks"
+      box testId="template" display="grid" width=388 height=140 box-sizing="border-box" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr minmax(60px, 25%)") grid-template-rows="40px minmax(30px, 1fr)" column-gap=10 row-gap=12 justify-items="center"
+        box testId="placed-a" width=40 height=24 background-color="#ef4444"
+        box testId="placed-b" grid-column="2 / span 2" grid-row="1 / span 1" width=70 height=28 background-color="#22c55e"
+        box testId="placed-c" grid-column="-2 / -1" grid-row="2 / -1" width=30 height=30 background-color="#3b82f6"
+      box testId="flow-row" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="row" column-gap=10 row-gap=10
+        box testId="row-1" width=20 height=20
+        box testId="row-2" width=20 height=20
+        box testId="row-3" width=20 height=20
+        box testId="row-4" width=20 height=20
+      box testId="flow-column" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="column" column-gap=10 row-gap=10
+        box testId="column-1" width=20 height=20
+        box testId="column-2" width=20 height=20
+        box testId="column-3" width=20 height=20
+        box testId="column-4" width=20 height=20
+      box testId="flow-row-dense" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="row-dense" column-gap=10 row-gap=10
+        box testId="row-wide" grid-column="span 2" width=130 height=20
+        box testId="row-hole" grid-column="span 2" width=130 height=20
+        box testId="row-fill" width=20 height=20
+      box testId="flow-column-dense" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="column-dense" column-gap=10 row-gap=10
+        box testId="column-tall" grid-row="span 2" width=20 height=70
+        box testId="column-hole" grid-row="span 2" width=20 height=70
+        box testId="column-fill" width=20 height=20

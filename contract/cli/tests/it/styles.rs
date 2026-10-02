@@ -756,6 +756,39 @@ fn logical_alignment_keywords_compile_from_the_schema() {
 }
 
 #[test]
+fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
+    contract::compile(
+        r#"component App
+  state alternate = false
+  view
+    box display="grid" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr 25%") grid-template-rows="40px auto" grid-auto-flow="column-dense" justify-items="center"
+      box grid-column="-3 / span 2" grid-row="2 / -1"
+"#,
+    )
+    .unwrap();
+
+    for (name, value, message) in [
+        (
+            "grid-template-columns",
+            "repeat(auto-fit, 1fr)",
+            "up to 32 CSS grid tracks",
+        ),
+        (
+            "grid-template-rows",
+            "minmax(1fr, 20px)",
+            "up to 32 CSS grid tracks",
+        ),
+        ("grid-column", "0 / auto", "nonzero line number"),
+        ("grid-row", "span 0", "nonzero line number"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
+        assert!(error.message.contains(message), "{name}={value}: {error:?}");
+    }
+}
+
+#[test]
 fn host_context_transform_recipients_contain_absolute_descendants() {
     use exact_kernel::PositionType::{Relative, Static};
     let source = r#"style Panel

@@ -8,7 +8,7 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--linux] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
 //   (the JS builds go to <out>/dist/<target>)
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
@@ -47,7 +47,8 @@ const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1
 const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
 const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
 const maxSteps = Number(opt('--steps', 10));
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label'].includes(argv[i - 1]));
+const only = opt('--only', null);
+const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--only'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
@@ -79,15 +80,15 @@ function diffJSON(a, b, path, out, other = 'js') {
   } else out.push(`${path}: wasm ${JSON.stringify(a)?.slice(0, 120)} ${other} ${JSON.stringify(b)?.slice(0, 120)}`);
 }
 function boxes(l) { const m = new Map(); for (const n of l.nodes) if (n.testId && !m.has(n.testId)) m.set(n.testId, n); return m; }
-function diffLayout(a, b) {
+function diffLayout(a, b, other = 'js') {
   const A = boxes(a), B = boxes(b), out = [];
   for (const [t, x] of A) {
     const y = B.get(t);
-    if (!y) { out.push(`layout ${t}: on screen in wasm, not in js`); continue; }
+    if (!y) { out.push(`layout ${t}: on screen in wasm, not in ${other}`); continue; }
     const d = Math.max(...['x', 'y', 'w', 'h'].map(k => Math.abs(x[k] - y[k])));
-    if (d > 0.5) out.push(`layout ${t}: wasm ${[x.x, x.y, x.w, x.h].map(Math.round)} js ${[y.x, y.y, y.w, y.h].map(Math.round)}`);
+    if (d > 0.5) out.push(`layout ${t}: wasm ${[x.x, x.y, x.w, x.h].map(Math.round)} ${other} ${[y.x, y.y, y.w, y.h].map(Math.round)}`);
   }
-  for (const t of B.keys()) if (!A.has(t)) out.push(`layout ${t}: on screen in js, not in wasm`);
+  for (const t of B.keys()) if (!A.has(t)) out.push(`layout ${t}: on screen in ${other}, not in wasm`);
   return out.slice(0, 8);
 }
 function diffPng(a, b, sideBySide, masks = []) {
@@ -187,6 +188,7 @@ async function drive(t, report, fail, dir, ws, js) {
     };
     const compare = async step => {
       let st = 0;
+      let linuxLayout = null;
       const [sw, sj] = await Promise.all([W.state(), J.state().catch(e => ({ error: e.message }))]);
       if (sj.error) { fail(step, `state: js ${sj.error}`); st++; }
       else { const o = []; for (const k of STATE_KEYS) diffJSON(sw[k], sj[k], k, o); o.forEach(x => fail(step, 'state ' + x)); st += o.length; }
@@ -196,11 +198,17 @@ async function drive(t, report, fail, dir, ws, js) {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [], vw = linuxView(sw), vl = linuxView(sl);
         for (const k of STATE_KEYS) diffJSON(vw[k], vl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
+        if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
         report.steps.push({ target: t.name, step, reference: 'linux', differences: o.length });
       });
       const [lw, lj] = await Promise.all([W.layout(), J.layout()]);
       const o3 = diffLayout(lw, lj); o3.forEach(x => fail(step, x)); st += o3.length;
+      if (linuxLayout) {
+        const ol = diffLayout(lw, linuxLayout, 'kernel');
+        ol.forEach(x => fail(step, x));
+        st += ol.length;
+      }
       // Paint facts are part of parity even when boxes happen not to overlap.
       const paint = `Array.from(document.querySelectorAll('#exact-root > *, #exact-root [data-testid]'), e => { const s = getComputedStyle(e); return [e.dataset.testid ?? '$root', s.isolation, s.position]; })`;
       const [fw, fj] = await Promise.all([W, J].map(s => s.carrier.evaluate(paint)));
@@ -436,6 +444,7 @@ function linuxFor(t) {
   if (!linuxRef) return null;
   const why = t.contract && /^\/\/ linux: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1];
   if (why?.startsWith('state only')) return { stateOnly: true };
+  if (why === 'layout') return { layout: true };
   if (why) return { why: `not compared on Linux: ${why}` };
   const crate = linuxCrate(t.app);
   if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
@@ -450,10 +459,10 @@ const report = { at: new Date().toISOString(), targets: {}, steps: [], failures:
 // `--urls <app> <a> <b>`: two served pages of one app, compared the same way
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
-const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
+const apps = urls >= 0 || only ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const sdir = resolve(here, 'conformance');
 // A plan with its own files (`strings/`) is a directory holding `app.contract`.
-const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
 if (argv.includes('--build')) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const b = spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });

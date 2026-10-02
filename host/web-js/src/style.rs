@@ -475,6 +475,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),
         ],
+        StyleId::GridAutoFlow => vec![with(
+            "grid-auto-flow",
+            "v=>v===\"row-dense\"?\"row dense\":v===\"column-dense\"?\"column dense\":v",
+        )],
         // A spring is lowered by the engine (motion.js): the declaration
         // is the rest, as css.rs `transition_css` leaves springs out.
         StyleId::Transition => vec![with(
@@ -513,6 +517,11 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // multiple of the font size, unitless; a length is written with its unit;
     // `aspect-ratio` too (kernel `Ratio::css`): a number is `n / 1`.
     if row == StyleId::LineHeight || row == StyleId::AspectRatio {
+        return Ok((css_property(row), String::new()));
+    }
+    // These codecs parse CSS text in the kernel and print the same grammar.
+    // A dynamic binding therefore writes its authored text directly.
+    if matches!(row.codec(), StyleCodec::Tracks | StyleCodec::Placement) {
         return Ok((css_property(row), String::new()));
     }
     // css.rs `declared`: each of these is its value's own CSS text, in the
