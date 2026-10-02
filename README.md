@@ -273,7 +273,7 @@ component Todos
   resource todos = todos() as shape list<Todo>
   derive shown = filter(todos, t => showDone or not t.done)
 
-  action toggle writes showDone
+  action toggle
     showDone = not showDone
 
   view

@@ -89,11 +89,11 @@ fn raw_symbol_names_cross_the_boundary_without_a_catalog() {
     let plan = contract::compile(
         r#"component App
   state source = "symbol:sf/airpodsmax"
-  action missing writes source
+  action missing
     source = "symbol:sf/exact.nonexistent"
-  action empty writes source
+  action empty
     source = "symbol:sf/"
-  action restore writes source
+  action restore
     source = "symbol:sf/airpodsmax"
   view
     column
