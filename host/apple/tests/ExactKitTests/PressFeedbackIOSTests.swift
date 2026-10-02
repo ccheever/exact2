@@ -109,6 +109,46 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
+    /// The press is Core Animation's (D2): the model takes the pressed scale
+    /// at once and an additive animation eases the difference on the render
+    /// server, so no frame of it runs on the main thread. At touch-down the
+    /// screen still shows the unpressed box — about the origin, under a
+    /// rotation and a translation.
+    func testThePressEasesOnTheRenderServerFromWhatShows() throws {
+        let (p, v) = try fixture(style: ["press_scale": 0.5, "transform_origin": [["pct": 0], ["pct": 0]]])
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "rotate", "x": 30.0],
+                           ["op": "present", "id": 1, "property": "translate", "x": 20.0, "y": 10.0]]))
+        let unpressed = v.transform
+        v.pressed = true
+        XCTAssertEqual(v.transform.a, unpressed.a * 0.5, accuracy: 1e-9, "the model is the pressed box at once")
+        let ease = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        XCTAssertTrue(ease.isAdditive)
+        XCTAssertEqual(ease.duration, PressFeedback.duration)
+        let from = try XCTUnwrap(ease.fromValue as? CATransform3D)
+        let shown = CATransform3DGetAffineTransform(CATransform3DConcat(from, CATransform3DMakeAffineTransform(v.transform)))
+        for (x, y) in [(shown.a, unpressed.a), (shown.b, unpressed.b), (shown.c, unpressed.c), (shown.d, unpressed.d), (shown.tx, unpressed.tx), (shown.ty, unpressed.ty)] {
+            XCTAssertEqual(x, y, accuracy: 1e-9, "touch-down shows the unpressed box")
+        }
+        // Whatever instant Core Animation presents, it is the box at some
+        // factor about the origin — composed before the model, not after it.
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        let presented = try XCTUnwrap(v.layer.presentation()).affineTransform()
+        let f = hypot(presented.a, presented.b) / hypot(unpressed.a, unpressed.b)
+        let o = v.transformOriginPoint, d = CGPoint(x: o.x - v.bounds.midX, y: o.y - v.bounds.midY)
+        let atF = CGAffineTransform(translationX: d.x, y: d.y).scaledBy(x: f, y: f).translatedBy(x: -d.x, y: -d.y).concatenating(unpressed)
+        XCTAssertTrue((0.5...0.99).contains(f), "mid-ease: \(f)")
+        XCTAssertEqual(presented.tx, atF.tx, accuracy: 1e-3, "Core Animation composes it as the model's, not after it")
+        XCTAssertEqual(presented.ty, atF.ty, accuracy: 1e-3)
+        // A release mid-ease starts from what shows: no jump.
+        let there = v.pressFactor
+        v.pressed = false
+        XCTAssertEqual(v.transform, unpressed, "released: the model is the engine's alone")
+        let back = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        let backFrom = CATransform3DGetAffineTransform(try XCTUnwrap(back.fromValue as? CATransform3D))
+        XCTAssertEqual(backFrom.a, there, accuracy: 1e-3, "the factor that showed at release")
+    }
+
     /// D6: every transform turns about `transform-origin`.
     func testTheTransformTurnsAboutTheTransformOrigin() throws {
         let (p, v) = try fixture(style: ["transform_origin": [["pct": 0], ["pct": 0]]])

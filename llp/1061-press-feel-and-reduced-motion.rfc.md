@@ -66,6 +66,13 @@ relayout included — multiplies the `scale` row's presentation value by the
 factor. So an engine write mid-press keeps the press, a press mid-transition
 keeps the engine's value, and an idle press is exactly 1 (the transform ends
 where the engine left it, identity included, which the text raster relies on).
+On iOS (2026-10-02) the ease is Core Animation's, with no frame of it on
+the main thread: `applyTransform` folds the press's *target* into the model at
+once, and an additive `transform` animation eases the difference from the
+factor on screen to nothing, on the render server, on the same curve and
+duration. Additive, it composes under every model write, so an engine write
+mid-ease keeps the press as before; a re-aim replaces it from what shows. The
+held release and the return to idle are each one timed callback. On macOS
 `PressClock` is one `CADisplayLink` for every session, alive only while some
 press eases. Touch-down scales on the next frame; nothing waits on the runner.
 The finger leaving the box releases the feedback and re-entering presses
@@ -85,7 +92,7 @@ gesture takes (layout pan, transform drag, reorder, height drag, swipe) ends
 the press as a pan cancels a touch. The layer's transform is composed about
 the origin explicitly, as before. Under the agent's clock (`agentFreezes`)
 the press lands without easing, as UIKit's animations are skipped, so a
-`layout` or screenshot between `tap X down` and `tap up` is deterministic. *Rejected:* a Core Animation animation on `transform` (it
+`layout` or screenshot between `tap X down` and `tap up` is deterministic. *Rejected:* a non-additive Core Animation animation on `transform` (it
 overrides the engine's model writes while it runs); `layer.sublayerTransform`
 (it does not scale the node's own background and border); a UIKit-private
 layer between the view and its content (every node would pay for it).
