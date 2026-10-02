@@ -72,17 +72,30 @@ function finishRestore(entry, module, error) {
   entry.restoredCarry = true;
   entry.resampleHeld?.();
 }
+const pendingRecovery = () => {
+  const entries = [...surfaces.values()].filter(entry => !entry.terminal);
+  return entries.length ? entries.map(entry => ({name:`GPU recovery ${entry.name}`,canvas:entry.view})) : [{name:"GPU recovery"}];
+};
 async function settled() {
   await ready;
-  await recoveringDevice;
+  const deadline = performance.now() + 2500;
+  while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
+  if (recoveringDevice || recoveryTimer) return pendingRecovery();
   const pending = await delivery.settled(() => surfaces.values());
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
       // GPU pipeline validation completes on browser promises, independently of
       // simulation time. Surface::preparing keeps gpu_dirty true until usable.
-      const deadline = performance.now() + 2500;
       if (exact.now) for (;;) {
+        if (recoveringDevice || recoveryTimer) {
+          if (performance.now() >= deadline) {
+            pending.push(...pendingRecovery());
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
+          continue;
+        }
         let drew = false;
         for (const entry of surfaces.values()) if (entry.id && !entry.terminal && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
@@ -194,6 +207,8 @@ function resetRecovery() {
   terminalDevice = false;
 }
 function fallback(entry) {
+  if (entry.fallbackApplied) return;
+  entry.fallbackApplied = true;
   entry.terminal = true;
   entry.wants = false;
   for (const row of entry.children ?? []) restoreChild(row);
@@ -216,6 +231,14 @@ function reportRecovery(error, terminal) {
   }
   recoveryErrorLogged = true;
   recoveryTerminalLogged ||= terminal;
+}
+function failureOutcome(error) {
+  const text = typeof error === "string" ? error : error?.message ?? String(error);
+  try {
+    const outcome = JSON.parse(text);
+    if (outcome?.status === "failed" && typeof outcome.code === "string" && typeof outcome.error === "string") return outcome;
+  } catch {}
+  return {status:"failed", code:error?.code ?? "recovery", error:text};
 }
 function recoverDevice() {
   if (recoveringDevice || recoveryTimer || recoveryFailures >= RECOVERY_LIMIT || !loaded) return recoveringDevice;
@@ -290,7 +313,7 @@ function flush(module = gpu) {
 }
 
 function render(entry, now) {
-  if (entry.terminal || (hidden && !exact.now) || recoveringDevice) return;
+  if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
@@ -388,8 +411,9 @@ function restorePending(entry, module = gpu, carrier = exact) {
 }
 
 function ensure(entry) {
-  if (entry.id || !loaded) return;
+  if (entry.id) return;
   if (terminalDevice) { fallback(entry); return; }
+  if (!loaded) return;
   if (recoveringDevice) { recoveringDevice.then(() => { if (surfaces.get(entry.view) === entry) ensure(entry); }); return; }
   try {
     create(entry, gpu, entry.carry);
@@ -939,7 +963,12 @@ try {
   replaceShaders(await loadShaders(gpu));
   api.version = version;
   loaded = true;
-} catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
+} catch (error) {
+  gpu?.gpu_unload(); gpu = undefined;
+  const failure = failureOutcome(error);
+  terminalRecovery({...failure, status:"no device"});
+  reportRecovery(Object.assign(new Error(failure.error), {code:failure.code}), true);
+}
 if (loaded) { loadMs = performance.now() - t0; if (stem === "gpu") exact.root.dataset.gpuMs = loadMs.toFixed(1); }
 try {
   const waiting = [...surfaces.values()];

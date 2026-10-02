@@ -30,6 +30,13 @@ pub struct DeviceFailure {
 }
 
 impl DeviceFailure {
+    pub(crate) fn new(kind: DeviceFailureKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
     /// Which device-creation stage failed.
     pub fn kind(&self) -> DeviceFailureKind {
         self.kind
@@ -61,10 +68,7 @@ pub async fn load_gpu(
             ..Default::default()
         })
         .await
-        .map_err(|e| DeviceFailure {
-            kind: DeviceFailureKind::NoAdapter,
-            message: e.to_string(),
-        })?;
+        .map_err(|e| DeviceFailure::new(DeviceFailureKind::NoAdapter, e.to_string()))?;
     let available = adapter.limits();
     let required_limits = requested_limits(available);
     let (device, queue) = adapter
@@ -75,10 +79,7 @@ pub async fn load_gpu(
             ..Default::default()
         })
         .await
-        .map_err(|e| DeviceFailure {
-            kind: DeviceFailureKind::NoDevice,
-            message: e.to_string(),
-        })?;
+        .map_err(|e| DeviceFailure::new(DeviceFailureKind::NoDevice, e.to_string()))?;
     Ok(Gpu {
         instance,
         adapter,

@@ -64,9 +64,10 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
             Ok(())
         }
         Err(e) => {
-            let message = e.to_string();
+            let failure = crate::recovery::RecoveryFailure::device(e);
+            let message = failure.message().to_string();
             ERROR.with(|s| *s.borrow_mut() = message.clone());
-            Err(JsValue::from_str(&message))
+            Err(JsValue::from_str(&failure.json()))
         }
     }
 }

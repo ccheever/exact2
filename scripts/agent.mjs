@@ -394,6 +394,8 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         return { at: [x, y] };
       },
       async screenshot(path) {
+        const tags = await ask({ op: 'tags' });
+        if (tags.error) throw new Error(tags.error);
         await frame();
         // Images in the viewport finish loading first, up to 3 s: a picture
         // of grey placeholders is not the page (LLP 1054.000 R9). `clock
@@ -408,7 +410,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         await frame();
         const { data } = await call('Page.captureScreenshot', { format: 'png' });
         writeFileSync(path, Buffer.from(data, 'base64'));
-        return { screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
+        return { ...tags, screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
       },
       close,
     };

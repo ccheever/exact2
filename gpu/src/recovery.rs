@@ -7,7 +7,7 @@ pub(crate) struct RecoveryFailure {
 }
 
 impl RecoveryFailure {
-    fn device(error: DeviceFailure) -> Self {
+    pub(crate) fn device(error: DeviceFailure) -> Self {
         Self {
             code: error.kind().code(),
             message: error.to_string(),
@@ -32,6 +32,33 @@ impl RecoveryFailure {
             self.code,
             &quoted[1..quoted.len() - 1]
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecoveryFailure;
+    use crate::{DeviceFailure, DeviceFailureKind};
+
+    #[test]
+    fn device_failures_keep_their_typed_host_json() {
+        let no_adapter = RecoveryFailure::device(DeviceFailure::new(
+            DeviceFailureKind::NoAdapter,
+            "requestAdapter returned null",
+        ));
+        assert_eq!(
+            no_adapter.json(),
+            r#"{"status":"failed","code":"no-adapter","error":"no adapter: requestAdapter returned null"}"#
+        );
+
+        let no_device = RecoveryFailure::device(DeviceFailure::new(
+            DeviceFailureKind::NoDevice,
+            "requestDevice rejected \"limits\"",
+        ));
+        assert_eq!(
+            no_device.json(),
+            r#"{"status":"failed","code":"no-device","error":"no device: requestDevice rejected \"limits\""}"#
+        );
     }
 }
 
