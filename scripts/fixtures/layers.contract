@@ -1,0 +1,24 @@
+// LLP 1076 D5's parity page: `conic-gradient()` and stacked
+// `background-image` layers, the browser the oracle. 100×70 boxes on a
+// 125×95 grid: conic gradients by default, from an angle at a position and
+// with angle stops; two and three layers (the first on top); a conic layer
+// over a colour and under a border; a conic mask; light-dark() stops.
+// `dark` switches the scheme. Chrome's pictures (the web host at 1×) are
+// layers.web.png as booted and layers.web-dark.png after `dark`.
+component Layers
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="layers" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="conic" position="absolute" left=20 top=20 width=100 height=70 background-image="conic-gradient(#e53935, #fdd835, #43a047, #1e88e5, #e53935)"
+      box testId="from" position="absolute" left=145 top=20 width=100 height=70 background-image="conic-gradient(from 45deg at 30% 40%, #1e88e5, #ffffff 50%, #1e88e5)"
+      box testId="angles" position="absolute" left=270 top=20 width=100 height=70 border-radius=35 background-image="conic-gradient(#43a047 0deg 90deg, #fdd835 90deg 180deg, #e53935 180deg)"
+      box testId="two" position="absolute" left=20 top=115 width=100 height=70 background-image="linear-gradient(to right, transparent, #e5393599), radial-gradient(#fdd835, #1e88e5)"
+      box testId="three" position="absolute" left=145 top=115 width=100 height=70 border-radius=16 background-color="#000000" background-image="linear-gradient(#ffffff80, transparent 50%), conic-gradient(from 90deg, #43a047, #1e88e5), linear-gradient(#e53935, #e53935)"
+      box testId="bordered" position="absolute" left=270 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=6 border-color="#000000" border-radius=12 background-image="conic-gradient(at 0 0, #e53935, #1e88e5 25%, #e53935 25%)"
+      box testId="masked" position="absolute" left=20 top=210 width=100 height=70 background-color="#1e88e5" mask-image="conic-gradient(#000000, transparent)"
+      box testId="scheme" position="absolute" left=145 top=210 width=100 height=70 border-radius=20 background-image="conic-gradient(light-dark(#e53935, #80deea), light-dark(#fdd835, #ce93d8), light-dark(#e53935, #80deea))"
+      box testId="squircle" position="absolute" left=270 top=210 width=100 height=70 border-radius=28 corner-shape="squircle" background-image="radial-gradient(circle at 30% 30%, #ffffffaa, transparent 60%), conic-gradient(#43a047, #1e88e5, #43a047)"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

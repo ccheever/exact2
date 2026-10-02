@@ -106,7 +106,7 @@ extension NodeView {
         p.edges = !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
         // A layout transition's size shows the surface on its own layer.
         let away = surface != nil
-        p.drawn = !away && !((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
+        p.drawn = !away && (!((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws) && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
         // A border over the children needs the backing layer's own radius,
         // and AppKit makes a backing layer's radius clip: where the node
         // does not clip, a rounded one draws.
@@ -211,7 +211,7 @@ extension NodeView {
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
     private func applyGradientLayer(_ p: BoxPlan) {
-        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, let gradient = Gradient(style["background_image"]) else {
+        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -285,7 +285,7 @@ extension NodeView {
     /// shadow, fill, gradient, image, border.
     func insertBoxSublayer(_ l: CALayer) {
         guard let layer else { return }
-        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, imageLayer, boxBorder]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)
@@ -306,7 +306,7 @@ extension NodeView {
     /// The highest of the box's sublayers, which replaced content (a Canvas
     /// 2D bitmap) goes over.
     var boxSublayersTop: CALayer? {
-        [boxBorder, imageLayer, boxGradient, boxFill, shadowCaster].compactMap { $0 }.first { $0.superlayer === layer }
+        [boxBorder, imageLayer, insetCaster, boxGradient, boxFill, shadowCaster].compactMap { $0 }.first { $0.superlayer === layer }
     }
 
     /// Everything the layer can say, before `draw(_:)` or instead of it.

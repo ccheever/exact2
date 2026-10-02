@@ -592,6 +592,14 @@ impl Backend for Gpu {
                     center.1 as f64,
                 ])),
             ),
+            // A whole turn, turned to start where CSS's `from` does.
+            Geometry::Conic { center, from } => (
+                Gradient::new_sweep((0.0, 0.0), 0.0, std::f32::consts::TAU),
+                Some(
+                    Affine::translate((center.0 as f64, center.1 as f64))
+                        * Affine::rotate(((from - 90.0) as f64).to_radians()),
+                ),
+            ),
         };
         let a = self.affine(ts);
         self.scene.fill(

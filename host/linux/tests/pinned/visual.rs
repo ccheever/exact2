@@ -109,3 +109,63 @@ fn a_text_shadow_paints_its_colour_under_the_glyphs_and_none_paints_none() {
         );
     }
 }
+
+/// LLP 1076 D4: `box-shadow` lists, spread and `inset` (`shadows.contract`).
+const SHADOW_CASES: [&str; 9] = [
+    "two", "spread", "shrink", "inset", "ring", "bordered", "both", "squircle", "scheme",
+];
+
+#[test]
+fn every_shadow_case_matches_chrome_light_then_dark() {
+    let mut failures = Vec::new();
+    for choice in painters() {
+        let name = format!("{choice:?}");
+        let mut p = boot(choice, "shadows.contract");
+        failures.extend(held_to_chrome(
+            &mut p,
+            "shadows.web.png",
+            &name,
+            &SHADOW_CASES,
+        ));
+        let id = view(&p, "dark");
+        p.tap(id).unwrap();
+        p.run_commands(NoData::default);
+        failures.extend(held_to_chrome(
+            &mut p,
+            "shadows.web-dark.png",
+            &name,
+            &SHADOW_CASES,
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1076 D5: `conic-gradient()` and stacked layers (`layers.contract`).
+const LAYER_CASES: [&str; 9] = [
+    "conic", "from", "angles", "two", "three", "bordered", "masked", "scheme", "squircle",
+];
+
+#[test]
+fn every_layer_case_matches_chrome_light_then_dark() {
+    let mut failures = Vec::new();
+    for choice in painters() {
+        let name = format!("{choice:?}");
+        let mut p = boot(choice, "layers.contract");
+        failures.extend(held_to_chrome(
+            &mut p,
+            "layers.web.png",
+            &name,
+            &LAYER_CASES,
+        ));
+        let id = view(&p, "dark");
+        p.tap(id).unwrap();
+        p.run_commands(NoData::default);
+        failures.extend(held_to_chrome(
+            &mut p,
+            "layers.web-dark.png",
+            &name,
+            &LAYER_CASES,
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -605,6 +605,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::TimelineScope(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
+        RowValue::BoxShadow(s) => quote(&s.css(), out),
         RowValue::CornerShape(c) => quote(&c.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),

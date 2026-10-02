@@ -587,6 +587,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::Filter
             | StyleCodec::BackgroundImage
             | StyleCodec::MaskImage
+            | StyleCodec::BoxShadow
             | StyleCodec::TextShadow
             | StyleCodec::CornerShape
     ) {
@@ -606,11 +607,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::I32
     ) || matches!(
         row,
-        StyleId::ShadowOffset
-            | StyleId::ShadowRadius
-            | StyleId::ShadowColor
-            | StyleId::ShadowOpacity
-            | StyleId::FontFamily
+        StyleId::FontFamily
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric

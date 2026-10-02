@@ -103,6 +103,22 @@ fn whole_i64(n: f64) -> bool {
     n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
 
+/// A CSS-text row's refusal with the kernel's own reason (LLP 1076).
+fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static str> {
+    let exact_kernel::StyleValue::Text(t) = v else {
+        return None;
+    };
+    match e {
+        StyleValueError::BadBoxShadow { .. } => exact_kernel::style::BoxShadows::check(t).err(),
+        StyleValueError::BadTextShadow { .. } => exact_kernel::style::TextShadow::check(t).err(),
+        StyleValueError::BadCornerShape { .. } => exact_kernel::corner::CornerShape::check(t).err(),
+        StyleValueError::BadMaskImage { .. } => {
+            exact_kernel::gradient::BackgroundImage::check_mask(t).err()
+        }
+        _ => None,
+    }
+}
+
 /// The kernel's refusal of a style value, in an author's words.
 pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
@@ -117,8 +133,8 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
-        StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
-        StyleValueError::BadMaskImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
+        StyleValueError::BadBackgroundImage { .. } => "expected none, or up to four of linear-gradient(…), radial-gradient(…) and conic-gradient(…)".into(),
+        StyleValueError::BadMaskImage { .. } => "expected none, or one linear-gradient(…), radial-gradient(…) or conic-gradient(…)".into(),
         StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
         StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -apple-continuous".into(),
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
@@ -135,7 +151,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
+        StyleValueError::BadBoxShadow { .. } => "expected none, or shadows separated by commas: `inset? <x> <y> [<blur> [<spread>]] <colour>`".into(),
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
@@ -373,16 +389,17 @@ pub(crate) fn check_style_value(
                 }
             }
             // @ref LLP 1066, LLP 1076 — the kernel's parse says why, by name.
-            let why =
-                if rows.contains(&StyleId::BackgroundImage) || rows.contains(&StyleId::MaskImage) {
-                    exact_kernel::gradient::BackgroundImage::check(v).err()
-                } else if rows.contains(&StyleId::TextShadow) {
-                    exact_kernel::style::TextShadow::check(v).err()
-                } else if rows.contains(&StyleId::CornerShape) {
-                    exact_kernel::corner::CornerShape::check(v).err()
-                } else {
-                    None
-                };
+            let why = if rows.contains(&StyleId::BackgroundImage) {
+                exact_kernel::gradient::BackgroundImage::check(v).err()
+            } else if rows.contains(&StyleId::MaskImage) {
+                exact_kernel::gradient::BackgroundImage::check_mask(v).err()
+            } else if rows.contains(&StyleId::TextShadow) {
+                exact_kernel::style::TextShadow::check(v).err()
+            } else if rows.contains(&StyleId::CornerShape) {
+                exact_kernel::corner::CornerShape::check(v).err()
+            } else {
+                None
+            };
             if let Some(why) = why {
                 return err(
                     "lower-attr-value",
@@ -407,7 +424,7 @@ pub(crate) fn check_style_value(
             );
         }
         // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
-        if rows.contains(&StyleId::ShadowOffset)
+        if rows.contains(&StyleId::BoxShadow)
             && (numeric_literal(value).is_some()
                 || (std::ptr::eq(value, &a.value) && matches!(ty, Ty::Number)))
         {
@@ -472,7 +489,7 @@ pub(crate) fn check_style_value(
                                 a.name,
                                 literal_text(value),
                                 a.name,
-                                describe(&e),
+                                named(&e, &v).map_or_else(|| describe(&e), String::from),
                                 pixels.unwrap_or_default()
                             ),
                             span,

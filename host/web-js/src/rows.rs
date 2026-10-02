@@ -72,15 +72,6 @@ impl Em<'_> {
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let writes: Vec<(String, String, Option<String>)> = match id {
-            // `box-shadow` is the four shadow rows, each given the author's
-            // whole text (the compiler's lowering): one declaration of it.
-            StyleId::ShadowOffset => one("box-shadow", None),
-            StyleId::ShadowRadius | StyleId::ShadowColor | StyleId::ShadowOpacity => {
-                if binding(StyleId::ShadowOffset).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
-                    return Ok(());
-                }
-                return refuse("a dynamic shadow part without its `box-shadow`");
-            }
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();

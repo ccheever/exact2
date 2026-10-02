@@ -1,0 +1,24 @@
+// LLP 1076 D4's parity page: `box-shadow` lists, spread and `inset`, the
+// browser the oracle. 100×70 boxes on a 125×95 grid: two outer shadows,
+// a positive and a negative spread, inset shadows (offset, spread, under a
+// border, round), outer and inset together, a squircle's shadow following
+// its corners, and light-dark() shadows. `dark` switches the scheme.
+// Chrome's pictures (the web host at 1×) are shadows.web.png as booted and
+// shadows.web-dark.png after `dark`.
+component Shadows
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="shadows" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="two" position="absolute" left=20 top=20 width=100 height=70 border-radius=12 background-color="#ffffff" box-shadow="0 2px 4px rgba(0, 0, 0, 0.3), 0 10px 0 #1e88e5"
+      box testId="spread" position="absolute" left=145 top=20 width=100 height=70 border-radius=16 background-color="#fdd835" box-shadow="0 0 0 6px #e53935"
+      box testId="shrink" position="absolute" left=270 top=20 width=100 height=70 background-color="#e0e0e0" box-shadow="0 14px 8px -6px #000000"
+      box testId="inset" position="absolute" left=20 top=115 width=100 height=70 background-color="#ffffff" box-shadow="inset 4px 6px 6px rgba(0, 0, 0, 0.5)"
+      box testId="ring" position="absolute" left=145 top=115 width=100 height=70 border-radius=20 background-color="#e3f2fd" box-shadow="inset 0 0 0 8px #1e88e5"
+      box testId="bordered" position="absolute" left=270 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=6 border-color="#000000" border-radius=14 background-color="#fff8e1" box-shadow="inset 0 0 10px 2px #e53935"
+      box testId="both" position="absolute" left=20 top=210 width=100 height=70 border-radius=10 background-color="#43a047" box-shadow="inset 0 -6px 0 rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.4)"
+      box testId="squircle" position="absolute" left=145 top=210 width=100 height=70 border-radius=30 corner-shape="squircle" background-color="#ffffff" box-shadow="0 0 0 4px #43a047"
+      box testId="scheme" position="absolute" left=270 top=210 width=100 height=70 border-radius=12 background-color="light-dark(#ffffff, #212121)" box-shadow="0 6px 12px light-dark(#00000066, #ffffff66), inset 0 0 0 2px light-dark(#1e88e5, #ce93d8)"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

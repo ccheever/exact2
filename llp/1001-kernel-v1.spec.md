@@ -321,12 +321,17 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   animation ends. CSS's `animation` does not itself defer destruction. Linux
   refuses it and removes the node immediately, with a journal entry, because
   its painter walks the live kernel tree and has no retained destroyed subtree.
-- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md))
-  accepts one outer shadow with zero spread, not `inset`, nonzero spread or a
-  list. A missing colour is refused instead of using CSS `currentcolor`.
-  The implementation reuses four scalar shadow rows and one native layer
-  shadow; those rows cannot store current colour, a spread or multiple shadows.
-  These are implementation limits awaiting Charlie's ruling, not CSS semantics.
+- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md),
+  [LLP 1076 D4](1076-css-visual-properties-native-draws-cheaply.rfc.md)) is
+  one row holding CSS's list (at most eight), outer and inset, with spread. A
+  missing colour is still refused instead of using CSS `currentcolor`. A
+  transition or keyframes move the list's first shadow's offset, blur and
+  colour; the other shadows, and a spread, change at once, where CSS
+  interpolates the lists pairwise.
+- **`background-image` layers** ([LLP 1076 D5](1076-css-visual-properties-native-draws-cheaply.rfc.md))
+  are at most four. Apple draws a conic gradient, and more than one layer,
+  through the box's `draw(_:)` (Core Animation's conic gradient bends CSS's
+  angles in a box that is not square), and a conic `mask-image` as pixels.
 - **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
   native hosts extend end colours outside the padding box instead of repeating
   the gradient image as CSS's initial `background-repeat` does. Their gradient

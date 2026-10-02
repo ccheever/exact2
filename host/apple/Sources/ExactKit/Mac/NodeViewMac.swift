@@ -77,8 +77,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
-    /// `box-shadow` (`BoxShadow.swift`).
+    /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1076 D4).
     var shadowCaster: ShadowCaster?
+    var insetCaster: InsetShadowCaster?
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?

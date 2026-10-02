@@ -131,9 +131,9 @@ struct BoxPaint {
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
-    gradient: Option<gradient::Captured>,
+    gradients: Vec<gradient::Captured>,
     padding: [f32; 4],
-    shadow: Option<shadow::ShadowPaint>,
+    shadows: Vec<shadow::ShadowPaint>,
     /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
     /// host material, which wins (LLP 1053.000 D3).
     backdrop: f32,
@@ -198,8 +198,8 @@ impl BoxPaint {
                 }
                 _ => rgba(s.background_color.resolve(dark)),
             },
-            gradient: gradient::Captured::capture(s, dark),
-            shadow: shadow::ShadowPaint::capture(s, dark),
+            gradients: gradient::Captured::capture(s, dark),
+            shadows: shadow::ShadowPaint::capture(s, dark),
             backdrop: material.map_or(s.backdrop_blur.max(0.0), |m| m.blur),
             padding: [
                 pad(s.padding_top),
@@ -245,8 +245,12 @@ impl BoxPaint {
             backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
-        if let Some(g) = &self.gradient {
+        // The last layer first, so the first is on top (LLP 1076 D5).
+        for g in self.gradients.iter().rev() {
             gradient::paint(g, &geometry.outer, self.widths, backend, ts);
+        }
+        for band in self.inset_shadow_fills(geometry) {
+            backend.fill_border(&band, ts);
         }
         for part in self.borders(geometry) {
             backend.fill_border(&part, ts);
@@ -259,10 +263,24 @@ impl BoxPaint {
             emit(outer, self.background);
         }
     }
-    /// The `box-shadow`, under everything else (LLP 1064 D2).
+    /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
+    /// list's first on top (LLP 1076 D4).
     fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        self.shadow
-            .map_or_else(Vec::new, |s| s.fills(&geometry.outer))
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| !s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
+    }
+    /// The inset `box-shadow`s, over the background and under the border.
+    fn inset_shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
@@ -851,7 +869,7 @@ impl Painter {
             || p.dark.is_some_and(|dark| dark != self.dark)
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
-            || node.style.shadow_opacity > 0.0
+            || !node.style.box_shadow.0.is_empty()
             // A backdrop reads what is under it, beyond any damage.
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)

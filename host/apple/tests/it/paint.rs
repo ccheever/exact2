@@ -82,8 +82,10 @@ fn a_moving_colour_is_presented_over_its_row_and_handed_back() {
     );
     assert_eq!(style(&mid, still), None);
     // `none` to a shadow: geometry and colour from zero together.
-    assert!(shows(&mid, toggle, "shadow_offset", "[0,2]"), "{mid}");
-    assert!(shows(&mid, toggle, "shadow_radius", "6"), "{mid}");
+    assert!(
+        shows(&mid, toggle, "box_shadow", "[{\"o\":[0,2],\"b\":6,"),
+        "{mid}"
+    );
     let done = host.tick(1000.0);
     // Arrived: the rows show again.
     assert!(

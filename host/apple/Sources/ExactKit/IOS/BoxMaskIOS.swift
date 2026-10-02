@@ -34,6 +34,15 @@ extension NodeView {
             if layer.mask !== clip { layer.mask = clip }
             return
         }
+        if gradient.isConic {
+            // A conic mask is pixels (LLP 1076 D5).
+            let m = (layer.mask as? ConicMaskLayer) ?? ConicMaskLayer()
+            m.frame = layer.bounds
+            m.contents = gradient.image(size: layer.bounds.size, scale: traitCollection.displayScale, dark: drawsDark)
+            m.mask = clip
+            if layer.mask !== m { layer.mask = m }
+            return
+        }
         let g = (layer.mask as? CAGradientLayer) ?? CAGradientLayer()
         if g.frame != layer.bounds { g.frame = layer.bounds }
         gradient.apply(g, bounds: g.bounds, box: g.bounds, dark: drawsDark)

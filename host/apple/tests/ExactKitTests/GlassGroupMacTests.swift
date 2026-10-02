@@ -146,7 +146,7 @@ final class GlassGroupMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(field))
         func editing() -> Bool { (window.firstResponder as? NSTextView)?.delegate as? NSTextField === field }
         let shadowed: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "overflow_x": "hidden", "overflow_y": "hidden",
-                                       "shadow_color": [0, 0, 0, 255], "shadow_opacity": 0.5, "shadow_offset": [0.0, 2.0], "shadow_radius": 4.0]
+                                       "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "s": 0, "c": [0, 0, 0, 128]]]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": shadowed]]))
         XCTAssertNotNil(group.clipBox)
         XCTAssertTrue(editing(), "into the clip box")

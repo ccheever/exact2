@@ -267,8 +267,8 @@ fn non_finite_style_numbers_are_refused_on_both_ingress_paths() {
     ));
 
     let mut shadow = StyleProps::default();
-    shadow.shadow_offset.y = f32::NAN;
-    shadow.mask.set(StyleId::ShadowOffset);
+    shadow.translate.y = f32::NAN;
+    shadow.mask.set(StyleId::Translate);
     assert!(matches!(
         k.apply(
             0,
@@ -279,7 +279,7 @@ fn non_finite_style_numbers_are_refused_on_both_ingress_paths() {
             }]
         ),
         Err(KernelError::Apply(ApplyError::NonFiniteStyle {
-            style: StyleId::ShadowOffset,
+            style: StyleId::Translate,
             ..
         }))
     ));

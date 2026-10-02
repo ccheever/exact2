@@ -1,4 +1,4 @@
-//! LLP 1064: `box-shadow` sets the four shadow rows; `text-transform` is
+//! LLP 1064, LLP 1076 D4: `box-shadow` sets its one row; `text-transform` is
 //! applied where the kernel produces runs, so what is measured is what a
 //! host paints.
 
@@ -32,13 +32,18 @@ fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
+/// The first shadow as (colour, offset, blur, count of shadows).
 fn shadow(s: &StyleProps) -> (ColorValue, Vec2, f32, f32) {
-    (
-        s.shadow_color,
-        s.shadow_offset,
-        s.shadow_radius,
-        s.shadow_opacity,
-    )
+    let list = s.box_shadow.shadows();
+    match list.first() {
+        Some(f) => (f.color, f.offset, f.blur, list.len() as f32),
+        None => (
+            ColorValue::Fixed(Color::TRANSPARENT),
+            Vec2 { x: 0.0, y: 0.0 },
+            0.0,
+            0.0,
+        ),
+    }
 }
 
 fn fixed(hex: &str) -> ColorValue {
@@ -46,7 +51,7 @@ fn fixed(hex: &str) -> ColorValue {
 }
 
 #[test]
-fn box_shadow_sets_the_four_rows_from_a_literal_a_style_a_choice_and_a_template() {
+fn box_shadow_sets_its_row_from_a_literal_a_style_a_choice_and_a_template() {
     let mut r = boot(concat!(
         "style Raised\n  box-shadow=\"0 2px 12px rgba(0, 0, 0, 0.2)\"\n",
         "style Flat\n  box-shadow=\"none\"\n",
@@ -77,10 +82,21 @@ fn box_shadow_sets_the_four_rows_from_a_literal_a_style_a_choice_and_a_template(
 
 #[test]
 fn box_shadow_refusals_name_what_exact2_does_not_draw() {
+    // LLP 1076 D4: lists, `inset` and spread are drawn now.
+    let r = boot("component App\n  view\n    view box-shadow=\"0 1px 2px #000, inset 0 2px 4px 3px #fff\" testId=\"a\"\n");
+    let list = r
+        .kernel()
+        .node(id(&r, "a"))
+        .unwrap()
+        .style
+        .box_shadow
+        .clone();
+    assert_eq!(
+        (list.0.len(), list.0[1].inset, list.0[1].spread),
+        (2, true, 3.0)
+    );
     for (value, says) in [
-        ("\"0 1px 2px #000, 0 2px 4px #000\"", "one shadow"),
-        ("\"inset 0 1px 2px #000\"", "outer shadows"),
-        ("\"0 1px 2px 3px #000\"", "spread"),
+        ("\"inset inset 0 1px 2px #000\"", "once"),
         ("\"0 1px 2px\"", "currentcolor"),
         ("\"0 1 2 #000\"", "length in px"),
         ("\"0 1px -2px #000\"", "negative"),

@@ -24,7 +24,7 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
-pub use shadow::{BoxShadow, GlyphShadow, TextShadow};
+pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
@@ -422,29 +422,7 @@ impl StyleValue {
         })
     }
 
-    /// A `box-shadow` given to one of its four rows: that row's part.
-    /// @ref LLP 1064 D1
-    fn box_shadow(&self, style: StyleId) -> Option<Result<BoxShadow, StyleValueError>> {
-        match self {
-            StyleValue::Text(t) => Some(
-                BoxShadow::parse(t)
-                    .map_err(|reason| StyleValueError::BadBoxShadow { style, reason }),
-            ),
-            _ => None,
-        }
-    }
-
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
-        if matches!(style, StyleId::ShadowRadius | StyleId::ShadowOpacity) {
-            if let Some(shadow) = self.box_shadow(style) {
-                let shadow = shadow?;
-                return Ok(if style == StyleId::ShadowRadius {
-                    shadow.blur
-                } else {
-                    shadow.opacity
-                });
-            }
-        }
         // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
         if style == StyleId::BackdropBlur {
             return match self {
@@ -580,9 +558,6 @@ impl StyleValue {
             if let Some(pair) = ColorValue::parse_light_dark(t) {
                 return Ok(pair);
             }
-            if style == StyleId::ShadowColor && Color::parse(t).is_none() {
-                return self.box_shadow(style).expect("text").map(|s| s.color);
-            }
         }
         self.color(style).map(ColorValue::Fixed)
     }
@@ -618,9 +593,6 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
-            StyleValue::Text(_) if style == StyleId::ShadowOffset => {
-                self.box_shadow(style).expect("text").map(|s| s.offset)
-            }
             StyleValue::Text(t) if style == StyleId::Translate => {
                 parse_translate(t).ok_or(StyleValueError::WrongKind {
                     style,
@@ -900,6 +872,8 @@ pub enum RowValue<'a> {
     Filter(&'a crate::svg::filter::FilterList),
     /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
+    /// CSS `box-shadow`: `none` or a list (LLP 1076 D4).
+    BoxShadow(&'a BoxShadows),
     /// CSS `text-shadow` (LLP 1076 D3).
     TextShadow(&'a TextShadow),
     /// CSS `mask-image`: `none` or one gradient (LLP 1076 D2).
@@ -959,6 +933,7 @@ impl RowValue<'_> {
             | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
             | RowValue::TextShadow(_)
+            | RowValue::BoxShadow(_)
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)
             | RowValue::Color(_)

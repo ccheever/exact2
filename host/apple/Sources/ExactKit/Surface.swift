@@ -103,10 +103,10 @@ extension NodeView {
         let sizes = BorderPaint.radii(style, in: box)
         let radii = sizes.map { $0.width }
         let fill = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
-        let gradient = Gradient(style["background_image"])
+        let gradients = Gradient.layers(style["background_image"])
         let radius = radii.max() ?? 0
         let shape = CornerShape(style["corner_shape"])
-        let said = gradient == nil && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
+        let said = gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
             && widths.allSatisfy { $0 == widths[0] } && (widths[0] == 0 || colors.allSatisfy { $0 == colors[0] })
             && radii.allSatisfy { $0 == 0 || $0 == radius } && radius <= min(box.width, box.height) / 2
         if said {
@@ -127,7 +127,9 @@ extension NodeView {
                 guard let self else { return }
                 let path = self.roundedPath(in: rect).cgPath
                 if let fill { ctx.addPath(path); ctx.setFillColor(fill); ctx.fillPath() }
-                gradient?.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                for gradient in gradients.reversed() {
+                    gradient.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                }
                 BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, shape: shape)
             }
             s.setNeedsDisplay()

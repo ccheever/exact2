@@ -48,6 +48,8 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
+    /// Invalid or unsupported CSS `box-shadow` (LLP 1076 D4).
+    BadBoxShadow,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1076 D3).
     BadTextShadow,
     /// Invalid or unsupported CSS `mask-image` (LLP 1076 D2).
@@ -480,10 +482,10 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
-    /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
+    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1076 D4);
+    /// the compiler names the reason (`BoxShadows::check`).
     BadBoxShadow {
         style: StyleId,
-        reason: &'static str,
     },
     /// Not CSS `backdrop-filter` as exact2 builds it; `reason` names what.
     BadBackdropFilter {

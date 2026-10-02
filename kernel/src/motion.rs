@@ -229,8 +229,11 @@ pub fn color_targets(
         _ => None,
     };
     let [top, right, bottom, left] = s.border_colors(text);
-    let shadow = s.shadow_color.resolve(dark);
-    let alpha = shadow.a() as f64 / 255.0 * (s.shadow_opacity as f64).clamp(0.0, 1.0);
+    // @ref LLP 1076 D4 — the engine moves the list's first shadow; the
+    // rest change at once (declared in LLP 1001).
+    let first = s.box_shadow.0.first();
+    let shadow = first.map_or(crate::style::Color::TRANSPARENT, |f| f.color.resolve(dark));
+    let alpha = shadow.a() as f64 / 255.0;
     let unit = |c: u8| c as f64 / 255.0;
     wanted
         .into_iter()
@@ -245,12 +248,9 @@ pub fn color_targets(
                 Property::BorderBottomColor => Some(color(bottom, dark)),
                 Property::BorderLeftColor => Some(color(left, dark)),
                 Property::TintColor => Some(color(s.tint_color, dark)),
-                Property::BoxShadow => Some(Value::four(
-                    s.shadow_offset.x as f64,
-                    s.shadow_offset.y as f64,
-                    s.shadow_radius as f64,
-                    0.0,
-                )),
+                Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
+                    Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
+                })),
                 _ => Some(Value::rgba(
                     unit(shadow.r()),
                     unit(shadow.g()),

@@ -770,6 +770,17 @@ impl Backend for Raster {
                 SpreadMode::Pad,
                 Transform::from_row(radii.0, 0.0, 0.0, radii.1, center.0, center.1),
             ),
+            // A whole turn from +x, clockwise, turned so it starts where
+            // CSS's `from` does (0 is up): turned rather than started
+            // there, so the turn never wraps mid-sweep (LLP 1076 D5).
+            Geometry::Conic { center, from } => tiny_skia::SweepGradient::new(
+                Point::from_xy(center.0, center.1),
+                0.0,
+                360.0,
+                stops,
+                SpreadMode::Pad,
+                Transform::from_rotate_at(from - 90.0, center.0, center.1),
+            ),
         };
         let Some(shader) = shader else {
             return;

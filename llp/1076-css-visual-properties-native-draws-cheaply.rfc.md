@@ -1,7 +1,7 @@
 # LLP 1076: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stage 1 built 2026-10-02 (§8); stages 2–4 and §5 being implemented.
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–2 built 2026-10-02 (§8); stages 3–4 and §5 being implemented.
 **Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
@@ -209,6 +209,27 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 - The iPhone frame check (§6) of a masked scroll view and of a shaped clip.
 - A dynamic `corner-shape` naming `-apple-continuous` does not rescale the radius on the web.
 - `text-shadow` on a text input.
+
+### Stage 2 (2026-10-02): `box-shadow` lists, `inset`, spread; `conic-gradient()` and layers
+
+- **One row.** Row 57 `box_shadow` (`BoxShadows`, at most eight) replaces LLP 1064's four rows; the schema's later bits moved down three. Authors write the same text. A transition moves the first shadow (the engine's two properties are unchanged) and the rest change at once (LLP 1001).
+- **Apple.** `ShadowCaster` is a container masked to outside the border box, with one casting sublayer per outer shadow; its shape is the outline grown by the spread, with CSS's spread radii. `InsetShadowCaster` is a container masked to the padding box, one sublayer per inset shadow casting a frame around the hole; the hole runs the other way round, because Core Animation fills a shadow path by the non-zero rule.
+- **Linux.** The band stack is shared by outer and inset shadows. An inset shadow's bands are half as wide, since against Chrome a 1.5-point band showed as a 6/255 step across a padding box.
+- **Gradients.** `background-image` holds up to four layers of linear, radial or conic gradients. A conic stop may be an angle. Linux uses tiny-skia's and Vello's sweep gradients, turned so CSS's `from` is where the turn starts (a shifted start angle would wrap mid-sweep). Apple draws a conic gradient as 1,800 wedges that replace each other inside a transparency layer, and draws several layers through `draw(_:)`; a conic mask is a picture.
+
+**Measured against Chrome** on `scripts/fixtures/shadows.contract` and `layers.contract`, light and dark:
+
+- **Linux, both painters, every case:** mean ≤ 1.93/255 (shadows) and ≤ 1.18/255 (gradients).
+- **iOS simulator:** every gradient case ≤ 0.63/255, including the conic mask at 0.20; every shadow case matches by eye.
+- **macOS:** matches every case by eye; numerically it is offset by the window capture's colour profile (5–9/255 uniformly).
+
+**Owed after stage 2:**
+
+- Pairwise interpolation of shadow lists.
+- A spread in motion.
+- Keyframes naming a shadow list.
+- `mask-image` of more than one layer (refused at compile time).
+- Linux and iOS failures that origin/main has too, unchanged here: the content-region registration and transform-drag tests (`requires one attached independent clipped owner`, `lower-transform-drag-handlers`) fail on the base commit as well.
 
 ## 7. Open questions for Charlie
 

@@ -25,10 +25,17 @@ pub struct GradientPaint {
 }
 
 impl Captured {
-    pub(super) fn capture(style: &StyleProps, dark: bool) -> Option<Captured> {
-        let gradient = style.background_image.gradient()?.clone();
-        let stops = gradient.resolved(dark);
-        Some(Captured { gradient, stops })
+    /// The layers, the first on top (LLP 1076 D5).
+    pub(super) fn capture(style: &StyleProps, dark: bool) -> Vec<Captured> {
+        style
+            .background_image
+            .layers()
+            .iter()
+            .map(|gradient| Captured {
+                stops: gradient.resolved(dark),
+                gradient: gradient.clone(),
+            })
+            .collect()
     }
 
     /// CSS `mask-image`'s gradient (LLP 1076 D2), placed in the border box.
@@ -46,6 +53,10 @@ impl Captured {
             Geometry::Linear { start, end } => Geometry::Linear {
                 start: (start.0 + x, start.1 + y),
                 end: (end.0 + x, end.1 + y),
+            },
+            Geometry::Conic { center, from } => Geometry::Conic {
+                center: (center.0 + x, center.1 + y),
+                from,
             },
             Geometry::Radial { center, radii } => {
                 if radii.0 <= 0.0 || radii.1 <= 0.0 {

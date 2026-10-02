@@ -18,6 +18,8 @@ final class NodeExtras {
     var boxGradient: CAGradientLayer?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
+    /// Inset `box-shadow`s (LLP 1076 D4).
+    var insetCaster: InsetShadowCaster?
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
@@ -93,6 +95,7 @@ extension NodeView {
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
+    var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }

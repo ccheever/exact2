@@ -878,12 +878,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
         // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
-        "box-shadow" => styles(&[
-            StyleId::ShadowColor,
-            StyleId::ShadowOffset,
-            StyleId::ShadowRadius,
-            StyleId::ShadowOpacity,
-        ]),
+        "box-shadow" => styles(&[StyleId::BoxShadow]),
         // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
         // CSS's filter functions are refused by name.
         "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
