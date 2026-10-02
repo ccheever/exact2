@@ -475,7 +475,6 @@ export function mut(name, slot, refreshes, type) {
   return m;
 }
 export function M(m, source, args) { Sends.push([m, source, args]); }
-
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
