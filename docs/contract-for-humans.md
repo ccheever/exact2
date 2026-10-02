@@ -57,16 +57,19 @@ To scaffold a separate application, run from exact2:
 bun scripts/exact.mjs new ../hello
 ```
 
-The new app's `app.contract` is its interface, `app.ts` its data module, and
-`app.json` its manifest. It consumes this checkout by path. Its generated
-`exact.mjs` provides the web and native commands; inspect its help and the
-[tooling reference](reference.md) when selecting a target.
+The new app has `app.contract` (its interface), `app.ts` (its data module),
+`app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
+own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
+runs the web and native commands (`bun exact.mjs test`, for example); run it with
+no verb to list them, and see the [tooling reference](reference.md).
 
 You can compile a standalone Contract file without running a host:
 
 ```sh
 cargo run -q -p contract -- build /path/to/app.contract --json
 ```
+
+Below, `contract` stands for `cargo run -q -p contract --`.
 
 A successful compilation is `[]` and exit status 0. It checks the language and
 produces a plan; it does not prove that a data source is implemented or that an
@@ -75,7 +78,10 @@ app's measured layout works. The app build also bakes its initial data and layou
 ## Your first component
 
 This is a complete file. Save it as `app.contract` and compile it with the command
-above. To interact with it, use it as the Contract of a scaffolded app.
+above. To run it, put it in a scaffolded app in place of its `app.contract`, delete
+the scaffold's `greeting` entry from `sources` in `app.ts`, and replace
+`app.test.contract` with the test under
+[Testing](#testing-diagnostics-and-delivery).
 
 ```contract
 component Counter
@@ -143,9 +149,11 @@ subtraction. `x-1` is still subtraction, but spaces make the intention clearer.
 
 Use ordinary decimal numbers, double-quoted strings, and backtick templates.
 Single-quoted strings, exponent notation, digit separators, `null`, and
-`undefined` are not the language's literal forms. String escapes include `\n`,
-`\t`, `\"`, and `\\`. Templates can contain expressions, quoted strings, and
-nested templates. Keep an individual string or template on one source line.
+`undefined` are not the language's literal forms. Strings accept exactly six
+escapes: `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`. Template text is kept verbatim:
+a backslash there is not an escape. Templates can contain expressions, quoted
+strings, and nested templates. Keep an individual string or template on one
+source line.
 
 Newlines inside parentheses, brackets, and expression braces continue the same
 logical line. Element attributes may continue on deeper-indented lines:
@@ -200,6 +208,7 @@ record construction. A resource's placeholder is a separate concept.
 An `option<T>` is either `none` or `some(value)`. Unwrap it explicitly:
 
 ```text
+derive selected = first(items)
 derive caption = match selected {
   case some(item) => item.title,
   case none => "Choose an item"
@@ -208,8 +217,9 @@ derive caption = match selected {
 
 The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
-assignment of `some(...)`, to infer the element type. Similarly, `[]` needs an
-inferable list element type. A nonempty list literal such as `[1, 2]` is not
+action's assignment of `some(...)`, to infer the element type. Actions and the
+view see that type, but derives are typed first: match such a state in the view,
+not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
 supported; obtain lists from sources, record fields, or list operations.
 
 ## State, derives, and actions
@@ -295,8 +305,8 @@ component CountLabel
     text `3 ${plural(3)}`
 ```
 
-Functions are pure, cannot recursively call themselves or form cycles, and do
-not capture component state. Pass values as parameters. Standard-function names
+Functions have no effects, cannot recursively call themselves or form cycles, and
+do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -333,8 +343,9 @@ Card(title="Heading", selected=selected)
 ```
 
 Positional values depend on the tag. Prefer a corpus example when using a new
-tag. Each component needs a usable view root; a root `when`, `each`, or `match`
-is refused. Put a stable element around conditional or repeated content.
+tag. The app's root view must be exactly one element: a `when`, `each`, or `match`
+there is refused, so put a stable element around conditional or repeated content.
+A child component used inside an element may return a region or several nodes.
 
 `when` conditionally creates nodes:
 
@@ -381,17 +392,19 @@ list virtualized=true height=500 estimated-item-height=64
 
 A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
-`flex` in a bounded parent). A horizontal one uses literal `display="flex"`,
-`flex-direction="row"`, a fixed height, and `estimated-item-width` if needed.
-One inner virtualized collection per row is supported; deeper nesting, masonry,
-wrapping, reversed lists, and RTL horizontal collections are not general features.
+`flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
+a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
+`gap`, main-axis padding, and `justify-content` other than `flex-start`.
+Virtualized lists nest one level deep (an inner vertical list needs a literal
+`height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
+RTL horizontal collections are not supported.
 `reachstart`, `reachend`, and `refresh` bind actions, optionally with captured
 arguments, for fetching data. An estimate is a layout hint, not a data limit.
 
 ## Components, providers, and slots
 
-A component declares its public inputs under `props`. All required arguments
-must be supplied once with compatible types. An action prop passes behavior
+A component declares its public inputs under `props`. Every declared prop must be
+supplied exactly once, with a compatible type; props have no defaults. An action prop passes behavior
 without giving a child access to its parent's state.
 
 ```contract
@@ -508,46 +521,51 @@ component Items
       text notice testId="notice"
 ```
 
-The `refreshes items` clause refreshes that resource when the mutation is sent
-and when its answer lands. `then afterSave` runs a parameterless action after
-settlement, in its own commit, so it can inspect the new answer. It must not send
-its own mutation again. Several answers before the next host advance are
-settled together; do not use `then` as a general event queue.
+The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
+the source gives at once shows immediately) and forces it again when the reply
+lands. `then afterSave` runs a parameterless action in its own commit at the
+host's next clock advance, once for every answer that landed before it, so it
+reads the latest answer. It does not run for a failure that brought no answer,
+and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
 `failed(resource)` asks whether the current resource request failed without an
 answer. Both take the declared name, not an arbitrary value. `failed` does not
-accept a mutation. A domain error returned in a shaped answer is data to inspect,
-not a failed transport request.
+accept a mutation: a mutation whose request fails without an answer stops being
+pending and keeps its previous value, and its `then` does not run. A domain error
+returned in a shaped answer is data to inspect, not a failed transport request.
 
 Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
-Before an answer, a resource has its type's zero or its declared placeholder:
+Before an answer, a resource holds its baked value, its declared placeholder, or
+its type's zero (`0`, `""`, `false`, `none`, `[]`, or a record of zeros):
 
 ```text
 resource profile = loadProfile(id) as shape Profile else empty(name="Loading…")
-resource profile = loadProfile(id) as shape Profile else previewProfile(id)
+resource profile = loadProfile(id) as shape Profile else previewProfile()
 ```
 
-These are alternative declarations. `empty` supplies the record type's zero
-with named constant field overrides. A source-call placeholder uses the declared
-data seam. See [placeholder examples](../contract/corpus/placeholder.contract).
+These are alternative declarations. `empty` supplies the type's zero, with named
+constant field overrides for a record. A source-call placeholder takes plain-value
+arguments, not state, and is answered once at build. See
+[placeholder examples](../contract/corpus/placeholder.contract);
+[RealWorld](../apps/realworld/app.contract) uses `else empty(…)`.
 
-The app build bakes initial resource values into its plan for first paint.
-Data modules must support that build-time environment; storage or authenticated
-network access may not be available there. Generate the interface rather than
-guessing it:
+The app build bakes initial resource values into its plan for first paint. At
+build there is no network, storage, store write or native module; a source that
+needs a request is left unbaked and asked at run time. Generate the interface
+rather than guessing it:
 
 ```sh
 cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
 cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
 ```
 
-Generated declarations are build artifacts. The manifest and module grants
-govern permissions; a source name alone does not grant network or filesystem
-access. Use [the data-module reference](reference.md#generate-typescript-data-source-types)
+Generated declarations are build artifacts. The data module's
+`export const grants` governs network and storage permissions; a source name alone
+grants nothing. Use [the data-module reference](reference.md#generate-typescript-data-source-types)
 and [Fieldnotes](../apps/fieldnotes) for storage and mixed application examples.
 
 ## Styling and layout
@@ -585,7 +603,9 @@ The element's own attributes override its class. `class=(selected ? Active :
 Idle)` chooses between two named styles. This is not CSS selector matching, a
 cascade, or a string of multiple class names. Put computed values on the node;
 style bodies are constant. Properties omitted by the selected style revert to
-their defaults rather than keeping the other style's previous value.
+their defaults rather than keeping the other style's previous value. The one
+host-policy prop a style can hold, `buttonStyle`, must be set in both styles or
+neither.
 
 Useful property families include flex/block layout; sizes and min/max sizes;
 padding, margin, and gaps; borders and radii; overflow and clipping; text metrics
@@ -626,7 +646,9 @@ input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
 
-`input` and `change` carry the field's new string as the final action argument.
+`input` and `change` carry the control's new value as the final action argument:
+a string for a text field, textarea or `select`, a boolean for a checkbox or
+switch, a number for `type="range"`, and a `list<Picked>` for a file input.
 `hover` carries a boolean; `key` carries a key name. Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
@@ -638,17 +660,23 @@ such as `preventDefault`, and no inline `() => …` handler.
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
 `option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
-checkbox/radio value conventions instead of assuming a browser Event object.
+the checkbox/switch, range, select and date/time conventions instead of assuming
+a browser Event object. There is no radio input.
 
 An action can issue host commands such as `focus("editor")`,
 `blur("editor")`, `copyText(text)`, and `openURL(url)`. Use an element's `id` for
 commands that address a node. The [command inventory](contract-grammar.md#host-commands)
 and linked checks describe the more specialized picker, sharing, formatting,
 scrolling, and delivery commands. Commands are distinct from pure functions:
-`openURL` does not return a Contract value, and a `fn` cannot issue it.
+`openURL` does not return a Contract value, and a `fn` cannot issue it. The
+compiler does not check most commands' arguments, and hosts differ: the
+JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
+`openURL`. Check the host you target.
 
-For files, declare accepted types in the app manifest where required. A picker
-returns host-managed handles through the addressed element's `change` handler;
+A file `input` needs a literal `accept`; types other than images and video must
+be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+to the addressed element's `change` handler, while `showOpenFilePicker`,
+`showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
@@ -672,8 +700,10 @@ component NativeButtonExample
 Its text and optional `image "symbol:…"` children describe the button's face;
 they are not arbitrary layout children. A symbol-only face needs a nonempty
 `aria-label`. The platform measures the control and supplies its chrome. UIKit
-and AppKit use native controls; the web and Linux use their documented looks,
-which are not a promise of identical glass rendering.
+and AppKit use native controls, with stand-ins for styles a platform lacks; the
+web and Linux draw their documented looks, which are not a promise of identical
+glass rendering, and Linux draws no symbol image. A native button takes only
+`press`, `focus`, `blur`, `key` and `hover` handlers.
 
 `buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
@@ -685,7 +715,8 @@ use a view branch if switching between native and custom buttons.
 
 Native buttons deliberately restrict authored paint, typography, face content,
 and parent contexts so the platform can own the control. Do not transfer every
-custom-button style to one. Use `accent-color` where supported, and follow
+custom-button style to one. `accent-color` tints the styles that support it
+(`gray`, `bordered`, `glass` and `clear-glass` ignore it). Follow
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
 
@@ -706,37 +737,50 @@ component App
     nav = push(nav, path("item", "42"))
   action back
     nav = back(nav)
+  action followLink(url: string)
+    nav = go(nav, url)
   view
-    main navigationKey=`${current.id}` navigationBack="back"
-      column gap=8
-        text current.name testId="route"
-        when current.name == "item"
-          text current.params.id
-        button press=showItem testId="open"
-          text "Open item"
-        button press=back testId="back"
-          text "Back"
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` gap=8
+          text e.name testId=`route-${e.id}`
+          when e.name == "item"
+            text e.params.id
+          button press=showItem testId=`open-${e.id}`
+            text "Open item"
+          button id="back" press=back testId=`back-${e.id}`
+            text "Back"
 ```
 
-`path("item", value)` checks the route and encodes its parameters. Prefer it to
-building a URL with a template; direct templates in navigation-location arguments
-are refused. Parameter values can be strings or numbers. Declared route parameter
+A navigation stack is built this way: one row per entry of `stack(nav)`, keyed by
+the entry's id, so a retained screen keeps its state. The root's `navigationKey`
+names the top entry, and each row's `navigationKey` names its own; the host
+presents the stack from them. `navigationBack` names the `id` of the back control.
+`navigate=` receives locations the host navigates to itself, such as link clicks
+and browser history.
+
+`path("item", value)` checks the route and encodes its parameters. Always build
+locations with it: a template literal as a location is refused and a string
+literal is checked against the table, but any other computed string is not
+checked. Parameter values can be strings or numbers. Declared route parameter
 fields are strings; absent fields for another route are the empty string.
 
 `push`, `open`, `replace`, `go`, `select`, and `back` return a router value; assign
-the result to `nav`. `select` selects a tab by name. `top`, `stack`, `depth`,
-`params`, and `searchParam` read routing state. Pushing the same URL already on
+the result to `nav`. `select` selects a tab by name. `top`, `stack`, and `depth`
+read the router; `params(nav, name)` lists one parameter across the stack, and
+`searchParam(entry, name)` reads an entry's query. Pushing the same URL already on
 top does not add a duplicate visit. The [router corpus](../contract/corpus/routes.contract)
-shows a full retained navigation stack and tab UI; use `each e in stack(nav)
-key=e.id` when the presentation needs each entry to own its subtree.
+shows a full retained navigation stack and tab UI.
 
-A `head` element declares document metadata such as title, description,
-canonical URL, image, robots policy, and status. The innermost active declaration
-wins field by field. Use `scroll document` for document scrolling and ordinary
-`scroll` for an inner scrollport. Route fields can declare rendering and
-activation policy; these interact with the site's build/render pipeline, not just
-its client-side view. Follow [the document corpus](../contract/corpus/document.contract)
-and [LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md) for accepted policy
+A `head` element declares document metadata: `title`, `description`, `canonical`,
+`image`, `robots`, and `status` (a literal 404, 410 or 503). The innermost active
+declaration wins field by field. Use `scroll document` for document scrolling and
+ordinary `scroll` for an inner scrollport; both need a bound. Route rows can
+declare `render`, `activate`, `paint` and `pages` policies; these interact with
+the site's build/render pipeline, not just its client-side view. Follow
+[the document corpus](../contract/corpus/document.contract),
+[the document tests](../contract/cli/tests/it/document.rs) and
+[LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md) for accepted policy
 values and serving behavior. A compiled interface alone is not a deployed website.
 
 ## Time, motion, and geometry
@@ -754,14 +798,17 @@ component Clock
     text `${ticks}` testId="ticks"
 ```
 
-`after(ms, action)` fires once. Millisecond intervals are positive whole numbers.
+`every(ms, action)` first fires one interval after boot, and `after(ms, action)`
+fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
 `every(frame, action)` runs once per presented frame without catching up missed
 frames. Each task body contains one schedule. Tasks are root-owned, not child
 lifecycle hooks.
 
-`now()` reads epoch milliseconds on the host/agent clock. Advancing the clock
-alone does not necessarily trigger rendering: a derive using `now()` reevaluates
-when a later commit evaluates it. Use a task when the display must tick.
+`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+under the agent); it is not a date. For the date, read the reserved `exactTime`
+source and add `time.epochAtZero + now()`. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `now()` reevaluates when a later
+commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with
 `animation` for authored motion:
@@ -784,24 +831,30 @@ component Motion
       text "Working" animation="breathe 1.6s ease-in-out infinite"
 ```
 
-Keyframe values are constant literals or supported constant function expressions;
-styles remain literal-only. CSS easing and the admitted `spring()` extension are
-not interchangeable guesses: copy the appropriate [motion fixture](../contract/corpus/spring.contract).
-`exit-animation`, `layout-transition`, and presentation timelines are declared
-extensions with bounded behavior, not arbitrary layout animation.
+Keyframe values are literals or calls to the app's own `fn`s with constant
+arguments (standard functions are refused), and keyframes animate paint and
+transform properties, not layout ones such as `width`. Styles remain
+literal-only. CSS easing and the admitted `spring(…)` timing function, which
+belongs only inside `transition`, are not interchangeable guesses: copy the
+appropriate [motion fixture](../contract/corpus/spring.contract).
+`exit-animation`, `layout-transition`, and presentation timelines
+(`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
+declared extensions with bounded behavior, not arbitrary layout animation.
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
-The transform pair must be declared together. The platform owns gesture
+The transform pair must be declared together. The height, transform and reorder
+drags start only from a handle that names its target's `id` with `heightDragFor`,
+`transformDragFor` or `reorderFor`. The platform owns gesture
 recognition and competition with scrolling; Contract does not define a general
 gesture arena. See [Interaction Gallery](../apps/interaction-gallery/app.contract)
 and [Spark](../apps/spark/app.contract) for complete bindings.
 
 `frame("id")` reads the last laid-out border box in root coordinates, without
-presentation transforms or scrolling. `measure("id")` asks for its height-auto
-layout under its current offer; its id is literal. Both are action-only and return
-`Geometry`, including `unavailable`; handle that flag rather than assuming layout
-already happened. Geometry reads are not reactive view expressions.
+transforms or scrolling. `measure("id")` asks for its height-auto layout under its
+current offer; its id is literal. Both are action-only and return `Geometry`,
+including `unavailable` and `provisional`; handle those flags rather than assuming
+layout already happened. Geometry reads are not reactive view expressions.
 
 ## Graphics, media, and native extensions
 
@@ -818,22 +871,26 @@ game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/
 
 `image`, `video`, `iframe`, and Markdown-capable text/editors use host facilities.
 Use `object-fit` for replaced media; distinguish text content from markup.
-[Video Player](../apps/video-player/app.contract), [Markdown](../apps/markdown/app.contract),
-and [Markdown Stress](../apps/markdown-stress/app.contract) show playback,
-selection, and editing bindings. Markdown editing is supported on web and Apple;
-Linux reads Markdown but is not an equivalent editor host.
+[Video Player](../apps/video-player/app.contract) shows playback bindings and
+[Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;
+[Markdown](../apps/markdown/app.contract) is a reader. Markdown rendering and
+editing run on the web and Apple hosts; Linux shows `markup="markdown"` text as
+raw source and has no `iframe` or `video`.
 
-A hyphenated tag can address the app's native module, with the compiler checking
-its declared schema. Merely inventing a tag does not create a widget. Native
+A hyphenated tag can address the app's native module: the bake checks the tag
+against `app.json`'s `modules` list, and its attributes pass to the module
+unchecked. Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.
 
 ## Platform facts and localization
 
-Host-owned facts arrive through reserved sources such as `exactViewport`,
-`exactPage`, `exactDelivery`, and `exactSurface`. Declare the fields you read
-with their supported names and types; the source checks them.
+Host-owned facts arrive through five reserved sources: `exactViewport`,
+`exactPage`, `exactDelivery`, `exactSurface`, and `exactTime` (the date, locale and
+time zone). Declare the fields you read with their supported names and types;
+the bake refuses a field the source does not have, though compilation alone does
+not.
 
 ```contract
 shape Viewport
@@ -852,20 +909,25 @@ component Responsive
 
 Prefer responsive branches driven by dimensions and actual capabilities to
 inventing platform-specific Contract files. Safe-area lengths use CSS `env()`;
-viewport metadata uses `viewport-fit` and `interactive-widget`. Motion and
-transparency preferences are facts for the app to honor, not automatic engine
-policy. Available fields are documented beside their source validation and
+viewport metadata uses the root element's `viewport-fit` and `interactive-widget`
+attributes. `exactViewport` also carries `prefersReducedMotion`,
+`prefersReducedTransparency`, `prefersContrast` and `prefersColorScheme`: facts
+for the app to honor, not automatic engine policy. Available fields are documented beside their source validation and
 [the viewport design](../llp/1039-viewport-facts.rfc.md); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls
-such as `t("greeting", name=person.name)`, with `{name}` in the table value. Keys
-and placeholder names are checked at compilation; the locale is supplied through
-the host's place facts. See [the locale fixture](../host/web-js/conformance/locale)
-for the complete files and fallback behavior.
+such as `t("greeting", name=person.name)`, with `{name}` in the table value. The
+key must be a literal; keys and placeholder names are checked at compilation. The
+base table is `en` unless `app.json` sets `strings.base`, and a translation may
+omit keys but not add them. The locale comes from the host; lookup falls back from
+the exact tag to shorter tags, then to the base. See
+[the locale fixture](../host/web-js/conformance/locale) and
+[the string tests](../contract/cli/tests/it/strings.rs).
 
 `formatTime`, `formatDate`, and `formatNumber` are deterministic formatting calls
-with specific accepted format literals. Their current formatting vocabulary is
-not a general `Intl` options object. App-specific wording belongs in app `fn`s.
+with specific accepted format literals. They print en-US whatever the viewer's
+locale, and their vocabulary is not a general `Intl` options object. App-specific
+wording belongs in app `fn`s.
 
 ## Testing, diagnostics, and delivery
 
@@ -889,13 +951,16 @@ cargo run -q -p contract -- test path/to/app.test.contract
 bun scripts/agent.mjs web --test path/to/app.test.contract
 ```
 
-Use the correct `--app`, `EXACT_APP_DIR`, and host build for your application.
-The driver refuses stale artifacts and prints the needed rebuild. `clock settle`
-advances animation deterministically; `clock +1000` advances by a second.
+Use the correct `--app`, `EXACT_APP_DIR`, and host build for your application;
+without either, the driver uses Caltrain. The driver refuses stale artifacts and
+prints the needed rebuild. `clock settle` advances animation deterministically
+(it reports `settled: false` while a repeating timer or an infinite animation
+runs, as in the Clock and Motion examples); `clock +1000` advances by a second.
 Do not replace virtual time with sleeps.
 
 For diagnosis, use `build --json`, `symbols --name <name>`, and
-`build -o /tmp/app.plan --map`. The development source map connects node layout
+`build -o /tmp/app.plan --map`, which writes `/tmp/app.plan.map.json`. The
+development source map connects node layout
 to declarations, component calls, and style origins. Then drive the actual app:
 
 ```sh
@@ -909,9 +974,11 @@ grants, and its bake behavior. If an event fails, check the captured arguments,
 payload type, current action binding, and whether the node exists.
 
 `app.json` also controls delivery policy. `bun scripts/deploy.mjs <app>` is a
-dry run; publication uses `--yes` and the configured signed streams. Read the
-[delivery reference](reference.md) before changing trust or publishing. Writing
-Contract does not require inventing a deployment service.
+dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`,
+an origin, a signing key, and the configured signed streams. Read
+[LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
+trust or publishing. Writing Contract does not require inventing a deployment
+service.
 
 ## Where to go next
 
@@ -920,7 +987,8 @@ Contract does not require inventing a deployment service.
 | Small stateful app and tests | [Caltrain](../apps/caltrain/app.contract) |
 | Record updates and locals | [records](../contract/corpus/records.contract), [let](../contract/corpus/let.contract) |
 | Providers and caller-owned slots | [provide](../contract/corpus/provide.contract), [slot](../contract/corpus/slot.contract) |
-| Lists and formatting | [lists](../contract/corpus/lists.contract) |
+| Lists | [lists](../contract/corpus/lists.contract) |
+| Date and time formatting | [Caltrain](../apps/caltrain/app.contract) |
 | Requests, storage, editing | [Fieldnotes](../apps/fieldnotes/app.contract) |
 | Authentication and redirects | [RealWorld](../apps/realworld/app.contract) |
 | Navigation | [routes](../contract/corpus/routes.contract) |

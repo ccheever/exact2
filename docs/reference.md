@@ -474,6 +474,10 @@ platforms are gray. Web works by default and shows its destination URL. Native
 methods appear only when configured. The header shows build/source/timestamp
 and serving context. Optional `brand.logo` and `brand.wordmark` reuse app images
 or a text wordmark with an asset font; the footer uses the gray Exact mark.
+Beside the pages, `/.exact/install.json` carries the same content as data (the
+app, its build, each platform's methods in order with labels resolved, and what
+it can reach), for a native client such as Exact2 Go to draw its own install
+sheet. Both web targets write them; a deploy's JS root carries its bake's.
 
 Configure `install.<platform>.methods` in the app’s `app.json`; use
 `recommended` to name a configured method. See [LLP 1030.003 D6a](../llp/1030.003-continuous-release-loop.rfc.md#d6a--the-standard-install-page)

@@ -51,6 +51,8 @@
   button[data-button-style] { appearance: auto; background: revert; border: revert; border-radius: revert; padding: revert; font: revert; color: revert; box-sizing: border-box; letter-spacing: normal; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; align-items: center; justify-content: center; gap: .25em; white-space: nowrap; overflow: hidden; -webkit-user-select: none; user-select: none; }
   button[data-button-style] > :not(img) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   button[data-button-style] > img { --exact-tint: currentColor; }
+  /* A symbol alone is drawn larger, as UIKit draws a symbol-only button's (about 20 pt in a 40 pt glass button). */
+  button[data-button-style] > img:only-child { font-size: 1.5em; }
   button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) { appearance: none; border: none; border-radius: 999px; padding: 7px 12px; }
   button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }

@@ -17,6 +17,7 @@ import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFil
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { localInstaller } from '../web/local-install.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
@@ -106,10 +107,16 @@ if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact 
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
-  const server = createServer((req, res) => {
-    if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
+  // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
+  // the local iOS build (D6b): this server's, since only it sees the real
+  // peer (a forwarded request's is loopback).
+  const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
+  const server = createServer(async (req, res) => {
+    const access = gate.check(req);
+    if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    if (await installer.handle(req, res, url, access)) return;
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify(error ? { error, reload: seq, revision: logicRevision } : { reload: seq, revision: logicRevision })}\n\n`);
@@ -148,7 +155,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    let body = readFileSync(found.path);
+    let body = installer.page(found.route, readFileSync(found.path), access);
     if (found.route.endsWith('.html')) {
       body = body.toString();
       const id = url.searchParams.get('__exactDev'), carried = id && checkpoints.get(id);
@@ -192,7 +199,13 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(out);
   }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
-  const stop = () => { for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close(); process.exit(0); };
+  const stop = async () => {
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    // A local iOS build in flight is stopped and waited for, as the resident loop does.
+    const install = installer.child;
+    if (install && install.exitCode === null && install.signalCode === null) { const exit = new Promise((ok) => install.once('exit', ok)); install.kill('SIGTERM'); await exit; }
+    process.exit(0);
+  };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
