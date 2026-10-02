@@ -60,9 +60,18 @@ pub fn rotate(text: &str) -> Option<([f32; 3], f32)> {
 }
 
 impl RotateAxis {
-    /// The row's parse: the axis of a `rotate` value.
+    /// The row's parse: the axis of a `rotate` value, or the axis alone
+    /// (its wire form, `css()`). An axis along z is z: a `-z` one turns the
+    /// angle the other way instead (`f32_row`), so the 2D path draws it.
     pub fn parse(css: &str) -> Option<Self> {
-        rotate(css).map(|(axis, _)| Self(axis))
+        let axis = rotate(css)
+            .map(|(axis, _)| axis)
+            .or_else(|| axis_only(css))?;
+        Some(Self(if axis[0] == 0.0 && axis[1] == 0.0 {
+            [0.0, 0.0, 1.0]
+        } else {
+            axis
+        }))
     }
 
     /// Canonical CSS: `x`, `y`, `z`, or three numbers.
@@ -83,6 +92,27 @@ impl RotateAxis {
     /// Whether it turns out of the screen's plane.
     pub fn is_3d(&self) -> bool {
         self.0[0] != 0.0 || self.0[1] != 0.0
+    }
+}
+
+/// An axis on its own: `x`, `y`, `z` or three numbers.
+fn axis_only(text: &str) -> Option<[f32; 3]> {
+    let words: Vec<&str> = text.split_ascii_whitespace().collect();
+    match words[..] {
+        [w] => match w.to_ascii_lowercase().as_str() {
+            "x" => Some([1.0, 0.0, 0.0]),
+            "y" => Some([0.0, 1.0, 0.0]),
+            "z" => Some([0.0, 0.0, 1.0]),
+            _ => None,
+        },
+        [x, y, z] => {
+            let v = [x, y, z].map(|n| exact_num::parse_f32(n).ok().filter(|n| n.is_finite()));
+            let [Some(x), Some(y), Some(z)] = v else {
+                return None;
+            };
+            (x != 0.0 || y != 0.0 || z != 0.0).then_some([x, y, z])
+        }
+        _ => None,
     }
 }
 
@@ -118,10 +148,19 @@ pub(crate) fn f32_row(
     use crate::StyleId;
     let wrong = |expected| Err(StyleValueError::WrongKind { style, expected });
     Some(match (style, value) {
-        (StyleId::Rotate, StyleValue::Text(t)) => rotate(t).map(|(_, deg)| deg).map_or_else(
-            || wrong("an angle, and optionally an axis: `x`, `y`, `z` or three numbers"),
-            Ok,
-        ),
+        // A -z axis is z with the angle turned the other way (`RotateAxis`).
+        (StyleId::Rotate, StyleValue::Text(t)) => rotate(t)
+            .map(|(a, deg)| {
+                if a[0] == 0.0 && a[1] == 0.0 && a[2] < 0.0 {
+                    -deg
+                } else {
+                    deg
+                }
+            })
+            .map_or_else(
+                || wrong("an angle, and optionally an axis: `x`, `y`, `z` or three numbers"),
+                Ok,
+            ),
         (StyleId::TranslateZ, StyleValue::Text(t)) => {
             translate_z(t).map_or_else(|| wrong("up to three lengths in px"), Ok)
         }
@@ -167,6 +206,22 @@ mod tests {
         assert_eq!(rotate("0 0 0 10deg"), None);
         assert_eq!(RotateAxis::parse("y 30deg").unwrap().css(), "y");
         assert!(RotateAxis::parse("y 30deg").unwrap().is_3d());
+        // The wire form round-trips, and a -z axis is z (its angle turns).
+        for text in ["y 30deg", "1 1 0 10deg", "x 1turn"] {
+            let a = RotateAxis::parse(text).unwrap();
+            assert_eq!(RotateAxis::parse(&a.css()), Some(a), "{text}");
+        }
+        assert_eq!(
+            RotateAxis::parse("0 0 -1 30deg").unwrap().0,
+            [0.0, 0.0, 1.0]
+        );
+        let mut s = crate::StyleProps::default();
+        s.set_dynamic(
+            crate::StyleId::Rotate,
+            &crate::StyleValue::Text("0 0 -1 30deg".into()),
+        )
+        .unwrap();
+        assert_eq!(s.rotate, -30.0);
         assert_eq!(translate_z("10px 20px 30px"), Some(30.0));
         assert_eq!(translate_z("10px"), Some(0.0));
         assert_eq!(perspective("none"), Some(0.0));

@@ -258,9 +258,15 @@ final class ConicMaskLayer: CALayer {}
 extension BatchValue {
     /// A gradient that carries a `light-dark()` stop: an appearance change
     /// is something to the view that shows it.
+    ///
+    /// Nested too: a layer list, a shadow list's or a text shadow's colour,
+    /// a symbol palette (LLP 1076).
     var isSchemeGradient: Bool {
-        if case .object(let o) = self { return o["dark"] != nil }
-        return false
+        switch self {
+        case .object(let o): return o["dark"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        case .array(let a): return a.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        default: return false
+        }
     }
 }
 

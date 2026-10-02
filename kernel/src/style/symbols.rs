@@ -63,18 +63,23 @@ impl SymbolPalette {
 }
 
 /// UIKit's label, fill and separator colours as WebKit spells them, light
-/// and dark (LLP 1076 D13).
+/// and dark (LLP 1076 D13): the one table every host and the web JS
+/// target's bound values read.
+pub const SYSTEM_COLORS: [(&str, u32, u32); 6] = [
+    ("-apple-system-label", 0x0000_00ff, 0xffff_ffff),
+    ("-apple-system-secondary-label", 0x3c3c_4399, 0xebeb_f599),
+    ("-apple-system-tertiary-label", 0x3c3c_434d, 0xebeb_f54d),
+    ("-apple-system-quaternary-label", 0x3c3c_432e, 0xebeb_f529),
+    ("-apple-system-separator", 0x3c3c_434a, 0x5454_5899),
+    ("-apple-system-fill", 0x7878_8033, 0x7878_805c),
+];
+
 pub(super) fn system_color(name: &str) -> Option<ColorValue> {
-    let pair = |l: u32, d: u32| Some(ColorValue::LightDark(Color(l), Color(d)));
-    match name.trim().to_ascii_lowercase().as_str() {
-        "-apple-system-label" => pair(0x0000_00ff, 0xffff_ffff),
-        "-apple-system-secondary-label" => pair(0x3c3c_4399, 0xebeb_f599),
-        "-apple-system-tertiary-label" => pair(0x3c3c_434d, 0xebeb_f54d),
-        "-apple-system-quaternary-label" => pair(0x3c3c_432e, 0xebeb_f529),
-        "-apple-system-separator" => pair(0x3c3c_434a, 0x5454_5899),
-        "-apple-system-fill" => pair(0x7878_8033, 0x7878_805c),
-        _ => None,
-    }
+    let name = name.trim().to_ascii_lowercase();
+    SYSTEM_COLORS
+        .iter()
+        .find(|(n, ..)| *n == name)
+        .map(|&(_, l, d)| ColorValue::LightDark(Color(l), Color(d)))
 }
 
 #[cfg(test)]

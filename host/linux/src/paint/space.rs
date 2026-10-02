@@ -48,6 +48,62 @@ fn rotate(axis: [f32; 3], deg: f32) -> M4 {
     ]
 }
 
+/// `a` after `b`, two 3×3 maps row-major: what a point goes through when it
+/// is mapped by `b` and then by `a`.
+fn mul3(a: &[f32; 9], b: &[f32; 9]) -> [f32; 9] {
+    let mut out = [0.0; 9];
+    for i in 0..3 {
+        for j in 0..3 {
+            out[i * 3 + j] = (0..3).map(|k| a[i * 3 + k] * b[k * 3 + j]).sum();
+        }
+    }
+    out
+}
+
+/// How far past its border box `node` paints, left, top, right, bottom: its
+/// outer shadows' reach and, unless it clips, its descendants' frames.
+fn reach(
+    walk: &Walk<'_, '_>,
+    node: &exact_kernel::NodeRef<'_>,
+    (x, y, w, h): Rect4,
+    offset: (f32, f32),
+) -> (f32, f32, f32, f32) {
+    let mut out = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for s in node.style.box_shadow.shadows().iter().filter(|s| !s.inset) {
+        let r = 1.5 * s.blur + s.spread.max(0.0) + 1.0;
+        out.0 = out.0.max(r - s.offset.x);
+        out.1 = out.1.max(r - s.offset.y);
+        out.2 = out.2.max(r + s.offset.x);
+        out.3 = out.3.max(r + s.offset.y);
+    }
+    let (ox, oy) = effective_overflow(node);
+    if ox == Overflow::Visible && oy == Overflow::Visible {
+        let mut stack = node.children();
+        while let Some(id) = stack.pop() {
+            let Some(child) = walk.scene.kernel.node(id) else {
+                continue;
+            };
+            let (cx, cy, cw, ch) = paint_rect(child.frame, offset);
+            out.0 = out.0.max(x - cx);
+            out.1 = out.1.max(y - cy);
+            out.2 = out.2.max(cx + cw - (x + w));
+            out.3 = out.3.max(cy + ch - (y + h));
+            let (cox, coy) = effective_overflow(&child);
+            if cox == Overflow::Visible && coy == Overflow::Visible {
+                stack.extend(child.children());
+            }
+        }
+    }
+    // Bounded: a runaway descendant must not ask for a frame-sized island.
+    let cap = 2.0 * w.max(h).max(64.0);
+    (
+        out.0.min(cap),
+        out.1.min(cap),
+        out.2.min(cap),
+        out.3.min(cap),
+    )
+}
+
 impl Painter {
     /// Paint `node` through its plane's homography when it is turned or
     /// moved in space; `false` when it is not, and the caller paints it.
@@ -104,8 +160,12 @@ impl Painter {
                 m = mul(&persp, &m);
             }
         }
-        // The plane z = 0 of the box, from its island (0..w, 0..h).
-        let m = mul(&m, &translate(x, y, 0.0));
+        // The island covers what the box paints past itself: its outer
+        // shadows and any overflowing descendant (nothing past a clip).
+        let (left, top, right, bottom) = reach(walk, node, (x, y, w, h), offset);
+        let (iw, ih) = (w + left + right, h + top + bottom);
+        // The plane z = 0 of the box, from its island (-left..w+right, …).
+        let m = mul(&m, &translate(x - left, y - top, 0.0));
         let plane = [
             m[0][0], m[0][1], m[0][3], m[1][0], m[1][1], m[1][3], m[3][0], m[3][1], m[3][3],
         ];
@@ -129,8 +189,8 @@ impl Painter {
         painter.placements = self.placements.clone();
         painter.canvases = self.canvases.clone();
         painter.flatten = Some(node.id);
-        painter.viewport = (w, h);
-        painter.backend.begin(w, h, self.scale);
+        painter.viewport = (iw, ih);
+        painter.backend.begin(iw, ih, self.scale);
         let mut child_walk = Walk {
             scene: walk.scene,
             boxes: Vec::new(),
@@ -143,7 +203,7 @@ impl Painter {
             &mut child_walk,
             node.id,
             Transform::identity(),
-            (f.x, f.y),
+            (f.x - left, f.y - top),
             None,
         );
         walk.text.extend(child_walk.text);
@@ -156,8 +216,16 @@ impl Painter {
             }
         }
         for mut b in child_walk.boxes {
-            b.projective = Some((inv, b.rect, b.clip, planes));
-            b.rect = crate::placement::clipped_bounds(&device, planes, b.rect);
+            // A box already in its own plane (a 3D child) maps through both:
+            // this island's inverse, then its own (LLP 1076 D8).
+            let (local, local_clip, inv, planes) = match b.projective {
+                Some((inner, r, c, p)) => (r, c, mul3(&inner, &inv), p),
+                None => (b.rect, b.clip, inv, planes),
+            };
+            if let Some(map) = crate::placement::inverse(inv) {
+                b.rect = crate::placement::clipped_bounds(&map, planes, local);
+            }
+            b.projective = Some((inv, local, local_clip, planes));
             b.clip = clip;
             walk.boxes.push(b);
         }

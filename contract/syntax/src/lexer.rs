@@ -191,12 +191,22 @@ impl Lexer {
                 let span = col_of(pos);
                 // A vendor-prefixed CSS name, as the Compat Standard spells
                 // some (`-webkit-text-stroke`, LLP 1076 D7): the two
-                // prefixes only, so `-name` stays a negation.
+                // prefixes only, and only as an attribute's name (followed
+                // by `=`), so `-webkit-x` in an expression stays a negation.
                 let vendor = ["-webkit-", "-apple-"].iter().any(|p| {
                     trimmed[pos..].starts_with(p)
                         && bytes
                             .get(pos + p.len())
                             .is_some_and(|n| (*n as char).is_ascii_alphabetic())
+                        && {
+                            let rest = &trimmed[pos + 1..];
+                            let end = rest
+                                .find(|c: char| {
+                                    !(c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                                })
+                                .unwrap_or(rest.len());
+                            rest[end..].starts_with('=') && !rest[end..].starts_with("==")
+                        }
                 });
                 if c.is_ascii_alphabetic() || c == '_' || vendor {
                     // An identifier may contain hyphens — `font-size`,

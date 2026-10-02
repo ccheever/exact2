@@ -32,15 +32,15 @@ extension NodeView {
     /// D17: a pointer interaction whose style is the node's effect.
     private func applyHoverEffect() {
         let effect = style["hover_effect"]?.string ?? "auto"
-        let current = interactions.compactMap { $0 as? UIPointerInteraction }.first
-        guard effect != "auto", effect != "none" || current != nil else { return }
-        if effect == "none" {
-            if let current { removeInteraction(current) }
+        // Only the interaction this row added: a native hook's stays.
+        let ours = interactions.compactMap { $0 as? UIPointerInteraction }.first { $0.delegate is HoverEffect }
+        guard effect != "auto", effect != "none" else {
+            if let ours { removeInteraction(ours) }
             return
         }
         let delegate = HoverEffect.of(self)
         delegate.effect = effect
-        if current == nil { addInteraction(UIPointerInteraction(delegate: delegate)) }
+        if ours == nil { addInteraction(UIPointerInteraction(delegate: delegate)) }
     }
 }
 

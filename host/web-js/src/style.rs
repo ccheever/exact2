@@ -467,6 +467,20 @@ pub struct Write {
 }
 
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
+/// A bound value naming one of UIKit's system colours as its `light-dark()`
+/// pair, anywhere in the text (a shorthand's colour part too); the kernel's
+/// table, so literal and bound values agree (LLP 1076 D13).
+pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let pairs: Vec<String> = exact_kernel::style::symbols::SYSTEM_COLORS
+        .iter()
+        .map(|(name, l, d)| format!("[\"{name}\",\"light-dark(#{l:08x}, #{d:08x})\"]"))
+        .collect();
+    format!(
+        "v=>typeof v===\"string\"&&v.includes(\"-apple-system-\")?[{}].reduce((s,[n,c])=>s.replace(new RegExp(n+\"(?![\\\\w-])\",\"gi\"),c),v):v",
+        pairs.join(",")
+    )
+});
+
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 

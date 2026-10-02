@@ -79,24 +79,29 @@ impl Painter {
 }
 
 /// Dilate (max) or erode (min) every channel over a disc of `radius` device
-/// pixels, rows then the disc's spans.
+/// pixels. The disc's edge is soft — a neighbour counts by how much of its
+/// pixel the radius reaches past the source pixel's own half-pixel edge — so
+/// a fractional width (1.5px at 1×) draws as wide as it is, not rounded to
+/// whole pixels.
 fn morphology(pixels: &mut Pixmap, radius: f32, dilate: bool) {
-    let r = radius.round() as i32;
-    if r <= 0 {
+    if radius.is_nan() || radius <= 0.0 {
         return;
     }
+    let reach = radius.ceil() as i32;
     let (w, h) = (pixels.width() as i32, pixels.height() as i32);
     let src = pixels.data().to_vec();
     let out = pixels.data_mut();
-    let start = if dilate { 0u8 } else { 255u8 };
     for y in 0..h {
         for x in 0..w {
-            let mut v = [start; 4];
-            for dy in -r..=r {
-                let sy = y + dy;
-                let span = ((r * r - dy * dy) as f32).sqrt() as i32;
-                for dx in -span..=span {
-                    let sx = x + dx;
+            let mut v = if dilate { [0.0f32; 4] } else { [255.0f32; 4] };
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    let weight =
+                        (radius + 1.0 - ((dx * dx + dy * dy) as f32).sqrt()).clamp(0.0, 1.0);
+                    if weight == 0.0 {
+                        continue;
+                    }
+                    let (sx, sy) = (x + dx, y + dy);
                     let s = if (0..w).contains(&sx) && (0..h).contains(&sy) {
                         let i = ((sy * w + sx) * 4) as usize;
                         [src[i], src[i + 1], src[i + 2], src[i + 3]]
@@ -104,16 +109,19 @@ fn morphology(pixels: &mut Pixmap, radius: f32, dilate: bool) {
                         [0; 4]
                     };
                     for c in 0..4 {
+                        let s = s[c] as f32;
                         v[c] = if dilate {
-                            v[c].max(s[c])
+                            v[c].max(s * weight)
                         } else {
-                            v[c].min(s[c])
+                            v[c].min(255.0 - (255.0 - s) * weight)
                         };
                     }
                 }
             }
             let i = ((y * w + x) * 4) as usize;
-            out[i..i + 4].copy_from_slice(&v);
+            for c in 0..4 {
+                out[i + c] = v[c].round().clamp(0.0, 255.0) as u8;
+            }
         }
     }
 }
@@ -131,6 +139,16 @@ mod tests {
         let lit = p.data().chunks(4).filter(|c| c[3] == 255).count();
         assert_eq!(lit, 13, "a radius-2 disc");
         morphology(&mut p, 2.0, false);
-        assert_eq!(p.data().chunks(4).filter(|c| c[3] == 255).count(), 1);
+        assert_eq!(p.data().chunks(4).filter(|c| c[3] > 128).count(), 1);
+        // Half a pixel more reach is half-covered pixels, not nothing.
+        let mut q = Pixmap::new(9, 9).unwrap();
+        q.data_mut()[i..i + 4].copy_from_slice(&[255; 4]);
+        morphology(&mut q, 1.5, true);
+        let half = q
+            .data()
+            .chunks(4)
+            .filter(|c| c[3] > 0 && c[3] < 255)
+            .count();
+        assert!(half > 0, "a soft edge");
     }
 }

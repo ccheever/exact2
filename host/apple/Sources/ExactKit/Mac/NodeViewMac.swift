@@ -1269,6 +1269,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
+        // The display path a drawn box takes instead of `updateLayer()`:
+        // AppKit has rewritten the layer's transform here too.
+        applyTransform()
         // Selection, capture, and decorated text return to direct painting.
         if textRasterUsesStrips {
             textRasterOverflowLayer?.removeFromSuperlayer()
@@ -1315,6 +1318,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
             if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         }
+        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")

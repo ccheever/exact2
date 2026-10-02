@@ -82,6 +82,22 @@ impl Em<'_> {
                 }
                 return refuse("a dynamic 3D part without its `rotate` or `translate`");
             }
+            // @ref LLP 1076 D7 — the shorthand binds both rows with the
+            // author's whole text: one declaration of the shorthand.
+            StyleId::TextStrokeWidth | StyleId::TextStrokeColor
+                if binding(if id == StyleId::TextStrokeWidth { StyleId::TextStrokeColor } else { StyleId::TextStrokeWidth })
+                    .is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) =>
+            {
+                if id == StyleId::TextStrokeColor {
+                    return Ok(());
+                }
+                one("-webkit-text-stroke", Some(style::SYSTEM_COLOR_MAP.to_string()))
+            }
+            // @ref LLP 1076 D8 — 0 is `none`, as css.rs writes it.
+            StyleId::Perspective => one(
+                "perspective",
+                Some("v=>v==null?v:v===0||v===\"0\"?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
+            ),
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();
@@ -165,7 +181,13 @@ impl Em<'_> {
             _ => style::style_writes(b.id, timeline)
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
-                .map(|w| (w.name, w.unit, w.map.map(str::to_string)))
+                .map(|w| {
+                    // @ref LLP 1076 D13 — a bound colour may name a system
+                    // colour, which the literal path resolved in the kernel.
+                    let colors = matches!(id.codec(), exact_kernel::StyleCodec::ColorValue | exact_kernel::StyleCodec::KeywordColor);
+                    let map = w.map.map(str::to_string).or_else(|| colors.then(|| style::SYSTEM_COLOR_MAP.to_string()));
+                    (w.name, w.unit, map)
+                })
                 .collect(),
         };
         // A reference (`url(#…)`) names an element by its authored id, which

@@ -234,9 +234,9 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 ### Stage 3 (2026-10-02): `background-clip`, `-webkit-text-stroke`
 
 - **Rows.** Row 156 `background_clip` (an enum) and rows 154–155 `text_stroke_width` and `text_stroke_color` (inherited). The shorthand binds both, each row taking its part (`style/stroke.rs`).
-- **Syntax.** Contract's lexer now reads a name starting `-webkit-` or `-apple-` as one identifier, as CSS does, so the Compat Standard's names can be written. Those two prefixes only, so `-name` is still a negation.
+- **Syntax.** Contract's lexer now reads a name starting `-webkit-` or `-apple-` as one identifier, as CSS does, so the Compat Standard's names can be written. Those two prefixes only, and only as an attribute's name (followed by `=`, not `==`), so `-webkit-x` in an expression is still a negation.
 - **Apple.** The stroke is Core Text's own: a negative `strokeWidth` (percent of each run's size) and a `strokeColor`, centred and over the fill as Chrome draws it. A non-border-box clip draws through `draw(_:)`. `text` keeps the paragraph off its raster and clips the background colour and gradients to the union of its glyph outlines (`TextEngine.glyphPath`, from the laid-out lines).
-- **Linux.** Glyphs are coverage, not outlines, so the stroke is a band island over the normal glyphs: the stroke-coloured paragraph dilated by half the width, less the same eroded by half, using a disc structuring element. `text` paints the background into an island, multiplies it by the paragraph's glyph coverage, and places it under the glyphs.
+- **Linux.** Glyphs are coverage, not outlines, so the stroke is a band island over the normal glyphs: the stroke-coloured paragraph dilated by half the width, less the same eroded by half, using a disc structuring element with a soft edge, so a fractional width draws as wide as it is. `text` paints the background into an island, multiplies it by the paragraph's glyph coverage, and places it under the glyphs.
 - **Web.** CSS, with `-webkit-text-stroke-*` named as Chrome spells them.
 
 **Measured against Chrome** on `scripts/fixtures/text-paint.contract`:
@@ -256,7 +256,7 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
   - The `rotate` attribute binds `rotate` (the angle the engine animates) and its axis. It now takes CSS's text forms too (`45deg`, `x 30deg`, `1 1 0 10deg`), where it took only a number before. `translate` binds x/y and z.
   - `perspective` makes a containing block, as CSS's does.
 - **Apple.** A rotation out of the screen's plane, or a z translation, is the layer's `CATransform3D`, built as CSS orders it (translate, rotate, scale about `transform-origin`). The parent's `perspective` is its child container's `sublayerTransform`, about `perspective-origin`. `backface-visibility` is `isDoubleSided`.
-  - **macOS fix.** AppKit rewrites a layer-backed view's layer geometry, transform included, during its layout and display. Every authored transform, 2D ones too, now goes back on in `layout()` and `updateLayer()`. Before this, a static `rotate` or `translate` never showed on macOS. That was an existing bug this stage found.
+  - **macOS fix.** AppKit rewrites a layer-backed view's layer geometry, transform included, during its layout and display. Every authored transform, 2D ones too, now goes back on in `layout()`, `updateLayer()` and `draw(_:)`. Before this, a static `rotate` or `translate` never showed on macOS. That was an existing bug this stage found.
 - **Linux.** The placement route canvas children already took (`placement.rs`): the box is painted flat apart and warped through its plane's homography, its parent's perspective included, and hit-tested through the same map. `warp_soft` gives the warped outline antialiased edges, as a browser's 3D layer has; canvas children keep opaque edges. The Vello patch (§D8) is not needed for correctness and is not built: both painters use this CPU warp. It is owed only if a measured 3D animation is too slow.
 - **Web.** CSS: `rotate` written with its axis, `translate` with its z.
 
@@ -291,6 +291,25 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 - **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
 - **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
 - **Web stand-ins** for the symbol effects.
+
+### Review (2026-10-02): Astra and Grok
+
+Two independent audits of the six commits. Fixed in round 1:
+
+- **macOS.** A layer-drawn box (`draw(_:)`) re-applies its transform too. A captured outer or inset shadow (one drawn into the picture) draws every shadow in the list. A scheme-coloured gradient nested in a list of layers redraws on a scheme change. An Arrange lift records its shift before the frame moves, so `layout()` re-applies the shifted transform.
+- **iOS.** The ink and image layers sit above the inset caster, as CSS paints content over an inset shadow. The image fast path declines a corner shape it cannot draw.
+- **Masks on Apple.** One composed mask per box: the shaped clip, `clip-path` and `mask-image` multiply, as CSS composes them. A box `filter`'s picture takes the composed mask, and so does a conic gradient on a material.
+- **Kernel and Contract.** `rotate`'s axis survives the wire both ways. A −z axis is the angle negated. A dynamic hover effect of `none` removes the interaction. The vendor-prefix lexing is narrowed as stage 3 says.
+- **Web JS target.** The stroke shorthand writes one `-webkit-text-stroke`, the `-apple-system-*` names resolve in dynamic colour writes, and a perspective of 0 writes `none`, as the wasm host does.
+- **Linux.** A 3D box inside a 3D box composes both projections. A box's island reaches its outer shadow and its visible overflow. The stroke takes fractional widths.
+
+Owed from the review (not fixed):
+
+- **Per-run inline styles.** A `span`'s own `text-shadow` or stroke draws with its paragraph's, not its own.
+- **Apple text shadow under transparent text.** Core Text casts no shadow from a clear fill. Chrome does draw it.
+- **3D on Apple: hit-testing and back faces.** A turned box is hit-tested in its flat frame. A hidden back face still takes touches.
+- **`paint-order: stroke`** is not a row. The stroke always draws over the fill, as Chrome's default does.
+- **A material's children under a mask** (declared in LLP 1001).
 
 ## 7. Open questions for Charlie
 

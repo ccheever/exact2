@@ -143,8 +143,11 @@ extension NodeView {
         // view where its frame is, never where its layer was moved.
         let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
         if shift != arrangeShift {
-            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
+            // Recorded first: moving the frame can lay the view out again,
+            // which comes back here (now from `layout()`).
+            let was = arrangeShift
             arrangeShift = shift
+            setFrameOrigin(NSPoint(x: frame.minX - was.x + shift.x, y: frame.minY - was.y + shift.y))
         }
         // The layer turns about its own origin: move `transform-origin`
         // there, turn, move it back. A press folds into the scale.

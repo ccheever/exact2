@@ -257,7 +257,7 @@ extension NodeView {
         let ink = textRasterLayer ?? InkLayer()
         // Above the box's border (`applyBoxLayer`), under everything else.
         if ink.superlayer == nil {
-            if let border = boxBorder { layer.insertSublayer(ink, above: border) } else { layer.insertSublayer(ink, at: 0) }
+            if let border = boxBorder { layer.insertSublayer(ink, above: border) } else if let inset = insetCaster, inset.superlayer === layer { layer.insertSublayer(ink, above: inset) } else { layer.insertSublayer(ink, at: 0) }
         }
         ink.frame = result.frame
         ink.contentsScale = key.scale

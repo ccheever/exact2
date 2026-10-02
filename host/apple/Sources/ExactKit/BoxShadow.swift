@@ -263,20 +263,63 @@ extension NodeView {
     /// shows it, before the box. Core Graphics' blur is CSS's radius; its
     /// offset is in the unflipped base space.
     func drawCapturedShadow(_ ctx: CGContext) {
-        guard Capture.capturing, shadowCaster != nil, let color = shadowColor else { return }
+        guard Capture.capturing, shadowCaster != nil || insetCaster != nil else { return }
         let outline = roundedPath(in: bounds).cgPath
-        let (x, y, blur) = shadowGeometry
-        let outside = CGMutablePath()
-        outside.addRect(bounds.insetBy(dx: -(1.5 * blur + abs(x) + abs(y) + 1), dy: -(1.5 * blur + abs(x) + abs(y) + 1)))
-        outside.addPath(outline)
-        ctx.saveGState()
-        ctx.addPath(outside)
-        ctx.clip(using: .evenOdd)
-        ctx.setShadow(offset: CGSize(width: x, height: -y), blur: blur, color: color)
-        ctx.addPath(outline)
-        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-        ctx.fillPath()
-        ctx.restoreGState()
+        let sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        let shape = CornerShape(style["corner_shape"])
+        // The last first, so the first is on top, as the live casters stack.
+        for spec in boxShadows.reversed() where !spec.inset {
+            let (x, y, blur) = (spec.offset.width, spec.offset.height, spec.blur)
+            let grown = bounds.insetBy(dx: -spec.spread, dy: -spec.spread)
+            let radii = sizes.map { CGSize(width: BoxShadowSpec.spreadRadius($0.width, spec.spread),
+                                            height: BoxShadowSpec.spreadRadius($0.height, spec.spread)) }
+            let cast = spec.spread == 0 ? outline : BorderPaint.roundedRect(grown, radii, shape: shape)
+            let outside = CGMutablePath()
+            outside.addRect(bounds.insetBy(dx: -spec.reach, dy: -spec.reach))
+            outside.addPath(outline)
+            ctx.saveGState()
+            ctx.addPath(outside)
+            ctx.clip(using: .evenOdd)
+            ctx.setShadow(offset: CGSize(width: x, height: -y), blur: blur, color: spec.color)
+            ctx.addPath(cast)
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+            ctx.fillPath()
+            ctx.restoreGState()
+        }
+    }
+
+    /// The inset shadows into a capture, over the box's paint (LLP 1076 D4):
+    /// a frame around the shrunk padding box casts inward, clipped to it.
+    func drawCapturedInsetShadow(_ ctx: CGContext) {
+        guard Capture.capturing, insetCaster != nil else { return }
+        let uniform = number("border_width")
+        let w = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+        let padding = CGRect(x: w[3], y: w[0], width: max(0, bounds.width - w[1] - w[3]), height: max(0, bounds.height - w[0] - w[2]))
+        let sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        let shape = CornerShape(style["corner_shape"])
+        let padRadii = [CGSize(width: sizes[0].width - w[3], height: sizes[0].height - w[0]),
+                        CGSize(width: sizes[1].width - w[1], height: sizes[1].height - w[0]),
+                        CGSize(width: sizes[2].width - w[1], height: sizes[2].height - w[2]),
+                        CGSize(width: sizes[3].width - w[3], height: sizes[3].height - w[2])]
+            .map { CGSize(width: max(0, $0.width), height: max(0, $0.height)) }
+        let clip = BorderPaint.roundedRect(padding, padRadii, shape: shape)
+        for spec in boxShadows.reversed() where spec.inset {
+            let hole = padding.insetBy(dx: spec.spread, dy: spec.spread)
+            let frame = CGMutablePath()
+            frame.addRect(padding.insetBy(dx: -spec.reach - padding.width, dy: -spec.reach - padding.height))
+            if hole.width > 0, hole.height > 0 {
+                let radii = padRadii.map { CGSize(width: max(0, $0.width - spec.spread), height: max(0, $0.height - spec.spread)) }
+                frame.addPath(BorderPaint.roundedRect(hole, radii, shape: shape))
+            }
+            ctx.saveGState()
+            ctx.addPath(clip)
+            ctx.clip()
+            ctx.setShadow(offset: CGSize(width: spec.offset.width, height: -spec.offset.height), blur: spec.blur, color: spec.color)
+            ctx.addPath(frame)
+            ctx.setFillColor(spec.color)
+            ctx.fillPath(using: .evenOdd)
+            ctx.restoreGState()
+        }
     }
 
     /// Flipped, and never a hit target of its own.
