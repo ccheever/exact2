@@ -52,14 +52,14 @@ function publish() {
   for (const [at, f] of live) for (const k in f) {
     const v = f[k];
     if (v == null || at.length < depth[k]) continue;
-    // A status no response can carry (a whole 0–65535) sets none, and any head may set one after it (head.rs).
+    // A status that is not a whole 0–65535 sets none, and any head may set one after it (head.rs).
     if (k === "headStatus" && v !== (v & 65535)) { delete depth[k]; delete next[k]; continue; }
     depth[k] = at.length; next[k] = k === "headStatus" ? v : String(v);
   }
   if (JSON.stringify(next) === JSON.stringify(Head)) return;
   for (const k in Head) delete Head[k];
   Object.assign(Head, next);
-  Own ??=document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
+  Own ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
   const title = Head.headTitle ?? Own;
   if (document.title !== title) document.title = title;
   let m = document.querySelector('meta[name="description"]');
