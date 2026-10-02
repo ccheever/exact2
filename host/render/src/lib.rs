@@ -30,6 +30,7 @@ mod pages;
 mod serve;
 mod source;
 mod stream;
+mod viewport;
 
 pub use direct::boot_swap_js;
 pub use executor::Executor;

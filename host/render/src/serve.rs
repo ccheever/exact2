@@ -86,8 +86,12 @@ struct Shared {
     plan: Plan,
     shell: String,
     csp: String,
-    /// The pages' `Permissions-Policy` (LLP 1069.008 D6), beside the CSP.
-    permissions: String,
+    /// The header lines a page adds beside its CSP: its `Permissions-Policy`
+    /// (LLP 1069.008 D6), and the client hints it asks for and varies by
+    /// (LLP 1048.006).
+    page_headers: String,
+    /// What of the viewport the plan reads (LLP 1048.006).
+    reads: crate::viewport::Reads,
     pages: Mutex<VecDeque<CachedPage>>,
     variants: Variants,
     generations: Option<crate::generations::Generations>,
@@ -104,6 +108,8 @@ struct Shared {
 
 struct CachedPage {
     target: String,
+    /// The viewport class it was rendered for (LLP 1048.006).
+    class: String,
     created: Instant,
     response: Response,
     /// Its bodies at the best compression, made by a thread of their own;
@@ -149,6 +155,11 @@ impl Server {
         let listener = TcpListener::bind(("127.0.0.1", serve.port))?;
         let csp = csp(grants, &serve.dist);
         let permissions = exact_runner::device::permissions_policy(grants);
+        let reads = crate::viewport::Reads::of(&plan);
+        let mut page_headers = reads.headers();
+        if !permissions.is_empty() && !invalid_header(&permissions) {
+            page_headers.insert_str(0, &format!("Permissions-Policy: {permissions}\r\n"));
+        }
         // The transport's first start in a process is slow (Apple's takes
         // seconds); pay it here, not in the first request.
         drop(crate::Executor::start(grants));
@@ -185,7 +196,8 @@ impl Server {
                 plan,
                 shell,
                 csp,
-                permissions,
+                page_headers,
+                reads,
                 pages: Mutex::new(VecDeque::new()),
                 variants,
                 generations,
@@ -294,7 +306,7 @@ impl Server {
         Response::text(503, "busy\n")
             .header("Cache-Control", "no-store")
             .header("Retry-After", "1")
-            .write(&mut busy, false, &shared.csp, &shared.permissions, false);
+            .write(&mut busy, false, &shared.csp, &shared.page_headers, false);
         let closer = closing.closer();
         while !self.stop.load(Ordering::SeqCst) {
             let stream = match self.listener.accept() {
@@ -362,6 +374,8 @@ struct Request {
     /// The client keeps the connection for its next request (HTTP/1.1's
     /// default, unless it said `Connection: close` or sent more than one).
     keep: bool,
+    /// What it says of its reader's viewport (LLP 1048.006).
+    hints: crate::viewport::Hints,
 }
 
 #[derive(Clone)]
@@ -391,14 +405,19 @@ impl Response {
         self
     }
 
-    fn write(&self, stream: &mut impl Write, head: bool, csp: &str, permissions: &str, keep: bool) {
+    /// `page_headers`: the header lines a page carries beside its CSP.
+    fn write(
+        &self,
+        stream: &mut impl Write,
+        head: bool,
+        csp: &str,
+        page_headers: &str,
+        keep: bool,
+    ) {
         let connection = if keep { "keep-alive" } else { "close" };
         // Header values can contain app data; refuse the entire response before
         // writing anything, including on the 304 path.
-        if self.headers.iter().any(|(_, value)| invalid_header(value))
-            || invalid_header(csp)
-            || invalid_header(permissions)
-        {
+        if self.headers.iter().any(|(_, value)| invalid_header(value)) || invalid_header(csp) {
             Response::text(500, "invalid response header\n").write(stream, head, "", "", keep);
             return;
         }
@@ -443,9 +462,7 @@ impl Response {
             let _ = write!(out, "Content-Security-Policy: {csp}\r\n");
             // A page's own code never reaches a device the app was not
             // granted: the same promise the CSP makes for `connect-src`.
-            if !permissions.is_empty() {
-                let _ = write!(out, "Permissions-Policy: {permissions}\r\n");
-            }
+            out.push_str(page_headers);
         }
         let _ = write!(
             out,
@@ -487,7 +504,7 @@ fn handle<D: DataSource + 'static>(
             &mut stream,
             false,
             &shared.csp,
-            &shared.permissions,
+            &shared.page_headers,
             false,
         );
         return (stream, false);
@@ -503,7 +520,7 @@ fn handle<D: DataSource + 'static>(
             &mut stream,
             head,
             &shared.csp,
-            &shared.permissions,
+            &shared.page_headers,
             request.keep,
         );
     }
@@ -583,6 +600,7 @@ fn indexed<D: DataSource + 'static>(
             dictionary: None,
             navigate: false,
             keep: false,
+            hints: Default::default(),
         };
         let response = respond(&request, shared, data, None);
         let noindex = response.headers.iter().any(|(name, value)| {
@@ -699,6 +717,7 @@ fn read_request(stream: &mut TcpStream, within: Duration) -> Result<Request, ()>
     let keep = version == "HTTP/1.1" && !close && !pipelined && matches!(method, "GET" | "HEAD");
     Ok(Request {
         keep,
+        hints: crate::viewport::Hints::parse(&headers),
         method: method.to_string(),
         target: target.to_string(),
         if_none_match,
@@ -851,6 +870,7 @@ fn respond<D: DataSource + 'static>(
         .dictionary
         .as_deref()
         .filter(|_| !request.cdn && request.accepts.dcb());
+    let class = shared.reads.class(&request.hints, shared.serve.viewport);
     let against;
     {
         let mut pages = shared.pages.lock().unwrap();
@@ -858,7 +878,9 @@ fn respond<D: DataSource + 'static>(
         let page = if request.revalidate {
             None
         } else {
-            pages.iter().find(|page| page.target == request.target)
+            pages
+                .iter()
+                .find(|page| page.target == request.target && page.class == class)
         };
         let Some(page) = page else {
             drop(pages);
@@ -909,6 +931,7 @@ fn render_kept<D: DataSource + 'static>(
         dictionary: None,
         navigate: request.navigate,
         keep: request.keep,
+        hints: request.hints,
     };
     let mut response = document(&unconditional, policy, notfound, shared, data, early);
     if response.status != 200 || response.body.len() > MAX_CACHE_BYTES {
@@ -923,7 +946,8 @@ fn render_kept<D: DataSource + 'static>(
     };
     let dictionary = {
         let mut pages = shared.pages.lock().unwrap();
-        pages.retain(|page| page.target != request.target);
+        let class = shared.reads.class(&request.hints, shared.serve.viewport);
+        pages.retain(|page| page.target != request.target || page.class != class);
         while pages.len() >= MAX_CACHED_PAGES || over(&pages, response.body.len()) {
             pages.pop_front();
         }
@@ -944,6 +968,7 @@ fn render_kept<D: DataSource + 'static>(
         });
         pages.push_back(CachedPage {
             target: request.target.clone(),
+            class,
             created: Instant::now(),
             response: Response {
                 streamed: false,
@@ -1122,6 +1147,8 @@ fn document<D: DataSource + 'static>(
 ) -> Response {
     let serve = &shared.serve;
     let started = Instant::now();
+    // The reader's viewport, when the plan reads one (LLP 1048.006).
+    let viewport = shared.reads.viewport(&request.hints, serve.viewport);
     let site = Site {
         name: &serve.name,
         origin: serve.origin.as_deref(),
@@ -1157,7 +1184,7 @@ fn document<D: DataSource + 'static>(
             cache,
             request.accepts,
             &shared.csp,
-            &shared.permissions,
+            &shared.page_headers,
             request.keep,
         );
         (flush, head, at)
@@ -1174,7 +1201,7 @@ fn document<D: DataSource + 'static>(
             if let Some((rendered, body)) = crate::direct::render_js(
                 &shared.plan,
                 &data,
-                serve.viewport,
+                viewport,
                 location,
                 &site,
                 serve.deadline,
@@ -1193,7 +1220,7 @@ fn document<D: DataSource + 'static>(
         render_as(
             &shared.plan,
             data,
-            serve.viewport,
+            viewport,
             location,
             &site,
             serve.deadline,
