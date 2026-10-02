@@ -2,9 +2,13 @@ import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
+const unavailable=process.platform==='darwin' ? null : 'the extracted Swift placement harness requires macOS and xcrun';
+if(unavailable) console.warn(`SKIP: ${unavailable}`);
+const check=unavailable ? test.skip : test;
+
 // Execute each production capture loop's empty-child branch with Swift values.
 // The remainder of the loop is a stand-in for a successful bitmap upload.
-for (const host of ['Mac','IOS']) test(`${host} clears zero-sized and display-none captures`,()=>{
+for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-none captures${unavailable ? ` — ${unavailable}` : ''}`,()=>{
   const file=`host/apple/Sources/ExactKit/${host}/Gpu${host}.swift`;
   const source=readFileSync(process.env.R7_APPLE_SOURCE ?? file,'utf8');
   const start=source.indexOf('        for (i, child) in children.enumerated() {');
@@ -38,7 +42,7 @@ precondition(capture()); precondition(m.cleared == [1,2]); precondition(captured
   expect(r.status, r.stderr).toBe(0);
 },65000);
 
-for(const host of ['Mac','IOS']) test(`${host} hidden placement box is zero, not the kernel frame`,()=>{
+for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, not the kernel frame${unavailable ? ` — ${unavailable}` : ''}`,()=>{
   const source=readFileSync(process.env.R7_APPLE_AGENT ?? `host/apple/Sources/ExactKit/${host}/Agent${host}.swift`,'utf8');
   const start=source.indexOf('    func box('), body=source.indexOf('\n',start);
   const end=source.indexOf(host==='Mac'?'        let clip =':'        let vp =',body);
