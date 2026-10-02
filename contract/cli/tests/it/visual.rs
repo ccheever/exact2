@@ -122,3 +122,15 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
         assert!(e.message.contains(says), "{attr}: {e}");
     }
 }
+
+#[test]
+fn a_vendor_prefixed_name_is_an_attribute_before_its_equals_and_a_negation_elsewhere() {
+    // LLP 1077 D7: glued to `=` or spaced from it, as any attribute may be.
+    let r = boot(
+        "component App\n  state w = 3\n  view\n    column\n      text \"a\" -webkit-text-stroke=\"2px #ff0000\" testId=\"a\"\n      text \"b\" -webkit-text-stroke-width = w testId=\"b\"\n      text `${10 -w}` testId=\"c\"\n",
+    );
+    let a = style_of(&r, "a");
+    assert_eq!(a.text_stroke_width, 2.0);
+    assert!(a.text_stroke_color.is_some());
+    assert_eq!(style_of(&r, "b").text_stroke_width, 3.0);
+}

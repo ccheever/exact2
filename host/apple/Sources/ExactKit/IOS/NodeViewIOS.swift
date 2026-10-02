@@ -940,6 +940,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialView.layer.cornerRadius = radius
             materialView.clipsToBounds = true
         }
+        if style["mask_image"] != nil { applyBoxMask() }
     }
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }

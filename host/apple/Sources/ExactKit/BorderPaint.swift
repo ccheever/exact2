@@ -45,6 +45,13 @@ enum BorderPaint {
         return radius
     }
 
+    /// The outline `clip` masks with: nil when the radius says it.
+    static func uncircular(in rect: CGRect, radii: [CGSize]) -> CGPath? {
+        let corners = reduced(radii, in: rect)
+        let first = corners[0]
+        return first.width == first.height && corners.allSatisfy({ $0 == first }) ? nil : roundedRect(rect, corners)
+    }
+
     /// A replaced element's content edge: reduce at the border edge first,
     /// then remove each adjacent border/padding inset from that corner.
     static func contentRadii(_ radii: [CGSize], outer: CGRect, inner: CGRect) -> [CGSize] {

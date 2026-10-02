@@ -311,6 +311,20 @@ Owed from the review (not fixed):
 - **`paint-order: stroke`** is not a row. The stroke always draws over the fill, as Chrome's default does.
 - **A material's children under a mask** (declared in LLP 1001).
 
+Round 2 audited the round-1 fixes and the merge with main's percentage-radius clip (18a4b4cb4). Fixed:
+
+- **Captured shadows (macOS).** The casting shape is drawn far off the canvas, so only its shadow lands. A spread ring is the shadow's colour, not black, and a translucent inset is not doubled. A capture renders a box's sublayers over what `draw(_:)` paints, so a rounded box's fill and gradient sublayers hid its inset shadow there. They are hidden for the capture, since `draw(_:)` paints both.
+- **iOS paint order.** One insert keeps CSS's order of shadow, gradient, inset shadow, image, border and text, whichever layer joins first, as macOS already did.
+- **Masks on Apple.**
+  - A mask is rebuilt only when its inputs change or something else replaced it, not on every layout.
+  - On iOS, a material's mask view carries the elliptical outline its radius would have put on.
+  - A box with a `mask-image` keeps its own mask through a layout transition, as one with a `clip-path` already did.
+- **Linux 3D islands.** The box's own shadow is never cut. Descendants count with their presented translate, their diagonal when turned, scaled or in a plane of their own, and their shadows. The descendant bound is at least the viewport. A clip between two nested planes reaches the inner plane's hit test, as its corners' bounds.
+- **Web JS target and syntax.**
+  - A bound colour's system names resolve after any map the row has (`accent-color`), in any case.
+  - A string zero perspective (`0px`) is `none`.
+  - A vendor-prefixed attribute may have spaces before its `=`.
+
 ## 7. Open questions for Charlie
 
 - **Q1.** *Ruled 2026-10-02:* the take is waived.

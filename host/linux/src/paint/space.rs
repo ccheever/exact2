@@ -60,14 +60,8 @@ fn mul3(a: &[f32; 9], b: &[f32; 9]) -> [f32; 9] {
     out
 }
 
-/// How far past its border box `node` paints, left, top, right, bottom: its
-/// outer shadows' reach and, unless it clips, its descendants' frames.
-fn reach(
-    walk: &Walk<'_, '_>,
-    node: &exact_kernel::NodeRef<'_>,
-    (x, y, w, h): Rect4,
-    offset: (f32, f32),
-) -> (f32, f32, f32, f32) {
+/// How far a box's outer shadows paint past it: left, top, right, bottom.
+fn shadow_reach(node: &exact_kernel::NodeRef<'_>) -> (f32, f32, f32, f32) {
     let mut out = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     for s in node.style.box_shadow.shadows().iter().filter(|s| !s.inset) {
         let r = 1.5 * s.blur + s.spread.max(0.0) + 1.0;
@@ -76,6 +70,22 @@ fn reach(
         out.2 = out.2.max(r + s.offset.x);
         out.3 = out.3.max(r + s.offset.y);
     }
+    out
+}
+
+/// How far past its border box `node` paints, left, top, right, bottom: its
+/// outer shadows' reach whole and, unless it clips, its descendants' painted
+/// boxes — each moved by its presented translate, grown to its diagonal
+/// when turned, scaled or in a plane of its own, and by its own shadows —
+/// bounded by `cap`.
+fn reach(
+    walk: &Walk<'_, '_>,
+    node: &exact_kernel::NodeRef<'_>,
+    (x, y, w, h): Rect4,
+    offset: (f32, f32),
+    cap: f32,
+) -> (f32, f32, f32, f32) {
+    let mut out = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     let (ox, oy) = effective_overflow(node);
     if ox == Overflow::Visible && oy == Overflow::Visible {
         let mut stack = node.children();
@@ -83,25 +93,66 @@ fn reach(
             let Some(child) = walk.scene.kernel.node(id) else {
                 continue;
             };
+            let q = (walk.scene.presented)(id);
             let (cx, cy, cw, ch) = paint_rect(child.frame, offset);
-            out.0 = out.0.max(x - cx);
-            out.1 = out.1.max(y - cy);
-            out.2 = out.2.max(cx + cw - (x + w));
-            out.3 = out.3.max(cy + ch - (y + h));
+            let (mx, my) = (
+                cx + cw / 2.0 + q.translate.0 + q.layout[0],
+                cy + ch / 2.0 + q.translate.1 + q.layout[1],
+            );
+            let k = (q.scale * q.press).abs().max(1.0);
+            let turned = q.rotate % 360.0 != 0.0
+                || child.style.rotate_axis.is_3d()
+                || child.style.translate_z != 0.0;
+            let (hw, hh) = if turned {
+                let d = k * cw.hypot(ch);
+                (d, d)
+            } else {
+                (k * cw / 2.0, k * ch / 2.0)
+            };
+            let sh = shadow_reach(&child);
+            out.0 = out.0.max(x - (mx - hw - sh.0));
+            out.1 = out.1.max(y - (my - hh - sh.1));
+            out.2 = out.2.max(mx + hw + sh.2 - (x + w));
+            out.3 = out.3.max(my + hh + sh.3 - (y + h));
             let (cox, coy) = effective_overflow(&child);
             if cox == Overflow::Visible && coy == Overflow::Visible {
                 stack.extend(child.children());
             }
         }
     }
-    // Bounded: a runaway descendant must not ask for a frame-sized island.
-    let cap = 2.0 * w.max(h).max(64.0);
+    // Bounded: a runaway descendant must not ask for an unbounded island;
+    // the box's own shadow is never cut.
+    let own = shadow_reach(node);
     (
-        out.0.min(cap),
-        out.1.min(cap),
-        out.2.min(cap),
-        out.3.min(cap),
+        out.0.min(cap).max(own.0),
+        out.1.min(cap).max(own.1),
+        out.2.min(cap).max(own.2),
+        out.3.min(cap).max(own.3),
     )
+}
+
+/// The bounds of `r`'s corners mapped through `h`; `None` when a corner is
+/// behind the viewer.
+fn mapped_bounds(h: &[f32; 9], r: Rect4) -> Option<Rect4> {
+    let mut b = (
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    );
+    for (px, py) in [
+        (r.0, r.1),
+        (r.0 + r.2, r.1),
+        (r.0, r.1 + r.3),
+        (r.0 + r.2, r.1 + r.3),
+    ] {
+        if h[6] * px + h[7] * py + h[8] <= 0.0 {
+            return None;
+        }
+        let (mx, my) = crate::placement::map(h, px, py);
+        b = (b.0.min(mx), b.1.min(my), b.2.max(mx), b.3.max(my));
+    }
+    Some((b.0, b.1, b.2 - b.0, b.3 - b.1))
 }
 
 impl Painter {
@@ -162,7 +213,8 @@ impl Painter {
         }
         // The island covers what the box paints past itself: its outer
         // shadows and any overflowing descendant (nothing past a clip).
-        let (left, top, right, bottom) = reach(walk, node, (x, y, w, h), offset);
+        let cap = (2.0 * w.max(h).max(64.0)).max(self.viewport.0.max(self.viewport.1));
+        let (left, top, right, bottom) = reach(walk, node, (x, y, w, h), offset, cap);
         let (iw, ih) = (w + left + right, h + top + bottom);
         // The plane z = 0 of the box, from its island (-left..w+right, …).
         let m = mul(&m, &translate(x - left, y - top, 0.0));
@@ -218,8 +270,17 @@ impl Painter {
         for mut b in child_walk.boxes {
             // A box already in its own plane (a 3D child) maps through both:
             // this island's inverse, then its own (LLP 1077 D8).
+            // A clip between the two planes (an overflow inside this
+            // island) goes into the inner plane too, as its corners' bounds.
             let (local, local_clip, inv, planes) = match b.projective {
-                Some((inner, r, c, p)) => (r, c, mul3(&inner, &inv), p),
+                Some((inner, r, c, p)) => {
+                    let mid = b.clip.and_then(|m| mapped_bounds(&inner, m));
+                    let c = match (c, mid) {
+                        (Some(c), Some(m)) => Some(intersect(c, m)),
+                        (c, m) => c.or(m),
+                    };
+                    (r, c, mul3(&inner, &inv), p)
+                }
                 None => (b.rect, b.clip, inv, planes),
             };
             if let Some(map) = crate::placement::inverse(inv) {

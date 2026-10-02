@@ -256,9 +256,7 @@ extension NodeView {
         // the next frame's changes, rather than alone.
         let ink = textRasterLayer ?? InkLayer()
         // Above the box's border (`applyBoxLayer`), under everything else.
-        if ink.superlayer == nil {
-            if let border = boxBorder { layer.insertSublayer(ink, above: border) } else if let inset = insetCaster, inset.superlayer === layer { layer.insertSublayer(ink, above: inset) } else { layer.insertSublayer(ink, at: 0) }
-        }
+        if ink.superlayer == nil { textRasterLayer = ink; insertBoxSublayer(ink) }
         ink.frame = result.frame
         ink.contentsScale = key.scale
         NumeralRoll.roll(ink, node: self)

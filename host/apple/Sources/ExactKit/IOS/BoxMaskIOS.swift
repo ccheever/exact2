@@ -22,32 +22,50 @@ extension NodeView {
         // A layout transition's surface clips with a mask of its own
         // (`Surface.swift`) until it ends.
         guard surface == nil else { return }
-        let shaped = shapedClip()
-        if let box = clipBox?.layer, box.mask !== shaped { box.mask = clipBox != nil ? shaped : nil }
+        let outline = shapedOutline(), effect = materialView, image = style["mask_image"]
+        // A material's mask view replaces the elliptical outline its radius
+        // put on (`BorderPaint.clip`), so it carries that outline too.
+        let effectOutline = effect == nil || image == nil ? nil : BorderPaint.uncircular(in: bounds, radii: cornerSizes(in: bounds))
+        let key = BoxMaskState.Key(image: image, clip: style["clip_path"], outline: outline, size: bounds.size, dark: drawsDark,
+                                   clipBox: clipBox != nil, filter: hasBoxFilter, material: effect != nil, materialOutline: effectOutline)
+        let state = BoxMaskState.of(self)
+        if state.key == key, clipBox?.layer.mask === state.boxMask, hasBoxFilter || layer.mask === state.layerMask,
+           image == nil || effect?.layer.mask === (state.effectMask as? UIView)?.layer { return }
+        state.key = key
+        let shaped = ClipPath.mask(outline)
+        if let box = clipBox?.layer { box.mask = shaped }
+        state.boxMask = clipBox?.layer.mask
         guard !hasBoxFilter else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if let effect = materialView {
-            if let gradient = Gradient(style["mask_image"]) {
+        if let effect {
+            if let gradient = Gradient(image) {
+                let view: UIView
                 if gradient.isConic {
-                    let view = UIImageView(frame: effect.bounds)
-                    view.image = gradient.image(size: effect.bounds.size, scale: traitCollection.displayScale, dark: drawsDark).map { UIImage(cgImage: $0) }
-                    effect.mask = view
+                    let pixels = UIImageView(frame: effect.bounds)
+                    pixels.image = gradient.image(size: effect.bounds.size, scale: traitCollection.displayScale, dark: drawsDark).map { UIImage(cgImage: $0) }
+                    view = pixels
                 } else {
-                    let view = (effect.mask as? GradientMaskView) ?? GradientMaskView()
-                    if view.frame != effect.bounds { view.frame = effect.bounds }
-                    gradient.apply(view.gradient, bounds: view.bounds, box: view.bounds, dark: drawsDark)
-                    if effect.mask !== view { effect.mask = view }
+                    let g = (effect.mask as? GradientMaskView) ?? GradientMaskView()
+                    if g.frame != effect.bounds { g.frame = effect.bounds }
+                    gradient.apply(g.gradient, bounds: g.bounds, box: g.bounds, dark: drawsDark)
+                    view = g
                 }
-            } else if effect.mask != nil {
-                effect.mask = nil
+                view.layer.mask = ClipPath.mask(effectOutline)
+                // `BorderPaint.clip` sets the layer's mask, not the view's.
+                if effect.layer.mask !== view.layer { effect.mask = nil; effect.mask = view }
+            } else if state.effectMask != nil {
+                if effect.mask != nil { effect.mask = nil }
+                applyMaterialRadius()
             }
-            let clip = clipMask(shaped: clipBox == nil ? shaped : nil)
-            if layer.mask !== clip { layer.mask = clip }
+            state.effectMask = effect.mask
+            layer.mask = clipMask(shaped: clipBox == nil ? shaped : nil)
+            state.layerMask = layer.mask
             return
         }
-        let mask = composedMask(shaped: clipBox == nil ? shaped : nil)
-        if layer.mask !== mask { layer.mask = mask }
+        state.effectMask = nil
+        layer.mask = composedMask(shaped: clipBox == nil ? shaped : nil)
+        state.layerMask = layer.mask
     }
 
     /// `mask-image` over `clip-path` over the shaped corners, as one mask
@@ -81,12 +99,13 @@ extension NodeView {
     /// The border box's outline when the node clips its overflow and the
     /// layer's radius cannot say it: shaped corners, or four equal elliptical
     /// ones (`ClipPath.swift`).
-    func shapedClip() -> CALayer? {
+    func shapedClip() -> CALayer? { ClipPath.mask(shapedOutline()) }
+    func shapedOutline() -> CGPath? {
         if clipsToBounds || clipBox != nil, let shape = CornerShape(style["corner_shape"]),
            !(shape.isAppleContinuous && (clipBox?.layer.cornerRadius ?? layer.cornerRadius) > 0) {
-            return ClipPath.mask(roundedPath(in: bounds).cgPath)
+            return roundedPath(in: bounds).cgPath
         }
-        return ClipPath.mask(ellipticalClip)
+        return ellipticalClip
     }
 }
 

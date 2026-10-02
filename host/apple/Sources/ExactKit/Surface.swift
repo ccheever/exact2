@@ -153,7 +153,7 @@ extension NodeView {
         let target: CALayer?
         if let box = clipBox?.layer { target = box }
         else if let scroller { target = scroller }
-        else if clipsToBounds, (clipPath == nil && boxFilter == nil) || hostLayer?.mask === s.clip {
+        else if clipsToBounds, (clipPath == nil && boxFilter == nil && style["mask_image"] == nil) || hostLayer?.mask === s.clip {
             clipsToBounds = false
             s.clippedSelf = true
             target = hostLayer

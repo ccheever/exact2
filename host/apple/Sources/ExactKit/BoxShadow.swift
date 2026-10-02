@@ -240,12 +240,7 @@ extension NodeView {
     /// The inset casters over the box's background and gradient, under its
     /// border, image, text and children.
     private func insertInsetCaster(_ caster: CALayer, into host: CALayer) {
-        #if os(macOS)
-        insertBoxSublayer(caster)
-        #else
-        let below = [boxGradient, shadowCaster].compactMap { $0 }.first { $0.superlayer === host }
-        if let below { host.insertSublayer(caster, above: below) } else { host.insertSublayer(caster, at: 0) }
-        #endif
+        if host === layer { insertBoxSublayer(caster) } else { host.insertSublayer(caster, at: 0) }
     }
 }
 
@@ -260,8 +255,9 @@ extension NodeView {
 
     /// A capture (`cacheDisplay`, the agent's screenshot and a canvas's
     /// surface) draws views, not sublayers: the shadow drawn as the caster
-    /// shows it, before the box. Core Graphics' blur is CSS's radius; its
-    /// offset is in the unflipped base space.
+    /// shows it, before the box. The casting shape is drawn far off to the
+    /// left and only its shadow lands here (`castShadow`), so a spread
+    /// ring is the shadow's colour, as the live caster's is.
     func drawCapturedShadow(_ ctx: CGContext) {
         guard Capture.capturing, shadowCaster != nil || insetCaster != nil else { return }
         let outline = roundedPath(in: bounds).cgPath
@@ -280,10 +276,7 @@ extension NodeView {
             ctx.saveGState()
             ctx.addPath(outside)
             ctx.clip(using: .evenOdd)
-            ctx.setShadow(offset: CGSize(width: x, height: -y), blur: blur, color: spec.color)
-            ctx.addPath(cast)
-            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-            ctx.fillPath()
+            ctx.castShadow(cast, offset: CGSize(width: x, height: y), blur: blur, color: spec.color, rule: .winding)
             ctx.restoreGState()
         }
     }
@@ -314,10 +307,7 @@ extension NodeView {
             ctx.saveGState()
             ctx.addPath(clip)
             ctx.clip()
-            ctx.setShadow(offset: CGSize(width: spec.offset.width, height: -spec.offset.height), blur: spec.blur, color: spec.color)
-            ctx.addPath(frame)
-            ctx.setFillColor(spec.color)
-            ctx.fillPath(using: .evenOdd)
+            ctx.castShadow(frame, offset: spec.offset, blur: spec.blur, color: spec.color, rule: .evenOdd)
             ctx.restoreGState()
         }
     }
@@ -358,3 +348,50 @@ extension NodeView {
         }
     }
 }
+
+#if os(macOS)
+extension Capture {
+    /// A capture renders a box's sublayers over what its `draw(_:)` paints,
+    /// so a box with an inset shadow — drawn in `draw(_:)` over its fill —
+    /// has its fill and gradient sublayers hidden for the capture (its
+    /// `draw(_:)` paints both); `restore` shows them again.
+    static func hideBoxFills(in root: NSView) -> [CALayer] {
+        var out: [CALayer] = []
+        func walk(_ v: NSView) {
+            if let n = v as? NodeView, n.insetCaster != nil {
+                for l in [n.boxFill, n.boxGradient].compactMap({ $0 }) where !l.isHidden {
+                    l.isHidden = true
+                    out.append(l)
+                }
+            }
+            v.subviews.forEach(walk)
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        walk(root)
+        CATransaction.commit()
+        return out
+    }
+
+    static func restore(_ layers: [CALayer]) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layers.forEach { $0.isHidden = false }
+        CATransaction.commit()
+    }
+}
+
+extension CGContext {
+    /// Only the shadow of `path`, at CSS's offset and blur: the shape is
+    /// filled far off to the left (outside any clip a caller set) and its
+    /// shadow is offset back. A capture's context takes a shadow's offset
+    /// and blur in its unflipped base space, in points, so `away` cancels.
+    func castShadow(_ path: CGPath, offset: CGSize, blur: CGFloat, color: CGColor, rule: CGPathFillRule) {
+        let box = path.boundingBoxOfPath
+        let away = 2 * (box.width + box.height) + 4 * blur + 1000
+        setShadow(offset: CGSize(width: offset.width + away, height: -offset.height), blur: blur, color: color)
+        var shift = CGAffineTransform(translationX: -away, y: 0)
+        if let far = path.copy(using: &shift) { addPath(far) }
+        setFillColor(CGColor(gray: 0, alpha: 1))
+        fillPath(using: rule)
+    }
+}
+#endif

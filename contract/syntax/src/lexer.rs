@@ -205,7 +205,8 @@ impl Lexer {
                                     !(c.is_ascii_alphanumeric() || c == '-' || c == '_')
                                 })
                                 .unwrap_or(rest.len());
-                            rest[end..].starts_with('=') && !rest[end..].starts_with("==")
+                            let after = rest[end..].trim_start_matches([' ', '\t']);
+                            after.starts_with('=') && !after.starts_with("==")
                         }
                 });
                 if c.is_ascii_alphabetic() || c == '_' || vendor {

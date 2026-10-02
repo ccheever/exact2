@@ -96,7 +96,7 @@ impl Em<'_> {
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
                 "perspective",
-                Some("v=>v==null?v:v===0||v===\"0\"?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
+                Some("v=>v==null?v:/^\\s*[+-]?(0+\\.?0*|\\.0+)(px)?\\s*$/i.test(v)?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
             ),
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
@@ -185,7 +185,13 @@ impl Em<'_> {
                     // @ref LLP 1077 D13 — a bound colour may name a system
                     // colour, which the literal path resolved in the kernel.
                     let colors = matches!(id.codec(), exact_kernel::StyleCodec::ColorValue | exact_kernel::StyleCodec::KeywordColor);
-                    let map = w.map.map(str::to_string).or_else(|| colors.then(|| style::SYSTEM_COLOR_MAP.to_string()));
+                    let system = style::SYSTEM_COLOR_MAP.as_str();
+                    // Composed with the row's own map (`accent-color` has one).
+                    let map = match w.map {
+                        Some(m) if colors => Some(format!("v=>({m})(({system})(v))")),
+                        Some(m) => Some(m.to_string()),
+                        None => colors.then(|| system.to_string()),
+                    };
                     (w.name, w.unit, map)
                 })
                 .collect(),

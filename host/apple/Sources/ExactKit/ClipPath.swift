@@ -1,6 +1,7 @@
 // CSS clip-path commands validated by the kernel, shared by UIKit and AppKit:
 // `{"rule": "nonzero" | "evenodd", "commands": [["M", [x, y]], …]}`.
 import CoreGraphics
+import ObjectiveC
 import QuartzCore
 
 enum ClipPath {
@@ -69,4 +70,25 @@ extension NodeView {
 
     /// The clip's outline follows a new size or a backdrop coming or going.
     func syncEllipticalClip() { applyBoxMask() }
+}
+
+/// What a node's mask was built from and what it installed (LLP 1077 D2):
+/// `applyBoxMask` builds again only when an input changed or something
+/// else (a material's radius, a surface, a filter) replaced what it put on.
+final class BoxMaskState {
+    struct Key: Equatable {
+        var image: BatchValue?, clip: BatchValue?, outline: CGPath?, size: CGSize, dark: Bool
+        var clipBox: Bool, filter: Bool, material: Bool, materialOutline: CGPath?
+    }
+    var key: Key?
+    var layerMask: CALayer?
+    var boxMask: CALayer?
+    var effectMask: AnyObject?
+    private static var slot = 0
+    static func of(_ view: NodeView) -> BoxMaskState {
+        if let s = objc_getAssociatedObject(view, &slot) as? BoxMaskState { return s }
+        let s = BoxMaskState()
+        objc_setAssociatedObject(view, &slot, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return s
+    }
 }

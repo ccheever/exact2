@@ -88,8 +88,8 @@ extension NodeView {
         let l = imageLayer ?? CALayer()
         if l.superlayer !== layer {
             // Where `draw(_:)` paints it: under the border and the children.
-            if let border = boxBorder, border.superlayer === layer { layer.insertSublayer(l, below: border) } else if let inset = insetCaster, inset.superlayer === layer { layer.insertSublayer(l, above: inset) } else { layer.insertSublayer(l, at: 0) }
             imageLayer = l
+            insertBoxSublayer(l)
         }
         if l.frame != shown { l.frame = shown }
         if l.contentsRect != unit { l.contentsRect = unit }
@@ -193,8 +193,8 @@ extension NodeView {
         if let old = boxBorder, (old is CAShapeLayer) != edges { old.removeFromSuperlayer(); boxBorder = nil }
         let b = boxBorder ?? (edges ? CAShapeLayer() : CALayer())
         if b.superlayer !== layer {
-            if let image = imageLayer, image.superlayer === layer { layer.insertSublayer(b, above: image) } else { layer.insertSublayer(b, at: 0) }
             boxBorder = b
+            insertBoxSublayer(b)
         }
         if b.frame != bounds { b.frame = bounds }
         if let shape = b as? CAShapeLayer {
@@ -215,6 +215,20 @@ extension NodeView {
         if b.cornerCurve != curve { b.cornerCurve = curve }
         if b.borderWidth != width { b.borderWidth = width }
         if b.borderColor != border { b.borderColor = border }
+    }
+}
+extension NodeView {
+    /// The box's sublayers keep CSS's paint order, all under the children:
+    /// shadow, gradient, inset shadow, image, border, text — whichever of
+    /// them joins first (as `Mac/BoxLayerMac.swift`).
+    func insertBoxSublayer(_ l: CALayer) {
+        let order: [CALayer?] = [shadowCaster, boxGradient, insetCaster, imageLayer, boxBorder, textRasterLayer]
+        guard let rank = order.firstIndex(where: { $0 === l }) else { return }
+        if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
+            layer.insertSublayer(l, above: below)
+        } else {
+            layer.insertSublayer(l, at: 0)
+        }
     }
 }
 #endif
