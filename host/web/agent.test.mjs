@@ -11,7 +11,8 @@ import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/ag
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
 import { focusController, placeReporter, timeReporter, pageReporter } from './navigation.js';
 import { storageKey } from './storage-environment.js';
-import { open } from '../../scripts/agent.mjs';
+import { open, assertWebDistApp } from '../../scripts/agent.mjs';
+import { resolveApp, webDist } from '../../scripts/app.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
@@ -893,3 +894,54 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
   for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
   for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
 });
+
+// A bound `value` an input action leaves unchanged is still shown after the
+// input event (issues/20260928-bound-input-value-not-reasserted.md). The
+// driver's `type` is one input event, so two characters the action consumes
+// arrive as a row that reads "" before and after: no write, and the field
+// would keep them. Needs the web dist built for the selected app, else skips.
+let distUnavailable;
+try { await assertWebDistApp(webDist(), resolveApp()); } catch (error) {
+  if (!error.message.startsWith('web dist is not a complete build')) throw error;
+  distUnavailable = error.message;
+  console.warn(`SKIP: ${distUnavailable}`);
+}
+(distUnavailable ? test.skip : test)('an input shows its bound value after an input event that left the row unchanged', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-value-reassert-')), source = join(dir, 'reassert.contract'), plan = join(dir, 'reassert.plan');
+  writeFileSync(source, `component T
+  state typed = ""
+  state taken = 0
+  action typedChanged(value) writes typed, taken
+    typed = value
+    if length(value) >= 2
+      typed = ""
+      taken = taken + 1
+  view
+    column testId="root"
+      input value=typed input=typedChanged testId="code"
+      input type="number" value=typed input=typedChanged testId="count"
+      text \`\${taken}\` testId="taken"
+`);
+  const root = new URL('../../', import.meta.url).pathname;
+  const compiled = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', source, '-o', plan], { cwd: root, encoding: 'utf8' });
+  if (compiled.status !== 0) throw new Error(compiled.stderr || 'contract build failed');
+  const s = await open({ host: 'web', plan });
+  try {
+    await s.clock('settle');
+    const id = (await s.find('code')).id;
+    const shown = () => s.carrier.evaluate(`exact.views.get(${id}).value`);
+    const held = async () => { const st = await s.state(); return { ...st.resources, ...st.derives, ...st.slots }; };
+    await s.type('code', '47'); // consumed: typed was "" and is "" again
+    expect(await held()).toMatchObject({ typed: '', taken: 1 });
+    expect(await shown()).toBe('');
+    await s.type('code', '5'); // kept: the row changed, and the field shows it
+    expect(await held()).toMatchObject({ typed: '5', taken: 1 });
+    expect(await shown()).toBe('5');
+    // A type without a selection API (number, email) takes the whole value: setRangeText would throw there.
+    const count = (await s.find('count')).id, shownCount = () => s.carrier.evaluate(`exact.views.get(${count}).value`);
+    await s.type('count', '47'); // consumed again, from "5" to "47" to ""
+    expect(await held()).toMatchObject({ typed: '', taken: 2 });
+    expect(await shownCount()).toBe('');
+    expect(await shown()).toBe('');
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 120_000); // a plan compile and a Chrome launch: a hang bound, not a speed claim

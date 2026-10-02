@@ -395,7 +395,7 @@ const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = 
 function writeValue(el, value) {
   if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
-  if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
+  if (typeof el.setRangeText !== "function" || valuedControl(el) || el.selectionStart === null || old === "" || document.activeElement !== el) { el.value = value; return; } // selectionStart is null where the type has no selection API (number, email): setRangeText would throw there
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
   const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
   el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
@@ -444,7 +444,7 @@ function applyProps(el, set, clear) {
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
-      writeValue(el, value); if (valuedControl(el)) el.exactValue = value;
+      writeValue(el, value); el.exactValue = value; // the app's value as last committed: what an input event settles back to
     } else if (name === "checked") {
       el.exactChecked = value === "true"; el.checked = el.exactChecked;
     } else if (name === "inert") {
@@ -576,6 +576,7 @@ function attach(el, id, handlers) {
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
         const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
+        if (el.exactValue !== undefined && !el.exactMarkup && views.get(id) === el && el.value !== el.exactValue) writeValue(el, el.exactValue); // a row the action left unchanged carries no write, and the field would keep the typed text: the row is the app's, shown after every input event (a controlled input); the write keeps the caret and is held during a composition
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
