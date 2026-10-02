@@ -39,15 +39,15 @@ final class SegmentsTests: XCTestCase {
 
     func testAWideBandCutsRowsAndABandOutsideTheViewportCutsNothing() {
         let rows = Segments.split(viewport: CGSize(width: 400, height: 900), dividers: [CGRect(x: 0, y: 430, width: 400, height: 40)])
-        XCTAssertEqual((rows.cols, rows.rows), (1, 2))
+        XCTAssertEqual(rows.cols, 1); XCTAssertEqual(rows.rows, 2)
         XCTAssertEqual(rows.rects, [CGRect(x: 0, y: 0, width: 400, height: 430), CGRect(x: 0, y: 470, width: 400, height: 430)])
         let outside = Segments.split(viewport: CGSize(width: 466, height: 678), dividers: [CGRect(x: 900, y: 0, width: 40, height: 678)])
-        XCTAssertEqual((outside.cols, outside.rows), (1, 1))
+        XCTAssertEqual(outside.cols, 1); XCTAssertEqual(outside.rows, 1)
         XCTAssertEqual(outside.rects, [])
         XCTAssertEqual(outside.posture, "folded", "a band the viewport does not meet still says the hinge is bent")
         // Two bands make a 2 × 2 grid, row-major.
         let grid = Segments.split(viewport: CGSize(width: 100, height: 100), dividers: [CGRect(x: 40, y: 0, width: 20, height: 100), CGRect(x: 0, y: 40, width: 100, height: 20)])
-        XCTAssertEqual((grid.cols, grid.rows), (2, 2))
+        XCTAssertEqual(grid.cols, 2); XCTAssertEqual(grid.rows, 2)
         XCTAssertEqual(grid.rects.map { $0.origin }, [CGPoint(x: 0, y: 0), CGPoint(x: 60, y: 0), CGPoint(x: 0, y: 60), CGPoint(x: 60, y: 60)])
     }
 
