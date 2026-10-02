@@ -542,8 +542,10 @@ export function environment() {
 // `prefer segments` go through CDP's display-feature and posture overrides
 // (the driver), so the browser's own readings change; where CDP offers
 // none, the driver's substitute lands here (`preferFold`) and stands in for
-// them — the facts and `layout.env`, not CSS's own `env()` resolution.
-let foldSubstitute = null;
+// them — the facts and `layout.env`, not CSS's own `env()` resolution. The
+// substitute lives on `globalThis.exact`: the JS target's agent reads its own
+// copy of this module (`agent-navigation.js`), and both copies must agree.
+const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
 const r2 = (x) => Math.round(x * 100) / 100;
 function readFold() {
   const posture = globalThis.navigator?.devicePosture?.type === "folded" ? "folded" : "continuous";
@@ -552,7 +554,7 @@ function readFold() {
   const cols = rects.length ? new Set(rects.map((r) => r[0])).size : 1, rows = rects.length ? new Set(rects.map((r) => r[1])).size : 1;
   return { posture, cols, rows, rects };
 }
-export const fold = () => foldSubstitute ?? readFold();
+export const fold = () => foldSubstitute() ?? readFold();
 /** `layout.env`'s four names (LLP 1012 §1). */
 export function foldEnv() {
   const f = fold();
@@ -574,7 +576,7 @@ export function evenSegments(width, height, cols, rows, gap = 0) {
 }
 /** The agent's substitute (`prefer`'s `fold` group): `posture`, `cols`, `rows`, `gap`; `null` drops it and the browser's own readings return. */
 export function preferFold(request) {
-  if (request == null) { foldSubstitute = null; return foldEnv(); }
+  if (request == null) { (globalThis.exact ??= {}).foldSubstitute = null; return foldEnv(); }
   const next = { ...fold() };
   let gap = 0, grid = false;
   for (const [name, raw] of Object.entries(request)) {
@@ -587,7 +589,7 @@ export function preferFold(request) {
     }
   }
   if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw new Error(`prefer: ${e.message}`); } }
-  foldSubstitute = next;
+  (globalThis.exact ??= {}).foldSubstitute = next;
   return foldEnv();
 }
 
