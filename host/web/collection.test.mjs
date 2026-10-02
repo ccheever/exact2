@@ -1,17 +1,20 @@
 // Real DOM geometry and deterministic feedback admission; no app data/network.
-import { beforeAll, afterAll, test, expect } from 'bun:test';
+import { beforeAll, afterAll, test as bunTest, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 import { collectionBytes } from './collection-glue.js';
 import { motionBytes } from './motion-glue.js';
 
+const { executable: chrome, unavailable } = chromium();
+if (unavailable) console.warn(`SKIP: ${unavailable}`);
+const test = unavailable ? (name, ...args) => bunTest.skip(`${name} — ${unavailable}`, ...args) : bunTest;
 let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
-  const chrome = process.env.CHROME ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium');
-  if (!existsSync(chrome)) throw Error('Set CHROME to a Chromium executable');
+  if (unavailable) return;
   dir = mkdtempSync(join(tmpdir(), 'exact-collection-'));
   server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;

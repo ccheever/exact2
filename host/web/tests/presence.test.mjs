@@ -2,11 +2,12 @@
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
@@ -30,8 +31,9 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
 });
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const check = existsSync(chrome) ? test : test.skip;
+const { executable: chrome, unavailable } = chromium();
+if (unavailable) console.warn(`SKIP: ${unavailable}`);
+const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
 const children = glue.slice(glue.indexOf('      case "children":'), glue.indexOf('      case "animate":'));
 const resize = glue.slice(glue.indexOf('const mediaChanged ='), glue.indexOf('\nvisualViewport?.'));
@@ -82,7 +84,7 @@ const page = `<style>
 
 let server, child, profile, evaluate;
 beforeAll(async () => {
-  if (!existsSync(chrome)) return;
+  if (unavailable) return;
   server = createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });

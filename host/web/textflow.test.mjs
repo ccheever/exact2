@@ -2,7 +2,12 @@
 import { test, expect } from 'bun:test';
 import { fragmentDiff, framePhases, fontStyle, measurementCache } from './textflow-glue.js';
 import { render } from '../../scripts/agent.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
+
+const { executable: chrome, unavailable: browserUnavailable } = chromium();
+if (browserUnavailable) console.warn(`SKIP: ${browserUnavailable}`);
+const browserTest = browserUnavailable ? (name, ...args) => test.skip(`${name} — ${browserUnavailable}`, ...args) : test;
 
 test('plain agent layout prints web fragment ranges, shapes and refusal reasons', () => {
   const node = { id: 7, type: 'Text', flow_shapes: [{ kind: 'Circle', cx: 40, cy: 30, r: 12 }],
@@ -518,7 +523,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
-test('flowed links keep press ownership through document capture', async () => {
+browserTest('flowed links keep press ownership through document capture', async () => {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -533,8 +538,7 @@ test('flowed links keep press ownership through document capture', async () => {
   }});
   let child;
   try {
-    child = spawn(process.env.CHROME ?? (process.platform === 'darwin'
-      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'),
+    child = spawn(chrome,
       ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'],
       { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
     const cdp = new Cdp(child.stdio[3], child.stdio[4]);
