@@ -47,6 +47,7 @@ function laneTests() {
 }
 
 const workspace = ['--workspace'];
+const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
 function checks(sha) {
   const lane = laneTests();
   const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
@@ -63,7 +64,12 @@ function checks(sha) {
     ['glue', 'bun', ['test', ...['agent', 'collection', 'http-body', 'native-glue', 'request-refusal', 'textflow'].map(f => `./host/web/${f}.test.mjs`)]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
-    ['conform', 'bun', ['host/web-js/conform.mjs', 'realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery', '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
+    ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
+    // The JS target in the other browser engines, with Chrome as its oracle.
+    // These remain async-only; a missing Playwright browser is a named failure
+    // whose log gives the exact outside-the-repo install command.
+    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
+    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];

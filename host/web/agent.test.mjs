@@ -469,8 +469,9 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
   expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC', epoch:Date.UTC(2026, 0, 1)});
-  const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
+  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
+  expect(flags.browser).toBe('firefox');
   const facts = launchFacts(flags);
   expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
   expect(launchFacts({epoch:'1790000000000'}).epoch).toBe(1790000000000);
