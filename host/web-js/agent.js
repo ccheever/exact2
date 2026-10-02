@@ -7,7 +7,7 @@ import { R, eq, pieces, pageHistory } from './rt.js';
 import { environment, navigation, guestOutline, guestTap, guestType } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;

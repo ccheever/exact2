@@ -123,6 +123,9 @@ component NativeFixture
                         text "Sheet"
                       column hook="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hooked-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                     text ("composed " + toString(composed)) testId="composed"
+                    row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
+                      button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
+                        image "symbol:compose" width=20 height=20
                     row gap=6 flex-wrap="wrap"
                       button press=bump testId="bump" padding=6 background-color="#e5e7eb"
                         text "Bump"

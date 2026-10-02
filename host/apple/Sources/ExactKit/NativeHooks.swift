@@ -17,6 +17,8 @@
 //   24  log(host, text, len)
 //   32  delegate(host, controller, object)  the app's delegate for a
 //        controller whose own slot Exact keeps (nil clears it)
+//   40  toolbar_item(host, toolbar, item)    an item the app adds after
+//        Exact's to the window toolbar (macOS, LLP 1075.003.000 §3.7)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -44,6 +46,7 @@ typealias HookRouteFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 typealias HookTabsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void
 typealias HookTabContainerFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer?
 typealias HookElementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+typealias HookToolbarFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
 
 private typealias HookResolveFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32) -> UInt32
 private typealias HookActFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32) -> Int32
@@ -76,17 +79,29 @@ private let hookLog: HookLogFn = { host, bytes, length in
 }
 
 private let hookDelegate: HookDelegateFn = { host, controller, object in
-    #if os(iOS)
     guard let controller, let session = hookSession(host) else { return }
     let delegate = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+    #if os(iOS)
     session.presenter.navigation.setAppDelegate(Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue(), delegate)
+    #else
+    guard Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue() === session.presenter.toolbar.toolbar else { return }
+    session.presenter.toolbar.setAppDelegate(delegate as? NSToolbarDelegate)
+    #endif
+}
+
+private let hookToolbarItem: HookToolbarFn = { host, toolbar, item in
+    #if os(macOS)
+    guard let toolbar, let item, let session = hookSession(host),
+          Unmanaged<AnyObject>.fromOpaque(toolbar).takeUnretainedValue() === session.presenter.toolbar.toolbar,
+          let added = Unmanaged<AnyObject>.fromOpaque(item).takeUnretainedValue() as? NSToolbarItem else { return }
+    session.presenter.toolbar.addAppItem(added)
     #endif
 }
 
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hookHostTable: UnsafeRawPointer = {
-    let size = 40
+    let size = 48
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -94,6 +109,7 @@ private let hookHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hookAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hookLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hookDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hookToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
@@ -144,15 +160,25 @@ extension NativeViews {
         }
     }
 
+    /// `toolbar` for the window toolbar Exact installed (macOS, LLP
+    /// 1075.003.000 §3.7).
+    func toolbarHook(_ toolbar: AnyObject, window: AnyObject) {
+        guard hooksConnected, let instance, let call = toolbarCall else { return }
+        session?.log("hook toolbar: built")
+        call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque())
+    }
+
     /// After the session's module is made: hand it the host's callbacks
     /// when its table has hooks, then let the presenter replay the objects
     /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
     func connectHooks(_ connect: HookConnectFn, _ navigation: HookNavigationFn, _ route: HookRouteFn,
-                      _ tabs: (HookTabsFn, HookTabContainerFn)?, _ element: HookElementFn?, _ module: UnsafeMutableRawPointer) {
+                      _ tabs: (HookTabsFn, HookTabContainerFn)?, _ element: HookElementFn?, _ toolbar: HookToolbarFn?,
+                      _ module: UnsafeMutableRawPointer) {
         connect(module, hookHostTable)
         hookCalls = (navigation, route)
         tabCalls = tabs
         elementCall = element
+        toolbarCall = toolbar
         hooksConnected = true
         session?.log("hook: connected")
         DispatchQueue.main.async { [weak self] in self?.onHooksConnected?() }

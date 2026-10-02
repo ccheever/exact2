@@ -726,7 +726,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js";
+export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js";
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
 export const Hooks = {};

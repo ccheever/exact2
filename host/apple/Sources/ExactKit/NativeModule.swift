@@ -45,6 +45,8 @@
 // 160  module_element(module, event, view, platform, json, len)   size ≥ 168
 //        (LLP 1075.003.000): a node marked `hook="word"`; event 0 built,
 //        1 changed, 2 ended; json {"hook", "node", "id", "kind", "data"}
+// 168  module_toolbar(module, toolbar, window)        size ≥ 176; macOS:
+//        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -116,8 +118,9 @@ private final class NativeTable {
     var connect: HookConnectFn?, navigationHook: HookNavigationFn?, routeHook: HookRouteFn?
     /// Tabs and native screens, in a table of 160 bytes or more.
     var tabsHook: HookTabsFn?, tabContainerHook: HookTabContainerFn?, platformController: ViewFn?
-    /// Hooked nodes (LLP 1075.003.000), in a table of 168 bytes or more.
-    var elementHook: HookElementFn?
+    /// Hooked nodes (LLP 1075.003.000), in a table of 168 bytes or more;
+    /// the window toolbar's hook (macOS), in one of 176 or more.
+    var elementHook: HookElementFn?, toolbarHook: HookToolbarFn?
 
     private init(path: String, roster: [String: [String: Any]], create: @escaping CreateFn, platformView: @escaping ViewFn,
                  setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn,
@@ -178,6 +181,7 @@ private final class NativeTable {
             loaded.platformController = pointer(152).map { unsafeBitCast($0, to: ViewFn.self) }
         }
         if size >= 168 { loaded.elementHook = pointer(160).map { unsafeBitCast($0, to: HookElementFn.self) } }
+        if size >= 176 { loaded.toolbarHook = pointer(168).map { unsafeBitCast($0, to: HookToolbarFn.self) } }
         return .success(loaded)
     }
 }
@@ -379,6 +383,7 @@ final class NativeViews {
     var hookCalls: (navigation: HookNavigationFn, route: HookRouteFn)?
     var tabCalls: (HookTabsFn, HookTabContainerFn)?
     var elementCall: HookElementFn?
+    var toolbarCall: HookToolbarFn?
 
     /// The session's one module instance, made at the first view or long
     /// call that needs it. Main thread.
@@ -404,7 +409,7 @@ final class NativeViews {
         log("module instance made (agent \(ExactEnv.agentMode))")
         if let connect = table.connect, let navigation = table.navigationHook, let route = table.routeHook {
             let tabs = table.tabsHook.flatMap { tabs in table.tabContainerHook.map { (tabs, $0) } }
-            connectHooks(connect, navigation, route, tabs, table.elementHook, made)
+            connectHooks(connect, navigation, route, tabs, table.elementHook, table.toolbarHook, made)
         }
         return .success(made)
     }

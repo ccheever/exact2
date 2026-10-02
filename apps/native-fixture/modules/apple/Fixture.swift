@@ -49,6 +49,21 @@ final class FixtureModule: ExactModule {
         #endif
     }
 
+    #if os(macOS)
+    /// The window toolbar Exact installs for the authored `toolbar`: its
+    /// display mode is the app's, and an item of its own goes after Exact's.
+    /// (AppKit shows icons only under the compact style a window toolbar
+    /// gets, so labels need the window's style too.)
+    override func toolbar(_ toolbar: ExactToolbar) {
+        toolbar.window?.toolbarStyle = .unified
+        toolbar.toolbar.displayMode = .iconAndLabel
+        let item = NSToolbarItem(itemIdentifier: .init("fixture.hooked"))
+        item.label = "Hooked"
+        item.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Hooked")
+        toolbar.add(item)
+    }
+    #endif
+
     #if os(iOS)
     private let badgeMenu = BadgeMenu()
     private let fade = Fade()

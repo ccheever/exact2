@@ -1,10 +1,13 @@
 // An element's `data-*` words on the JS target (LLP 1075.003 §3.3; rt.js
 // re-exports it; bundled only into a plan that binds one).
 /** The runner's object of strings as one attribute per word; a word the
- * element's last value had and this one lacks goes. */
+ * element's last value had and this one lacks goes. A hooked node's hook
+ * hears the change (hooks.js, LLP 1075.003.000). */
 export function ds(e, json) {
   const words = JSON.parse(json ?? "{}"), last = e.$ds ?? [];
-  for (const w of last) if (!Object.hasOwn(words, w)) e.removeAttribute("data-" + w);
-  for (const [w, v] of Object.entries(words)) if (e.getAttribute("data-" + w) !== v) e.setAttribute("data-" + w, v);
+  let changed = false;
+  for (const w of last) if (!Object.hasOwn(words, w)) { e.removeAttribute("data-" + w); changed = true; }
+  for (const [w, v] of Object.entries(words)) if (e.getAttribute("data-" + w) !== v) { e.setAttribute("data-" + w, v); changed = true; }
   e.$ds = Object.keys(words);
+  if (changed) e.$hk?.();
 }

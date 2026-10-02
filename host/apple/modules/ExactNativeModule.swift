@@ -166,6 +166,13 @@ open class ExactModule {
     /// A hooked node is leaving; its view goes after this returns, and the
     /// handle does nothing from now on.
     open func elementEnded(_ element: ExactElement) {}
+    #if os(macOS)
+    /// The window toolbar Exact installed for the Contract's commands (LLP
+    /// 1075.003.000 §3.7): once, when installed (at a cold launch, once the
+    /// module loads). Its display mode and appearance are the app's; its
+    /// command items and delegate slot Exact's.
+    open func toolbar(_ toolbar: ExactToolbar) {}
+    #endif
     #if os(iOS)
     /// A navigation controller Exact built: once, before any route in it is
     /// laid out (at a cold launch, once the module loads, for each one
@@ -210,8 +217,11 @@ final class ExactHooks {
     typealias ActFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32) -> Int32
     typealias LogFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DelegateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+    typealias ToolbarItemFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
     let host: UnsafeMutableRawPointer?
     let resolveFn: ResolveFn, actFn: ActFn, logFn: LogFn, delegateFn: DelegateFn
+    /// A host table of 48 bytes or more: an item added to the window toolbar.
+    let toolbarItemFn: ToolbarItemFn?
     #if os(iOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -231,6 +241,8 @@ final class ExactHooks {
         actFn = unsafeBitCast(act, to: ActFn.self)
         logFn = unsafeBitCast(log, to: LogFn.self)
         delegateFn = unsafeBitCast(delegate, to: DelegateFn.self)
+        toolbarItemFn = table.load(as: UInt32.self) >= 48
+            ? table.load(fromByteOffset: 40, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ToolbarItemFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -429,6 +441,33 @@ public final class ExactElement {
     public var control: NSControl? { platform as? NSControl }
     #endif
 }
+
+#if os(macOS)
+/// The window toolbar Exact installs for the Contract's commands (LLP
+/// 1075.003.000 §3.7).
+public final class ExactToolbar {
+    public let toolbar: NSToolbar
+    public private(set) weak var window: NSWindow?
+    /// The app's toolbar delegate. Exact keeps the toolbar's own slot, where
+    /// it supplies its command items, and forwards what it does not answer.
+    public weak var delegate: NSToolbarDelegate? {
+        didSet {
+            guard let hooks else { return }
+            let object = delegate.map { Unmanaged.passUnretained($0 as AnyObject).toOpaque() }
+            hooks.delegateFn(hooks.host, Unmanaged.passUnretained(toolbar).toOpaque(), object)
+        }
+    }
+    weak var hooks: ExactHooks?
+    init(toolbar: NSToolbar, window: NSWindow?, hooks: ExactHooks) { self.toolbar = toolbar; self.window = window; self.hooks = hooks }
+    /// Add an item after Exact's; Exact never removes it while the toolbar
+    /// stays installed.
+    public func add(_ item: NSToolbarItem) {
+        guard let hooks else { return }
+        guard let fn = hooks.toolbarItemFn else { return hooks.log("toolbar: this host takes no items") }
+        fn(hooks.host, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(item).toOpaque())
+    }
+}
+#endif
 
 /// The nine events, as the kernel's `EventKind` ordinals.
 public final class ExactNativeEvents: @unchecked Sendable {
@@ -786,6 +825,15 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     m.element(element)
 }
 
+/// `toolbar(module, toolbar, window)` (macOS, LLP 1075.003.000 §3.7).
+private let moduleToolbar: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = { raw, toolbar, window in
+    #if os(macOS)
+    guard let m = module(raw), let hooks = m.hooks, let toolbar else { return }
+    m.toolbar(ExactToolbar(toolbar: Unmanaged<NSToolbar>.fromOpaque(toolbar).takeUnretainedValue(),
+                           window: window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }, hooks: hooks))
+    #endif
+}
+
 /// `platform_controller(handle) → UIViewController?`: a native screen's
 /// controller (the module keeps ownership), or nil for a plain view.
 private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
@@ -803,7 +851,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     }.joined(separator: ",") + "}"
-    let size = 168
+    let size = 176
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -826,6 +874,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleTabContainer, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
     return t
 }()
 

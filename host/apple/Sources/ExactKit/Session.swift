@@ -691,7 +691,10 @@ public final class ExactSession {
             self?.presenter.elements.replay()
         }
         #else
-        natives.onHooksConnected = { [weak self] in self?.presenter.elements.replay() }
+        natives.onHooksConnected = { [weak self] in
+            self?.presenter.elements.replay()
+            self?.presenter.toolbar.hookToolbar()
+        }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }

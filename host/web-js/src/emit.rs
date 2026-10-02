@@ -1036,13 +1036,7 @@ impl Em<'_> {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
         }
-        if parts.tag == "canvas" {
-            let cv = self.uses.rt("cv");
-            let _ = write!(self.out, "{cv}({e});");
-        }
-        if parts.tag.contains('-') {
-            let _ = write!(self.out, "{}({e});", self.uses.rt("nm")); // a native module, LLP 1024 D3
-        }
+        self.element_extras(&parts.tag, &e, &attrs);
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];

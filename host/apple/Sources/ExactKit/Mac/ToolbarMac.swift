@@ -24,6 +24,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var ownTitle: String?
     private var refusal: String?
     var onChange: (() -> Void)?
+    /// LLP 1075.003.000 §3.7: the app module's `toolbar` hook, once a
+    /// toolbar is installed; the items it adds after Exact's, which Exact
+    /// never removes; its delegate, which hears what Exact does not answer.
+    private var hooked = false
+    private(set) var appItems: [NSToolbarItem] = []
+    private weak var appDelegate: NSToolbarDelegate?
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -85,7 +91,50 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
+        hooked = false; appItems.removeAll()
         if hadToolbar { onChange?() }
+    }
+
+    /// The `toolbar` hook for the installed toolbar, once (at a cold launch,
+    /// when the module connects).
+    func hookToolbar() {
+        guard !hooked, let toolbar, let window, let natives = presenter.session?.natives, natives.hooksConnected else { return }
+        hooked = true
+        natives.toolbarHook(toolbar, window: window)
+    }
+
+    /// An item the app adds after Exact's (`ExactToolbar.add`).
+    func addAppItem(_ item: NSToolbarItem) {
+        guard toolbar != nil, !appItems.contains(where: { $0 === item || $0.itemIdentifier == item.itemIdentifier }) else { return }
+        appItems.append(item)
+        presenter.session?.log("hook toolbar: the app added \(item.itemIdentifier.rawValue)")
+        // From the hook, inside a sync: the next turn inserts it.
+        if syncing { DispatchQueue.main.async { [weak self] in self?.sync() } } else { sync() }
+    }
+
+    /// The app's delegate: Exact keeps the toolbar's slot (it supplies its
+    /// command items) and forwards what it does not answer. AppKit reads what
+    /// a delegate answers when it is set, so it is set again.
+    func setAppDelegate(_ delegate: NSToolbarDelegate?) {
+        appDelegate = delegate
+        toolbar?.delegate = nil
+        toolbar?.delegate = self
+        presenter.session?.log("hook toolbar: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || (appDelegate?.responds(to: selector) ?? false)
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        appDelegate?.responds(to: selector) == true ? appDelegate : nil
+    }
+
+    /// `state.window.toolbar` (the agent).
+    var summary: [String: Any] {
+        guard let toolbar else { return ["installed": false] }
+        return ["installed": window?.toolbar === toolbar, "displayMode": toolbar.displayMode.rawValue,
+                "items": toolbar.items.map(\.itemIdentifier.rawValue), "appItems": appItems.map(\.itemIdentifier.rawValue)]
     }
 
     private func children(_ node: NodeView) -> [NodeView] {
@@ -191,7 +240,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if node === heading { return .flexibleSpace }
             return items[node.id]?.itemIdentifier
         }
-        order = nextOrder
+        order = nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
             if !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
@@ -206,6 +255,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // Hide only the authored rendering. Its logical nodes/actions survive.
         if window.toolbar !== toolbar { window.toolbar = toolbar }
         if installing { onChange?() }
+        hookToolbar()
         savedAccessibilityHidden = next.isAccessibilityHidden()
         next.isHidden = true; next.setAccessibilityHidden(true); projected = true
     }
@@ -213,7 +263,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { order }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { order }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        items.values.first { $0.itemIdentifier == identifier }
+        items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         guard let node = presenter.views[UInt32(item.tag)], items[node.id] === item else { return false }

@@ -92,7 +92,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
     // The hooks (LLP 1075.003): the route's data-* words, the authored header
     // under the agent (one presentation, LLP 1021 D4), the hooks' moments in
-    // the journal (iOS; macOS projects no routes), and a push and its Back.
+    // the journal (iOS; macOS projects no routes; the web's are checked
+    // below), and a push and its Back.
     t = await s.tree();
     const words = host === 'web'
       ? await s.carrier.evaluate(`JSON.stringify((({ menu, screen, transition, violate }) => ({ menu, screen, transition, violate }))(document.querySelector('[data-testid="route-home"]').dataset))`)
@@ -105,22 +106,37 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     const journal = `${lines}\n${logs.lines.join('\n')}`;
     if (host === 'ios') {
       check(/hook: connected/.test(journal) && /hook navigation #1: built[\s\S]*hook route \d+: built/.test(journal), `${host} native: a stack's hook runs before its routes': ${journal.split('\n').filter((l) => /hook/.test(l)).join(' | ')}`);
-    } else {
-      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs off iOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
+    } else if (host === 'macos') {
+      // macOS projects no routes; the web's page module has its own (below).
+      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs on macOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
     }
     await s.tap('compose-home'); await settle(s);
     check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
+    // The window toolbar's hook (macOS, LLP 1075.003.000 §3.7): its display
+    // mode and an item of the app's after Exact's, whose own items still press.
+    if (host === 'macos') {
+      await s.clock('settle');
+      const bar = (await s.state()).window?.toolbar;
+      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
+        `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      await s.tap('toolbar-compose'); await settle(s);
+      check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
+    }
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
-    // Hooked nodes (LLP 1075.003.000): the tree shows each word, `state`
-    // counts the calls (a data-* change reaches the hook), and a development
-    // build journals a write to what Exact owns of one. (The web is Stage 2.)
-    if (host !== 'web') {
+    // Hooked nodes (LLP 1075.003.000): the tree shows each word, the hook
+    // hears a node's mount and its data-* change (`state` counts them; on the
+    // web the fixture's page module does), and a development build journals a
+    // write to what Exact owns of one (iOS).
+    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHooks ?? {})'));
+    const hookCalls = async (word) => host === 'web'
+      ? Object.fromEntries(Object.entries(await webCalls()).filter(([k]) => k.startsWith(word + ':')).map(([k, v]) => [k.slice(word.length + 1), v]))
+      : (await s.state()).hooks?.[word]?.calls ?? {};
+    {
       await s.clock('settle');
       check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
-      const hooks = (await s.state()).hooks;
-      check(hooks?.badge?.calls?.built === 1 && hooks?.badge?.calls?.changed === 1,
-        `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(hooks)}`);
+      const badge = await hookCalls('badge');
+      check(badge.built === 1 && badge.changed === 1, `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(badge)}`);
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);
@@ -142,21 +158,29 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     // A list whose rows each hold a hooked node: the journal names what the
     // word gives up and warns for it in a row; a retired row's hook hears
     // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
-    if (host !== 'web') {
+    {
       const takes = (await s.state()).pool?.takes;
       await s.tap('rows'); await settle(s);
       t = await until(s, 'the hooked list shows rows', (t) => !!byTestId(t, 'row-1'));
       await s.clock('settle');
-      check((await s.state()).hooks?.dot?.live > 0, `${host} native: each shown row's node is hooked`);
+      check((await hookCalls('dot')).built > 0, `${host} native: each shown row's node is hooked`);
       await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
-      const dot = (await s.state()).hooks?.dot;
-      check(dot?.calls?.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
+      const dot = await hookCalls('dot');
+      check(dot.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
       if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hooked node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
       const said = (await s.logs()).lines.join('\n');
       const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
       check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
       await s.tap('back'); await settle(s);
       t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
+    }
+    // The page module's container hooks (LLP 1075.003.000 §3.7): the root,
+    // its tablist, each route as it mounts and as it leaves.
+    if (host === 'web') {
+      await s.clock('settle');
+      const c = await webCalls();
+      check(c['navigation:built'] === 1 && c['tabs:built'] === 1 && c['route:built'] >= 3 && c['route:ended'] >= 2,
+        `${host} native: the page module's container hooks run as routes mount and leave: ${JSON.stringify(c)}`);
     }
     // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
     // (macOS projects no routes: there the sheet is its route, shown.)
