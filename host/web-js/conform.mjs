@@ -327,6 +327,9 @@ async function drive(t, report, fail, dir, ws, js) {
     driveAt = 'boot settle';
     await settle();
     let tree = await compare('boot');
+    // Once only the reference took a step, the two pages differ by that step:
+    // later compares would report its consequences, not new differences.
+    let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
       const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
@@ -341,6 +344,7 @@ async function drive(t, report, fail, dir, ws, js) {
       try { await run(J); } catch (e) {
         const message = e.message.split('\n')[0];
         fail(line, `${other}: ${message}`);
+        diverged = true;
         break;
       }
       await onLinux(line, L => LINUX_OPS.includes(op) ? run(L) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
@@ -348,21 +352,23 @@ async function drive(t, report, fail, dir, ws, js) {
       tree = await compare(line);
     }
     const tapped = new Set();
-    for (let i = 0; i < maxSteps; i++) {
+    for (let i = 0; i < maxSteps && !diverged; i++) {
       const next = tree.nodes.find(n => (n.handlers ?? []).includes('press') && n.props?.testId && !tapped.has(n.props.testId));
       if (!next) break;
       const id = next.props.testId; tapped.add(id);
       let ok = true;
       try { await W.tap(id); } catch (e) { ok = false; report.steps.push({ target: t.name, step: `tap ${id}`, skipped: `${reference}: ${e.message.split('\n')[0]}` }); }
       if (!ok) continue;
-      try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `${other}: ${e.message.split('\n')[0]}`); continue; }
+      try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `${other}: ${e.message.split('\n')[0]}`); diverged = true; break; }
       await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
       await settle();
       tree = await compare(`tap ${id}`);
     }
-    await pair(() => W.clock('+60000'), () => J.clock('+60000')); await onLinux('clock +60000', L => L.clock('+60000'));
-    await compare('clock +60000');
+    if (!diverged) {
+      await pair(() => W.clock('+60000'), () => J.clock('+60000')); await onLinux('clock +60000', L => L.clock('+60000'));
+      await compare('clock +60000');
+    }
   } catch (e) {
     fail(driveAt, e.stack?.split('\n').slice(0, 2).join(' ') ?? String(e));
   } finally {
