@@ -50,6 +50,7 @@ const workspace = ['--workspace'];
 function checks(sha) {
   const lane = laneTests();
   const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
+  const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
     ['test', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
@@ -58,9 +59,9 @@ function checks(sha) {
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
-    // The web glue's unit tests, by file (LLP 1012.001.000 D9; Charlie,
-    // 2026-09-30): ~7 s, no browser; four sat red for days with no lane.
-    ['glue', 'bun', ['test', ...['agent', 'collection', 'http-body', 'native-glue', 'request-refusal', 'textflow'].map(f => `./host/web/${f}.test.mjs`)]],
+    // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30),
+    // discovered by one glob so a new test cannot sit outside the lane.
+    ['glue', 'bun', ['test', ...glue]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', 'realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery', '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
