@@ -777,9 +777,33 @@ mod name_tests {
     #[test]
     fn page_reset_and_lowered_css_leave_native_control_sizing_to_chrome() {
         let page = include_str!("../index.html");
+        let stylesheet = page
+            .split_once("<style>")
+            .and_then(|(_, rest)| rest.split_once("</style>"))
+            .map(|(css, _)| css)
+            .expect("page stylesheet");
         assert!(page.contains("select { display: block; }"));
         assert!(page.contains("input[type=\"checkbox\"] { box-sizing: border-box; }"));
         assert!(page.contains("input[type=\"file\"]"));
+        for rule in stylesheet.split('}') {
+            let Some((selectors, declarations)) = rule.rsplit_once('{') else {
+                continue;
+            };
+            if selectors.split(',').any(|selector| {
+                let selector = selector.trim();
+                selector.contains("input")
+                    || selector.contains("textarea")
+                    || selector.contains("select")
+                    || selector.contains("button")
+            }) {
+                assert!(
+                    !declarations
+                        .split(';')
+                        .any(|declaration| declaration.trim_start().starts_with("width:")),
+                    "control reset must not author a width: {selectors} {{{declarations}}}"
+                );
+            }
+        }
         for (tag, ty) in [("input", "checkbox"), ("select", "select")] {
             let style = StyleProps::default();
             let mut props = PropList::default();
