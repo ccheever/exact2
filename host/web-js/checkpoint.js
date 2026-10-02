@@ -64,7 +64,9 @@ export function prepareDev() {
   return () => {
     HTMLElement.prototype.focus = focus;
     if (!cp.focus) return;
-    const children = e => [...e.children].filter(x => x.hasAttribute('data-carry-type'));
+    // A virtualized row wrapper is a logical View in the wasm tree even
+    // though it is host-created and has no plan-node carry attribute.
+    const children = e => [...(e?.children ?? [])].filter(x => x.hasAttribute('data-carry-type') || x.hasAttribute('data-listitemkey'));
     let el = document.getElementById('exact-root');
     for (const at of cp.focus.path) el = children(el)[at];
     if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !el.closest('[inert]')) focus.call(el, { preventScroll: true });
