@@ -180,7 +180,6 @@
 
 - **Keyboard access to a message's context menu** (2026-09-23, buttons lane): Messages' bubble (`apps/messages/message-parts.contract`) and the reply rows in Exact Live and messages-stress are containers with `swiperight`/`contextmenu`/`dblclick`, no longer `button`s (a message is not a button), so they are neither in the Tab order nor announced as buttons; their actions are the pointer's alone. A focusable message with a keyboard route to its actions (the context-menu key, Shift+F10) is owed.
 
-- **A `button` set to `display: block` centers its content again on the web** (2026-09-23, buttons lane): `button` is a flex column (LLP 1006 §3), but a row may override `display`; a block `<button>` gets Chrome's anonymous-box centering back and disagrees with the kernel. No app does it; a compile refusal of a literal `block`/`inline*` display on `button` would keep it that way.
 
 - **iOS smoke: the deck iframe times out on a cold simulator** (2026-09-24, this Mac at load ~130): the first `smoke.mjs ios` after booting the simulator failed six checks, all the web deck's WKWebView never finishing its first load (`loading: true`, no `deck-ready`, an empty guest outline, a blank screenshot, then "guest frame is not ready" stopped the drive); the rerun on the warm simulator passed in 104 s. A first WebKit launch in a cold simulator under load outlasts the smoke's wait for the guest. Either wait for the guest's first load with a hang bound rather than a deadline, or warm WebKit before the fixture.
 
