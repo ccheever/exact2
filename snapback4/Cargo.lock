@@ -667,6 +667,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-grants"
+version = "0.1.0"
+dependencies = [
+ "url",
+]
+
+[[package]]
 name = "exact-js"
 version = "0.1.0"
 dependencies = [
@@ -823,6 +830,7 @@ name = "exact-runner"
 version = "0.1.0"
 dependencies = [
  "exact-canvas",
+ "exact-grants",
  "exact-kernel",
  "exact-motion",
  "exact-num",
@@ -1304,6 +1312,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
+ "exact-grants",
  "form_urlencoded",
  "getrandom 0.2.17",
  "libc",
@@ -1650,7 +1659,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-apple"
+name = "messages-legacy-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
@@ -1668,7 +1677,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-linux"
+name = "messages-legacy-linux"
 version = "0.1.0"
 dependencies = [
  "exact-js",
@@ -1683,7 +1692,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-web"
+name = "messages-legacy-web"
 version = "0.1.0"
 dependencies = [
  "exact-js-bake",

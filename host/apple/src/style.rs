@@ -15,8 +15,8 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
-    Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
-    StyleValue,
+    Dimension, Env, NodeRef, NodeType, Overflow, PropId, PropValue, RowValue, StyleId, StyleMask,
+    StyleProps, StyleValue,
 };
 use exact_motion::Property;
 use std::fmt::Write as _;
@@ -553,6 +553,22 @@ pub fn style_json_presented(
         }
     }
     let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
+    // A modal's top layer is positioned in the viewport by AppKit, outside
+    // its authored parent. Keep only the existing inset rows for dialogs.
+    if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+        for id in [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left] {
+            if !computed.mask.has(id) {
+                continue;
+            }
+            if let RowValue::Dimension(d) = computed.get(id) {
+                let mut value = String::new();
+                push_dimension(&mut value, d.resolve(env));
+                let comma = if json == "{}" { "" } else { "," };
+                json.pop();
+                let _ = write!(json, "{comma}\"{}\":{value}}}", id.name());
+            }
+        }
+    }
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",
@@ -571,7 +587,47 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
+    // string the host compares, so a gap, direction or display change sends it.
+    if let Some(points) = glass_auto_spacing(node) {
+        let head = format!("{{\"glass_group_spacing\":{}", num(points));
+        json = if json == "{}" {
+            head + "}"
+        } else {
+            head + "," + &json[1..]
+        };
+    }
     (json, skipped)
+}
+
+/// `glassGroup="auto"`'s spacing (LLP 1053.000.000.000 D2): the gap along the
+/// main axis in points — `column-gap` in a flex row, `row-gap` in a flex
+/// column, the smaller of the two in a grid, `0` otherwise — clamped to
+/// 0–10,000; `None` unless the prop is the reserved `-1`.
+pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
+    use exact_kernel::{Display, FlexDirection};
+    if !matches!(node.props.get(PropId::GlassGroup), Some(PropValue::Float(f)) if *f == -1.0) {
+        return None;
+    }
+    let s = node.style;
+    let gap = match s.display {
+        Display::Flex => match s.flex_direction {
+            FlexDirection::Row | FlexDirection::RowReverse => s.column_gap,
+            FlexDirection::Column | FlexDirection::ColumnReverse => s.row_gap,
+        },
+        Display::Grid => s.row_gap.min(s.column_gap),
+        _ => 0.0,
+    };
+    Some(gap.clamp(0.0, 10_000.0))
+}
+
+/// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
+/// `glassGroupAuto`, so a change to the prop sends them.
+pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap<String, String>) {
+    if let Some(points) = glass_auto_spacing(node) {
+        out.insert(PropId::GlassGroup.name().to_string(), num(points));
+        out.insert("glassGroupAuto".to_string(), "true".to_string());
+    }
 }
 
 /// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
@@ -639,6 +695,56 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
+    }
+
+    #[test]
+    fn only_dialogs_keep_viewport_positioning_rows() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op, PropId};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::Left, &StyleValue::Number(12.0))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::Bottom, &StyleValue::Text("calc(10% + 8px)".into()))
+            .unwrap();
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(style),
+                    },
+                ],
+            )
+            .unwrap();
+        let ordinary: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        assert!(ordinary.get("left").is_none());
+        assert!(ordinary.get("bottom").is_none());
+        kernel
+            .apply(
+                0,
+                2,
+                &[Op::SetProp {
+                    id: 1,
+                    prop: PropId::SemanticTag,
+                    value: "dialog".into(),
+                }],
+            )
+            .unwrap();
+        let dialog: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        assert_eq!(dialog["left"], 12);
+        assert_eq!(dialog["bottom"], serde_json::json!({ "pct": 10, "px": 8 }));
     }
 
     /// Quarters are written as `{n}` writes them.

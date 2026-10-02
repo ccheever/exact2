@@ -290,9 +290,7 @@ impl<G: Game> Sim<G> {
             self.textures
                 .retain(|n, _| self.world.assets.states.contains_key(n));
             for (name, suffix) in names {
-                if !self.world.assets.request(&name) {
-                    continue;
-                }
+                self.world.assets.request(&name);
                 if !name.ends_with(suffix) {
                     self.asset_failed(&name, &format!("component requires a {suffix} name"));
                 }
@@ -432,9 +430,7 @@ impl<G: Game> Sim<G> {
     }
     /// Transport failure after the host's bounded retries.
     pub fn asset_failed(&mut self, name: &str, reason: &str) {
-        if !self.world.assets.request(name) {
-            return;
-        }
+        self.world.assets.request(name);
         self.world.assets.redelivery.remove(name);
         self.world.assets.requested.insert(name.into());
         self.asset_prepared(name, Err(reason.into()));
@@ -446,9 +442,7 @@ impl<G: Game> Sim<G> {
         result: Result<crate::asset::Content, String>,
     ) -> Result<(), String> {
         use crate::asset::{AssetState, Content};
-        if !self.world.assets.request(name) {
-            return Err(format!("asset `{name}`: surface limit is 256 names"));
-        }
+        self.world.assets.request(name);
         self.world.assets.requested.insert(name.into());
         self.world.assets.redelivery.remove(name);
         let result = result.and_then(|content| match content {
@@ -469,17 +463,6 @@ impl<G: Game> Sim<G> {
                 }
             }
             Ok(Some(Content::Model(model))) => {
-                let extra = model
-                    .textures
-                    .iter()
-                    .filter(|n| !self.world.assets.states.contains_key(n))
-                    .count();
-                if self.world.assets.states.len() + extra > 256 {
-                    self.asset_failed(name, "dependencies exceed surface limit of 256 names");
-                    return Err(format!(
-                        "asset `{name}`: dependencies exceed surface limit of 256 names"
-                    ));
-                }
                 for texture in &model.textures {
                     self.world.assets.request(texture);
                     if self.world.assets.declared.contains(name) {

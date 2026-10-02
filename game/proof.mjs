@@ -1,13 +1,126 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+
+// Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
+// These are inspection captures, not EXSIM saves or a second simulation codec.
+export async function captureWorld(session, name = 'world') {
+  const snapshot = await session.world(name).snapshot();
+  const {world} = await session.op({op:'state', ...await session.target(name), world:true});
+  if (!world || snapshot.tick !== world.tick || snapshot.hash !== world.hash)
+    throw new Error('world changed during capture; capture on the agent clock with no concurrent drive');
+  if (world.entities !== snapshot.entities?.length)
+    throw new Error('incomplete world capture; entity count differs');
+  const capture = {format:'exact-world-state-v1', name:world.name,
+    tick:world.tick, hash:world.hash, truncated:snapshot.truncated,
+    entities:snapshot.entities, resources:world.resources,
+    simulation:{hz:world.hz, seed:world.seed, args:world.args,
+      input:world.input, published:world.published}};
+  validateWorldCapture(capture);
+  return capture;
+}
+
+function validateWorldCapture(capture) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (capture?.format !== 'exact-world-state-v1' || typeof capture.name !== 'string'
+      || !Number.isSafeInteger(capture.tick) || capture.tick < 0
+      || typeof capture.hash !== 'string' || !capture.hash.length
+      || capture.truncated !== false || !Array.isArray(capture.entities)
+      || !record(capture.resources) || !record(capture.simulation))
+    throw new Error('expected a complete exact-world-state-v1 capture (truncated captures are refused)');
+  const names = new Set(), ids = new Set();
+  for (const entity of capture.entities) {
+    if (!record(entity) || !Number.isSafeInteger(entity.id) || entity.id < 0
+        || !(entity.name === null || typeof entity.name === 'string') || !record(entity.components)
+        || ids.has(entity.id) || (entity.name !== null && names.has(entity.name)))
+      throw new Error('invalid or duplicate entity identity in world capture');
+    ids.add(entity.id);
+    if (entity.name !== null) names.add(entity.name);
+  }
+  const json = (value, depth = 0) => {
+    if (depth > 128) throw new Error('world capture exceeds 128 levels');
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+    if (typeof value === 'number' && Number.isFinite(value)) return;
+    if (Array.isArray(value) || record(value)) {
+      for (const child of Object.values(value)) json(child, depth + 1);
+      return;
+    }
+    throw new Error('world capture must contain finite JSON values');
+  };
+  json(capture);
+}
+
+/** Exact JSON-value comparison, with stable entity names and positional array indices. */
+export function diffWorlds(before, after, {limit = 100} = {}) {
+  validateWorldCapture(before); validateWorldCapture(after);
+  if (before.name !== after.name) throw new Error('cannot compare captures of different games');
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('diff limit must be a positive integer');
+  const changes = [];
+  let total = 0;
+  const missing = Symbol('missing');
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const pathKey = key => /^[A-Za-z_][A-Za-z_0-9]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+  const walk = (a, b, path) => {
+    if (Object.is(a, b)) return;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      for (let i = 0; i < Math.max(a.length, b.length); i++)
+        walk(i < a.length ? a[i] : missing, i < b.length ? b[i] : missing, `${path}[${i}]`);
+      return;
+    }
+    if (record(a) && record(b)) {
+      for (const key of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort())
+        walk(Object.hasOwn(a, key) ? a[key] : missing, Object.hasOwn(b, key) ? b[key] : missing, path + pathKey(key));
+      return;
+    }
+    total++;
+    if (changes.length < limit) changes.push({path,
+      kind:a === missing ? 'added' : b === missing ? 'removed' : 'changed',
+      ...(a === missing ? {} : {before:a}), ...(b === missing ? {} : {after:b})});
+  };
+  const entities = capture => new Map(capture.entities.map(e => [
+    e.name === null ? `entities[#${e.id}]` : `entities[${JSON.stringify(e.name)}]`, e.components]));
+  const a = entities(before), b = entities(after);
+  for (const key of [...new Set([...a.keys(), ...b.keys()])].sort())
+    walk(a.has(key) ? a.get(key) : missing, b.has(key) ? b.get(key) : missing, key);
+  walk(before.resources, after.resources, 'resources');
+  walk(before.simulation, after.simulation, 'simulation');
+  return {name:before.name, before:{tick:before.tick, hash:before.hash},
+    after:{tick:after.tick, hash:after.hash}, hashChanged:before.hash !== after.hash,
+    total, omitted:total - changes.length, changes};
+}
+
+export function formatWorldDiff(diff) {
+  const lines = [`${diff.name}: tick ${diff.before.tick} → ${diff.after.tick}; hash ${diff.before.hash} → ${diff.after.hash}`];
+  for (const change of diff.changes) {
+    const value = key => Object.hasOwn(change, key) ? JSON.stringify(change[key]) : '<absent>';
+    lines.push(`${change.kind} ${change.path}: ${value('before')} → ${value('after')}`);
+  }
+  lines.push(`${diff.total} inspected difference(s)${diff.omitted ? `; ${diff.omitted} omitted` : ''}`);
+  if (diff.hashChanged && !diff.total)
+    lines.push('World hashes differ despite equal inspected values; inspection is not a complete binary save comparison.');
+  return lines.join('\n');
+}
+
+if (import.meta.main) {
+  try {
+    const [command, before, after, ...extra] = process.argv.slice(2);
+    if (command !== 'diff' || !before || !after || extra.length)
+      throw new Error('Usage: bun game/proof.mjs diff before.json after.json');
+    const diff = diffWorlds(JSON.parse(readFileSync(before, 'utf8')), JSON.parse(readFileSync(after, 'utf8')));
+    console.log(formatWorldDiff(diff));
+    process.exitCode = diff.total || diff.hashChanged ? 1 : 0;
+  } catch (error) {
+    console.error(`world diff refused: ${error.message}`);
+    process.exitCode = 2;
+  }
+}
 
 export function parseInventoryLine(line) {
   const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.{24})\s+(.+)$/);
@@ -116,6 +229,29 @@ export function pinInputs(rows) {
   if(!/^[a-f0-9]{64}$/.test(inputs ?? '') || rows.some(row=>row.inputs!==inputs))
     throw new Error('repin refused: proof inputs missing or changed between runs; pins.json unchanged');
   return inputs;
+}
+/** Provenance without a commit is valid only for an unborn or non-Git game. */
+export function pinRevision(app, inputs) {
+  const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8', env:{...process.env, LC_ALL:'C'}});
+  const refuse = result => { throw new Error(`repin refused: git provenance failed: ${result.error?.message ?? result.stderr?.trim() ?? result.status}; pins.json unchanged`); };
+  const inside = git(['rev-parse', '--is-inside-work-tree']);
+  if (inside.status !== 0) {
+    let repository = false;
+    for (let dir = resolve(app);; dir = dirname(dir)) {
+      if (existsSync(resolve(dir, '.git'))) { repository = true; break; }
+      if (dirname(dir) === dir) break;
+    }
+    if (!repository && inside.status === 128 && /not a git repository/.test(inside.stderr)) return `inputs:${inputs}`;
+    refuse(inside);
+  }
+  const revision = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+  if (revision.status === 0) return revision.stdout.trim();
+  const branch = git(['symbolic-ref', '-q', 'HEAD']);
+  if (revision.status === 1 && branch.status === 0) {
+    const missing = git(['show-ref', '--exists', branch.stdout.trim()]);
+    if (missing.status === 2) return `inputs:${inputs}`;
+  }
+  refuse(revision);
 }
 export function pinRecorder(previous, app, check, collecting = false) {
   const pins = {ticks:{}, saves:{}};

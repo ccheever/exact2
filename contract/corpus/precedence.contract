@@ -4,11 +4,11 @@ component App
   state replies = 0
   state panned = 0
   state pressed = 0
-  action reply writes replies
+  action reply
     replies = replies + 1
-  action moved(dx: number, dy: number) writes panned
+  action moved(dx: number, dy: number)
     panned = panned + dy
-  action push writes pressed
+  action push
     pressed = pressed + 1
   view
     column testId="surface" width=400 height=500 pan=moved touch-action="none"

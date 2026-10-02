@@ -167,7 +167,14 @@ host swaps to it with no change above the seam.
 
 The data crate declares `secret.keep castle.session` beside `net.fetch
 https://api.castle.xyz` in the one `grants()` constant (1016 D6). The runner
-parses the `secret.keep` lines itself: `Store::get` outside the grant is
+parses the complete I/O grant set with the native binding's shared
+`exact-grants` grammar (2026-10-02); one invalid line grants nothing. The
+Rust-only bake validates the same set, naming the source and line, before
+hashing it. Native parsing uses `url`; wasm normalizes origins through a pure
+browser URL import, sharing the grammar without shipping another set of URL
+tables. Rust logic modules stay importless: their host validates the grants in
+the metadata reply. The JS web target parses its complete set with browser URLs and
+checks source-scoped fetch and secret access. `Store::get` outside the grant is
 `None`, `set`/`forget` outside it are `StoreError::Refused` — the same refusal
 on every host before any platform is asked, as `net.fetch` is refused in
 `glue.js` and in ibex2 alike. The host reads *exactly the granted names* into

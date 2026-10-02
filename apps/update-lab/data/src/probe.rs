@@ -3,7 +3,7 @@ use exact_plan::Value;
 use exact_runner::DataError;
 
 // Edit these two values for the Rust update experiment.
-pub(crate) const VERSION: &str = "Rust v9";
+pub(crate) const VERSION: &str = "Rust v13";
 pub(crate) const MULTIPLIER: f64 = 2.0;
 
 pub fn probe(args: &[Value]) -> Result<Value, DataError> {

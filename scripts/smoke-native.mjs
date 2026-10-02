@@ -68,6 +68,23 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const m = /native loading .*libexact_modules\.dylib (-?[\d.]+) ms after first pixel/.exec(lines);
       check(m && Number(m[1]) >= 0, `${host} native: the artifact loads after first pixel: ${m?.[0] ?? 'no load line'}`);
     }
+    // A module's natural content size uses ordinary CSS layout: decoration
+    // adds to the content box, growth moves a sibling, and clearing forgets it.
+    const dimensions = async () => {
+      const nodes = (await s.layout()).nodes;
+      return Object.fromEntries(['plain', 'absent', 'box'].map(id => [id, nodes.find(n => n.testId === id)]));
+    };
+    await settle(s);
+    const natural = await dimensions();
+    check(natural.plain?.w === 132 && natural.plain?.h === 44, `${host} native: preferred 120×32 plus padding/border: ${JSON.stringify(natural.plain)}`);
+    check(natural.box?.w === 120 && natural.box?.h === 80, `${host} native: authored dimensions override the reported preference`);
+    await s.tap('grow'); await settle(s);
+    const grown = await dimensions();
+    check(grown.plain?.h === 76 && grown.absent?.y - natural.absent?.y === 32, `${host} native: content growth moves the next sibling by 32`);
+    await s.tap('sizing'); await settle(s);
+    const cleared = await dimensions();
+    check(cleared.plain?.h === 12 && cleared.plain?.w === 12, `${host} native: clearing the preference leaves only padding/border`);
+    await s.tap('sizing'); await s.tap('grow'); await settle(s);
     // Props: the canonical aggregate the plan carries, and what the module got.
     const canonical = `{"count":"0","emit":"0","note":${JSON.stringify(NOTE)},"reject":"false","tint":"#2266ee"}`;
     check(byTestId(t, 'box')?.props.nativeViewProps === canonical, `${host} native: the plan's aggregate is sorted and escaped: ${byTestId(t, 'box')?.props.nativeViewProps}`);
@@ -230,6 +247,11 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     const box = await pixel(s, shot, 'box'), plain = await pixel(s, shot, 'plain'), absent = await pixel(s, shot, 'absent');
     check(near(box, '#2266ee'), `${host} native: the capture shows the fixture's colour: ${box}`);
     check(near(plain, '#11aa44'), `${host} native: the ordinary capture shows the plain box: ${plain}`);
+    const plainBounds = (await s.layout()).nodes.find(n => n.testId === 'plain');
+    const capture = decodePng(readFileSync(shot));
+    const scale = capture.width / (await s.screenshot(shot)).w;
+    const paddingPixel = (Math.round((plainBounds.y + plainBounds.h / 2) * scale) * capture.width + Math.round((plainBounds.x + 3) * scale)) * 4;
+    check(near(Array.from(capture.data.slice(paddingPixel, paddingPixel + 3)), '#ffffff'), `${host} native: module content leaves the authored padding visible`);
     check(near(absent, '#f3f4f6'), `${host} native: the missing factory leaves its empty box: ${absent}`);
     if (host !== 'web') {
       logs = await s.logs();
@@ -244,6 +266,95 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     t = await until(s, 'a remount attaches a new instance', (t) => module(t, 'box')?.state === 'ready');
     await settle(s);
     check((await s.state()).slots.loads === 3, `${host} native: the new instance loaded`);
+    if (host === 'macos') {
+      const input = byTestId(await s.tree(), 'native-input').id;
+      const plainId = byTestId(await s.tree(), 'plain').id;
+      const focus = async () => (await s.state()).focus.logical;
+      await s.tap('focus-input'); await settle(s);
+      check(await focus() === input, 'macos native: focus action reaches the editable descendant');
+      await s.type('native-input', 'Hello 한글'); await settle(s);
+      check((await s.state()).slots.inputValue === 'Hello 한글', 'macos native: standard type replaces text through AppKit');
+      await s.type('native-input', 'abc');
+      await s.type('native-input', { key: 'Backspace' }); await settle(s);
+      check((await s.state()).slots.inputValue === 'ab' && (await s.state()).slots.inputEvents.includes('key:Backspace;'), 'macos native: standard key reaches the editor and deletes a character');
+      await s.type('native-input', { key: 'Backspace', for: 10 }); await settle(s);
+      check((await s.state()).slots.inputValue === 'a', 'macos native: held key releases through the same instance');
+      check((await s.state()).slots.inputEvents.split('focus;').length === 2, 'macos native: typing and keys preserve an existing editing session');
+      const unsupported = await s.carrier.ask({ op: 'type', id: input, key: 'Meta+Q' });
+      check(/does not support key/.test(unsupported.error ?? ''), 'macos native: unsupported key is an honest refusal');
+      await s.type('before-input', { key: 'Tab' }); await settle(s);
+      const tabbed = (await s.state()).focus;
+      check(tabbed.logical === input && tabbed.responder === 'FixtureEditor', `macos native: Tab reaches the module's editing descendant: ${JSON.stringify(tabbed)}`);
+      await s.type('native-input', { key: 'Meta+Shift+Enter' }); await settle(s);
+      check((await s.state()).slots.inputCommands === 1, 'macos native: declared commands run before the module input hook');
+      await s.type('native-input', { key: 'Meta+Shift+Enter', for: 10 }); await settle(s);
+      check((await s.state()).slots.inputCommands === 2, 'macos native: a held host command runs once and owns its release');
+      await s.type('native-input', { key: 'Meta++' }); await settle(s);
+      check((await s.state()).slots.inputCommands === 3, 'macos native: literal Plus reaches the same host shortcut router');
+      const typing = await s.carrier.ask({ op: 'type', id: input, key: 'c' });
+      check(/does not support key/.test(typing.error ?? '') && (await s.state()).slots.inputCommands === 3, 'macos native: bare character shortcuts stay with the editor');
+      const passive = await s.carrier.ask({ op: 'type', id: plainId, text: 'no' });
+      check(/refused focus/.test(passive.error ?? ''), 'macos native: a widget without a focus hook refuses input');
+      await s.tap('blur-plain'); await settle(s);
+      check(await focus() === input, 'macos native: targeted blur of another widget preserves ownership');
+      const blurredHold = await s.carrier.input(input, 'key', { key: 'ArrowLeft', phase: 'down', ownedRelease: true });
+      await s.tap('blur-input'); await settle(s);
+      check(await focus() !== input && (await s.state()).slots.inputEvents.endsWith('blur;'), 'macos native: targeted blur resigns the descendant');
+      const blurredRelease = await blurredHold.release().catch(error => ({ error: error.message }));
+      check(/no longer owns focus/.test(blurredRelease.error ?? '') && await focus() !== input, 'macos native: a held release after blur does not reclaim focus');
+      for (const [button, reason] of [['block-input', 'disabled'], ['hide-input', 'hidden'], ['inert-input', 'inert']]) {
+        await s.tap(button); await s.tap('focus-input'); await settle(s);
+        const refused = await s.carrier.ask({ op: 'type', id: input, text: 'forbidden' });
+        check(Boolean(refused.error) && await focus() !== input && (await s.state()).slots.inputValue === 'a', `macos native: ${reason} refuses focus and agent input`);
+        await s.tap(button); await settle(s);
+      }
+      for (const [source, reset, slot] of [['disable-on-blur', 'block-input', 'blocked'], ['inert-on-blur', 'inert-input', 'inputInert']]) {
+        await s.tap(source); await settle(s);
+        const refused = await s.carrier.ask({ op: 'type', id: input, text: 'forbidden' });
+        await settle(s);
+        const state = await s.state();
+        check(Boolean(refused.error) && state.slots[slot] === true && state.slots.inputValue === 'a', `macos native: ${slot} applied by the previous responder's blur refuses input`);
+        await s.tap(reset); await settle(s);
+      }
+      const wrapper = byTestId(await s.tree(), 'box').id;
+      await s.tap('box'); await settle(s);
+      check(await focus() === wrapper, 'macos native: clicking a passive module focuses its wrapper');
+      const beforeWrapper = (await s.state()).slots.events.split('blur;').length;
+      await s.tap('blur-wrapper'); await settle(s);
+      const afterWrapper = await s.state();
+      check(afterWrapper.focus.logical !== wrapper && afterWrapper.slots.events.split('blur;').length === beforeWrapper + 1, `macos native: targeted blur resigns the wrapper: ${JSON.stringify(afterWrapper.focus)}`);
+      await s.tap('focus-input'); await settle(s);
+      const held = await s.carrier.input(input, 'key', { key: 'ArrowLeft', phase: 'down', ownedRelease: true });
+      await s.tap('toggle'); await settle(s);
+      const retired = await held.release().catch(error => ({ error: error.message }));
+      check(Boolean(retired.error) && await focus() !== input, 'macos native: unmount retires focus and refuses a held release');
+      await s.tap('toggle'); await settle(s);
+      const dialogInput = byTestId(await s.tree(), 'dialog-input').id;
+      const dialogCommand = byTestId(await s.tree(), 'dialog-command').id;
+      const dialogClose = byTestId(await s.tree(), 'dialog-close').id;
+      const dialogOpener = byTestId(await s.tree(), 'open-native-dialog').id;
+      await s.tap('open-native-dialog'); await settle(s);
+      let dialogState = await s.state();
+      check(dialogState.dialog?.phase === 'open' && dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: a dialog initially focuses the native editor without focus/key handlers');
+      await s.type('dialog-input', 'modal draft'); await settle(s);
+      check((await s.state()).slots.dialogValue === 'modal draft', 'macos native: the dialog editor receives ordinary text');
+      await s.type('dialog-input', { key: 'Tab', for: 10 }); await settle(s);
+      check(await focus() === dialogCommand, 'macos native: Tab advances from the actual editor and releases after focus moves');
+      await s.type('dialog-command', { key: 'Shift+Tab' }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: Shift-Tab returns to the editing descendant');
+      await s.type('dialog-input', { key: 'Shift+Tab' }); await settle(s);
+      check(await focus() === dialogClose, 'macos native: Shift-Tab wraps from the editor to the final dialog button');
+      await s.type('dialog-close', { key: 'Tab' }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: Tab wraps back into the editor');
+      await s.type('dialog-input', { key: 'Meta+Shift+Enter', for: 10 }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.slots.dialogCommands === 1 && dialogState.slots.inputCommands === 3, 'macos native: the modal shortcut runs once and leaves the background command inert');
+      await s.type('dialog-input', { key: 'Escape', for: 10 }); await settle(s);
+      dialogState = await s.state();
+      check(dialogState.dialog == null && dialogState.focus.logical === dialogOpener && dialogState.slots.dialogValue === 'modal draft', 'macos native: Escape closes and releases safely, restores focus and preserves the draft');
+    }
     // A plan reload reuses the defined elements (web).
     if (host === 'web') {
       const defined = await s.carrier.evaluate('exact.nativeDefines?.count');
@@ -297,7 +408,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     writeFileSync(source, 'static const struct { unsigned major, size; const char *roster; void *f[7]; } t = { 1, 72, "{}", { 0 } };\nconst void *exact_native_abi(void) { return &t; }\n');
     const cc = spawnSync('xcrun', host === 'ios' ? ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', '-o', dylib, source] : ['clang', '-dynamiclib', '-o', dylib, source], { encoding: 'utf8' });
     check(cc.status === 0, `${host} native: the skewed artifact compiles: ${cc.stderr}`);
-    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 2/);
+    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 3/);
   }
   rmSync(tmp, { recursive: true, force: true });
   console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (the LLP 1024 D8 fixture)`);

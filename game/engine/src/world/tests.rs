@@ -122,7 +122,6 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
         .dependencies
         .insert("ready.model".into(), vec!["ready.tex".into()]);
     world.assets.retired.push("retired.model".into());
-    world.assets.refusal = Some(("refused.model".into(), "reason".into()));
     let saved = world.save();
     let names: Vec<_> = world.assets.states.keys().map(|n| n.as_ptr()).collect();
     let check = |world: &World| {
@@ -146,7 +145,6 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
             &["ready.tex"]
         );
         assert_eq!(world.assets.retired, ["retired.model"]);
-        assert_eq!(world.assets.refusal.as_ref().unwrap().1, "reason");
     };
     let mut trailing = saved.clone();
     trailing.push(0);

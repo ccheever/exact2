@@ -50,17 +50,17 @@ const SOURCE: &str = r#"component App
   state refused = false
   state fail = false
   resource rows = rows(start, count, revision, refused) as shape list<number>
-  action onStart writes starts, refused
+  action onStart
     starts = starts + 1
     refused = fail
-  action onEnd writes ends
+  action onEnd
     ends = ends + 1
-  action change(first: number, size: number) writes start, count
+  action change(first: number, size: number)
     start = first
     count = size
-  action revise writes revision
+  action revise
     revision = revision + 1
-  action armFailure writes fail
+  action armFailure
     fail = true
   view
     list virtualized=true height=320 reachstart=onStart reachend=onEnd
@@ -213,15 +213,10 @@ fn no_op_start_does_not_require_another_host_report_for_end() {
 
 #[test]
 fn same_keys_after_start_refresh_defer_end_until_another_report() {
-    let source = SOURCE
-        .replace(
-            "action onStart writes starts, refused",
-            "action onStart writes starts, refused, revision",
-        )
-        .replace(
-            "refused = fail",
-            "refused = fail\n    revision = revision + 1",
-        );
+    let source = SOURCE.replace(
+        "refused = fail",
+        "refused = fail\n    revision = revision + 1",
+    );
     let mut r = boot(&source);
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
         .unwrap();
@@ -237,10 +232,6 @@ fn same_keys_after_start_refresh_defer_end_until_another_report() {
 fn changed_interior_membership_defers_end_even_when_endpoints_are_unchanged() {
     let source = SOURCE
         .replace("resource rows = rows(", "resource rows = interior(")
-        .replace(
-            "action onStart writes starts, refused",
-            "action onStart writes starts, refused, revision",
-        )
         .replace(
             "refused = fail",
             "refused = fail\n    revision = revision + 1",
@@ -266,20 +257,12 @@ fn tiny_rows_shift_at_most_once_per_report_then_stay_disarmed() {
             .replace("state count = 200", "state count = 8")
             .replace("height=32", "height=1")
             .replace(
-                "action onStart writes starts, refused",
-                "action onStart writes starts, refused, start",
-            )
-            .replace(
                 "refused = fail",
                 if start_loads {
                     "refused = fail\n    start = start + 8"
                 } else {
                     "refused = fail"
                 },
-            )
-            .replace(
-                "action onEnd writes ends",
-                "action onEnd writes ends, start",
             )
             .replace("ends = ends + 1", "ends = ends + 1\n    start = start + 8");
         let mut r = boot(&source);
@@ -407,10 +390,6 @@ fn refused_edge_action_returns_committed_feedback_and_rolls_back_action_only() {
 fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
     let source = SOURCE
         .replace("refused = fail", "refused = false")
-        .replace(
-            "action onEnd writes ends",
-            "action onEnd writes ends, refused",
-        )
         .replace("ends = ends + 1", "ends = ends + 1\n    refused = fail")
         .replace("fail = true", "fail = not fail");
     let mut r = boot(&source);
@@ -503,8 +482,8 @@ fn an_edge_evaluates_its_arguments_when_it_dispatches() {
     let source = SOURCE
         .replace("reachend=onEnd", "reachend=endAt(mark)")
         .replace(
-            "  action revise writes revision\n",
-            "  state mark = 0\n  action endAt(n: number) writes ends\n    ends = n\n  action setMark(n: number) writes mark\n    mark = n\n  action revise writes revision\n",
+            "  action revise\n",
+            "  state mark = 0\n  action endAt(n: number)\n    ends = n\n  action setMark(n: number)\n    mark = n\n  action revise\n",
         );
     let mut r = boot(&source.replace("reachstart=onStart ", ""));
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
@@ -521,12 +500,12 @@ fn a_deferred_edge_reads_its_arguments_when_it_finally_dispatches() {
     let source = SOURCE
         .replace("reachend=onEnd", "reachend=endAt(mark)")
         .replace(
-            "  action onStart writes starts, refused\n    starts = starts + 1\n",
-            "  state mark = 0\n  action onStart writes starts, refused, mark\n    starts = starts + 1\n    mark = 5\n",
+            "  action onStart\n    starts = starts + 1\n",
+            "  state mark = 0\n  action onStart\n    starts = starts + 1\n    mark = 5\n",
         )
         .replace(
-            "  action revise writes revision\n",
-            "  action endAt(n: number) writes ends\n    ends = n\n  action revise writes revision\n",
+            "  action revise\n",
+            "  action endAt(n: number)\n    ends = n\n  action revise\n",
         );
     let mut r = boot(&source);
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
@@ -551,7 +530,7 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
   state ends = 0
   resource groups = rows(0, 2, revision, refused) as shape list<number>
   resource rows = rows(0, count, revision, refused) as shape list<number>
-  action onEnd(which: number) writes last, ends
+  action onEnd(which: number)
     last = which
     ends = ends + 1
   view
@@ -589,16 +568,8 @@ fn bidirectional_tiny_rows_do_not_rearm_on_endpoint_key_changes() {
         .replace("state count = 200", "state count = 2")
         .replace("height=32", "height=1")
         .replace(
-            "action onStart writes starts, refused",
-            "action onStart writes starts, refused, start",
-        )
-        .replace(
             "refused = fail",
             "refused = fail\n    if start > 0\n      start = 2 - start",
-        )
-        .replace(
-            "action onEnd writes ends",
-            "action onEnd writes ends, start",
         )
         .replace(
             "ends = ends + 1",
@@ -618,16 +589,8 @@ fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
         .replace("height=32", "height=1")
         .replace("state start = 0", "state start = 200")
         .replace(
-            "action onStart writes starts, refused",
-            "action onStart writes starts, refused, start",
-        )
-        .replace(
             "refused = fail",
             "refused = fail\n    if start > 0\n      start = start - 100",
-        )
-        .replace(
-            "action onEnd writes ends",
-            "action onEnd writes ends, start",
         )
         .replace(
             "ends = ends + 1",
@@ -742,7 +705,7 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     let source = SOURCE
         .replace(
             "  state fail = false\n",
-            "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow writes limit\n    limit = limit + 20\n",
+            "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
         )
         .replace("each x in rows key=x", "each x in shown key=x");
     let mut r = boot(&source);

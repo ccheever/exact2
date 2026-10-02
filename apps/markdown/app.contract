@@ -95,9 +95,9 @@ component Markdown
 
   // What the host delivers, what the field shows, and what a followed link
   // does are one action, because they are one thing.
-  action openFile(value) writes asked
+  action openFile(value)
     asked = value
-  action toggleFolder writes folder
+  action toggleFolder
     folder = not folder
   // The File System Access API's pickers, on every host that has them; the
   // handle arrives at `open-file` like every other way in (LLP 1069.010 D2).
@@ -105,7 +105,7 @@ component Markdown
     showOpenFilePicker("open-file")
   action chooseFolder
     showDirectoryPicker("open-file")
-  action chooseScheme(name: string) writes scheme
+  action chooseScheme(name: string)
     scheme = name
     setScheme(name)
 
@@ -119,55 +119,56 @@ component Markdown
   // D6); the welcome document's name is the app's.
   derive title = doc.name != "" ? doc.name : "Markdown"
 
+  provide
+    theme
   view
-    provide theme = theme
-      main testId="markdown-main" width="100%" height="100%" background-color=theme.page
-        head title=title
-        column width="100%" height="100%"
-          header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
-            row gap=8 align-items="center" width="100%"
-              button press=toggleFolder aria-label="Show the folder" testId="folder-toggle" padding=6 border-radius=6 background-color=theme.control
-                text "Files" font-size=12 font-weight=600 color=theme.ink
-              // The one node every open route ends at. A path typed here and
-              // a path delivered by Launch Services are the same event.
-              input id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
-              button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
-                text "Open…" font-size=12 font-weight=600 color=theme.ink
-              button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control
-                text "Folder…" font-size=12 font-weight=600 color=theme.ink
-              text doc.name font-size=12 font-weight=600 color=theme.softInk testId="document-name"
-              // Appearance: system, light, dark — the icons exact1's blog used
-              // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
-              // to PNG because an Exact `image` is a raster asset (LLP 1011)
-              // and the Apple host decodes through ImageIO, which has no SVG.
-              // Following the system is the absence of an override, not a
-              // third appearance, on every host.
-              SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
-              SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
-              SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
-          // A file that would not open never replaces the one being read: the
-          // reader says so and keeps the page (LLP 1033's milestone).
-          when doc.failed
-            row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
-              text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
-              text doc.message font-size=12 color=theme.warnInk testId="open-message"
-          // `min-height: 0` is what lets the panes below scroll rather than
-          // grow: a flex item's default `min-height: auto` is its content, so
-          // a row holding a 4,000-point document is 4,000 points tall and the
-          // window merely clips it. The web has the same rule and the same fix.
-          row flex=1 min-height=0 width="100%"
-            when folder and hasFolder
-              scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge testId="folder"
-                column width="100%" box-sizing="border-box" padding=8 gap=1
-                  each e in doc.siblings key=e.id
-                    FolderRow(entry=e, open=openFile)
-            // A virtualized list's container takes no block-axis padding (its
-            // rows are the extent), so the page's top and end space is the
-            // first and last rows' own. A block's id is its index.
-            list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
-              each b in doc.blocks key=`${doc.path}:${b.id}`
-                view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
-                  Blocks(block=b)
+    main testId="markdown-main" width="100%" height="100%" background-color=theme.page
+      head title=title
+      column width="100%" height="100%"
+        header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
+          row gap=8 align-items="center" width="100%"
+            button press=toggleFolder aria-label="Show the folder" testId="folder-toggle" padding=6 border-radius=6 background-color=theme.control
+              text "Files" font-size=12 font-weight=600 color=theme.ink
+            // The one node every open route ends at. A path typed here and
+            // a path delivered by Launch Services are the same event.
+            input id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
+            button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
+              text "Open…" font-size=12 font-weight=600 color=theme.ink
+            button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control
+              text "Folder…" font-size=12 font-weight=600 color=theme.ink
+            text doc.name font-size=12 font-weight=600 color=theme.softInk testId="document-name"
+            // Appearance: system, light, dark — the icons exact1's blog used
+            // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
+            // to PNG because an Exact `image` is a raster asset (LLP 1011)
+            // and the Apple host decodes through ImageIO, which has no SVG.
+            // Following the system is the absence of an override, not a
+            // third appearance, on every host.
+            SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
+        // A file that would not open never replaces the one being read: the
+        // reader says so and keeps the page (LLP 1033's milestone).
+        when doc.failed
+          row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
+            text doc.message font-size=12 color=theme.warnInk testId="open-message"
+        // `min-height: 0` is what lets the panes below scroll rather than
+        // grow: a flex item's default `min-height: auto` is its content, so
+        // a row holding a 4,000-point document is 4,000 points tall and the
+        // window merely clips it. The web has the same rule and the same fix.
+        row flex=1 min-height=0 width="100%"
+          when folder and hasFolder
+            scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge testId="folder"
+              column width="100%" box-sizing="border-box" padding=8 gap=1
+                each e in doc.siblings key=e.id
+                  FolderRow(entry=e, open=openFile)
+          // A virtualized list's container takes no block-axis padding (its
+          // rows are the extent), so the page's top and end space is the
+          // first and last rows' own. A block's id is its index.
+          list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
+            each b in doc.blocks key=`${doc.path}:${b.id}`
+              view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
+                Blocks(block=b)
 
 component FolderRow
   inject

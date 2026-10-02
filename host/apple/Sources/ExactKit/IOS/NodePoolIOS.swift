@@ -87,8 +87,12 @@ final class NodePool {
     /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
     /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
     /// bitmap: its view and replayer go with the row's node, and the next
-    /// row's canvas is a new view drawn by its own lifetime's lists.
-    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea"]
+    /// row's canvas is a new view drawn by its own lifetime's lists. A
+    /// control (a switch, a checkbox, a select, a slider, a date, a native
+    /// button, LLP 1069.011.000 D8) is one too: its node and its `UIControl`
+    /// go as an unpooled control goes, and the next row's is built fresh,
+    /// so no value, touch or callback crosses rows.
+    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea", "control"]
     /// What `state` reports (LLP 1068 §6): parks, takes, evictions, and the
     /// heavy leaves destroyed at a park and built at a take, by kind.
     private(set) var parks = 0, takes = 0, evictions = 0
@@ -178,7 +182,7 @@ final class NodePool {
     private func children(_ view: NodeView) -> [NodeView]? {
         guard view.scroll == nil, view.overlay == nil else { return nil }
         let container = view.container
-        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox }
+        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox || sub === view.glassGroupView || sub === view.glassSlot }
         if container !== view {
             guard view.subviews.allSatisfy({ own($0) || ($0 === container) }) else { return nil }
         }
@@ -449,6 +453,9 @@ extension NodeView {
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
+        // `glassGroupAuto` with it: a row recycled onto a numeric group must
+        // not report the old one's `auto` (LLP 1053.000.000.000).
+        if glassGroupView != nil { props["glassGroup"] = nil; props["glassGroupAuto"] = nil; syncGlassGroup() }
     }
     /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
     /// list's scroll, with its delegate detached while it resets.

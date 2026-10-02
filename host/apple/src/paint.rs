@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn destroying_an_inline_run_releases_its_inherited_paint() {
         let plan = contract::compile(
-            "component App\n  state on = false\n  state shown = true\n  action go writes on\n    on = true\n  action hide writes shown\n    shown = false\n  view\n    column color=(on ? \"#ffffff\" : \"#000000\") transition=\"color 1s linear\"\n      button \"Go\" testId=\"go\" press=go\n      button \"Hide\" testId=\"hide\" press=hide\n      text\n        when shown\n          text \"Run\" testId=\"run\"\n",
+            "component App\n  state on = false\n  state shown = true\n  action go\n    on = true\n  action hide\n    shown = false\n  view\n    column color=(on ? \"#ffffff\" : \"#000000\") transition=\"color 1s linear\"\n      button \"Go\" testId=\"go\" press=go\n      button \"Hide\" testId=\"hide\" press=hide\n      text\n        when shown\n          text \"Run\" testId=\"run\"\n",
         ).unwrap();
         let (mut host, _) = Host::boot(
             &plan.encode(),

@@ -448,13 +448,25 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
                     )
+                    // A native button is named as a button under any role (LLP 1069.011.000 D1).
+                    || exact_kernel::ControlKind::of(node.node_type, node.props)
+                        == Some(exact_kernel::ControlKind::Button)
                 {
-                    row["accessibleName"] = node
-                        .props
-                        .str(PropId::AccessibilityLabel)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| text(p, id))
-                        .into();
+                    let native = exact_kernel::ControlKind::of(node.node_type, node.props)
+                        == Some(exact_kernel::ControlKind::Button);
+                    // A native button's name is its label, else its face's
+                    // title as painted (LLP 1069.011.000 D1).
+                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
+                        Some(label) => label.to_owned(),
+                        None if native => p
+                            .host()
+                            .kernel()
+                            .press_face(id)
+                            .and_then(|f| f.title)
+                            .unwrap_or_default(),
+                        None => text(p, id),
+                    }
+                    .into();
                 }
             }
         }
@@ -732,7 +744,7 @@ mod tests {
     #[test]
     fn a_jump_lands_every_reply_and_fires_every_timer_due() {
         let plan = contract::compile(
-            "component App\n  state count = 0\n  mutation result as shape number\n  action ping writes result\n    send result = save()\n  action tock writes count\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
+            "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
         )
         .unwrap();
         let (mut p, boot_error) = Presenter::boot_with(
@@ -956,7 +968,7 @@ mod tests {
     #[test]
     fn a_held_device_request_is_answered_by_ticket_and_never_waited_on() {
         let plan = contract::compile(
-            "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock writes count\n    count = count + 1\n  action hide writes show\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
+            "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
         )
         .unwrap();
         let (mut p, boot_error) = Presenter::boot_with(
@@ -1119,7 +1131,7 @@ mod tests {
     #[test]
     fn a_picker_is_held_and_answered_by_ticket() {
         let plan = contract::compile(
-            "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>) writes picked\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled writes cancels\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
+            "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
         )
         .unwrap();
         let (mut p, _) = Presenter::boot_with(
@@ -1275,7 +1287,7 @@ mod tests {
 
     #[test]
     fn a_hover_never_presses_and_a_key_is_never_text() {
-        let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value) writes hot\n    hot = value\n  action pressed writes presses\n    presses = presses + 1\n  action edit(value) writes text\n    text = value\n  action keyed(value) writes lastKey\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
+        let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
         let (mut p, boot_error) = Presenter::boot_with(
             &plan.encode(),
             NoData,

@@ -14,15 +14,15 @@ const SOURCE: &str = r#"component App
   state extent = 180
   state display = "block"
   state shown = true
-  action tall writes extent
+  action tall
     extent = 640
-  action short writes extent
+  action short
     extent = 240
-  action hide writes display
+  action hide
     display = "none"
-  action show writes display
+  action show
     display = "block"
-  action remove writes shown
+  action remove
     shown = false
   view
     column

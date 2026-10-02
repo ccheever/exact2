@@ -15,10 +15,10 @@ import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
-import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
+import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
 
 const PUBLIC_FILES = new Set([
-  ...INSTALL_FILES,
+  ...INSTALL_PUBLIC,
   ...Object.keys(webHostFiles()).map(name => '/' + name),
   '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
@@ -421,7 +421,7 @@ function* publishedFile(dist, pathname) {
     const body = (yield { op: 'get', root: resolve(dist), path: rel });
     return body === null ? null : { path: resolve(dist, rel), route: '/' + name, body: Buffer.from(body, 'base64'), immutable: true, published: true };
   }
-  if (route.startsWith('/.exact/') && !INSTALL_FILES.includes(route)) return undefined; // native heads/blobs and the web pointer
+  if (route.startsWith('/.exact/') && !INSTALL_PUBLIC.includes(route)) return undefined; // native heads/blobs and the web pointer
   const raw = (yield { op: 'get', root: resolve(dist), path: webRootPath });
   if (raw === null) return undefined; // a local build, not a deployed root
   const root = parseWebRoot(Buffer.from(raw, 'base64'));
@@ -583,9 +583,10 @@ export function jsTargetBuild(dist) {
  * location. The previous build answers during a rebuild's rename. */
 export function buildTreeFile(dist, pathname) {
   let path;
-  try { path = decodeURIComponent(pathname); } catch { return null; }
-  // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`).
-  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.'))) return null;
+  try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
+  // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
+  // and the install pages and their data (LLP 1030.003 D6a).
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
   for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
@@ -662,7 +663,7 @@ export function webContentType(route) {
 export function webCacheControl(found) {
   if (found.immutable || /^\/\.exact\/blobs\/[0-9a-f]{64}$/.test(found.route)
     || /^\/\.exact\/[^/.]+\/[^/.]+\/releases\/[^/.]+\.json$/.test(found.route)) return 'public, max-age=31536000, immutable';
-  return found.route.startsWith(UPDATE_TREE) && !INSTALL_FILES.includes(found.route) ? 'no-store' : 'no-cache';
+  return found.route.startsWith(UPDATE_TREE) && !INSTALL_PUBLIC.includes(found.route) ? 'no-store' : 'no-cache';
 }
 
 // Compressed representations for the production server (`serve.mjs` itself;

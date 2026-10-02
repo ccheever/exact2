@@ -14,13 +14,13 @@ shape Card
 component IntoView
   resource cards = cards(2000) as shape list<Card>
   state shown = ""
-  action far writes shown
+  action far
     shown = "far"
     scrollIntoView("long", "c1500", block="center")
-  action near writes shown
+  action near
     shown = "near"
     scrollIntoView("long", "c40", block="end")
-  action missing writes shown
+  action missing
     shown = "missing"
     scrollIntoView("long", "c99999")
   view

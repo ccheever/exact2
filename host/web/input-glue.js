@@ -1,4 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
@@ -24,14 +25,19 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;
+    const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const matches = (chord) => {
       const parts = chord.split("+");
-      const key = parts.pop();
+      let key;
+      if (chord === "+") { key = "Plus"; parts.length = 0; }
+      else if (parts.length >= 3 && parts.slice(-2).every(p => p === "")) { key = "Plus"; parts.splice(-2); }
+      else key = parts.pop();
+      if (key === "Plus") key = "+";
+      if (key === "Space") key = " ";
       const modifiers = new Set(parts);
-      if (key === "Escape" && !parts.length) return event.key === "Escape"
-        && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
-      return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
-        && (modifiers.has("Meta") || modifiers.has("Control"))
+      if (editing && key !== "Escape" && !modifiers.has("Meta") && !modifiers.has("Control")) return false;
+      return (key?.length === 1 || shortcutKeys.has(key) || /^F([1-9]|[12][0-9]|3[0-5])$/.test(key))
+        && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
         && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
         && event.key.toLowerCase() === key.toLowerCase();

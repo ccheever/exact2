@@ -152,7 +152,6 @@ pub fn module_tags(file: &File) -> Vec<(String, Span)> {
                     walk(children, out);
                 }
                 Node::Use { children, .. } => walk(children, out),
-                Node::Provide { body, .. } => walk(body, out),
                 Node::When {
                     then, otherwise, ..
                 } => {

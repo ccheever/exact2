@@ -10,8 +10,18 @@ impl DataSource for NoData {
     }
 }
 
+/// The handle with `event` bound to `handler`, and its partner (a transform
+/// drag needs both, LLP 1057.003 C6) bound to a well-formed `partner`.
 fn source(event: &str, params: &str, handler: &str, idref: &str) -> String {
-    format!("component App\n  state value = 0\n  action receive({params}) writes value\n    value = 1\n  view\n    column overflow=\"hidden\"\n      column id=\"photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n        column testId=\"handle\" transformDragFor={idref} {event}={handler}\n")
+    let (other, other_params) = partner(event);
+    format!("component App\n  state value = 0\n  action receive({params})\n    value = 1\n  action partner({other_params})\n    value = 2\n  view\n    column overflow=\"hidden\"\n      column id=\"photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n        column testId=\"handle\" transformDragFor={idref} {event}={handler} {other}=partner\n")
+}
+fn partner(event: &str) -> (&'static str, &'static str) {
+    if event == "transformgeometry" {
+        ("transformrelease", RELEASE)
+    } else {
+        ("transformgeometry", GEOMETRY)
+    }
 }
 
 const GEOMETRY: &str = "bw: number, bh: number, pw: number, ph: number";
@@ -41,14 +51,16 @@ fn transform_handlers_compile_bake_roundtrip_and_export_old_and_new_ordinals() {
         assert_eq!(handle.props.str(prop), Some("photo"));
         let event_kind = EventKind::from_name(event).unwrap();
         assert_eq!(event_kind as u8, ordinal);
-        assert_eq!(runner.handlers_of(handle.id), vec![event_kind]);
+        assert!(runner.handlers_of(handle.id).contains(&event_kind));
         let tree: serde_json::Value = serde_json::from_str(&agent::tree(&runner)).unwrap();
         assert!(tree["nodes"]
             .as_array()
             .unwrap()
             .iter()
             .any(|n| n["props"]["transformDragFor"] == "photo"
-                && n["handlers"] == serde_json::json!([event])));
+                && n["handlers"]
+                    .as_array()
+                    .is_some_and(|h| h.contains(&serde_json::json!(event)))));
     }
     assert_eq!(EventKind::Heightrelease as u8, 14);
     assert_eq!(EventKind::Navigate as u8, 13);
@@ -94,6 +106,21 @@ fn exact_numeric_arity_and_string_idref_are_required() {
 }
 
 #[test]
+fn one_transform_handler_without_the_other_is_refused() {
+    for (event, params, missing) in [
+        ("transformgeometry", GEOMETRY, "transformrelease"),
+        ("transformrelease", RELEASE, "transformgeometry"),
+    ] {
+        let src = format!("component App\n  state value = 0\n  action receive({params})\n    value = 1\n  view\n    column\n      column id=\"photo\"\n        column transformDragFor=\"photo\" {event}=receive\n");
+        let e = contract::compile(&src).unwrap_err().to_string();
+        assert!(
+            e.contains("lower-transform-drag-handlers") && e.contains(&format!("add `{missing}=`")),
+            "{e}"
+        );
+    }
+}
+
+#[test]
 fn numeric_types_are_rechecked_after_child_action_inlining() {
     for (event, params) in [
         ("transformgeometry", GEOMETRY),
@@ -105,7 +132,8 @@ fn numeric_types_are_rechecked_after_child_action_inlining() {
             } else {
                 params.into()
             };
-            let src = format!("component App\n  state n = 0\n  action receive({params}) writes n\n    n = 1\n  view\n    column\n      Handle(callback=receive)\ncomponent Handle\n  props\n    callback: action\n  view\n    column transformDragFor=\"photo\" {event}=callback\n");
+            let (other, other_params) = partner(event);
+            let src = format!("component App\n  state n = 0\n  action receive({params})\n    n = 1\n  action partner({other_params})\n    n = 2\n  view\n    column\n      Handle(callback=receive, other=partner)\ncomponent Handle\n  props\n    callback: action\n    other: action\n  view\n    column transformDragFor=\"photo\" {event}=callback {other}=other\n");
             let result = contract::compile(&src);
             if invalid {
                 assert!(result.unwrap_err().to_string().contains("handler-type"));
@@ -118,7 +146,7 @@ fn numeric_types_are_rechecked_after_child_action_inlining() {
 
 #[test]
 fn pixel_translate_literals_and_dynamic_template_reach_kernel_rows() {
-    let src = "component App\n  state x = 0\n  state y = 0\n  action move(a: number, b: number) writes x, y\n    x = a\n    y = b\n  view\n    column\n      column testId=\"literal\" translate=\"-12.5px 3px\"\n      column testId=\"dynamic\" translate=`${x}px ${y}px`\n";
+    let src = "component App\n  state x = 0\n  state y = 0\n  action move(a: number, b: number)\n    x = a\n    y = b\n  view\n    column\n      column testId=\"literal\" translate=\"-12.5px 3px\"\n      column testId=\"dynamic\" translate=`${x}px ${y}px`\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,

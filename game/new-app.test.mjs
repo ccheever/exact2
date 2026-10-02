@@ -14,6 +14,31 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    assert.ok(existsSync(resolve(dir, 'app.test.contract')));
+    // Execute the generated dispatcher against fake SDK entry points: cwd may
+    // be anywhere, but the source and test file must still name this app.
+    const sdk = resolve(parent, 'sdk');
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs']) {
+      mkdirSync(resolve(sdk, file, '..'), { recursive: true });
+      writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
+    }
+    const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
+    for (const [command, args] of [
+      [['web-build'], ['field-log']],
+      [['test'], testArgs('web')],
+      [['test', 'web'], testArgs('web')],
+      [['test', 'ios'], testArgs('ios')],
+      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600']],
+      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces']],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state']],
+    ]) {
+      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
+    }
+    writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
+    const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
+    assert.equal(refused.status, 7, 'a failed app test fails the generated command');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
@@ -26,6 +51,12 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(createApp(dir, { update: true }), /exact2 paths in web\/Cargo\.toml/);
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));
+    const appTest = resolve(dir, 'app.test.contract');
+    assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');
+    rmSync(appTest);
+    createApp(dir, { update: true });
+    assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n  clock settle/);
+    assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });

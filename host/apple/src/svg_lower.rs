@@ -323,6 +323,9 @@ pub(crate) fn eligibility(
         let sampled = if paired
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
+            // A glass group ignores the opacity Core Animation plays between
+            // it and its glass; the host isolates on what it is told.
+            || (props.contains(&Property::Opacity) && in_glass_group(kernel, &n))
             // Drawn into an island's pixels, which Core Animation does not
             // animate (except a live filter picture on iOS).
             || (svg && in_picture(kernel, &n, box_motion))
@@ -407,6 +410,55 @@ fn circle_moves(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
         && s.filter.is_none()
         && !served(&s.fill)
         && !served(&s.stroke)
+}
+
+/// Whether an element is inside a glass group (LLP 1053.000.000 D4): an
+/// ancestor, not itself, has `glassGroup`. The group's own opacity reaches
+/// its glass; a descendant's must come to the host as a value.
+fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    let mut up = n.parent;
+    while let Some(a) = up.and_then(|id| kernel.node(id)) {
+        if a.props.get(exact_kernel::PropId::GlassGroup).is_some() {
+            return true;
+        }
+        up = a.parent;
+    }
+    false
+}
+
+/// LLP 1053.000.000 D4: every running opacity animation inside a glass
+/// group is sampled, not only the ones a commit touched, so a group set on
+/// an ancestor after the animation started reaches it too. Returns the views
+/// whose Core Animation specs must be withdrawn. A node that leaves every
+/// group stays sampled: its pixels are right, at a little more work.
+pub(crate) fn glass_sampling(kernel: &Kernel, engine: &mut Engine) -> Vec<exact_kernel::ViewId> {
+    let lowered: Vec<u64> = engine
+        .animated_nodes()
+        .filter(|&node| {
+            !engine.node_sampled(node)
+                && engine.animation_plays(node).iter().any(|play| {
+                    play.animation
+                        .keyframes
+                        .properties()
+                        .into_iter()
+                        .any(|p| p == Property::Opacity)
+                })
+        })
+        .collect();
+    let mut switched = Vec::new();
+    for node in lowered {
+        let key = NodeKey {
+            index: node as u32,
+            generation: (node >> 32) as u32,
+        };
+        if let Some(n) = kernel.node_by_key(key) {
+            if in_glass_group(kernel, &n) {
+                engine.set_node_sampled(node, true);
+                switched.push(n.id);
+            }
+        }
+    }
+    switched
 }
 
 /// Whether a node is drawn into a filtered box's picture (CSS `filter` on

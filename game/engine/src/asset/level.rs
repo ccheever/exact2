@@ -91,10 +91,7 @@ pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
     if G::ASSETS.is_empty() && G::LEVEL.is_none() {
         return Ok(());
     }
-    for (index, name) in names::<G>().enumerate() {
-        if index == 256 {
-            return Err(format!("asset `{name}`: surface limit is 256 names"));
-        }
+    for name in names::<G>() {
         if !super::asset_name(name)
             || !(if G::LEVEL.is_some_and(|level| level.name == name) {
                 name.ends_with(".level.json")

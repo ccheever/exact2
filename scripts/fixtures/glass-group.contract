@@ -1,0 +1,74 @@
+// LLP 1053.000.000 §2 as a page: glass groups on Apple over saturated
+// stripes — two glass merging (row 1), apart past the spacing (3), a group
+// inside a group (5), paint order (7), a glass isolated by a fading box
+// (8) and by a clipping one (10), and a scroll on either side of a group
+// (11), and a group whose spacing is its gap (`glassGroup="auto"`, LLP
+// 1053.000.000.000: apart at rest, as Apple's spacing-equals-gap pattern
+// is). The web and Linux draw each glass alone, as without a group (D1);
+// Apple's pictures are compared by eye with §2.
+component GlassGroups
+  view
+    main testId="glass-groups" position="relative" width=390 height=740 background-color="#ffffff"
+      row position="absolute" left=0 top=0 width=390 height=740
+        box width=15 background-color="#ff3b30"
+        box width=15 background-color="#ff9500"
+        box width=15 background-color="#ffcc00"
+        box width=15 background-color="#34c759"
+        box width=15 background-color="#00c7be"
+        box width=15 background-color="#007aff"
+        box width=15 background-color="#af52de"
+        box width=15 background-color="#ff2d55"
+        box width=15 background-color="#ff3b30"
+        box width=15 background-color="#ff9500"
+        box width=15 background-color="#ffcc00"
+        box width=15 background-color="#34c759"
+        box width=15 background-color="#00c7be"
+        box width=15 background-color="#007aff"
+        box width=15 background-color="#af52de"
+        box width=15 background-color="#ff2d55"
+        box width=15 background-color="#ff3b30"
+        box width=15 background-color="#ff9500"
+        box width=15 background-color="#ffcc00"
+        box width=15 background-color="#34c759"
+        box width=15 background-color="#00c7be"
+        box width=15 background-color="#007aff"
+        box width=15 background-color="#af52de"
+        box width=15 background-color="#ff2d55"
+        box width=15 background-color="#ff3b30"
+        box width=15 background-color="#ff9500"
+      row testId="merge" position="absolute" left=40 top=20 glassGroup=24 gap=8
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+      row testId="apart" position="absolute" left=24 top=100 glassGroup=24 gap=40
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+      row testId="nested" position="absolute" left=16 top=180 glassGroup=24 gap=8
+        box width=110 height=56 border-radius=28 backgroundMaterial="glass"
+        row glassGroup=24 gap=8
+          box width=110 height=56 border-radius=28 backgroundMaterial="glass"
+          box width=110 height=56 border-radius=28 backgroundMaterial="glass"
+      box testId="order" position="absolute" left=40 top=260 width=300 height=56 glassGroup=24
+        box position="absolute" left=0 top=8 width=170 height=40 border-radius=8 background-color="#ffffff"
+        box position="absolute" left=120 top=0 width=170 height=56 border-radius=28 backgroundMaterial="glass"
+      row testId="fade" position="absolute" left=40 top=340 glassGroup=24 gap=8
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box opacity=0.4
+          box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+      row testId="clip" position="absolute" left=40 top=420 glassGroup=24 gap=8
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box width=70 height=56 overflow="hidden"
+          box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+      scroll testId="scroll-in-group-host" position="absolute" left=40 top=500 width=300 height=56 flex-direction="row" overflow-x="scroll" scrollLeft=80 scrollbar-width="none"
+        row testId="group-in-scroll" flex-shrink=0 glassGroup=24 gap=8
+          box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+          box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+          box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+      row testId="scroll-in-group" position="absolute" left=40 top=580 width=300 glassGroup=24
+        scroll width=300 height=56 flex-direction="row" overflow-x="scroll" scrollLeft=80 scrollbar-width="none"
+          row flex-shrink=0 gap=8
+            box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+            box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+            box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+      row testId="auto" position="absolute" left=40 top=660 glassGroup="auto" gap=8
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"

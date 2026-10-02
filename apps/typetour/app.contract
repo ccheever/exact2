@@ -38,41 +38,41 @@ component TypeTour
   state clock = "09:41"
   state alarm = "2026-09-15T07:00"
 
-  action go(target: string) writes screen, thread
+  action go(target: string)
     screen = target
     thread = ""
-  action unlock writes screen
+  action unlock
     screen = "home"
-  action lock writes screen, thread
+  action lock
     screen = "lock"
     thread = ""
-  action openThread(id: string) writes screen, thread
+  action openThread(id: string)
     screen = "messages"
     thread = id
-  action closeThread writes thread, draft
+  action closeThread
     thread = ""
     draft = ""
-  action write(value) writes draft
+  action write(value)
     draft = value
-  action sendDraft writes draft
+  action sendDraft
     draft = ""
-  action setScale(value: number) writes scale
+  action setScale(value: number)
     scale = value
-  action setAirplane(on: bool) writes airplane
+  action setAirplane(on: bool)
     airplane = on
-  action toggleWifi writes wifi
+  action toggleWifi
     wifi = not wifi
-  action setBluetooth(on: bool) writes bluetooth
+  action setBluetooth(on: bool)
     bluetooth = on
   // The platform's date and time pickers (LLP 1069.001 slice 4).
-  action setToday(value: string) writes today
+  action setToday(value: string)
     today = value
-  action setClock(value: string) writes clock
+  action setClock(value: string)
     clock = value
-  action setAlarm(value: string) writes alarm
+  action setAlarm(value: string)
     alarm = value
   // The platform's pop-up menu chooses the scheme (LLP 1069.001 slice 2).
-  action setAppearance(value: string) writes appearance
+  action setAppearance(value: string)
     appearance = value
     setScheme(value)
 

@@ -144,7 +144,7 @@ fn intersection(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> O
 /// without width or alpha.
 pub fn border_fills(
     rect: Rect4,
-    radii: [f32; 4],
+    radii: [(f32, f32); 4],
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
 ) -> Vec<BorderFill> {
@@ -153,7 +153,7 @@ pub fn border_fills(
     if w <= 0.0 || h <= 0.0 || wd.iter().all(|v| *v <= 0.0) {
         return Vec::new();
     }
-    let outer = reduced(radii.map(|r| (r.max(0.0), r.max(0.0))), w, h);
+    let outer = reduced(radii, w, h);
     let inner: Rect4 = (
         x + wd[3],
         y + wd[0],
@@ -277,10 +277,15 @@ mod tests {
 
     #[test]
     fn one_colour_is_one_ring_and_four_are_four_parts() {
-        let one = border_fills((0., 0., 100., 70.), [20.; 4], [2., 10., 2., 10.], [R; 4]);
+        let one = border_fills(
+            (0., 0., 100., 70.),
+            [(20., 20.); 4],
+            [2., 10., 2., 10.],
+            [R; 4],
+        );
         assert_eq!(one.len(), 1);
         assert!(one[0].clip.is_none());
-        let four = border_fills((0., 0., 100., 70.), [20.; 4], [10.; 4], [R, G, R, G]);
+        let four = border_fills((0., 0., 100., 70.), [(20., 20.); 4], [10.; 4], [R, G, R, G]);
         assert_eq!(four.len(), 2, "sides that share a colour are one fill");
         assert!(four.iter().all(|f| f.clip.is_some()));
     }
@@ -289,7 +294,7 @@ mod tests {
     fn square_corners_are_exact_trapezoids_joined_on_the_diagonal() {
         let fills = border_fills(
             (0., 0., 100., 70.),
-            [0.; 4],
+            [(0., 0.); 4],
             [4., 12., 20., 8.],
             [R, G, R, G],
         );
@@ -305,14 +310,19 @@ mod tests {
         assert_eq!(
             border_fills(
                 (0., 0., 100., 70.),
-                [12.; 4],
+                [(12., 12.); 4],
                 [10., 10., 10., 10.],
                 [R, clear, G, clear]
             )
             .len(),
             2
         );
-        let bar = border_fills((0., 0., 100., 70.), [12.; 4], [0., 0., 0., 6.], [R; 4]);
+        let bar = border_fills(
+            (0., 0., 100., 70.),
+            [(12., 12.); 4],
+            [0., 0., 0., 6.],
+            [R; 4],
+        );
         assert_eq!(bar.len(), 1, "a left bar alone is its own ring");
     }
 

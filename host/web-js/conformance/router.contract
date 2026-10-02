@@ -13,17 +13,17 @@ routes nav
 
 component Router
   derive current = top(nav)
-  action open(url: string) writes nav
+  action open(url: string)
     nav = open(nav, url)
-  action push(url: string) writes nav
+  action push(url: string)
     nav = push(nav, url)
-  action replace(url: string) writes nav
+  action replace(url: string)
     nav = replace(nav, url)
-  action back writes nav
+  action back
     nav = back(nav)
-  action selectTab(name: string) writes nav
+  action selectTab(name: string)
     nav = select(nav, name)
-  action go(url: string) writes nav
+  action go(url: string)
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=go testId="navigation" width="100%" height="100%"

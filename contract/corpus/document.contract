@@ -15,7 +15,7 @@ shape Post
 
 component Site
   resource post = loadPost(params(nav, "post")) as shape Post
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation"

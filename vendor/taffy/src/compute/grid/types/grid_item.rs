@@ -568,10 +568,11 @@ impl GridItem {
         available_space: Size<AvailableSpace>,
         tree: &impl LayoutPartialTree,
     ) -> Size<AvailableSpace> {
+        let margins = self.margins_axis_sums_with_baseline_shims(grid_area_size.width, tree);
+        let available_space = available_space.maybe_sub(margins);
         if !self.size.width.is_sizing_keyword() && !self.size.height.is_sizing_keyword() {
             return available_space;
         }
-        let margins = self.margins_axis_sums_with_baseline_shims(grid_area_size.width, tree);
         let mut adjusted = available_space;
         for axis in [AbstractAxis::Inline, AbstractAxis::Block] {
             let size_style = self.size.get(axis);

@@ -5,15 +5,27 @@ use super::*;
 impl<D: DataSource> Host<D> {
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
-    /// never a view.
+    /// never a view. A native button's title and image, or a run in its
+    /// title, likewise: its face, read through `exact_press_face`
+    /// (LLP 1069.011 D5).
     fn option_part(&self, id: ViewId) -> bool {
         let kernel = self.runner.kernel();
         let mut at = kernel.node(id);
-        while let Some(node) = at.filter(|n| n.node_type == NodeType::Text) {
-            if exact_kernel::control::is_option(&node) {
+        while let Some(node) = at {
+            if node.node_type == NodeType::Text && exact_kernel::control::is_option(&node) {
                 return true;
             }
-            at = node.parent.and_then(|p| kernel.node(p));
+            let parent = node.parent.and_then(|p| kernel.node(p));
+            if parent.as_ref().is_some_and(|p| {
+                exact_kernel::ControlKind::of(p.node_type, p.props)
+                    == Some(exact_kernel::ControlKind::Button)
+            }) {
+                return true;
+            }
+            if node.node_type != NodeType::Text {
+                return false;
+            }
+            at = parent;
         }
         false
     }

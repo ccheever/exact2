@@ -1136,7 +1136,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         event(&mut runner, "retry-open", Event::Press);
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["openInterrupted"], false);
-        assert_eq!(state(&runner)["derives"]["body"], "Original body");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Original body");
         event(&mut runner, "note-body", Event::Input("Draft".into()));
         for target in ["note-2", "new-note"] {
             let key = runner.kernel().find_by_test_id(target)[0];
@@ -1146,12 +1146,12 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
             assert_eq!(node["props"]["disabled"], true);
         }
         assert_eq!(state(&runner)["derives"]["editingId"], "1");
-        assert_eq!(state(&runner)["derives"]["body"], "Draft");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Draft");
         event(&mut runner, "search", Event::Input("second".into()));
         settle_runner(&mut runner);
-        assert_eq!(state(&runner)["derives"]["body"], "Draft");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Draft");
         event(&mut runner, "discard", Event::Press);
-        assert_eq!(state(&runner)["derives"]["body"], "Original body");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Original body");
         event(
             &mut runner,
             "note-body",
@@ -1164,10 +1164,16 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
             Event::Input("Typed during save".into()),
         );
         settle_runner(&mut runner);
-        assert_eq!(state(&runner)["derives"]["body"], "Typed during save");
+        assert_eq!(
+            state(&runner)["derives"]["fields"]["body"],
+            "Typed during save"
+        );
         assert_eq!(state(&runner)["derives"]["dirty"], true);
         event(&mut runner, "discard", Event::Press);
-        assert_eq!(state(&runner)["derives"]["body"], "Saved snapshot");
+        assert_eq!(
+            state(&runner)["derives"]["fields"]["body"],
+            "Saved snapshot"
+        );
         event(
             &mut runner,
             "note-title",
@@ -1177,8 +1183,11 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["dirty"], true);
         event(&mut runner, "discard", Event::Press);
-        assert_eq!(state(&runner)["derives"]["title"], "First");
-        assert_eq!(state(&runner)["derives"]["body"], "Saved snapshot");
+        assert_eq!(state(&runner)["derives"]["fields"]["title"], "First");
+        assert_eq!(
+            state(&runner)["derives"]["fields"]["body"],
+            "Saved snapshot"
+        );
         // A carried selected note retains its loaded snapshot and its draft.
         event(
             &mut runner,
@@ -1199,7 +1208,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         runner.data().activate().unwrap();
         runner.data_ready().unwrap();
         settle_runner(&mut runner);
-        assert_eq!(state(&runner)["derives"]["body"], "Carried draft");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Carried draft");
         event(&mut runner, "discard", Event::Press);
         event(&mut runner, "new-note", Event::Press);
         settle_runner(&mut runner);
@@ -1221,7 +1230,10 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         settle_runner(&mut runner);
         assert_eq!(state(&runner)["derives"]["editingId"], new_id);
         event(&mut runner, "discard", Event::Press);
-        assert_eq!(state(&runner)["derives"]["body"], "New saved note");
+        assert_eq!(
+            state(&runner)["derives"]["fields"]["body"],
+            "New saved note"
+        );
         assert_eq!(state(&runner)["derives"]["dirty"], false);
         // A previous note's settled result must not masquerade as this load.
         event(&mut runner, "close-search", Event::Press);
@@ -1245,7 +1257,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         assert_eq!(state(&runner)["derives"]["openInterrupted"], true);
         event(&mut runner, "retry-open", Event::Press);
         settle_runner(&mut runner);
-        assert_eq!(state(&runner)["derives"]["body"], "Other body");
+        assert_eq!(state(&runner)["derives"]["fields"]["body"], "Other body");
         assert_eq!(state(&runner)["derives"]["openInterrupted"], false);
     }
 }

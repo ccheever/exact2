@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Accepted. Charlie Cheever approved implementing it on 2026-09-26, which ratifies §6 Q1 (one app-scoped module artifact with an inner tag → factory table). D8 landed 2026-09-27; §9 is what was built.
-**Amended:** 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
+**Amended:** 2026-10-01: intrinsic content-size reporting (D4, §9), implemented by GPT-6 Astra at Charlie Cheever’s request; Apple ABI major 3. Earlier, 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
 **Systems:** Kernel (`NativeView` already in the schema — no new node type), Contract (hyphenated tags; leftover attrs as one literal JSON aggregate), Apple host (one NativeView arm; one app module artifact behind `dlopen`), Web host (the real custom-element tag; one injected sibling module), Linux host (unavailable in v1), Agent API (the eight operations; no ninth), GPU / iframe (stay first-party HTML tags)
 **Author:** Grok 4.6 for Charlie Cheever. r2 folded by Claude Fable from the three-model panel of 2026-08-31 (§8); the fold is an edit for Charlie to accept, not an approval.
 **Date:** 2026-08-31 (r1 and r2)
@@ -63,8 +63,8 @@ same kind of artifact — and today it is not: a new *kind* still punches
 `tags.rs` and a `kind ==` arm in both presenters.
 
 **The kernel already has the box.** `NativeView` (schema id 9) carries
-`nativeViewModuleName` and `nativeViewProps`. It is a leaf, never measured,
-sized by its style rows. Nothing in `exact-kernel` needs to know Ghostty
+`nativeViewModuleName` and `nativeViewProps`. It is a leaf, sized by CSS with an optional host-reported preferred
+content size (D4); the module never owns its outer frame. Nothing in `exact-kernel` needs to know Ghostty
 exists. LLP 0149 said this in the predecessor (`Terminal` → NativeView).
 exact2 then special-cased `Canvas` and `WebView` because those names *are*
 the web. The leftover type was never given a Contract tag or a presenter
@@ -141,7 +141,7 @@ view. HTML’s grammar is the admission test, not an Exact invention.
 
 A tag that passes lowers to:
 
-- node type `NativeView` (a leaf, never measured; `can_hold_children` is
+- node type `NativeView` (a measured leaf with zero preferred content until a report; `can_hold_children` is
   false — `kernel/src/node.rs:10-20` — so children are refused by the
   existing `lower-leaf-children`)
 - `nativeViewModuleName` = the tag name
@@ -159,8 +159,8 @@ A tag that passes lowers to:
   (`contract/lower/src/lib.rs:800-812`), so an authored `display` still
   overrides.
 - no 300×150 default (that is the replaced-element default `canvas` and
-  `iframe` take from HTML; a NativeView is not measured, so an author who
-  wants a box sets `width` / `height`)
+  `iframe` take from HTML; without a preferred size a NativeView has
+  empty content, and an author may set `width` / `height`)
 - known attributes still bind first: style rows, the existing handler set,
   `testId`, ARIA — the whole `tags::attr()` table. **`renamed()` spellings
   are still refused** with their CSS names (`tags.rs:296-351`): `fontSize`
@@ -313,8 +313,38 @@ the nonce before module teardown. No unwind crosses the C boundary; input
 buffers are borrowed for the call, callback bytes are borrowed for the
 callback and copied immediately.
 
+**Preferred content size (2026-10-01).** An Apple module calls
+`events.intrinsicSize(CGSize(width: 120, height: 40))` after creation and
+whenever its content changes; `events.intrinsicSize(nil)` clears it. Both
+axes are finite positive points. Zero, unknown axes, nonfinite and negative
+sizes are refused; a clear means no preference, not a zero-sized widget.
+This uses `event_fn` kind **9**, a host-only notification with UTF-8
+`width,height` (empty to clear), never a kernel/Contract event. Apple ABI
+**major 3** admits it; table layout is unchanged, and a different major is
+refused at load. The web module ABI remains 1.
+
+The host coalesces reports from a turn, suppresses equal sizes, checks the
+instance incarnation again after any in-flight collection fill, and enters
+the existing intrinsic-size seam used by built-in controls. `NativeView` is
+measured without a natural aspect ratio. CSS width, height, min/max,
+flex/grid and box sizing determine the final box; padding and border are
+outside the reported content size. Without a report the original empty
+content behavior remains, including block width stretching. A removed or
+parked instance's queued report cannot resize its replacement. A reused
+instance must report its preference again with its new props.
+
+This API is a preferred-size **pair**, not a width-constrained measurement
+callback. A wrapping widget may observe its assigned content width and
+report a newly calculated height when that width changes, but this is an
+asynchronous second layout, not text's synchronous measure-for-offer path.
+It must not report the assigned/stretched frame as its natural size or
+report on every layout unconditionally. Independent unknown axes and a
+synchronous constrained callback remain unimplemented; James's actual
+widget was not available to establish that need.
+
 **Bounds are observed, not pushed.** The host sizes `NodeView`; the
-platform view fills it (`autoresizingMask`, and the frame op already
+platform view fills its CSS content box (padding and border excluded;
+`autoresizingMask`, and the frame op already
 writes the child on every layout — `Presenter.swift:290-295, 852-859`,
 iframe’s contract, which has no `set_frame`); the module observes its
 view’s bounds and backing scale (`backingScaleFactor` /
@@ -468,7 +498,6 @@ Caltrain and Weird Castle’s v1 bar do not depend on it.
 | **Linux loading** | The host links no system library (LLP 1000) and has no platform view; `{unavailable}` is iframe’s standing | A Linux app that ships a native module and names its view/pixel target |
 | Migrating `canvas` / `iframe` onto NativeView | They are HTML; they already have arms | A world with no first-party tags left, not this RFC |
 | Children / light DOM | `can_hold_children` is false; iframe is a leaf | A module that is a container the kernel must lay out |
-| Intrinsic-size callback | Image already has the kernel seam | A module whose natural size should drive layout |
 | Instance snapshot (PTY survival) | Live process state is not `Carried` | A consumer that iterates a renderer without dropping a session |
 | `dlclose` | Swift/ObjC cannot; and v1 never unloads — **no C/Rust exception** | Nothing in v1; revisit only with live-swap |
 | Live add / swap on iOS device | AMFI, store 2.5.2, signed bundle | Apple ships a supported in-app native plugin API |
@@ -650,7 +679,8 @@ ExactNativeFactory]`.
 `updateEmbedded` and `destroyEmbedded` (which also carry iframe’s lines, so
 the two NodeView files shrank). The artifact is `dlopen`ed once per process
 at the paint gate — the turn after first draw, beside the GPU module’s — and
-never closed. The table is D4’s: `major` 1, `size` 72, the roster as a JSON
+never closed. The original table was `major` 1, `size` 72; LLP 1067.000
+and D4’s 2026-10-01 amendment make it `major` 3, `size` 112, with the roster as a JSON
 C string, `create`, `platform_view`, `set_props`, `snapshot`, `destroy`, and
 two reserved null slots; `create` and `set_props` return a refusal’s text
 through a caller buffer. Callbacks carry a host nonce, are copied, and
@@ -745,3 +775,18 @@ run-loop mode.
 Markdown reader lane (6ece0180). `llp/current/` is at 15 of 15, so 1024 does
 not re-enter it here. That would take another archive, which is Charlie’s
 call.
+
+
+### Preferred content size — 2026-10-01
+
+Charlie asked for native modules to use the same sizing mechanism as built-in
+views, based on James's report from a new app. The precise widget/reproduction
+was not supplied. The existing `apps/native-fixture` proves a 120×32 preferred
+content box, padding and border, growth to 120×64 that moves the next sibling,
+and clearing back to empty content. The explicitly sized fixture still stays
+120×80 despite its 200×96 report. Apple uses ABI 3's notification and the web
+fixture uses ordinary shadow-DOM content; neither changes the first-paint gate.
+Kernel tests compare native modules and controls under authored dimensions,
+min/max and stretch, exercise updates/clearing and reject invalid pairs. The
+UIKit reuse test covers coalescing, duplicates, invalid reports, clearing,
+queued-before-retirement delivery, parked callbacks and the new incarnation.

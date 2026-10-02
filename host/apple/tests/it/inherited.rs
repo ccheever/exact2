@@ -35,7 +35,7 @@ fn op(batch: &str, id: u32) -> String {
 
 const SRC: &str = r##"component Type
   state big = false
-  action toggle writes big
+  action toggle
     big = not big
   view
     column font-size=(big ? 24 : 20) line-height="24px" testId="root"
@@ -54,7 +54,7 @@ const SRC: &str = r##"component Type
 fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     let plan = contract::compile(r##"component App
   state large = false
-  action change writes large
+  action change
     large = not large
   view
     column font-size=(large ? 28 : 17) font-weight=(large ? 600 : 400)
@@ -82,6 +82,48 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     assert!(changed.contains("\"symbolName\":\"arrow.up\""), "{changed}");
     assert!(changed.contains("\"font_size\":28"), "{changed}");
     assert!(changed.contains("\"font_weight\":600"), "{changed}");
+}
+
+#[test]
+fn raw_symbol_names_cross_the_boundary_without_a_catalog() {
+    let plan = contract::compile(
+        r#"component App
+  state source = "symbol:sf/airpodsmax"
+  action missing
+    source = "symbol:sf/exact.nonexistent"
+  action empty
+    source = "symbol:sf/"
+  action restore
+    source = "symbol:sf/airpodsmax"
+  view
+    column
+      image source testId="icon"
+      button "Missing" press=missing testId="missing"
+      button "Empty" press=empty testId="empty"
+      button "Restore" press=restore testId="restore"
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.,
+        874.,
+    )
+    .unwrap();
+    assert!(first.contains("\"symbolName\":\"airpodsmax\""));
+    for (action, expected) in [
+        ("missing", "exact.nonexistent"),
+        ("empty", ""),
+        ("restore", "airpodsmax"),
+    ] {
+        let batch = host.dispatch(view(&host, action), Event::Press);
+        assert!(
+            batch.contains(&format!("\"symbolName\":\"{expected}\"")),
+            "{batch}"
+        );
+    }
 }
 
 #[test]
@@ -192,7 +234,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     let plan = contract::compile(
         r##"component Caret
   state changed = false
-  action toggle writes changed
+  action toggle
     changed = not changed
   view
     column caret-color=(changed ? "#00aaff" : "#ffffff")
@@ -227,9 +269,9 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
     let plan = contract::compile(r##"component Borders
   state mode = "none"
   state blue = false
-  action setMode(value: string) writes mode
+  action setMode(value: string)
     mode = value
-  action recolor writes blue
+  action recolor
     blue = not blue
   view
     column color=(blue ? "#0000ff" : "#ff0000")
@@ -438,7 +480,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     let plan = contract::compile(r##"component Inline
   state changed = false
   resource additions = additions(changed) as shape list<string>
-  action change writes changed
+  action change
     changed = not changed
   view
     column
@@ -514,7 +556,7 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     let plan = contract::compile(
         r##"component Case
   state caps = false
-  action toggle writes caps
+  action toggle
     caps = not caps
   view
     column text-transform=(caps ? "uppercase" : "capitalize") box-shadow="0 2px 12px rgba(0, 0, 0, 0.2)" testId="root"

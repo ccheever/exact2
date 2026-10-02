@@ -18,7 +18,7 @@ shape Result
   text: string
 component App
   mutation output as shape Result
-  action invoke(op: string, value: string) writes output
+  action invoke(op: string, value: string)
     send output = work(op, value)
   view
     column

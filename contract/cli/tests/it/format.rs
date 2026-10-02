@@ -17,9 +17,9 @@ const SRC: &str = r#"component App
   state createdAt = 1790000000000
   state offset = 0
   state likes = 1249
-  action like writes likes
+  action like
     likes = likes + 1
-  action move(minutes: number) writes offset
+  action move(minutes: number)
     offset = minutes
   view
     column

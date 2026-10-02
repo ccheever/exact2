@@ -10,7 +10,7 @@ component App
   state ready = false
   state x = "."
   state o = none
-  action arrive writes ready, o, x
+  action arrive
     ready = true
     o = some(1)
     x = "7"

@@ -126,6 +126,8 @@ struct Mirror {
     children: Vec<ViewId>,
     /// Created inside a `<button>`, where a container is a `<span>`.
     in_button: bool,
+    /// Created with handlers (a text that has some is never folded).
+    handled: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -983,7 +985,11 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    self.emit_children(node.id, batch);
+                    let (id, parent) = (node.id, node.parent);
+                    self.emit_children(id, batch);
+                    for box_ in std::iter::once(id).chain(parent) {
+                        self.refold(box_, batch);
+                    }
                 }
             }
         }
@@ -1369,7 +1375,12 @@ impl<D: DataSource> Host<D> {
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                let css = host_css(&node, css, tag);
+                let css = element::contents(
+                    host_css(&node, css, tag),
+                    element::folded(kernel, &node, !kinds.is_empty()),
+                );
+                let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
+                let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
                 (props, layers::with_isolation(css, self.layers.isolated(id)))
             }
         };
@@ -1388,6 +1399,7 @@ impl<D: DataSource> Host<D> {
                 css,
                 children: Vec::new(),
                 in_button,
+                handled: !kinds.is_empty(),
             },
         );
         self.keys.insert(key, id);
@@ -1424,11 +1436,7 @@ impl<D: DataSource> Host<D> {
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
         svg_props(self.runner.kernel(), &node, &mut props);
-        let (css, _skipped) =
-            css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
-        let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
-        let css = host_css(&node, css, tag_for(&node, in_button));
-        let css = layers::with_isolation(css, self.layers.isolated(id));
+        let css = self.view_css(&node);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props

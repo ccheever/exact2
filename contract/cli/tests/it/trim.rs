@@ -14,7 +14,7 @@ impl DataSource for NoData {
 
 const SRC: &str = r#"component App
   state draft = ""
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
   view
     column

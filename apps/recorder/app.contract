@@ -23,7 +23,7 @@ component Recorder
   mutation started as shape Status
   mutation saved as shape Saved
   derive busy = pending(started) or pending(saved)
-  action toggle writes started, saved
+  action toggle
     if status.recording
       send saved = stopRecording()
     else

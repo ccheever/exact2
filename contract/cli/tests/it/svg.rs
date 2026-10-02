@@ -117,7 +117,7 @@ fn a_computed_part_composes_one_animation() {
 #[test]
 fn refusals_are_named() {
     let svg = |body: &str| {
-        format!("component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")
+        format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")
     };
     assert!(refused("component A\n  view\n    circle r=3\n").contains("lower-svg-content"));
     assert!(refused(&svg("column")).contains("lower-svg-content"));
@@ -309,7 +309,7 @@ fn stage_five_text() {
 #[test]
 fn stage_six_events() {
     let r = boot(
-        "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      g press=go\n        circle r=3 testId=\"c\" press=go pointer-events=\"stroke\"\n",
+        "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      g press=go\n        circle r=3 testId=\"c\" press=go pointer-events=\"stroke\"\n",
     );
     let k = r.kernel();
     let c = k.node_by_key(k.find_by_test_id("c")[0]).unwrap();
@@ -361,7 +361,7 @@ fn stage_eight_masks_and_patterns() {
     let svg =
         |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
     assert!(refused(&svg("rect maskUnits=\"userSpaceOnUse\"")).contains("lower-attr-tag"));
-    let act = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      mask press=go\n";
+    let act = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      mask press=go\n";
     assert!(
         refused(act).contains("lower-svg-attr"),
         "a mask handles no events"

@@ -26,6 +26,61 @@ shape Rows
   items: list<Row>
 
 component NativeFixture
+  state inputValue = ""
+  state inputEvents = ""
+  state inputCommands = 0
+  action inputCommand
+    inputCommands = inputCommands + 1
+  state dialogValue = ""
+  state dialogCommands = 0
+  action dialogChange(v: string)
+    dialogValue = v
+  action dialogCommand
+    dialogCommands = dialogCommands + 1
+  state blocked = false
+  state inputHidden = false
+  state inputInert = false
+  state blockOnBlur = ""
+  action blurWrapper
+    blur("box")
+  action armDisabled
+    blockOnBlur = "disabled"
+  action armInert
+    blockOnBlur = "inert"
+  action restrictInput
+    if blockOnBlur == "disabled"
+      blocked = true
+    if blockOnBlur == "inert"
+      inputInert = true
+    blockOnBlur = ""
+  action focusInput
+    focus("native-input")
+  action blurInput
+    focus("native-input")
+    blur("native-input")
+  action blurPlain
+    focus("native-input")
+    blur("plain")
+  action blockInput
+    blocked = not blocked
+  action hideInput
+    inputHidden = not inputHidden
+  action inertInput
+    inputInert = not inputInert
+  action inputChange(v: string)
+    inputValue = v
+  action inputFocus
+    inputEvents = inputEvents + "focus;"
+  action inputBlur
+    inputEvents = inputEvents + "blur;"
+  action inputKey(k: string)
+    inputEvents = inputEvents + "key:" + k + ";"
+  state expanded = false
+  state natural = true
+  action grow
+    expanded = not expanded
+  action sizing
+    natural = not natural
   state count = 0
   state emit = 0
   state shown = true
@@ -34,33 +89,33 @@ component NativeFixture
   state loads = 0
   state events = ""
   state received = ""
-  action bump writes count
+  action bump
     count = count + 1
-  action fire writes emit
+  action fire
     emit = emit + 1
-  action toggle writes shown
+  action toggle
     shown = not shown
-  action reject writes rejecting
+  action reject
     rejecting = not rejecting
-  action mode writes moded
+  action mode
     moded = not moded
-  action onLoad writes loads
+  action onLoad
     loads = loads + 1
-  action onPress writes events
+  action onPress
     events = events + "press;"
-  action onChange(v: string) writes events
+  action onChange(v: string)
     events = events + "change:" + v + ";"
-  action onHover(over: bool) writes events
+  action onHover(over: bool)
     events = events + "hover:" + toString(over) + ";"
-  action onFocus writes events
+  action onFocus
     events = events + "focus;"
-  action onBlur writes events
+  action onBlur
     events = events + "blur;"
-  action onKey(k: string) writes events
+  action onKey(k: string)
     events = events + "key:" + k + ";"
-  action onSubmit writes events
+  action onSubmit
     events = events + "submit;"
-  action onMessage(m: string) writes events, received
+  action onMessage(m: string)
     if includes(m, "props:")
       received = m
     else
@@ -68,30 +123,30 @@ component NativeFixture
   state composed = 0
   state violate = false
   state transition = false
-  action compose writes composed
+  action compose
     composed = composed + 1
   mutation rows as shape Rows
   derive rowItems = match rows { case some(r) => r.items, case none => [] }
-  action showRows writes nav, rows
+  action showRows
     nav = push(nav, "/rows")
     send rows = rows()
-  action detail writes nav
+  action detail
     nav = push(nav, "/detail")
-  action back writes nav
+  action back
     nav = back(nav)
-  action breakOwnership writes violate
+  action breakOwnership
     violate = not violate
-  action customTransition writes transition
+  action customTransition
     transition = not transition
   state top = 0
-  action scrollTo(y: number) writes top
+  action scrollTo(y: number)
     top = y
   state draft = ""
-  action setDraft(text: string) writes draft
+  action setDraft(text: string)
     draft = text
-  action selectTab(name: string) writes nav
+  action selectTab(name: string)
     nav = select(nav, name)
-  action openSheet writes nav
+  action openSheet
     nav = push(nav, "/sheet")
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
@@ -137,11 +192,46 @@ component NativeFixture
                         text "Reject"
                       button press=mode testId="mode" padding=6 background-color="#e5e7eb"
                         text "Mode"
+                    row gap=6
+                      button press=grow testId="grow" padding=6
+                        text "Grow content"
+                      button press=sizing testId="sizing" padding=6
+                        text "Toggle intrinsic size"
                     text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
                     when shown
-                      exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-                    exact-plain testId="plain" width=120 height=60 tint="#11aa44"
+                      exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+                    exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
                     exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+                    row gap=4 flex-wrap="wrap"
+                      button testId="focus-input" press=focusInput
+                        text "Focus input"
+                      button testId="blur-input" press=blurInput
+                        text "Blur input"
+                      button testId="blur-plain" press=blurPlain
+                        text "Blur plain"
+                      button testId="block-input" press=blockInput
+                        text "Disable input"
+                      button testId="hide-input" press=hideInput
+                        text "Hide input"
+                      button testId="inert-input" press=inertInput
+                        text "Inert input"
+                      button testId="disable-on-blur" press=armDisabled blur=restrictInput
+                        text "Disable on blur"
+                      button testId="inert-on-blur" press=armInert blur=restrictInput
+                        text "Inert on blur"
+                      button testId="blur-wrapper" press=blurWrapper retainFocus=true
+                        text "Blur wrapper"
+                    when shown
+                      column inert=inputInert display=(inputHidden ? "none" : "block")
+                        button "Before input" testId="before-input"
+                        exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
+                        button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
+                    button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
+                    dialog id="native-dialog" width=320 padding=16 closedby="any"
+                      column gap=8
+                        exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
+                        button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
+                        button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
                 when e.name == "rows"
                   HookedRows(items=rowItems)
                 when e.name == "detail"
@@ -178,7 +268,7 @@ component HookedRows
   props
     items: list<Row>
   state reuse = false
-  action toggleReuse writes reuse
+  action toggleReuse
     reuse = not reuse
   view
     column flex=1 min-height=0

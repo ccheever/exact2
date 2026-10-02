@@ -15,9 +15,9 @@ const SOURCE: &str = r#"component App
   state x = 0
   state vx = 0
   state vy = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx
-  action release(sx: number, sy: number) writes vx, vy
+  action release(sx: number, sy: number)
     vx = sx
     vy = sy
   view

@@ -55,15 +55,20 @@ pub(super) struct Subst<'m, T> {
     /// and `match` variables) are values, never callable, so a call that
     /// spells one names a function (`t("key")` beside `each t in …`).
     calls: bool,
+    /// The declared record constructors: shapes that are not `fn`s. A call
+    /// spelling one constructs that record ahead of any scoped name (LLP
+    /// 1035.005.000 D3), so its head is never replaced — its arguments are.
+    records: &'m BTreeSet<String>,
 }
 
 impl<'m, T: SubstitutionValue> Subst<'m, T> {
-    pub(super) fn new(map: &'m BTreeMap<String, T>) -> Self {
+    pub(super) fn new(map: &'m BTreeMap<String, T>, records: &'m BTreeSet<String>) -> Self {
         Subst {
             map,
             free: OnceCell::new(),
             binders: Vec::new(),
             calls: true,
+            records,
         }
     }
 
@@ -119,17 +124,24 @@ pub(super) fn renamed_locals(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
     if map.is_empty() {
         return e.clone();
     }
-    let mut s = Subst::new(map);
+    // No call's head is replaced here, so no record constructor need be known.
+    let none = BTreeSet::new();
+    let mut s = Subst::new(map, &none);
     s.calls = false;
     subst_expr(e, &mut s)
 }
 
-/// `e` with `map` substituted, for a one-off substitution.
-pub(super) fn substituted<T: SubstitutionValue>(e: &Expr, map: &BTreeMap<String, T>) -> Expr {
+/// `e` with `map` substituted, for a one-off substitution; a call naming one
+/// of `records` keeps its head.
+pub(super) fn substituted<T: SubstitutionValue>(
+    e: &Expr,
+    map: &BTreeMap<String, T>,
+    records: &BTreeSet<String>,
+) -> Expr {
     if map.is_empty() {
         return e.clone();
     }
-    subst_expr(e, &mut Subst::new(map))
+    subst_expr(e, &mut Subst::new(map, records))
 }
 
 /// Substitute prop names by argument expressions. A curried handler
@@ -149,7 +161,7 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
         },
         Expr::Call(n, args, span) => {
             let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, s)).collect();
-            if !s.calls {
+            if !s.calls || s.records.contains(n) {
                 return Expr::Call(n.clone(), args, *span);
             }
             match s.get(n) {
@@ -250,15 +262,30 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
 
 /// A child action's body, its names substituted: assignment targets renamed
 /// with `names`, expressions through `s` (props, injects, renamed states
-/// and actions, derives as expressions).
+/// and actions, derives as expressions). A `let` binds for the rest of its
+/// block (LLP 1035.005.000 D2) and is renamed apart, as a `match` binding
+/// is, when a replacement mentions its name.
 pub(super) fn subst_stmts(
     stmts: &[Stmt],
     s: &mut Subst<'_, Expr>,
     names: &BTreeMap<String, String>,
 ) -> Vec<Stmt> {
-    stmts
+    let mut lets = 0;
+    let out = stmts
         .iter()
-        .map(|st| match st {
+        .enumerate()
+        .map(|(i, st)| match st {
+            Stmt::Let { name, expr, span } => {
+                let expr = subst_expr(expr, s);
+                let rest = &stmts[i + 1..];
+                let name = s.enter(name, &|n| rest.iter().any(|st| stmt_occurs(st, n)));
+                lets += 1;
+                Stmt::Let {
+                    name,
+                    expr,
+                    span: *span,
+                }
+            }
             Stmt::Assign { target, expr, span } => Stmt::Assign {
                 target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
                 expr: subst_expr(expr, s),
@@ -316,7 +343,11 @@ pub(super) fn subst_stmts(
                 }
             }
         })
-        .collect()
+        .collect();
+    for _ in 0..lets {
+        s.leave();
+    }
+    out
 }
 
 /// Add the names free in `e` (a call's head included: substitution
@@ -425,6 +456,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
 fn stmt_occurs(st: &Stmt, name: &str) -> bool {
     match st {
         Stmt::Assign { target, expr, .. } => target == name || occurs(expr, name),
+        Stmt::Let { name: n, expr, .. } => n == name || occurs(expr, name),
         Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
             args.iter().any(|a| occurs(a, name))
         }

@@ -10,14 +10,14 @@ impl DataSource for Data {
 }
 const SOURCE: &str = r#"component App
   state x = 80
-  action move writes x
+  action move
     x = x + 20
-  action leave writes x
+  action leave
     x = 900
   view
     column width=400 height=500
       view id="owner" width=400 height=300 overflow-x="hidden" overflow-y="hidden"
-        view id="content" width="100%" height="100%"
+        view id="content" position="relative" width="100%" height="100%"
           text "The river carries its quiet story through the garden and beyond the trees." testId="prose" width=400 height=300
           box position="absolute" left=x top=40 width=60 height=60 wrap-flow="both" shape-outside="circle()"
         text "Waiting" id="pending"
@@ -122,7 +122,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
     let plan = contract::compile(r#"component App
   state holes = true
   resource rows = rows() as shape list<number>
-  action clear writes holes
+  action clear
     holes = false
   view
     column width=240 height=200

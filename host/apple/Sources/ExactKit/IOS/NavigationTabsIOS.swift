@@ -39,6 +39,11 @@ private struct TabFace: Equatable {
     let base: String?, title: String, disabled: Bool
     init(_ tab: NodeView) {
         var symbol: String?, label = tab.props["accessibilityLabel"] ?? ""
+        if tab.isNativeButton, let face = tab.face {
+            // A native button's children are its face (LLP 1069.011.000 D1).
+            symbol = face.symbol
+            if let title = face.title, !title.isEmpty { label = title }
+        }
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }

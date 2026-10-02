@@ -17,6 +17,7 @@ mod page;
 mod pan_release;
 mod parity;
 mod presence;
+mod projection;
 mod request;
 mod request_refusal;
 mod springs;

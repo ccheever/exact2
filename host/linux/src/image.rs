@@ -43,6 +43,7 @@ struct View {
     desired: (f32, f32),
     visible: bool,
     refusal: Option<Refusal>,
+    symbol_size: Option<f32>,
 }
 
 /// One generation's bounded live demand, sharing its budget with replacements.
@@ -145,9 +146,35 @@ impl Images {
                 desired: (0., 0.),
                 visible: true,
                 refusal: None,
+                symbol_size: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.visible = visible(*id);
+            // LLP 1035.004.000: symbols are an empty em square on Linux,
+            // never a file request and never the previously accepted raster.
+            if source.starts_with("symbol:") {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                view.source_id = None;
+                view.accepted = None;
+                view.lease = None;
+                view.refusal = None;
+                view.displayed_source.clear();
+                self.bitmaps.remove(id);
+                let size = node
+                    .computed_style(exact_kernel::StyleMask::INHERITED)
+                    .font_size;
+                if view.source != source || view.symbol_size != Some(size) {
+                    reports.push((*id, (size > 0.).then_some((size, size))));
+                    view.source = source.to_owned();
+                    view.symbol_size = Some(size);
+                }
+                continue;
+            }
+            if view.symbol_size.take().is_some() {
+                reports.push((*id, None));
+            }
             if !view.visible {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
@@ -206,7 +233,7 @@ impl Images {
         self.backend.drain_wake();
         let mut reports = Vec::new();
         for (id, view) in &mut self.views {
-            if view.source.is_empty() {
+            if view.source.is_empty() || view.symbol_size.is_some() {
                 continue;
             }
             if view.source_id.is_none() {

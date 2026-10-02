@@ -344,7 +344,9 @@ pub trait DataSource {
     /// 0067): one grant per line — `net.fetch <origin>` (matched whole, or `scheme://*.domain` for every host under one domain), `secret.keep
     /// <name>`. A request outside them fails as `Refused` on every host
     /// before any executor sees it; a secret outside them reads as absent
-    /// and refuses a write. Empty: nothing.
+    /// and refuses a write. Empty: nothing. The set is read whole
+    /// ([`crate::grants`]): one line that does not parse refuses the bake,
+    /// and on a device grants nothing.
     fn grants(&self) -> &str {
         ""
     }

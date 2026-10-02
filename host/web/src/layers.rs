@@ -18,10 +18,8 @@ use exact_kernel::id::IdMap;
 use exact_kernel::{Kernel, NodeRef, NodeType, PositionType, PropId, StyleId, ViewId};
 use exact_runner::DataSource;
 
-use super::element::{css_style, host_css, tag_for};
 use super::Host;
 use crate::batch::Batch;
-use crate::css;
 
 /// What a node's own rows and props bring to the page's painting order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -274,14 +272,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         for id in restyle {
-            let Some((node, m)) = kernel.node(id).zip(self.mirror.get_mut(&id)) else {
+            let Some(node) = kernel.node(id) else {
                 continue;
             };
-            let (text, _) = css::css_text(&css_style(kernel, &node), &self.font_names);
-            let css = with_isolation(
-                host_css(&node, text, tag_for(&node, m.in_button)),
-                self.layers.isolated(id),
-            );
+            let css = self.view_css(&node);
+            let Some(m) = self.mirror.get_mut(&id) else {
+                continue;
+            };
             if css != m.css {
                 batch.style(id, &css);
                 m.css = css;

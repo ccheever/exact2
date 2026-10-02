@@ -5,8 +5,7 @@ use exact_game::asset::TextureFamily;
 use exact_gpu::wgpu;
 
 /// The family chosen from the device's granted features, and every requested
-/// file name still answered or in flight, with the authored name it carries
-/// (at most the surface's 256 asset names, so a list).
+/// file name still answered or in flight, with the authored name it carries.
 #[derive(Default)]
 pub(crate) struct Payloads {
     pub family: TextureFamily,

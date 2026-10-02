@@ -261,7 +261,7 @@ fn the_bridge_boots_from_bytes_in_its_input_buffer() {
     assert!(batch.contains("\"text\":\"one\""), "{batch}");
 }
 
-const COUNTER: &str = "component App\n  state n = 1\n  action inc writes n\n    n = n + 1\n  view\n    column testId=\"root\"\n      button press=inc aria-label=\"Inc\" testId=\"inc\"\n        text \"Inc\"\n      text `${n}` testId=\"n\"\n";
+const COUNTER: &str = "component App\n  state n = 1\n  action inc\n    n = n + 1\n  view\n    column testId=\"root\"\n      button press=inc aria-label=\"Inc\" testId=\"inc\"\n        text \"Inc\"\n      text `${n}` testId=\"n\"\n";
 
 fn view_of(host: &Host<NoData>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
@@ -317,7 +317,6 @@ fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     let renamed = contract::compile(
         &COUNTER
             .replace("state n = 1", "state m = 1")
-            .replace("writes n", "writes m")
             .replace("n = n + 1", "m = m + 1")
             .replace("${n}", "${m}"),
     )

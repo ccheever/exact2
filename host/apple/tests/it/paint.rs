@@ -18,7 +18,7 @@ impl DataSource for NoData {
 
 const SRC: &str = r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="page" background-color="light-dark(#ffffff, #000000)" transition="background-color 1s linear"
@@ -167,7 +167,7 @@ fn a_light_dark_keyframe_follows_the_presenter_appearance() {
 
 const INHERITING: &str = r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="box" color=(on ? "#ffffff" : "#000000") transition="color 1s linear" border-width=2 border-style="solid" border-left-color="#ff0000"
@@ -249,7 +249,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
 #[test]
 fn an_exit_animates_a_colour_the_node_never_transitioned() {
     let mut host = boot(
-        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     let off = host.dispatch_at(hide, Event::Press, 0.0);
@@ -310,7 +310,7 @@ fn a_side_that_stays_currentcolor_follows_color_and_one_that_becomes_it_moves() 
     let mut host = boot(
         r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column
@@ -360,7 +360,7 @@ fn an_svg_fill_moves_between_its_light_dark_pair() {
 #[test]
 fn an_exit_presents_text_color_over_the_last_style() {
     let mut host = boot(
-        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     host.dispatch_at(hide, Event::Press, 0.0);
@@ -373,7 +373,7 @@ fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
     let source = INHERITING
         .replace(
             "  view\n",
-            "  state moving = true\n  action stop writes moving\n    moving = false\n  view\n",
+            "  state moving = true\n  action stop\n    moving = false\n  view\n",
         )
         .replace(
             "transition=\"color 1s linear\"",

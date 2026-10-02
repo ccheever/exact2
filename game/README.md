@@ -14,6 +14,9 @@ needs it. An app whose other screens draw too can give the world a module of its
 (`gpu.modules` in `app.json`, LLP 1009 D6), loaded only when the world's canvas mounts.
 Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
+Asset names have no fixed per-surface count limit. Web loading still bounds
+concurrent requests and decoded asset bytes; a queued request's timeout begins
+when its fetch starts.
 Weird Castle is the external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
@@ -22,9 +25,10 @@ snapshot `321055e1` (2026-09-21). The original checkout remains intact.
 
 ## Start a game
 
-Run these commands from the Exact2 repository root. A checkout needs Bun's dependencies
-installed with `bun install --frozen-lockfile` and a populated Cargo cache (see
-[offline setup](#offline-setup)).
+Run these commands from the Exact2 repository root. With the pinned Bun and rustup
+installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
+wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing or
+mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
 
 ```sh
 bun game/new.mjs ./my-game
@@ -232,7 +236,9 @@ Repinning runs Off, Save and FreshGame, requires matching source inputs and host
 observations, and includes a Linux release check. It refuses failures or a missing
 requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
-Existing-pin updates require Git provenance. `CHROME` selects the headless browser.
+Every update records the matching source-input digest; a Git commit is recorded
+when one exists. A game without commits can repin under the same agreement checks.
+`CHROME` selects the headless browser.
 
 Paranoid runs check simulation and saves. Each tick uses the normal restore path,
 which resets presentation interpolation; use ordinary runs for appearance and
@@ -253,6 +259,38 @@ cleanup. Each game's proof owns its assertions. `check` records failures while
 independent assertions continue. The terminal shows checks and failure details;
 `replies.json` retains complete operation replies. Browser runs provide canvas pixels; the GPU-less
 Linux host exercises simulation, input, Contract UI, CPU picks and saves.
+
+### Compare captured world state
+
+In a proof or an agent session, capture inspected state before and after an action:
+
+```js
+import {captureWorld, diffWorlds, formatWorldDiff} from '/path/to/exact2/game/proof.mjs';
+import {writeFileSync} from 'node:fs';
+const before = await captureWorld(session, 'world');
+await session.world('world').hold('KeyW', 500);
+const after = await captureWorld(session, 'world');
+writeFileSync('before.json', JSON.stringify(before));
+writeFileSync('after.json', JSON.stringify(after));
+console.log(formatWorldDiff(diffWorlds(before, after)));
+```
+
+Compare those files later with `bun game/proof.mjs diff before.json after.json`.
+Exit codes: 0 for equal inspected values and hashes, 1 for differences, 2 for a
+refused capture. The report shows field paths and before/after values, including
+added/removed entities, components, resources and array entries. It includes
+arguments, input and published values; tick/hash are report metadata. Named
+entities match by name even if their slots change; unnamed entities match by
+slot ID (inspection does not expose generations, so slot reuse is indistinguishable).
+Arrays compare by index. The default report retains 100 differences and counts
+omitted ones; `diffWorlds(a, b, {limit: 500})` changes that output limit.
+
+These JSON captures are **not `.world` binary saves** or a complete explanation of
+a hash. Opaque executor state stays opaque; inspection can omit or round internal
+values. A differing hash with equal inspected values is reported explicitly.
+Capture on the agent clock without concurrent drives. Mixed-tick/hash reads and
+truncated entity lists (currently over 512 entities) are refused. Capturing and
+comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
 
@@ -359,8 +397,9 @@ or restoring when the surrounding UI should hold the game still. Set the canvas
 `inert` while the request is pending to release held controls and prevent new input.
 
 A game owns one generated Cargo workspace and keeps final products and receipts in
-its own `target/`. Intermediate builds reuse the SDK's `game/target/` across apps;
-Cargo's standard `CARGO_BUILD_BUILD_DIR` overrides that location. Without
+its own `target/`, including intermediate builds, so copies of a game cannot
+overwrite each other's units. Cargo's standard `CARGO_BUILD_BUILD_DIR` overrides
+that location when explicitly set. Without
 `logic/Cargo.toml`, the workspace's generated member builds `logic/src/lib.rs` and
 `logic/tests`, `examples` and `benches` where the author wrote them.
 
@@ -373,7 +412,10 @@ dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK cr
 `bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
-`bun app/shells.mjs --test` refuses a stale one.
+`bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
+the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+those against the root workspace. Web builds retain the game’s non-contracting
+floating-point flag alongside the core’s path-remapping flags.
 
 Linux development uses `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Release/production bakes bind its exact

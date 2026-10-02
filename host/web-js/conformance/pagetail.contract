@@ -31,10 +31,10 @@ component PagingTail
   state pages = 0
   state top = 0
   derive shown = filter(cards, c => c.n < hi or c.n == 1999)
-  action more writes loading
+  action more
     if not loading
       loading = true
-  action land writes hi, loading, pages, top
+  action land
     if loading and pages < 5
       hi = min(2000, hi + 30)
       loading = false

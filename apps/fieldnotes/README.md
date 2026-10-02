@@ -30,7 +30,10 @@ somewhere safe also keeps an independent copy. Restore accepts pasted backup tex
 empty, uses the saved file; it validates the complete backup before replacing
 notes in a transaction.
 
-`app.contract` owns the UI. `app.ts` owns notes, search and restore; `data/`
+`app.contract` owns the UI. Its editing session is one `Session` record (LLP
+1035.005.000 D3): opening a note, New note, restore and delete each start the
+next one through `nextSession`, which names every field, so a pending delete
+question never outlives its note. `app.ts` owns notes, search and restore; `data/`
 implements `backupNotes` in Rust behind the same data-source interface. Both use
 the same storage and grants. Mutation revisions use the runner's app-owned
 `fieldnotes.revision` Store entry, so repeated saves/deletions still invalidate

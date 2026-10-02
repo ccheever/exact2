@@ -57,7 +57,7 @@ component A
 == type-assign
 component A
   state n = 1
-  action bad writes n
+  action bad
     n = "one"
   view
     text "a"
@@ -122,9 +122,10 @@ component B
 ---
 == type-duplicate-name
 component A
+  provide
+    x = "provided"
   view
-    provide x = "provided"
-      B(x="prop")
+    B(x="prop")
 component B
   props
     x: string
@@ -135,27 +136,22 @@ component B
 ---
 == type-provide
 component A
+  provide
+    accent = 1
   view
-    provide accent = 1
-      Label()
+    Label()
 component Label
   inject
     accent: string
   view
     text accent
 ---
-== analyze-write-not-declared
+== syntax-writes-clause
+# An action's effects are inferred from its body (LLP 1035.005.000 D1).
+# Two spaces before `writes` keep the clause-removing rewrite off this one.
 component A
   state n = 1
-  action bump
-    n = n + 1
-  view
-    text "a"
----
-== analyze-writes-unknown-state
-component A
-  state n = 1
-  action bump writes m
+  action bump  writes n
     n = 2
   view
     text "a"
@@ -170,7 +166,7 @@ component A
 == analyze-handler-arity
 component A
   state n = 1
-  action set(v: number) writes n
+  action set(v: number)
     n = v
   view
     button press=set
@@ -227,7 +223,7 @@ component A
 == lower-timer-literal
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     every(n, tick)
@@ -237,7 +233,7 @@ component A
 == lower-timer-interval
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     every(0, tick)
@@ -247,7 +243,7 @@ component A
 == lower-timer-interval
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     after(0, tick)
@@ -257,7 +253,7 @@ component A
 == contract-task-body
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     later(60, tick)
@@ -267,7 +263,7 @@ component A
 == lower-leaf-children
 component A
   state q = ""
-  action set(v) writes q
+  action set(v)
     q = v
   view
     input value=q change=set
@@ -310,7 +306,7 @@ component A
 == lower-zero-size
 component A
   state n = 0
-  action go writes n
+  action go
     n = 1
   view
     column
@@ -319,11 +315,12 @@ component A
 == analyze-action-arity
 component A
   state n = ""
-  action pick(id: string) writes n
+  action pick(id: string)
     n = id
+  provide
+    press = pick
   view
-    provide press = pick
-      Row()
+    Row()
 component Row
   inject
     press: action
@@ -331,21 +328,10 @@ component Row
     button press=press testId="r"
       text "r"
 ---
-== analyze-write-not-declared
-# A write inside a branch counts (LLP 1017 P2): `writes` covers the whole body.
-component A
-  state n = 0
-  state s = ""
-  action go(k) writes n
-    if k == "a"
-      s = k
-  view
-    input value=s change=go
----
 == type-condition
 component A
   state n = 0
-  action go writes n
+  action go
     if n
       n = 1
   view
@@ -424,6 +410,19 @@ component Label
     accent: string
   view
     text text color=accent
+---
+== syntax-provide-in-view
+# `provide` is a component section (LLP 1035.005.000 D9).
+component App
+  view
+    column
+      provide accent = "#fff"
+        Label()
+component Label
+  inject
+    accent: string
+  view
+    text accent
 ---
 == syntax-no-slot
 component App
@@ -518,12 +517,11 @@ component A
   view
     children
 ---
-== syntax-duplicate-declaration
+== syntax-contract-block
+# Assertions belong in `test` blocks beside the app (LLP 1017 P7, 1035.005.000 D8).
 component A
   contract
     has text "first"
-  contract
-    has text "second"
   view
     text "a"
 ---
@@ -566,7 +564,7 @@ component A
 == syntax-duplicate-declaration
 component A
   state choice = some("a")
-  action choose writes choice
+  action choose
     match choice
       case some(value)
         choice = some(value)
@@ -593,7 +591,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action changed(next: number) writes value
+  action changed(next: number)
     value = next
   view
     input change=changed
@@ -601,7 +599,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action keyed(next: number) writes value
+  action keyed(next: number)
     value = next
   view
     input key=keyed
@@ -609,7 +607,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action messaged(next: number) writes value
+  action messaged(next: number)
     value = next
   view
     iframe "/guest" message=messaged
@@ -617,7 +615,7 @@ component A
 == type-handler-payload
 component A
   state value = ""
-  action hovered(next: string) writes value
+  action hovered(next: string)
     value = next
   view
     column hover=hovered
@@ -730,7 +728,7 @@ routes nav
   home "/"
   notfound
 component App
-  action visit writes nav
+  action visit
     nav = open(nav, "/missing")
   view
     text "home"
@@ -746,7 +744,7 @@ component App
 routes nav
   home "/"
 component App
-  action visit writes nav
+  action visit
     nav = push(nav, path("missing"))
   view
     text "home"
@@ -756,7 +754,7 @@ routes nav
   home "/"
     post "/post/:post"
 component App
-  action visit(id: string) writes nav
+  action visit(id: string)
     nav = push(nav, `/post/${id}`)
   view
     text "home"
@@ -780,7 +778,7 @@ component App
 == lower-navigate-root
 component A
   state location = ""
-  action follow(url: string) writes location
+  action follow(url: string)
     location = url
   view
     main navigationKey="home" navigationBack="back"
@@ -804,7 +802,7 @@ shape Item
   id: string
 component App
   state chosen = ""
-  action choose(id: string, why: string) writes chosen
+  action choose(id: string, why: string)
     chosen = id
   resource items = items() as shape list<Item>
   view
@@ -856,7 +854,7 @@ component A
 # An action is not callable from an action.
 component A
   state n = 1
-  action begin writes n
+  action begin
     n = 2
   action go
     begin()
@@ -876,7 +874,7 @@ component Child
       text "a"
 component App
   state draft = ""
-  action post(text: string) writes draft
+  action post(text: string)
     draft = text
   view
     Child(comment=post)
@@ -1077,8 +1075,90 @@ component A
 component A
   state target = "box"
   state h = 0
-  action size writes h
+  action size
     h = measure(target).height
   view
     button press=size
       text toString(h)
+---
+== type-record-missing
+# LLP 1035.005.000 D3: a record names every field; none is defaulted.
+shape Fields
+  title: string
+  pinned: bool
+component A
+  derive f = Fields(title="a")
+  view
+    text f.title
+---
+== type-record-unknown-field
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", body="b")
+  view
+    text f.title
+---
+== type-record-duplicate
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", title="b")
+  view
+    text f.title
+---
+== type-record-base
+# A copy's one positional argument is the record it copies, of its shape.
+shape Fields
+  title: string
+component A
+  state name = "a"
+  derive f = Fields(name, title="b")
+  view
+    text f.title
+---
+== type-fn-shape-name
+# `Fields(…)` builds the shape, so no `fn` takes its name.
+shape Fields
+  title: string
+fn Fields(title: string): string = title
+component A
+  view
+    text "a"
+---
+== type-let-shadow
+# LLP 1035.005.000 D2: a `let` never shadows a name in scope.
+component A
+  state n = 0
+  action go
+    let n = 1
+  view
+    text "a"
+---
+== type-let-duplicate
+component A
+  state n = 0
+  action go
+    let a = 1
+    let a = 2
+    n = a
+  view
+    text "a"
+---
+== type-let-reassign
+component A
+  state n = 0
+  action go
+    let a = 1
+    a = 2
+  view
+    text "a"
+---
+== type-let-before-declaration
+component A
+  state n = 0
+  action go
+    n = a
+    let a = 1
+  view
+    text "a"

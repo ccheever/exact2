@@ -37,8 +37,9 @@ import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
+import { writeDataKeys } from './data-keys.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -444,12 +445,13 @@ function openingLinks(app, platform, development) {
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 
-/** The entitlements a device build signs with (LLP 1030 D1's host-metadata row): the identity the profile grants, and what the manifest's `host.ios` claims — associated domains for the app's origin when it says so. Generated, never committed. */
-export const entitlements = (app, team, debuggable = true, reach = null) => {
+/** Device identity comes from the profile. Simulators need an app identity too:
+ * Keychain's default access group is the application-identifier. */
+export const entitlements = (app, team = null, debuggable = true, reach = null) => {
   const ios = app.manifest.host?.ios ?? {};
   const dict = {
-    'application-identifier': `${team}.${app.id}`,
-    'com.apple.developer.team-identifier': team,
+    'application-identifier': team ? `${team}.${app.id}` : app.id,
+    ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
@@ -744,6 +746,36 @@ function launchScreen(app, catalog) {
   return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
 }
 
+/** The SDK an Apple app records when its manifest asks for the design before
+ * iOS 26 and macOS 26 (`host.<platform>.designRequiresCompatibility`): the
+ * last before it. iOS 27 and macOS 27 ignore UIDesignRequiresCompatibility
+ * (probed 2026-10-02: the key is read, the new design drawn); both draw the
+ * design the recorded SDK had. */
+export const COMPATIBLE_SDK = { ios: '18.0', macos: '15.0' };
+
+/** Whether an app draws UIKit's or AppKit's design before 26 on `platform`;
+ * refused for an app whose `minimumOS` there is 26 or later, which has no
+ * earlier design to keep. */
+export function designCompatible(app, platform) {
+  if (!app.manifest.host?.[platform]?.designRequiresCompatibility) return false;
+  const minimum = deploymentTargets(app)[platform];
+  if (Number(minimum.split('.')[0]) >= 26) throw new Error(`host/apple: ${app.id}: host.${platform}.designRequiresCompatibility with minimumOS ${minimum} — an app that needs ${platform === 'ios' ? 'iOS' : 'macOS'} 26 has no earlier design to keep; remove one of them`);
+  return true;
+}
+
+/** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the
+ * one asked for: AppKit draws its design by that number, so a link that
+ * records another (as SwiftPM's did, LLP 1069.011 §7) changes every app's
+ * look without a word. Compared to major.minor. */
+function assertLinkedSdk(executable, expected) {
+  const loads = read('otool', ['-l', executable]).stdout ?? '';
+  const recorded = /cmd LC_BUILD_VERSION[\s\S]*?\n\s*sdk (\S+)/.exec(loads)?.[1];
+  const majorMinor = (v) => String(v).split('.').slice(0, 2).map(Number).join('.');
+  if (!recorded || majorMinor(recorded) !== majorMinor(expected)) {
+    throw new Error(`host/apple: ${basename(executable)} records SDK ${recorded ?? '(none)'}, not ${expected}: AppKit would draw it in another design`);
+  }
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
   ...icon,
@@ -830,20 +862,6 @@ export function provisionHermesIos(platform, env = process.env) {
 
 // ---------------------------------------------------------------- the build
 
-/** The app's `data-*` and `hook` words as the Swift module's typed keys
- *  (LLP 1075.003 Q2, 1075.003.000 Q1), from app.json `data` and `hooks`:
- *  written beside the build, never committed. A hook key is made by the
- *  host's call (`ExactElement.hook`), so its initializer is the module's. */
-function writeDataKeys(app, path) {
-  const camel = (w) => w.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
-  const keys = (type, words) => words.map(w => `    public static let \`${camel(w)}\` = ${type}(${JSON.stringify(w)})\n`).join('');
-  const text = `// @generated by host/apple/build.mjs from app.json \`data\` and \`hooks\` (LLP 1075.003 Q2, 1075.003.000 Q1). Do not edit.\n`
-    + `/// One of the app's \`data-*\` words: \`route.data[.title]\`.\npublic struct ExactDataKey: Hashable, Sendable {\n    public let name: String\n    private init(_ name: String) { self.name = name }\n${keys('ExactDataKey', app.manifest.data ?? [])}}\n`
-    + `/// One of the app's \`hook\` words: \`element.hook == .avatar\`.\npublic struct ExactHookKey: Hashable, Sendable {\n    public let name: String\n    init(_ name: String) { self.name = name }\n${keys('ExactHookKey', app.manifest.hooks ?? [])}}\n`;
-  mkdirSync(dirname(path), { recursive: true });
-  if (!existsSync(path) || readFileSync(path, 'utf8') !== text) writeFileSync(path, text);
-}
-
 function main(args) {
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
@@ -915,7 +933,7 @@ function main(args) {
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
   if (ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
-  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
+  const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
     // names this product's digest) run on every build. Sign a copy beside it,
@@ -946,7 +964,7 @@ function main(args) {
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
     placeAppleArtifact(capture, paths.capture);
-  } });
+  } }));
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
   const level = bakedCompat.inputs?.store?.L;
@@ -1021,6 +1039,20 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
+    // `designRequiresCompatibility`: the link records the iOS 18 SDK (macOS's
+    // case below says why); this later `-platform_version` wins.
+    if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', device ? 'ios' : 'ios-simulator', '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
+  } else {
+    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
+    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
+    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
+    // as on macOS 14. `-isysroot` records the SDK the app is built with.
+    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
+    // `designRequiresCompatibility`: the earlier design, by the one lever macOS
+    // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
+    // the macOS 15 SDK, the last before the new design; this later
+    // `-platform_version` wins over the driver's.
+    if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
   }
   // SwiftPM owns its output layout. Swift Build and the native build system
   // use different directories; ask with the same destination arguments.
@@ -1030,10 +1062,22 @@ function main(args) {
   if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
   for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
   for (const p of products) {
-    runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
+    const productArgs = [...swiftArgs];
+    if (ios && !device) {
+      // Simulator Security reads entitlements from the Mach-O text section.
+      // Device-style entitlements in its ad-hoc signature can prevent launch.
+      const ent = resolve(swiftBuildRoot, `${p}-entitlements.plist`);
+      mkdirSync(swiftBuildRoot, {recursive: true});
+      writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
+      productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+        '-Xlinker', '__entitlements', '-Xlinker', ent);
+    }
+    runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
     copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
+    const platform = ios ? 'ios' : 'macos';
+    assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
@@ -1314,14 +1358,14 @@ function main(args) {
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (device) {
       copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team, signingProfile.dev, bakedCompat.reach));
     }
+    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? true, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
-      entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null, development: host ? null : development }));
+      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development }));
     if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });

@@ -51,7 +51,8 @@ impl NodeType {
     /// A `Canvas` holds children laid out in its box — the web's
     /// `layoutsubtree` — that never size it (LLP 1014 D1). A `Control` holds
     /// a `select`'s options, which a closed select never lays out (LLP
-    /// 1069.001 D2).
+    /// 1069.001 D2), or a native button's title and image, its face (LLP
+    /// 1069.011 D5).
     pub fn can_hold_children(self) -> bool {
         matches!(
             self,
@@ -89,9 +90,12 @@ impl NodeType {
     /// Whether the node's size comes from a measure — text, a replaced
     /// element sized from its natural or default object size (a canvas's
     /// children then laid out in the measured box, Taffy patch 16), or a
-    /// form control whose size the platform decides (LLP 1069.001 D3).
+    /// form control whose size the platform decides (LLP 1069.001 D3), or a
+    /// native module reporting preferred content size (LLP 1024 D4).
     pub fn is_measured_leaf(self) -> bool {
-        self.is_text_leaf() || self.is_replaced() || self == NodeType::Control
+        self.is_text_leaf()
+            || self.is_replaced()
+            || matches!(self, NodeType::Control | NodeType::NativeView)
     }
 
     /// An image, video, `svg`, canvas or iframe: a replaced element, sized
@@ -126,7 +130,8 @@ impl NodeType {
 
     /// Whether this node's children are laid out as boxes: not a paragraph's
     /// inline runs, not an `svg`'s content (LLP 1055 D3), and not a
-    /// `select`'s options (LLP 1069.001 D2).
+    /// `select`'s options (LLP 1069.001 D2) or a native button's face (LLP
+    /// 1069.011 D5).
     pub fn lays_out_children(self) -> bool {
         !matches!(self, NodeType::Text | NodeType::Svg | NodeType::Control)
             && !self.is_svg_element()
@@ -173,7 +178,7 @@ mod tests {
         // A form control is a measured leaf with no natural ratio.
         assert!(NodeType::Control.is_measured_leaf());
         assert!(!NodeType::Control.is_replaced());
-        // Its children are a select's options, never laid out.
+        // Its children are a select's options or a native button's face, never laid out.
         assert!(NodeType::Control.can_hold_children());
         assert!(!NodeType::Control.lays_out_children());
         assert!(NodeType::ScrollView.scrolls_by_default());

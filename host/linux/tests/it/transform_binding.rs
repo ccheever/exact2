@@ -19,11 +19,11 @@ const APP: &str = r#"component App
   state zoom = 2
   state transition = "translate spring(300,30,1), scale spring(300,30,1)"
   state count = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes count
+  action geometry(w: number, h: number, pw: number, ph: number)
     count = count
-  action release(x: number, y: number, s: number, vx: number, vy: number, vs: number) writes count
+  action release(x: number, y: number, s: number, vx: number, vy: number, vs: number)
     count = count + 1
-  action unbind writes binding, transition, x, zoom
+  action unbind
     binding = ""
     transition = "none"
     x = 40
@@ -236,7 +236,7 @@ fn receipt_latest_none_transition_and_target_precede_invalid_binding_cancellatio
 
 #[test]
 fn pair_moves_also_publish_an_unrelated_running_height_projection() {
-    let source = APP.replace("  state binding", "  state height = 180\n  action grow writes height\n    height = 300\n  state binding")
+    let source = APP.replace("  state binding", "  state height = 180\n  action grow\n    height = 300\n  state binding")
         .replace("      button testId=\"unbind\"", "      box testId=\"panel\" position=\"absolute\" bottom=0 width=40 height=height box-sizing=\"border-box\" transition=\"height spring(300,30,1)\"\n      button testId=\"grow\" press=grow\n        text \"grow\"\n      button testId=\"unbind\"");
     let mut h = boot(&source);
     let panel = h.kernel().node_by_key(key(&h, "panel")).unwrap().id;

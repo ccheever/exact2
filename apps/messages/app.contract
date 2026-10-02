@@ -1,933 +1,448 @@
-use PrimaryText from "./palette.contract"
-use AccentText from "./palette.contract"
-use PrimaryIcon from "./palette.contract"
-use PrimaryFill from "./palette.contract"
-use PageSurface from "./palette.contract"
-use PageCanvas from "./palette.contract"
-use Inbox from "./models.contract"
-use NewMessageSheet from "./new-message-sheet.contract"
-use MessageBubble from "./message-parts.contract"
-use NewContactSheet from "./new-contact-sheet.contract"
-use ContactDetails from "./contact-details.contract"
+use Snapshot from "./shapes.contract"
+use Change from "./shapes.contract"
+use Model from "./shapes.contract"
+use Viewport from "./shapes.contract"
+use Time from "./shapes.contract"
+use Ink from "./shapes.contract"
+use Secondary from "./shapes.contract"
+use Canvas from "./shapes.contract"
+use Screen from "./shapes.contract"
+use GlassButton from "./shapes.contract"
+use Avatar from "./shapes.contract"
+use MessageRow from "./bubble.contract"
+use Balloon from "./bubble.contract"
+use Typing from "./bubble.contract"
 
-// Messages: the router owns locations; UIKit owns the keyboard and scrolling.
-// @ref LLP 1038 §6, D8/D11 — state outside nav remains application state.
+// The native stack owns the edge swipe and keyboard cancellation (LLP 1038).
 routes nav
   inbox "/"
     thread "/t/:thread"
-      details "/t/:thread/details"
-        newContact "/t/:thread/contact"
-    compose "/new"
+      reader "/t/:thread/read"
 
 component Messages
-  state ticks = 0
-  derive thread = top(nav).params.thread
-  // A compose overlay keeps the conversation beneath it alive and editable.
-  derive chatThread = (top(nav).name == "compose" ? top(back(nav)).params.thread : thread)
   state query = ""
-  state inboxCursor = ""
-  state inboxShift = 0
-  state inboxMode = "messages"
-  state deletedSelection = ""
-  state deletedCursor = ""
-  state deletedShift = 0
-  state recoveryTargets = ""
-  state recoveryCount = 0
-  state inboxTop = 0
-  derive inboxTitleOpacity = (inboxTop < 44 ? 0 : (inboxTop > 60 ? 1 : (inboxTop - 44) / 16))
-  state swipedThread = ""
-  state swipeOffset = 70
-  state timestampOffset = 0
-  derive timestampDistance = (timestampOffset < 0 ? 0 : (timestampOffset * 0.4 > 58 ? 58 : timestampOffset * 0.4))
-  derive timestampCompensation = timestampOffset - timestampDistance
-  // A cold URL and browser Forward load the destination's saved composer.
-  // Local edits belong to one conversation, including beneath its detail/modal.
+  state generation = 0
+  state time = 0
+  state draft = ""
   state draftThread = ""
-  state draftText = ""
-  derive draft = (draftThread == chatThread ? draftText : (savedComposer.thread == chatThread ? savedComposer.draft : ""))
-  state selecting = false
-  state selection = ""
-  state cursor = ""
-  state windowShift = 0
+  state editing = false
+  state pull = 0
+  state dragging = false
+  state endRequest = 0
   state selected = ""
-  state selectingText = ""
   state selectedBody = ""
-  state selectedRoot = ""
   state selectedOutgoing = false
-  state selectedReaction = ""
-  state selectedTail = false
-  state selectedGroup = false
-  state selectedActions = false
-  state selectedMenuActions = false
-  state selectedPicker = false
-  state selectedPickerVisited = false
-  state selectedEditing = false
-  state replyThread = ""
-  state replyRoot = ""
-  derive replying = (replyThread == chatThread ? replyRoot : (savedComposer.thread == chatThread ? savedComposer.reply : ""))
-  state composerEditing = false
-  state detailsEditing = false
-  state attachments = false
-  derive composing = top(nav).name == "compose"
-  state contactFirst = ""
-  state contactLast = ""
-  state contactCompany = ""
-  state contactPhone = ""
-  state contactEmail = ""
-  state contactNotes = ""
-  state contactPhoneShown = true
-  state contactEmailShown = false
-  state recipientQuery = ""
-  state recipientCursor = ""
-  state recipientShift = 0
-  state recipient = ""
-  state recipientSelection = ""
-  state recipientRemainder = ""
-  state newDraft = ""
-  state showContacts = false
-  mutation change as shape Change
-  derive revision = match change { case some(c) => c.revision, case none => 0 }
-  derive pendingReplies = match change { case some(c) => c.pending, case none => false }
-  derive typingPhase = ticks % 4
-  derive bellPath = "path('M 12 1 C 10 1 10 3 10 3 C 5 4 4 7 4 12 L 4 16 L 1 20 L 23 20 L 20 16 L 20 12 C 20 7 19 4 14 3 C 14 3 14 1 12 1 Z M 8 22 C 8 27 16 27 16 22 Z')"
-  derive trashPath = "path('M 8 1 L 16 1 Q 18 1 18 3 L 18 5 L 23 5 L 23 7 L 21 7 L 19 27 L 5 27 L 3 7 L 1 7 L 1 5 L 6 5 L 6 3 Q 6 1 8 1 Z M 8 3 L 8 5 L 16 5 L 16 3 Z M 6 8 L 7.5 24 L 9.5 24 L 8 8 Z M 11 8 L 11 24 L 13 24 L 13 8 Z M 16 8 L 14.5 24 L 16.5 24 L 18 8 Z')"
-  derive callPath = "path('M 4 0 Q 2 0 1 3 C -3 12 12 27 21 23 Q 24 22 23 20 L 18 16 Q 17 15 15 17 L 13 18 Q 7 15 5 9 L 7 7 Q 9 5 7 3 Z')"
-  derive personPath = "path('M 16 2 C 11 2 8 6 8 11 C 8 16 11 20 16 20 C 21 20 24 16 24 11 C 24 6 21 2 16 2 Z M 2 35 C 2 26 8 22 16 22 C 24 22 30 26 30 35 Z')"
-  derive emojiFacePath = "path('M 12 1 C 5.925 1 1 5.925 1 12 C 1 18.075 5.925 23 12 23 C 18.075 23 23 18.075 23 12 C 23 5.925 18.075 1 12 1 Z M 12 3 C 16.971 3 21 7.029 21 12 C 21 16.971 16.971 21 12 21 C 7.029 21 3 16.971 3 12 C 3 7.029 7.029 3 12 3 Z M 7 9 C 7 7 10 7 10 9 C 10 11 7 11 7 9 Z M 14 9 C 14 7 17 7 17 9 C 17 11 14 11 14 9 Z M 5 13 Q 12 17 19 13 C 18 23 6 23 5 13 Z M 7 16 C 9 20 15 20 17 16 Q 12 18 7 16 Z')"
-  derive outgoingTailPath = "path('M 0 0 L 22 0 C 22 14.4 16.4 11.9 16.4 17.8 C 16.4 18.7 17.7 21.7 18.7 22.4 C 18.6 23.6 18.5 24 16.8 23.6 C 11.6 21.7 0.6 13.2 0 11 Z')"
-  derive incomingTailPath = "path('M 22 0 L 0 0 C 0 14.4 5.6 11.9 5.6 17.8 C 5.6 18.7 4.3 21.7 3.3 22.4 C 3.4 23.6 3.5 24 5.2 23.6 C 10.4 21.7 21.4 13.2 22 11 Z')"
-  resource inbox = inbox(query, revision, inboxCursor) as shape Inbox
-  resource syncStatus = syncState(revision) as shape string
-  resource deletedInbox = recentlyDeleted(deletedSelection, revision, now(), deletedCursor) as shape DeletedInbox
-  resource contacts = recipients(recipient, recipientQuery, revision, recipientCursor) as shape Recipients
-  resource savedComposer = conversationDraft(chatThread, revision) as shape ComposerDraft
-  resource chat = conversation(chatThread, revision, replying, selection, cursor) as shape Conversation
+  state selectedY = 0
+  state selectedHeight = 0
+  state replyBody = ""
+  state fullText = ""
+  state panel = false
+  state choosing = false
+  state newConversation = false
+  state modelQuery = ""
+  state swiped = ""
+  state swipeOffset = 70
+  state inboxEditing = false
+  state flightBody = ""
+  state flightId = ""
+  state flightPhase = 0
+  state flightAt = 0
+  state flightRevision = 0
+  state fieldX = 0
+  state fieldY = 0
+  state fieldWidth = 0
+  state flightX = 0
+  state flightY = 0
+  state flightWidth = 100
+  state flightDelta = 0
+  state flightScale = 1
+  state flightThread = ""
+  state seenChange = 0
+  mutation changed as shape Change refreshes data
+  mutation heartbeat as shape Change refreshes data
+  derive thread = top(nav).params.thread
+  derive revision = generation + (match changed { case some(c) => c.revision, case none => 0 }) + (match heartbeat { case some(c) => c.revision, case none => 0 })
+  derive changeId = match changed { case some(c) => c.id, case none => "" }
+  derive changeRevision = match changed { case some(c) => c.revision, case none => 0 }
+  derive textValue = draftThread == thread ? draft : data.draft
+  derive travel = pull > 0 ? 66 * (1 - 1 / (1 + pull / 66)) : 0
+  resource viewport = exactViewport() as shape Viewport
+  resource wallTime = exactTime() as shape Time
+  resource data = snapshot(query, thread, revision, wallTime.epochAtZero + time, wallTime.utcOffset) as shape Snapshot
+  resource models = catalog(modelQuery, choosing ? 1 : 0) as shape list<Model>
+  derive maximum = min(viewport.width - 121.333, (viewport.width - 32) * 0.85)
 
-  // Negative, changing requests clamp to the top on every explicit shift.
-  // Latest restores end-following; an eager transcript has no retained anchor.
-  action shiftWindow(value: string) writes cursor, windowShift, timestampOffset, selectingText
-    cursor = value
-    windowShift = windowShift + 1
-    timestampOffset = 0
-    selectingText = ""
-  action pageInbox(value: string) writes inboxCursor, inboxShift, swipedThread, inboxTop
-    inboxCursor = value
-    inboxShift = inboxShift + 1
-    swipedThread = ""
-    inboxTop = 0
-  action pageRecipients(value: string) writes recipientCursor, recipientShift
-    recipientCursor = value
-    recipientShift = recipientShift + 1
-  action search(value) writes query, swipedThread, inboxCursor, inboxShift, inboxTop
-    if value != query
-      inboxCursor = ""
-      inboxShift = inboxShift + 1
-      inboxTop = 0
-    query = value
-    swipedThread = ""
-  action filterInbox(value: string) writes inboxMode, deletedSelection, deletedCursor, deletedShift, swipedThread
-    inboxMode = value
-    deletedSelection = ""
-    deletedCursor = ""
-    deletedShift = deletedShift + 1
-    swipedThread = ""
-  action pageDeleted(value: string) writes deletedCursor, deletedShift
-    deletedCursor = value
-    deletedShift = deletedShift + 1
-  action chooseDeleted(value: string) writes deletedSelection
-    deletedSelection = value
-  action prepareRecovery writes recoveryTargets, recoveryCount
-    recoveryTargets = deletedInbox.targets
-    recoveryCount = deletedInbox.count
-  action recoverDeleted writes change, deletedSelection
-    send change = recoverConversations(recoveryTargets, now())
-    deletedSelection = ""
-  action permanentlyDelete writes change, deletedSelection
-    send change = purgeConversations(recoveryTargets, now())
-    deletedSelection = ""
-  action open(id: string, savedDraft: string, savedReply: string) writes nav, selected, change, draftText, draftThread, replyRoot, replyThread, swipedThread, composerEditing, timestampOffset, selectingText, cursor
-    cursor = ""
-    selectingText = ""
-    timestampOffset = 0
-    if swipedThread != ""
-      swipedThread = ""
-    else
-      nav = open(nav, path("thread", id))
-      composerEditing = false
-      selected = ""
-      draftThread = id
-      draftText = savedDraft
-      replyThread = id
-      replyRoot = savedReply
-      send change = markRead(id)
-  action back writes nav, selected, attachments, change, composerEditing, timestampOffset, selecting, selection, selectingText, cursor
-    cursor = ""
-    selectingText = ""
-    selecting = false
-    selection = ""
-    timestampOffset = 0
-    if chatThread != "" and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
-      send change = saveDraft(chatThread, draft, replying)
-    nav = back(nav)
-    composerEditing = false
+  action openThread(id: string, saved: string)
+    nav = open(nav, path("thread", id))
+    draft = saved
+    draftThread = id
+    endRequest = endRequest + 1
+    replyBody = ""
+    panel = false
     selected = ""
-    attachments = false
-  action timestampsScrolled(left: number, top: number) writes timestampOffset
-    timestampOffset = left
-  action inboxListScrolled(left: number, top: number) writes inboxTop
-    inboxTop = top
-  action inboxScrolled(id: string, left: number, top: number) writes swipedThread, swipeOffset
-    if left < 69 or left > 71
-      swipedThread = id
-      swipeOffset = left
-    if left == 70 and swipedThread == id
-      swipedThread = ""
-  action muteThread(id: string) writes change, swipedThread
-    swipedThread = ""
-    send change = muteConversation(id)
-  // The details switch is controlled: it asks for a state, and only a
-  // different one is sent (LLP 1069.001 D4).
-  action setThreadMuted(muted: bool) writes change
-    if muted != chat.muted
-      send change = muteConversation(thread)
-  action blockThread(value: bool) writes change
-    send change = blockConversation(thread, value)
-  action readThread(id: string, unread: bool) writes change, swipedThread
-    swipedThread = ""
-    send change = setConversationUnread(id, unread)
-  action deleteThread(id: string) writes change, swipedThread
-    swipedThread = ""
-    send change = deleteConversation(id, now())
-  action write(value) writes draftText, draftThread
-    draftThread = chatThread
-    draftText = value
-  action sendDraft writes draftText, draftThread, change, attachments, cursor
-    cursor = ""
-    if draft != ""
-      send change = sendMessage(thread, draft, replying, ticks, now())
-      draftThread = chatThread
-      draftText = ""
-      attachments = false
-      focus("composer")
-  action select(id: string, body: string, outgoing: bool, emoji: string, tail: bool, root: string, group: bool, actions: bool) writes selected, selectedBody, selectedOutgoing, selectedReaction, selectedTail, selectedRoot, selectedGroup, selectedActions, selectedEditing, selectedMenuActions, selectedPicker, selectedPickerVisited, selectingText
-    selectingText = ""
+    pull = 0
+    swiped = ""
+    flightPhase = 0
+    send changed = command("read", id, "", wallTime.epochAtZero + now())
+  action back
+    nav = back(nav)
+    panel = false
+    selected = ""
+    choosing = false
+    editing = false
+    flightPhase = 0
+  action navigate(location: string)
+    nav = open(nav, location)
+    draftThread = ""
+    flightPhase = 0
+  action search(value: string)
+    query = value
+  action write(value: string)
+    draft = value
+    draftThread = thread
+    send changed = command("draft", thread, value, wallTime.epochAtZero + now())
+  action focusComposer
+    editing = true
+    endRequest = endRequest + 1
+  action blurComposer
+    editing = false
+  action send
+    if data.busy
+      send changed = command("stop", thread, "", wallTime.epochAtZero + now())
+    else
+      if textValue != ""
+        flightBody = textValue
+        flightThread = thread
+        flightId = ""
+        flightAt = now()
+        flightRevision = changeRevision
+        fieldX = frame("composer-pill").x
+        fieldY = frame("composer-pill").y
+        fieldWidth = frame("composer-pill").width
+        flightPhase = viewport.prefersReducedMotion ? 0 : 1
+        send changed = sendMessage(thread, textValue, replyBody, wallTime.epochAtZero + now())
+        draft = ""
+        draftThread = thread
+        panel = false
+        replyBody = ""
+        endRequest = endRequest + 1
+  action drag(dx: number, dy: number)
+    pull = max(0, pull - dx)
+    dragging = true
+  action release(vx: number, vy: number)
+    pull = 0
+    dragging = false
+  action select(id: string, body: string, outgoing: bool)
+    selectedY = frame(`bubble-${id}`).y
+    selectedHeight = min(320, frame(`bubble-${id}`).height)
     selected = id
     selectedBody = body
-    selectedRoot = root
     selectedOutgoing = outgoing
-    selectedReaction = emoji
-    selectedTail = tail
-    selectedGroup = group
-    selectedActions = actions
-    selectedMenuActions = actions
-    selectedPicker = false
-    selectedPickerVisited = false
-    selectedEditing = composerEditing
-    if actions
-      focus("emoji-return")
-  action menuKey(value) writes selected, selectedPicker
-    if value == "Escape"
-      if selectedPicker
-        selectedPicker = false
-        if not selectedActions and selectedEditing
-          focus("composer")
-        else
-          focus("emoji-return")
-      else
-        selected = ""
-        if (selectedActions or selectedPickerVisited) and selectedEditing
-          focus("composer")
-  action showEmojiPicker writes selectedPicker, selectedPickerVisited, selectedMenuActions
-    selectedPicker = true
-    selectedPickerVisited = true
-    selectedMenuActions = false
-    focus("emoji-input")
-  action closeEmojiPicker writes selectedPicker
-    selectedPicker = false
-    if not selectedActions and selectedEditing
-      focus("composer")
-    else
-      focus("emoji-return")
-  action dismiss writes selected, attachments, selectedPicker
+    panel = false
+    blur("composer")
+  action dismiss
     selected = ""
-    selectedPicker = false
-    if (selectedActions or selectedPickerVisited) and selectedEditing
-      focus("composer")
-    attachments = false
-  action reaction(emoji: string) writes change, selected, selectedPicker
-    send change = react(thread, selected, emoji)
+    panel = false
+    choosing = false
+  action react(glyph: string)
+    send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + now())
     selected = ""
-    selectedPicker = false
-    if (selectedActions or selectedPickerVisited) and selectedEditing
-      focus("composer")
-  action reply writes replyRoot, replyThread, selected
-    replyThread = chatThread
-    replyRoot = selectedRoot
-    selected = ""
-    focus("composer")
-  action copyMessage writes selected, selectedPicker
+  action copy
     copyText(selectedBody)
     selected = ""
-    selectedPicker = false
-    if selectedEditing
-      focus("composer")
-  action selectMessageText writes selected, selectedPicker, selectingText
-    selectingText = selected
+  action reply(id: string, body: string)
+    replyBody = body
     selected = ""
-    selectedPicker = false
-    selectText("selected-message-text")
-  action finishTextSelection writes selectingText
-    selectingText = ""
-  action openReplies(id: string) writes replyRoot, replyThread
-    replyThread = chatThread
-    replyRoot = id
     focus("composer")
-  action cancelReply writes replyRoot, replyThread
-    replyThread = chatThread
-    replyRoot = ""
-  action more writes selecting, selection, selected, timestampOffset, attachments
-    selection = selected
-    selecting = true
+  action cancelReply
+    replyBody = ""
+  action remove
+    send changed = command("delete", thread, selected, wallTime.epochAtZero + now())
     selected = ""
-    timestampOffset = 0
-    attachments = false
-    focus("selection-toolbar")
-  action chooseMessage(value: string) writes selection
-    selection = value
-  action cancelSelection writes selecting, selection
-    selecting = false
-    selection = ""
-  action selectionKey(value) writes selecting, selection
-    if value == "Escape"
-      selecting = false
-      selection = ""
-  action deleteSelected writes change, selecting, selection
-    send change = deleteMessages(thread, selection, now())
-    selecting = false
-    selection = ""
-  action composerFocus writes composerEditing, selectingText
-    composerEditing = true
-    selectingText = ""
-  action composerBlur writes composerEditing
-    composerEditing = false
-  action showDetails writes nav, detailsEditing, selected, attachments, selectingText
-    selectingText = ""
-    detailsEditing = composerEditing
+  action read(body: string)
+    fullText = body
     selected = ""
-    attachments = false
-    nav = push(nav, path("details", thread))
-  action createContact writes nav, contactFirst, contactLast, contactCompany, contactPhone, contactEmail, contactNotes, contactPhoneShown, contactEmailShown
-    contactFirst = ""
-    contactLast = ""
-    contactCompany = ""
-    contactNotes = ""
-    contactPhone = (chat.contactKind == "phone" ? chat.contactAddress : "")
-    contactEmail = (chat.contactKind == "email" ? chat.contactAddress : "")
-    contactPhoneShown = chat.contactKind == "phone"
-    contactEmailShown = chat.contactKind == "email"
-    nav = push(nav, path("newContact", thread))
-    focus("contact-first")
-  action discardContact writes nav
-    nav = back(nav)
-  action saveContact writes nav, change
-    send change = createLocalContact(contactFirst, contactLast, contactCompany, contactPhone, contactEmail, contactNotes)
-    nav = back(nav)
-  action writeContactFirst(value) writes contactFirst
-    contactFirst = value
-  action writeContactLast(value) writes contactLast
-    contactLast = value
-  action writeContactCompany(value) writes contactCompany
-    contactCompany = value
-  action writeContactPhone(value) writes contactPhone
-    contactPhone = value
-  action writeContactEmail(value) writes contactEmail
-    contactEmail = value
-  action writeContactNotes(value) writes contactNotes
-    contactNotes = value
-  action addContactPhone writes contactPhoneShown
-    contactPhoneShown = true
-    focus("contact-phone")
-  action removeContactPhone writes contactPhoneShown, contactPhone
-    contactPhoneShown = false
-    contactPhone = ""
-  action addContactEmail writes contactEmailShown
-    contactEmailShown = true
-    focus("contact-email")
-  action removeContactEmail writes contactEmailShown, contactEmail
-    contactEmailShown = false
-    contactEmail = ""
-  action closeDetails writes nav
-    nav = back(nav)
-    if detailsEditing
-      focus("composer")
-  action showAttachments writes attachments
-    attachments = not attachments
-  action insert(value: string) writes draftText, draftThread, attachments
-    draftText = draft + value
-    draftThread = chatThread
-    attachments = false
-    focus("composer")
-  action newMessage writes nav, recipientQuery, recipient, newDraft, showContacts, recipientSelection, swipedThread, recipientCursor, recipientShift
-    recipientCursor = ""
-    recipientShift = recipientShift + 1
-    swipedThread = ""
-    nav = push(nav, "/new")
-    recipientSelection = ""
-    recipientQuery = ""
-    recipient = ""
-    newDraft = ""
-    showContacts = false
-    focus("recipient-search")
-  action forwardSelected writes nav, selecting, selection, recipientQuery, recipient, newDraft, showContacts, recipientSelection, recipientCursor, recipientShift
-    if chat.selectionCount > 0
-      recipientCursor = ""
-      recipientShift = recipientShift + 1
-      newDraft = chat.selectedText
-      nav = push(nav, "/new")
-      selecting = false
-      selection = ""
-      recipientSelection = ""
-      recipientQuery = ""
-      recipient = ""
-      showContacts = false
-      focus("recipient-search")
-  action cancelNewMessage writes nav
-    nav = back(nav)
-  action searchRecipient(value) writes recipientQuery, recipientSelection, recipient, recipientCursor, recipientShift
-    if value != recipientQuery
-      recipientCursor = ""
-      recipientShift = recipientShift + 1
-    if recipientSelection != "" and value != ""
-      recipient = recipientRemainder
-    recipientQuery = value
-    recipientSelection = ""
-  action chooseRecipient(id: string) writes recipient, recipientQuery, showContacts, recipientSelection, recipientCursor, recipientShift
-    recipientCursor = ""
-    recipientShift = recipientShift + 1
-    recipientSelection = ""
-    recipient = recipient + "|" + id
-    recipientQuery = ""
-    showContacts = false
-    focus("new-composer")
-  action selectRecipient(id: string, remaining: string) writes recipientSelection, recipientRemainder
-    if recipientQuery == ""
-      recipientSelection = id
-      recipientRemainder = remaining
-    focus("recipient-search")
-  action recipientKey(k: string) writes recipient, recipientQuery, recipientSelection, recipientRemainder, showContacts, recipientCursor, recipientShift
-    if k == "Backspace" and recipientQuery == ""
-      recipientCursor = ""
-      recipientShift = recipientShift + 1
-      if recipientSelection == ""
-        recipientSelection = contacts.last
-        recipientRemainder = contacts.withoutLast
-      else
-        recipient = recipientRemainder
-        recipientSelection = ""
-      showContacts = false
-    if k == "Escape"
-      recipientSelection = ""
-    if k == "Enter" and contacts.resolved != ""
-      recipientCursor = ""
-      recipientShift = recipientShift + 1
-      recipient = contacts.resolved
-      recipientQuery = ""
-      recipientSelection = ""
-      showContacts = false
-      focus("new-composer")
-  action clearRecipientSelection writes recipientSelection, recipient, recipientQuery, showContacts, recipientCursor, recipientShift
-    recipientSelection = ""
-    if contacts.resolved != ""
-      recipientCursor = ""
-      recipientShift = recipientShift + 1
-      recipient = contacts.resolved
-      recipientQuery = ""
-      showContacts = false
-  action browseContacts writes showContacts, recipientSelection, recipientCursor, recipientShift
-    recipientCursor = ""
-    recipientShift = recipientShift + 1
-    recipientSelection = ""
-    showContacts = not showContacts
-    focus("recipient-search")
-  action writeNew(value) writes newDraft
-    newDraft = value
-  action sendNewMessage writes change, nav, draftText, draftThread, replyRoot, replyThread, newDraft, timestampOffset, cursor
-    cursor = ""
-    timestampOffset = 0
-    if contacts.canSend and trim(newDraft) != ""
-      if chatThread != "" and chatThread != contacts.target and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
-        send change = saveDraft(chatThread, draft, replying)
-      send change = sendMessage(contacts.target, newDraft, "", ticks, now())
-      nav = open(nav, path("thread", contacts.target))
-      draftThread = contacts.target
-      draftText = ""
-      newDraft = ""
-      replyThread = contacts.target
-      replyRoot = ""
-      focus("composer")
-
-  // Fixture time is explicit and follows the same seekable clock on every host.
-  action tick writes ticks, change
-    if pendingReplies
-      ticks = ticks + 1
-      send change = advanceReplies(ticks + 1, chatThread, now())
-  task replies mount
-    every(300, tick)
-
-  action synchronize writes change
-    send change = syncMessages(now())
-  task synchronization mount
-    every(3000, synchronize)
-
-  action followLink(location: string) writes nav, change, draftThread, replyThread, selected, selecting, selection, selectingText, selectedPicker, composerEditing, detailsEditing, attachments, timestampOffset, swipedThread, cursor
-    cursor = ""
-    if chatThread != "" and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
-      send change = saveDraft(chatThread, draft, replying)
-    draftThread = ""
-    replyThread = ""
-    selected = ""
-    selecting = false
-    selection = ""
-    selectingText = ""
-    selectedPicker = false
-    composerEditing = false
-    detailsEditing = false
-    attachments = false
-    timestampOffset = 0
-    swipedThread = ""
-    // Messages has one active conversation. Opening its ancestry also keeps the
-    // swipe underlay correct instead of rendering every retained thread as chat.
-    nav = open(nav, location)
+    nav = push(nav, path("reader", thread))
+  action togglePanel
+    panel = not panel
+  action operation(op: string)
+    send changed = command(op, thread, "", wallTime.epochAtZero + now())
+    panel = false
+  action jump(end: bool)
+    endRequest = end ? max(1, endRequest + 1) : min(-1, endRequest - 1)
+    panel = false
+  action choose(new: bool)
+    choosing = true
+    newConversation = new
+    modelQuery = ""
+    panel = false
+    blur("composer")
+  action searchModels(value: string)
+    modelQuery = value
+  action model(id: string)
+    send changed = command(newConversation ? "new" : "model", thread, id, wallTime.epochAtZero + now())
+    choosing = false
+  action swipe(id: string)
+    swiped = swiped == id ? "" : id
+    swipeOffset = 200
+  action inboxScrolled(id: string, x: number, y: number)
+    swiped = id
+    swipeOffset = x
+  action editInbox
+    inboxEditing = not inboxEditing
+    swiped = ""
+  action inboxOperation(op: string, id: string)
+    send changed = command(op, id, "", wallTime.epochAtZero + now())
+    swiped = ""
+  action poll
+    time = now()
+    if not pending(heartbeat)
+      send heartbeat = pulse(wallTime.epochAtZero + now())
+  task network mount
+    every(250, poll)
+  // Geometry is read once after the new balloon has laid out. Motion is
+  // then evaluated by Exact's spring, with the reference's 55 ms throw delay.
+  action animate
+    if flightBody != "" and now() - flightAt < 6000
+      time = now()
+    if changeRevision != seenChange
+      seenChange = changeRevision
+      if newConversation and changeId != ""
+        nav = open(nav, path("thread", changeId))
+        draft = ""
+        draftThread = changeId
+        newConversation = false
+    if flightPhase == 1 and changeRevision != flightRevision and changeId != "" and now() - flightAt > 30
+      if not frame(`bubble-${changeId}`).unavailable
+        flightId = changeId
+        flightX = frame(`bubble-${changeId}`).x
+        flightY = frame(`bubble-${changeId}`).y
+        flightWidth = frame(`bubble-${changeId}`).width
+        flightDelta = fieldY - frame(`bubble-${changeId}`).y
+        flightScale = min(2.5, fieldWidth / max(48, frame(`bubble-${changeId}`).width))
+        flightPhase = 2
+        flightAt = now()
+    if flightPhase == 2 and now() - flightAt >= 16
+      flightScale = 0.77
+      flightPhase = 3
+    if flightPhase == 3 and now() - flightAt >= 55
+      flightDelta = 0
+      flightPhase = 4
+    if flightPhase == 4 and now() - flightAt >= 177
+      flightScale = 1
+      flightPhase = 5
+    if flightPhase == 5 and now() - flightAt >= 800
+      flightPhase = 0
+    if flightPhase == 1 and now() - flightAt > 2000
+      flightPhase = 0
+  task motion mount
+    every(frame, animate)
 
   view
-    main testId="messages" navigationKey=`${top(nav).id}` navigationBack="back" navigate=followLink viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" class=PageCanvas font-family="system-ui"
-      each e in stack(nav) key=e.id
-        when e.name == "inbox"
-          column navigationKey=`${e.id}` testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            when inboxMode == "messages"
-              column position="relative" flex=1 min-height=0
-                row testId="inbox-title-bar" position="absolute" top=0 left=0 right=0 z-index=1 padding-left=20 padding-right=20 height=44 align-items="center" justify-content="space-between" backgroundMaterial="ultra-thin" opacity=inboxTitleOpacity
-                  text "Messages" testId="inbox-title-compact" font-size=17 font-weight=600 flex=1 text-align="center"
-                scroll scroll=inboxListScrolled scrollTop=(0 - inboxShift) testId="conversation-list" flex=1 min-height=0
-                  column
-                    column testId="inbox-title-area" padding-top=57 padding-bottom=8 padding-left=16 padding-right=16
-                      text "Messages" testId="inbox-title-large" font-size=34 font-weight=700 line-height="41px" opacity=(1 - inboxTitleOpacity)
-                    when inbox.earlier != ""
-                      button press=pageInbox(inbox.earlier) testId="previous-conversations" padding=16
-                        text "Previous conversations" font-size=14 class=AccentText
-                    each person in inbox.people key=person.id
-                      scroll swipeContent=`conversation-${person.id}` swipeLeading=`read-thread-${person.id}` swipeTrailing=`delete-thread-${person.id} mute-${person.id}` scroll=inboxScrolled(person.id) testId=`thread-swipe-${person.id}` width="100%" height=86.6667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(swipedThread == person.id ? swipeOffset : 70)
-                        row width="100%" height=86.6667
-                          row testId=`thread-read-action-${person.id}` width=70 height=86.6667 flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=10 padding-right=10 align-items="center"
-                            button press=readThread(person.id, not person.unread) id=`read-thread-${person.id}` testId=`read-thread-${person.id}` aria-label=(person.unread ? "Mark as Read" : "Mark as Unread") width=50 height=50 border-radius=25 background-color="#0088ff" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                              box position="relative" width=24 height=22
-                                box width=24 height=22 background-color="#ffffff" clip-path="path('M 12 2 C 5.5 2 0 5.8 0 11 C 0 13.4 1.3 15.6 3.3 17.2 L 1.8 21 L 7.3 19.4 C 8.7 19.8 10.3 20 12 20 C 18.6 20 24 16 24 11 C 24 5.8 18.6 2 12 2 Z')"
-                                when not person.unread
-                                  box position="absolute" right=-1 top=0 width=9 height=9 border-radius=5 background-color="#0088ff" display="flex" align-items="center" justify-content="center"
-                                    box width=4 height=4 border-radius=3 border-style="solid" border-width=1.5 border-color="#ffffff"
-                          button background-color=(swipedThread == person.id ? "light-dark(#e5e5ea, #2c2c2e)" : "light-dark(#ffffff, #000000)") border-radius=(swipedThread == person.id ? 28 : 0) press=open(person.id, person.draft, person.reply) id=`conversation-${person.id}` testId=`conversation-${person.id}` aria-label=`${person.name}, ${person.preview}` display="flex" flex-direction="row" align-items="center" width="100%" flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=11 padding-right=16 height=86.6667 gap=8
-                            box testId=`unread-dot-${person.id}` width=7 height=7 border-radius=4 background-color=(person.unread ? "light-dark(#007aff, #0a84ff)" : "#00000000") flex-shrink=0
-                            column width=45 height=45 border-radius=22.5 background-color=person.color justify-content="center" align-items="center" flex-shrink=0
-                              when person.initials != ""
-                                text person.initials font-size=20 color="#ffffff" font-weight=500
-                              else
-                                box width=32 height=36 scale=0.65 clip-path=personPath background-color="#ffffff"
-                            column flex=1 min-width=0 height=86.6667 box-sizing="border-box" padding-top=13 padding-bottom=10 margin-left=4 border-bottom-style="solid" border-bottom-width=0.6667 border-color=(swipedThread == person.id ? "#00000000" : "light-dark(#d9d9dc, #38383a)") gap=0
-                              row justify-content="space-between" gap=8 align-items="center" height=20.3333 flex-shrink=0
-                                text person.name testId=`conversation-name-${person.id}` line-height="20.3333px" font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
-                                when person.muted
-                                  box position="relative" testId=`muted-${person.id}` width=12 height=14 flex-shrink=0
-                                    box width=24 height=28 scale=0.5 position="absolute" left=-6 top=-7 clip-path=bellPath background-color="#8e8e93"
-                                    box position="absolute" left=5 top=-1 width=1.5 height=16 rotate=-45 background-color="#8e8e93"
-                                text person.time font-size=14 color="#8e8e93"
-                                text "›" font-size=21 color="light-dark(#c7c7cc, #48484a)"
-                              text (person.draft != "" ? `Draft: ${person.draft}` : person.preview) testId=`conversation-preview-${person.id}` font-size=15 color="#8e8e93" line-clamp=2 line-height="20.3333px" text-align="left" flex-shrink=0
-                          row testId=`thread-actions-${person.id}` width=130 height=86.6667 flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=10 padding-right=10 gap=10 align-items="center"
-                            button press=muteThread(person.id) id=`mute-${person.id}` testId=`mute-${person.id}` aria-label=(person.muted ? "Show Alerts" : "Hide Alerts") width=50 height=50 border-radius=25 background-color="light-dark(#6155f5, #6d7cff)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                              box width=24 height=28 scale=0.75
-                                box width=24 height=28 clip-path=bellPath background-color="#ffffff"
-                                when not person.muted
-                                  box position="absolute" left=10 top=-3 width=5 height=34 rotate=-45 background-color="light-dark(#6155f5, #6d7cff)"
-                                  box position="absolute" left=11.5 top=-3 width=2 height=34 rotate=-45 background-color="#ffffff"
-                            button destructive=true press=deleteThread(person.id) id=`delete-thread-${person.id}` testId=`delete-thread-${person.id}` aria-label=`Delete conversation with ${person.name}` width=50 height=50 border-radius=25 background-color="light-dark(#ff383c, #ff4245)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                              box width=24 height=28 scale=0.75 clip-path=trashPath background-color="#ffffff"
-                    when inbox.later != ""
-                      button press=pageInbox(inbox.later) testId="more-conversations" padding=16
-                        text "More conversations" font-size=14 class=AccentText
-                    when length(inbox.people) == 0
-                      text "No Results" text-align="center" padding=40 font-size=20 font-weight=600 color="#8e8e93"
-                    text syncStatus testId="sync-status" text-align="center" padding=16 font-size=12 color="#8e8e93"
-                row margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0
-                  row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
-                    image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 class=PrimaryIcon
-                    input id="search" testId="search" value=query input=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
-                    button disabled=true testId="search-dictation" aria-label="Dictate search" width=28 height=40 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                      image "symbol:microphone" font-size=17 font-weight=400 class=PrimaryIcon
-                  button press=newMessage testId="new-message" aria-label="New message" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                    image "symbol:compose" testId="compose-symbol" font-size=22 font-weight=400 class=PrimaryIcon
-                box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
-            when inboxMode == "deleted"
-              column testId="recently-deleted-screen" flex=1 min-height=0
-                row height=54 align-items="center" justify-content="center" flex-shrink=0
-                  text "Recently Deleted" font-size=17 font-weight=600
-                scroll scrollTop=(0 - deletedShift) testId="deleted-conversations" flex=1 min-height=0
-                  column
-                    text "Conversations show the days remaining before deletion. After that time, messages will be permanently deleted. This may take up to 40 days." font-size=13 line-height="18px" color="light-dark(#8e8e93, #98989d)" text-align="center" padding-top=24 padding-bottom=20 padding-left=24 padding-right=24
-                    when deletedInbox.earlier != ""
-                      button press=pageDeleted(deletedInbox.earlier) testId="previous-deleted-conversations" padding=16
-                        text "Previous conversations" class=AccentText
-                    each person in deletedInbox.people key=person.id
-                      button press=chooseDeleted(person.selection) testId=`deleted-${person.id}` aria-label=`${person.name}, ${person.count} messages, ${person.days} days remaining` aria-checked=person.chosen height=86.6667 width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" padding-left=16 padding-right=16 gap=16 background-color=(person.chosen ? "light-dark(#d1d1d6, #3a3a3c)" : "#00000000")
-                        column width=22 height=22 box-sizing="border-box" border-radius=11 border-style="solid" border-width=(person.chosen ? 0 : 1.5) border-color="light-dark(#c7c7cc, #636366)" background-color=(person.chosen ? "#0088ff" : "#00000000") align-items="center" justify-content="center" flex-shrink=0
-                          when person.chosen
-                            box width=12 height=12 clip-path="path('M 1 6 L 4 9 L 11 1 L 12 2 L 4 12 L 0 7 Z')" background-color="#ffffff"
-                        column width=44 height=44 border-radius=22 background-color=person.color align-items="center" justify-content="center" flex-shrink=0
-                          text person.initials font-size=18 font-weight=500 color="#ffffff"
-                        column flex=1 min-width=0 align-self="stretch" justify-content="center" border-bottom-style="solid" border-bottom-width=(person.chosen ? 0 : 0.5) border-color="light-dark(#d9d9dc, #38383a)"
-                          row align-items="baseline" gap=8
-                            text person.name font-size=17 font-weight=600 line-clamp=1 flex=1 min-width=0
-                            text `${person.days} Days` font-size=15 color="light-dark(#8e8e93, #98989d)" flex-shrink=0
-                          text (person.count == 1 ? "1 Message" : `${person.count} Messages`) font-size=15 color="light-dark(#8e8e93, #98989d)" margin-top=2
-                    when deletedInbox.later != ""
-                      button press=pageDeleted(deletedInbox.later) testId="more-deleted-conversations" padding=16
-                        text "More conversations" class=AccentText
-                row height=54 flex-shrink=0 padding-left=28 padding-right=28 align-items="center" justify-content="space-between"
-                  button press=prepareRecovery popovertarget="recover-confirmation" disabled=(deletedInbox.count == 0) testId="recover-deleted" aria-label=(deletedSelection == "" ? "Recover All" : "Recover") height=48 padding-left=16 padding-right=16 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" color=(deletedInbox.count == 0 ? "light-dark(#b4b4b7, #636366)" : "light-dark(#000000, #ffffff)")
-                    text (deletedSelection == "" ? "Recover All" : "Recover") font-size=17
-                  button press=prepareRecovery popovertarget="purge-confirmation" disabled=(deletedInbox.count == 0) testId="purge-deleted" aria-label=(deletedSelection == "" ? "Delete All" : "Delete") width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    box width=24 height=28 clip-path=trashPath background-color=(deletedInbox.count == 0 ? "light-dark(#b4b4b7, #636366)" : "light-dark(#000000, #ffffff)")
-                box height="calc(env(safe-area-inset-bottom) - 6px)" min-height=0 flex-shrink=0
-            button popovertarget="inbox-filters" testId="inbox-filters-button" aria-label="Filter messages" position="absolute" top="env(safe-area-inset-top)" right=16 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=2
-              column width=22 gap=4 align-items="center"
-                box width=22 height=1.5 border-radius=1 class=PrimaryFill
-                box width=16 height=1.5 border-radius=1 class=PrimaryFill
-                box width=10 height=1.5 border-radius=1 class=PrimaryFill
-            column id="inbox-filters" popover="auto" position="absolute" role="menu" aria-label="Filter messages" width=250 padding=8 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
-              button press=filterInbox("messages") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "messages") testId="filter-messages" height=44 justify-content="center" padding-left=16 padding-right=16
-                text "Messages" font-size=17
-              button press=filterInbox("deleted") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "deleted") testId="filter-deleted" height=44 justify-content="center" padding-left=16 padding-right=16
-                text "Recently Deleted" font-size=17
-            column id="recover-confirmation" popover="auto" position="absolute" role="alertdialog" aria-label="Recover messages" width=240 box-sizing="border-box" padding=16 gap=16 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
-              text "These messages will be recovered." font-size=17
-              button press=recoverDeleted popovertarget="recover-confirmation" popovertargetaction="hide" testId="confirm-recover" class=AccentText background-color="#0088ff" height=48 justify-content="center" border-radius=24
-                text (recoveryCount == 1 ? "Recover Message" : `Recover ${recoveryCount} Messages`) font-size=17 font-weight=600 color="#ffffff"
-              button popovertarget="recover-confirmation" popovertargetaction="hide" testId="cancel-recover" height=44 justify-content="center"
-                text "Cancel" font-size=17
-            column id="purge-confirmation" popover="auto" position="absolute" role="alertdialog" aria-label="Permanently delete messages" width=240 box-sizing="border-box" padding=16 gap=16 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
-              text "These messages will be permanently deleted. This action cannot be undone." font-size=17
-              button destructive=true press=permanentlyDelete popovertarget="purge-confirmation" popovertargetaction="hide" testId="confirm-purge" color="light-dark(#ff383c, #ff4245)" height=48 justify-content="center" border-radius=24
-                text (recoveryCount == 1 ? "Delete Message" : `Delete ${recoveryCount} Messages`) font-size=17 font-weight=600
-              button popovertarget="purge-confirmation" popovertargetaction="hide" testId="cancel-purge" height=44 justify-content="center"
-                text "Cancel" font-size=17
-        when e.name == "thread"
-          column navigationKey=`${e.id}` testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            row position="relative" testId="conversation-header" height=95.333333 flex-shrink=0 align-items="flex-start" justify-content="center" padding-left=16 padding-right=16
-              button press=back disabled=composing id="back" testId="back" aria-label="Back to Messages" position="absolute" left=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display=(replying == "" and not selecting ? "flex" : "none") flex-direction="row" align-items="center" justify-content="center"
-                image "symbol:back" font-size=20 font-weight=600 class=PrimaryIcon
-              when replying != "" and not selecting
-                button press=cancelReply testId="close-reply-thread" aria-label="Close replies" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=2
-                  image "symbol:close" testId="close-symbol" font-size=20 font-weight=500 class=PrimaryIcon
-              when selecting
-                button press=cancelSelection testId="cancel-selection" aria-label="Cancel message selection" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=2
-                  image "symbol:close" font-size=20 font-weight=500 class=PrimaryIcon
-              button press=showDetails retainFocus=true disabled=selecting testId="contact-details" aria-label=`Contact information for ${chat.name}` max-width="70%" display="flex" flex-direction="column" align-items="center"
-                column id="contact-photo" width=60 height=60 border-radius=30 background-color=chat.color align-items="center" justify-content="center" z-index=1
-                  when chat.initials != ""
-                    text chat.initials color="#ffffff" font-size=26 font-weight=600
+    main testId="messages" id="messages-root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" display="flex" flex-direction="column" overflow="hidden" class=Canvas font-family="system-ui" color="light-dark(#000000, #ffffff)"
+      each entry in stack(nav) key=entry.id
+        column navigationKey=`${entry.id}` class=Screen height=viewport.height
+          when entry.name == "inbox"
+            column testId="inbox" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
+              row height=48 padding-left=20 padding-right=16 justify-content="space-between" align-items="center" flex-shrink=0
+                button press=editInbox testId="edit-inbox" padding=4
+                  text (inboxEditing ? "Done" : "Edit") font-size=17
+                button press=choose(true) testId="compose" aria-label="New message" class=NativeGlass
+                  image "symbol:compose"
+              text "Messages" font-size=34 font-weight=700 letter-spacing=-0.7 margin-left=20 margin-bottom=12 margin-top=4
+              row margin-left=16 margin-right=16 margin-bottom=12 border-radius=12 height=36 background-color="light-dark(#efeff0, #1c1c1e)" align-items="center" gap=7 padding-left=10 padding-right=10 flex-shrink=0
+                image "symbol:search" font-size=16 tint-color="#8e8e93"
+                input value=query input=search placeholder="Search" testId="search" aria-label="Search conversations" font-size=17 flex=1 min-width=0 border-width=0 background-color="#00000000" class=Ink
+              scroll flex=1 min-height=0 testId="inbox-list"
+                each t in data.threads key=t.id
+                  when inboxEditing
+                    row height=86.667 padding-left=16 padding-right=16 gap=12 align-items="center" box-sizing="border-box"
+                      Avatar(initials=t.initials, color=t.color, size=44)
+                      text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
+                      button press=inboxOperation("mute", t.id) testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") class=GlassButton backgroundMaterial="glass"
+                        image "symbol:notifications" font-size=18 tint-color="#5856d6"
+                      button press=inboxOperation("delete-thread", t.id) testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` class=GlassButton backgroundMaterial="glass"
+                        image "symbol:delete" font-size=18 tint-color="#ff3b30"
                   else
-                    box width=32 height=36 scale=0.8 clip-path=personPath background-color="#ffffff"
-                row max-width="100%" box-sizing="border-box" padding-left=14 padding-right=12 height=32 margin-top=-5 border-radius=16 backgroundMaterial="glass" align-items="center" gap=6
-                  text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 class=PrimaryText
-                  text "›" font-size=22 font-weight=600 color="light-dark(#b4b4b7, #8e8e93)"
-            column position="relative" testId="conversation-body" flex=1 min-height=0
-              scroll testId="transcript" scrollFollowEnd=(cursor == "") keyboardDismissMode="interactive" scrollTop=(cursor == "" ? 1000000 + chat.scrollRevision : 0 - windowShift) flex=1 min-height=0 overflow-x="hidden"
-                scroll scroll=timestampsScrolled testId="timestamp-reveal" width="100%" overflow-x=(selecting ? "hidden" : "scroll") overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-                  row width="200%"
-                    column scroll-snap-align="start" width="50%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=14 padding-bottom=14 gap=4
-                      when chat.hasEarlier
-                        button position="relative" press=shiftWindow(chat.earlier) testId="show-earlier-messages" left=timestampOffset padding=12
-                          text "Show earlier messages" font-size=14 class=AccentText
-                      when length(chat.messages) > 0 and not chat.hasEarlier
-                        column position="relative" testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
-                          text "iMessage" font-size=11 line-height="13.333333px" color="#8e8e93"
-                          row testId="conversation-encryption" align-items="center" gap=4.333333 height=13.333333
-                            box width=6 height=8.333333 background-color="#8e8e93" clip-path="path('M 1 3.333 L 1 2.167 C 1 0.972 1.895 0 3 0 C 4.105 0 5 0.972 5 2.167 L 5 3.333 L 5.333 3.333 Q 6 3.333 6 4 L 6 7.667 Q 6 8.333 5.333 8.333 L 0.667 8.333 Q 0 8.333 0 7.667 L 0 4 Q 0 3.333 0.667 3.333 Z M 2 3.333 L 4 3.333 L 4 2.167 C 4 1.522 3.552 1 3 1 C 2.448 1 2 1.522 2 2.167 Z')"
-                            text "Encrypted" font-size=11 line-height="13.333333px" color="#8e8e93"
-                      each message in chat.messages key=message.id
-                        when message.timeLabel != ""
-                          text position="relative" message.timeLabel testId=`time-label-${message.id}` left=timestampOffset font-size=11 line-height="13.333333px" color="#8e8e93" text-align="center" margin-bottom=2.666667
-                        column position="relative" testId=`message-row-${message.id}` left=(timestampCompensation + (selecting and not message.outgoing ? 40.666667 : 0)) align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box" margin-top=(message.reactionCount > 0 ? 13 : 0) margin-bottom=(message.tail ? 6 : 0)
-                          when message.showSender
-                            text message.senderName testId=`sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
-                          when message.senderName != "" and message.tail
-                            column testId=`avatar-${message.id}` position="absolute" left=4 bottom=(message.replyCount > 0 ? 28 : 0) width=32 height=32 border-radius=16 background-color=message.senderColor align-items="center" justify-content="center"
-                              when message.senderInitials != ""
-                                text message.senderInitials font-size=12 color="#ffffff" font-weight=600
-                              else
-                                box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
-                          when message.reply != ""
-                            text message.reply font-size=13 color="#8e8e93" max-width="75%" border-left-style="solid" border-left-width=2 border-color="light-dark(#c7c7cc, #48484a)" padding-left=8 margin-bottom=5 line-clamp=2
-                          row position="relative" width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
-                            MessageBubble(
-                              message=message,
-                              bubbleId=`bubble-${message.id}`,
-                              swipeId=`swipe-indicator-${message.id}`,
-                              reactionPrefix="reaction",
-                              hidden=(selected == message.id and replying == ""),
-                              selectingText=(selectingText == message.id and replying == ""),
-                              outgoingTailPath=outgoingTailPath,
-                              incomingTailPath=incomingTailPath,
-                              openReplies=openReplies(message.replyRoot),
-                              showActions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true),
-                              showReactions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false),
-                              finishTextSelection=finishTextSelection,
-                            )
-                            when selecting
-                              button press=chooseMessage(message.selection) retainFocus=true testId=`selection-toggle-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" left=(message.outgoing ? -8 : (message.senderName != "" ? -92.666667 : -48.666667)) top="50%" margin-top=-16 width=32 height=32 z-index=4 display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                column testId=`selection-circle-${message.id}` width=22 height=22 border-radius=11 background-color=(message.chosen ? "light-dark(#007aff, #0a84ff)" : "light-dark(#c7c7cc, #48484a)") align-items="center" justify-content="center"
-                                  when message.chosen
-                                    box width=12 height=12 clip-path="path('M 0 6 L 2 4 L 5 8 L 10 0 L 12 1 L 5 12 Z')" background-color="#ffffff"
-                                  else
-                                    box width=19 height=19 border-radius=9.5 class=PageSurface
-                            column position="absolute" left="100%" margin-left=8 top=0 bottom=0 width=50 opacity=(timestampDistance > 0 ? 1 : 0) justify-content="center"
-                              text message.time testId=`timestamp-${message.id}` font-size=11 line-height="14px" color="#8e8e93" text-align="right"
-                          when message.delivery != ""
-                            text message.delivery testId=`delivery-status-${message.id}` opacity=(selecting or (selected == message.id and replying == "") ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
-                          when message.replyCount > 0
-                            button press=openReplies(message.replyRoot) testId=`replies-${message.id}` margin-top=5 margin-left=6 margin-right=6 padding=3
-                              text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 class=AccentText
-                          when selecting
-                            button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" justify-content="center" z-index=3
-                      when chat.hasLater
-                        button position="relative" press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
-                          text "Show later messages" font-size=14 class=AccentText
-                      when cursor != "" and (chat.hasEarlier or chat.hasLater)
-                        button position="relative" press=shiftWindow("") testId="show-latest-messages" left=timestampOffset padding=12
-                          text "Show latest messages" font-size=14 class=AccentText
-                      when chat.typingName != ""
-                        row position="relative" testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
-                          TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="typing")
-                    box width="50%"
-              when replying != "" and not selecting
-                column testId="reply-thread" z-index=2 position="absolute" top=0 right=0 bottom=0 left=0 backgroundMaterial="ultra-thin" justify-content="center"
-                  button press=cancelReply testId="dismiss-reply-thread" aria-label="Return to conversation" position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" justify-content="center"
-                  scroll testId="reply-messages" max-height="100%" width="100%" scrollFollowEnd=true scrollTop=(1000000 + chat.scrollRevision) keyboardDismissMode="interactive" overflow-x="hidden"
-                    column padding=16 gap=12
-                      each message in chat.replies key=message.id
-                        column
-                          when message.timeLabel != ""
-                            text message.timeLabel testId=`reply-time-label-${message.id}` font-size=11 color="#8e8e93" align-self="center" margin-bottom=8
-                          column position="relative" align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box"
-                            when message.showSender
-                              text message.senderName testId=`reply-sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
-                            when message.senderName != "" and message.tail
-                              column testId=`reply-avatar-${message.id}` position="absolute" left=4 bottom=0 width=32 height=32 border-radius=16 background-color=message.senderColor align-items="center" justify-content="center"
-                                when message.senderInitials != ""
-                                  text message.senderInitials font-size=12 color="#ffffff" font-weight=600
-                                else
-                                  box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
-                            row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
-                              MessageBubble(
-                                message=message,
-                                bubbleId=`reply-bubble-${message.id}`,
-                                swipeId=`reply-swipe-indicator-${message.id}`,
-                                reactionPrefix="reply-reaction",
-                                hidden=(selected == message.id),
-                                selectingText=(selectingText == message.id),
-                                outgoingTailPath=outgoingTailPath,
-                                incomingTailPath=incomingTailPath,
-                                openReplies=openReplies(message.replyRoot),
-                                showActions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true),
-                                showReactions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false),
-                                finishTextSelection=finishTextSelection,
-                              )
-                            when message.delivery != ""
-                              text message.delivery testId=`reply-delivery-status-${message.id}` opacity=(selected == message.id ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
-                      when chat.typingName != "" and chat.typingRoot == replying
-                        row testId="reply-typing-indicator" aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
-                          TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="reply-typing")
-            when attachments and not selecting
-              row testId="attachments" gap=16 padding=16 justify-content="center" background-color="light-dark(#f2f2f7, #1c1c1e)" flex-shrink=0
-                button press=insert("😊") retainFocus=true testId="insert-smile" padding=12 border-radius=14 class=PageSurface
-                  text "😊" font-size=30
-                button press=insert("❤️") retainFocus=true testId="insert-heart" padding=12 border-radius=14 class=PageSurface
-                  text "❤️" font-size=30
-                button press=insert("☕️") retainFocus=true testId="insert-coffee" padding=12 border-radius=14 class=PageSurface
-                  text "☕️" font-size=30
-            column testId="composer-bar" display=(selecting ? "none" : "flex") padding-left=16 padding-right=16 padding-top=0 padding-bottom=16 flex-shrink=1 min-height=40.333333 class=PageSurface
-              row align-items="flex-end" min-height=0
-                box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
-                row flex=1 min-width=0 gap=12 align-items="flex-end" align-self="stretch" max-height="100%"
-                  button press=showAttachments retainFocus=true testId="add" aria-label="Add attachment" width=40 height=40 display="flex" flex-direction="row" justify-content="center" align-items="center" border-radius=20 backgroundMaterial="glass"
-                    image "symbol:add" font-size=22 font-weight=400 rotate=(attachments ? 45 : 0) class=PrimaryIcon
-                  row testId="composer-surface" flex=1 min-width=0 min-height=40.333333 max-height="100%" align-self="stretch" box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6.333333 padding-top=6 padding-bottom=6 gap=5
-                    textarea id="composer" testId="composer" value=draft input=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
-                    button press=sendDraft retainFocus=true disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=38 height=28 box-sizing="border-box" padding-left=(draft == "" ? 10 : 0) border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" flex-direction="row" align-items="center" justify-content="center"
-                      when draft == ""
-                        image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
+                    scroll swipeContent=`conversation-${t.id}` swipeLeading=`unread-${t.id}` swipeTrailing=`delete-thread-${t.id} mute-${t.id}` scroll=inboxScrolled(t.id) testId=`thread-swipe-${t.id}` width="100%" height=86.667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(inboxEditing ? 200 : (swiped == t.id ? swipeOffset : 70))
+                      row width="100%" height=86.667
+                        row width=70 height=86.667 flex-shrink=0 scroll-snap-align="start" align-items="center" justify-content="center"
+                          button press=inboxOperation("unread", t.id) id=`unread-${t.id}` testId=`unread-${t.id}` aria-label=(t.unread ? "Mark as read" : "Mark as unread") width=50 height=50 border-radius=25 background-color="#0088ff" justify-content="center"
+                            text "●" font-size=24 color="#ffffff"
+                        button press=openThread(t.id, t.draft) contextmenu=swipe(t.id) id=`conversation-${t.id}` testId=`conversation-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" height=86.667 flex-shrink=0 scroll-snap-align="start" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 padding-right=16 box-sizing="border-box" class=Canvas
+                          Avatar(initials=t.initials, color=t.color, size=54)
+                          column flex=1 min-width=0 align-self="stretch" justify-content="center" border-bottom-width=0.333 border-bottom-style="solid" border-color="light-dark(#d1d1d6, #38383a)" padding-top=12 padding-bottom=12
+                            row align-items="center" gap=4 margin-bottom=4
+                              when t.unread
+                                box width=7 height=7 border-radius=4 background-color="#0088ff"
+                              text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1 text-align="left"
+                              when t.muted
+                                image "symbol:notifications" font-size=12 tint-color="#8e8e93"
+                              text t.time font-size=14 class=Secondary
+                              text "›" font-size=19 class=Secondary
+                            text t.preview font-size=15 line-height="20px" class=Secondary line-clamp=2 text-align="left"
+                        row width=130 height=86.667 flex-shrink=0 scroll-snap-align="start" padding-left=10 padding-right=10 gap=10 box-sizing="border-box" align-items="center"
+                          // The platform's own buttons (LLP 1069.011.000 D6): on iOS the swipe's
+                          // actions, drawn from their symbols and accents; elsewhere filled circles.
+                          button appearance="auto" buttonStyle="filled" accent-color="#5856d6" press=inboxOperation("mute", t.id) id=`mute-${t.id}` testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") width=50 height=50 flex-shrink=0
+                            image "symbol:notifications"
+                          button appearance="auto" buttonStyle="filled" accent-color="#ff3b30" destructive=true press=inboxOperation("delete-thread", t.id) id=`delete-thread-${t.id}` testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` width=50 height=50 flex-shrink=0
+                            image "symbol:delete"
+                when length(data.threads) == 0
+                  text "No Results" font-size=20 font-weight=600 text-align="center" margin-top=70
+              text (data.connected ? "OpenRouter connected" : "AI connects through your Mac") font-size=11 class=Secondary text-align="center" padding=12
+              box height="env(safe-area-inset-bottom)" flex-shrink=0
+          when entry.name == "thread"
+            column testId="conversation" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
+              row height=44 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" flex-shrink=0 z-index=3
+                button press=back testId="back" aria-label="Back to Messages" class=NativeGlass
+                  image "symbol:back"
+                button press=choose(false) disabled=(thread == "demo" or data.busy) testId="model-button" max-width="70%" display="flex" flex-direction="row" align-items="center" justify-content="center" gap=5
+                  text data.name font-size=17 font-weight=600 line-clamp=1
+                  when thread != "demo"
+                    text "⌄" font-size=14 class=Secondary
+                box width=40 height=40
+              scroll id="transcript" testId="transcript" flex=1 min-height=0 overflow-x="hidden" keyboardDismissMode="interactive" scrollFollowEnd=true scrollTop=(endRequest >= 0 ? 1000000 + endRequest : endRequest) pan=drag panrelease=release touch-action="pan-y"
+                column padding-top=15.667 padding-bottom=16
+                  each m in data.messages key=m.id
+                    MessageRow(m=m, maximum=maximum, group=(thread == "demo"), travel=travel, dragging=dragging, reduced=viewport.prefersReducedMotion, hidden=(selected == m.id or (flightPhase >= 2 and flightId == m.id and flightThread == thread)), select=select, reply=reply, read=read)
+                  when data.typing
+                    Typing(reduced=viewport.prefersReducedMotion)
+                  when data.error != ""
+                    column margin-top=12 margin-left=24 margin-right=24 gap=8 align-items="center"
+                      text data.error font-size=13 line-height="18px" color="#ff3b30" text-align="center"
+                      button press=operation("retry") testId="retry" padding=8
+                        text "Try Again" font-size=15 color="#0088ff"
+                  when data.count == 0
+                    column padding-top=40 padding-left=36 padding-right=36 align-items="center" gap=12
+                      Avatar(initials=data.initials, color=data.color, size=64)
+                      text data.name font-size=20 font-weight=600
+                      text "Start a conversation. Your messages are sent to this model through OpenRouter." font-size=15 line-height="21px" class=Secondary text-align="center"
+              column id="composer-bar" testId="composer-bar" position="relative" flex-shrink=0 padding-left=16 padding-right=16 padding-top=0 padding-bottom=(editing ? 16 : 12) backgroundMaterial="ultra-thin"
+                when data.notice != ""
+                  text data.notice font-size=11 color="#ff3b30" text-align="center" margin-bottom=8
+                when replyBody != ""
+                  row align-items="center" gap=8 margin-left=52 margin-bottom=8 padding-left=12 border-left-width=2 border-left-style="solid" border-color="#0088ff"
+                    column flex=1 min-width=0
+                      text "Replying to" font-size=11 color="#0088ff"
+                      text replyBody font-size=13 class=Secondary line-clamp=2
+                    button press=cancelReply testId="cancel-reply" width=28 height=28 justify-content="center"
+                      text "×" font-size=22 class=Secondary
+                row align-items="flex-end" gap=12
+                  button press=togglePanel retainFocus=true testId="add" aria-label="Add" class=GlassButton backgroundMaterial="glass"
+                    box width=15.333 height=15.333 position="relative" rotate=(panel ? 45 : 0) transition="rotate 180ms ease-out"
+                      box position="absolute" left=6.542 top=0 width=2.25 height=15.333 border-radius=1 background-color="light-dark(#858e99, #b0b5bd)"
+                      box position="absolute" top=6.542 left=0 height=2.25 width=15.333 border-radius=1 background-color="light-dark(#858e99, #b0b5bd)"
+                  row id="composer-pill" testId="composer-pill" position="relative" flex=1 min-width=0 min-height=40 border-radius=20 backgroundMaterial="glass" padding-right=6.5 align-items="flex-end" box-sizing="border-box"
+                    textarea id="composer" testId="composer" aria-label="Message" value=textValue input=write focus=focusComposer blur=blurComposer placeholder=(thread == "demo" ? "iMessage" : "Message") font-family="system-ui" font-size=17 line-height="20.2871px" field-sizing="content" min-height=40 max-height=263.158 flex=1 min-width=0 padding-left=16 padding-right=5 padding-top=9.85645 padding-bottom=9.85645 border-width=0 box-sizing="border-box" background-color="#00000000" class=Ink
+                    button press=send retainFocus=true disabled=(textValue == "" and not data.busy) testId="send" aria-label=(data.busy ? "Stop response" : "Send message") width=38 height=28 margin-bottom=6 border-radius=14 background-color=(textValue != "" or data.busy ? "light-dark(#0088ff, #0091ff)" : "#00000000") display="flex" align-items="center" justify-content="center" flex-shrink=0
+                      when data.busy
+                        box width=10 height=10 border-radius=2 background-color="#ffffff"
                       else
-                        image "symbol:send" testId="send-symbol" font-size=17 font-weight=700 tint-color="#ffffff"
-                box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
-              box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
-            when selecting
-              column id="selection-toolbar" testId="selection-toolbar" key=selectionKey flex-shrink=0 padding-top=10
-                row height=48 padding-left=28 padding-right=28 justify-content="space-between"
-                  button commandfor="delete-confirmation" command="show-modal" disabled=(chat.selectionCount == 0) testId="delete-selection" aria-label="Delete selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    image "symbol:delete" testId="delete-symbol" position="relative" top=-0.666667 font-size=22 font-weight=400 tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
-                  button press=forwardSelected disabled=(chat.selectionCount == 0) testId="forward-selection" aria-label="Forward selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    image "symbol:forward" testId="forward-symbol" position="relative" top=0.333333 font-size=22 font-weight=400 tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
-                box height="calc(env(safe-area-inset-bottom) - 6px)" min-height=0
-              dialog id="delete-confirmation" testId="delete-confirmation" role="alertdialog" aria-label="Delete selected messages" closedby="any" backgroundMaterial="glass" position="absolute" left=10 right="auto" top="auto" bottom="calc(env(safe-area-inset-bottom) + 10px)" margin=0 width=240 padding=16 box-sizing="border-box" border-width=0 border-radius=36
-                button destructive=true press=deleteSelected commandfor="delete-confirmation" command="close" testId="confirm-delete-messages" aria-label=(chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) height=48 border-radius=24 background-color="light-dark(#d9d9dc, #555559)" display="flex" flex-direction="row" align-items="center" justify-content="center" color="light-dark(#ff383c, #ff4245)"
-                  text (chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) font-size=17 font-weight=600
-                button commandfor="delete-confirmation" command="close" testId="dismiss-delete-confirmation" aria-label="Cancel deletion" height=44 justify-content="center"
-                  text "Cancel" font-size=17
-            when selected != ""
-              column testId="tapback-layer" z-index=10 position="absolute" top=0 right=0 bottom=0 left=0
-                button press=dismiss retainFocus=true testId="dismiss-tapback" aria-label="Dismiss Tapbacks" width="100%" height="100%" justify-content="center" position="absolute" top=0 right=0 bottom=0 left=0 background-color=(selectedActions ? "#16152a" : "light-dark(#0000001a, #00000080)") opacity=(selectedActions ? 0.21 : 1)
-                each message in chat.messages key=message.id
-                  when message.id == selected
-                    when message.reactionCount > 0
-                      row position="absolute" top="env(safe-area-inset-top)" left=12 right=12 justify-content="center"
-                        row testId="reaction-participants" width=message.reactionPanelWidth max-width="100%" height=122 border-radius=32 backgroundMaterial="glass" justify-content="center" align-items="center"
-                          scroll width="100%" height="100%" display="flex" flex-direction="row" justify-content="center" align-items="center" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none"
-                            each group in message.reactionGroups key=group.value
-                              column width=98 height=104 flex-shrink=0 align-items="center"
-                                column position="relative" width=50 height=50 border-radius=25 background-color="light-dark(#ffffff, #3a3a3c)" align-items="center" justify-content="center"
-                                  ReactionArtwork(value=group.value, extent=44, emojiSize=27)
-                                  box position="absolute" left=19 top=45 width=12 height=12 border-radius=6 background-color="light-dark(#ffffff, #3a3a3c)"
-                                  box position="absolute" left=22.5 top=60 width=5 height=5 border-radius=2.5 background-color="light-dark(#ffffff, #3a3a3c)"
-                                row position="relative" width=group.width height=32 margin-top=20
-                                  each person in group.people key=person.id
-                                    column testId=`reaction-person-${person.id}` aria-label=person.name position="absolute" left=person.offset top=0 width=32 height=32 box-sizing="border-box" border-radius=16 border-style="solid" border-width=1 border-color="light-dark(#ffffff, #000000)" background-color=person.color align-items="center" justify-content="center"
-                                      text person.initials font-size=14 color="#ffffff" font-weight=600
-                    column testId="tapback-region" press=dismiss retainFocus=true position="absolute" left=0 right=0 bottom=0 top=(message.reactionCount > 0 ? (selectedPicker ? "calc(env(safe-area-inset-top) + 122px)" : "calc(env(safe-area-inset-top) + 146px)") : "0%")
-                      column id="emoji-return" key=menuKey testId="tapback-menu" position="absolute" left=11 right=16 top=0 gap=6
-                        when selectedPicker
-                          box testId="emoji-picker-controls" width="100%" height=88
+                        when textValue != ""
+                          text "↑" font-size=22 font-weight=600 line-height="28px" color="#ffffff"
                         else
-                          column testId="tapback-surface" backgroundMaterial="glass" width="100%" height=64 border-radius=32 flex-shrink=0
-                            scroll testId="tapback-choices" width="100%" height=64 overflow-x="scroll" overflow-y="hidden" border-radius=32 flex-shrink=0
-                              row height=64 padding-left=7.5 padding-right=7.5 align-items="center"
-                                each choice in chat.reactions key=choice.id
-                                  button press=reaction(choice.value) testId=`tapback-${choice.id}` aria-label=choice.label aria-checked=(selectedReaction == choice.value) width=49 height=64 border-radius=24 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-                                    box testId=`tapback-selection-${choice.id}` width=44 height=44 border-radius=22 background-color=(selectedReaction == choice.value ? "light-dark(#26aeff, #0065d3)" : "#00000000") display="flex" align-items="center" justify-content="center"
-                                      ReactionArtwork(value=choice.value, extent=44, emojiSize=25)
-                        column width="100%" box-sizing="border-box" padding-left=(selectedGroup ? 49 : 5) align-items=(selectedOutgoing ? "flex-end" : "flex-start")
-                          row width="100%" justify-content=(selectedOutgoing ? "flex-end" : "flex-start")
-                            when selectedOutgoing
-                              box position="relative" width=50 height=0 flex-shrink=0 z-index=2
-                                when selectedPicker
-                                  column press=showEmojiPicker position="absolute" left=22 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
-                                    box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
-                                  button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box position="relative" width=14 height=14
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
-                                else
-                                  button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=0 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
-                            column position="relative" contextTarget=(replying == "" ? `bubble-${selected}` : `reply-bubble-${selected}`) contextMagnify=selectedActions testId="tapback-preview" max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(selectedOutgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#ffffff, #38383a)")
-                              when selectedTail
-                                when selectedOutgoing
-                                  box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
-                                else
-                                  box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#ffffff, #38383a)"
-                              text selectedBody white-space="pre-wrap" font-size=17 line-height="20px" color=(selectedOutgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left"
-                            when not selectedOutgoing
-                              box position="relative" width=50 height=0 flex-shrink=0 z-index=2
-                                when selectedPicker
-                                  column press=showEmojiPicker position="absolute" left=-46 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
-                                    box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
-                                  button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box position="relative" width=14 height=14
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
-                                else
-                                  button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=6 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                                    box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
-                          column testId="tapback-status" display=(selectedPicker and selectedActions ? "none" : "flex") min-height=(selectedMenuActions ? 20.333333 : 0) width="100%" align-items="flex-end"
-                            each message in (replying == "" ? chat.messages : chat.replies) key=message.id
-                              when message.id == selected and message.delivery != ""
-                                text message.delivery testId="tapback-delivery" font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
-                        when selectedMenuActions
-                          column id="message-actions" testId="message-actions" backgroundMaterial="glass" align-self=(selectedOutgoing ? "flex-end" : "flex-start") margin-left=(selectedOutgoing ? 0 : 5) width=250 border-radius=32 padding-top=10 padding-bottom=10
-                            button press=reply testId="reply" height=42 padding-left=24 padding-right=16 display="flex" flex-direction="row" align-items="center" gap=8
-                              column width=32 height=32 align-items="center" justify-content="center"
-                                text "↩︎" font-size=22 class=PrimaryText
-                              text "Reply" font-size=17 class=PrimaryText
-                            button press=copyMessage testId="copy-message" height=42 padding-left=24 padding-right=16 display="flex" flex-direction="row" align-items="center" gap=8
-                              column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:copy" testId="copy-symbol" font-size=17 font-weight=400 class=PrimaryIcon
-                              text "Copy" font-size=17 class=PrimaryText
-                            button press=selectMessageText testId="select-message-text" height=42 padding-left=24 padding-right=16 display="flex" flex-direction="row" align-items="center" gap=8
-                              column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:select-text" testId="select-text-symbol" font-size=17 font-weight=400 class=PrimaryIcon
-                              text "Select" font-size=17 class=PrimaryText
-                            button press=more testId="more-message" height=42 padding-left=24 padding-right=16 display="flex" flex-direction="row" align-items="center" gap=8
-                              column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:more" testId="more-symbol" font-size=17 font-weight=400 class=PrimaryIcon
-                              text "More…" font-size=17 class=PrimaryText
-        when e.name == "details"
-          ContactDetails(
-            routeKey=`${e.id}`,
-            chat=chat,
-            personPath=personPath,
-            callPath=callPath,
-            createContact=createContact,
-            setMuted=setThreadMuted,
-            blockThread=blockThread,
-            closeDetails=closeDetails,
-          )
-
-        when e.name == "newContact"
-          NewContactSheet(
-            routeKey=`${e.id}`,
-            initials=chat.initials,
-            personPath=personPath,
-            contactFirst=contactFirst,
-            contactLast=contactLast,
-            contactCompany=contactCompany,
-            contactPhone=contactPhone,
-            contactEmail=contactEmail,
-            contactNotes=contactNotes,
-            contactPhoneShown=contactPhoneShown,
-            contactEmailShown=contactEmailShown,
-            saveContact=saveContact,
-            discardContact=discardContact,
-            writeContactFirst=writeContactFirst,
-            writeContactLast=writeContactLast,
-            writeContactCompany=writeContactCompany,
-            writeContactPhone=writeContactPhone,
-            writeContactEmail=writeContactEmail,
-            writeContactNotes=writeContactNotes,
-            addContactPhone=addContactPhone,
-            removeContactPhone=removeContactPhone,
-            addContactEmail=addContactEmail,
-            removeContactEmail=removeContactEmail,
-          )
-
-        when e.name == "compose"
-          NewMessageSheet(
-            routeKey=`${e.id}`,
-            contacts=contacts,
-            recipientSelection=recipientSelection,
-            recipientQuery=recipientQuery,
-            recipientShift=recipientShift,
-            pageRecipients=pageRecipients,
-            newDraft=newDraft,
-            showContacts=showContacts,
-            personPath=personPath,
-            editable=(chatThread != "" or contacts.target != ""),
-            cancelNewMessage=cancelNewMessage,
-            selectRecipient=selectRecipient,
-            searchRecipient=searchRecipient,
-            recipientKey=recipientKey,
-            browseContacts=browseContacts,
-            chooseRecipient=chooseRecipient,
-            writeNew=writeNew,
-            clearRecipientSelection=clearRecipientSelection,
-            sendNewMessage=sendNewMessage
-          )
+                          row align-items="center" gap=2 margin-right=5.4
+                            box width=2 height=4 border-radius=1 background-color="#8e8e93"
+                            box width=2 height=8 border-radius=1 background-color="#8e8e93"
+                            box width=2 height=16 border-radius=1 background-color="#8e8e93"
+                            box width=2 height=8 border-radius=1 background-color="#8e8e93"
+                            box width=2 height=4 border-radius=1 background-color="#8e8e93"
+                when not editing
+                  box height="calc(env(safe-area-inset-bottom) - 18px)" min-height=0 flex-shrink=0
+          when entry.name == "reader"
+            column testId="reader" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
+              row height=44 padding-left=16 padding-right=16 align-items="center" gap=16
+                button press=back testId="reader-back" class=GlassButton backgroundMaterial="glass"
+                  image "symbol:back" font-size=20 tint-color="light-dark(#000000, #ffffff)"
+                text "Message" font-size=17 font-weight=600
+              scroll flex=1 min-height=0 padding=20
+                textarea readonly=true value=fullText aria-label="Full message text" testId="reader-text" field-sizing="content" width="100%" min-height=300 padding=0 border-width=0 background-color="#00000000" class=Ink font-size=17 line-height="24px"
+          when entry.id == top(nav).id
+            when flightPhase >= 2 and flightThread == thread
+              box testId="send-flight" position="absolute" left=flightX top=flightY width=flightWidth translate=`0px ${flightDelta}px` scale=flightScale transform-origin="100% 100%" transition=(flightPhase == 2 ? "none" : (flightPhase == 5 ? "translate spring(141.75909, 23.8125, 1), scale spring(320, 50.5964, 2)" : "translate spring(141.75909, 23.8125, 1), scale 177ms cubic-bezier(0.41, 0.2, 0.6, 1)")) pointer-events="none" z-index=20
+                Balloon(body=flightBody, outgoing=true, tail=true, maximum=flightWidth, identifier="flying-balloon")
+            when panel
+              box position="absolute" top=0 left=0 right=0 bottom=0 z-index=25
+                button press=dismiss retainFocus=true testId="dismiss-panel" aria-label="Close Add menu" position="absolute" top=0 left=0 width="100%" height="100%"
+                column testId="add-panel" position="absolute" left=11 bottom=80 width="calc(100% - 22px)" max-width=360 border-radius=30 padding-top=11 padding-bottom=11 backgroundMaterial="glass" box-shadow="0px 8px 40px #00000026" animation=(viewport.prefersReducedMotion ? "none" : "card 260ms cubic-bezier(0.2, 0.05, 0.15, 1)")
+                  button press=choose(true) testId="new-ai-chat" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                    Avatar(initials="✦", color="#5856d6", size=38)
+                    text "New AI chat" font-size=24
+                  button press=choose(false) disabled=(thread == "demo" or data.busy) testId="choose-model" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                    Avatar(initials="⇄", color="#0088ff", size=38)
+                    text "Change model" font-size=24
+                  when thread == "demo"
+                    button press=operation("receive") testId="receive" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="↓", color="#34c759", size=38)
+                      text "Receive message" font-size=24
+                    button press=operation("fifty") testId="add-fifty" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="+", color="#ff9500", size=38)
+                      text "Add 50 messages" font-size=24
+                    button press=operation("typing") testId="toggle-typing" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="…", color="#8e8e93", size=38)
+                      text "Typing indicator" font-size=24
+                    button press=operation("reset") testId="reset-demo" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="↺", color="#ff3b30", size=38)
+                      text "Reset chat" font-size=24
+                  else
+                    button press=jump(false) testId="earliest" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="↑", color="#8e8e93", size=38)
+                      text "First message" font-size=24
+                    button press=jump(true) testId="latest" display="flex" flex-direction="row" align-items="center" gap=27 height=66 padding-left=34
+                      Avatar(initials="↓", color="#34c759", size=38)
+                      text "Latest message" font-size=24
+            when selected != ""
+              column position="absolute" top=0 left=0 right=0 bottom=0 z-index=30 background-color="#00000030" padding-left=16 padding-right=16
+                button press=dismiss testId="dismiss-context" aria-label="Dismiss message menu" position="absolute" top=0 left=0 width="100%" height="100%"
+                column position="absolute" left=(not selectedOutgoing and thread == "demo" ? 47 : 16) right=16 top=max(76, min(selectedY - 68, viewport.height - selectedHeight - 292)) gap=12 align-items=(selectedOutgoing ? "flex-end" : "flex-start")
+                  row border-radius=30 backgroundMaterial="glass" padding=8 gap=4 animation=(viewport.prefersReducedMotion ? "none" : "card 180ms ease-out")
+                    button press=react("❤️") testId="react-heart" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/heart.png" width=34 height=34 object-fit="contain"
+                    button press=react("👍") testId="react-like" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/like.png" width=34 height=34 object-fit="contain"
+                    button press=react("👎") testId="react-dislike" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/dislike.png" width=34 height=34 object-fit="contain"
+                    button press=react("😂") testId="react-laugh" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/laugh.png" width=34 height=34 object-fit="contain"
+                    button press=react("‼️") testId="react-emphasis" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/emphasis.png" width=34 height=34 object-fit="contain"
+                    button press=react("❓") testId="react-question" width=40 height=40 justify-content="center"
+                      image "assets/tapbacks/question.png" width=34 height=34 object-fit="contain"
+                  column contextTarget=`bubble-${selected}` contextMagnify=true max-height=320 overflow="hidden" padding-bottom=6.65
+                    Balloon(body=selectedBody, outgoing=selectedOutgoing, tail=true, maximum=maximum, identifier="context-balloon")
+                  column width=250 padding-top=6 padding-bottom=6 border-radius=26 backgroundMaterial="glass"
+                    button press=reply(selected, selectedBody) testId="reply" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      text "↩" font-size=22
+                      text "Reply" font-size=17
+                    button press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      image "symbol:copy" font-size=20 tint-color="light-dark(#000000, #ffffff)"
+                      text "Copy" font-size=17
+                    button press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      text "Aa" font-size=18
+                      text "Select Text" font-size=17
+                    button press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
+                      image "symbol:delete" font-size=20 tint-color="#ff3b30"
+                      text "Delete" font-size=17 color="#ff3b30"
+            when choosing
+              column position="absolute" top=0 left=0 right=0 bottom=0 z-index=40 background-color="#00000030" justify-content="flex-end"
+                button press=dismiss testId="dismiss-models" aria-label="Close model picker" position="absolute" top=0 left=0 width="100%" height="100%"
+                column testId="model-picker" height="88%" border-top-left-radius=28 border-top-right-radius=28 class=Canvas padding-top=10 padding-bottom="env(safe-area-inset-bottom)" animation=(viewport.prefersReducedMotion ? "none" : "card 260ms cubic-bezier(0.2, 0.05, 0.15, 1)")
+                  box width=36 height=5 border-radius=3 background-color="light-dark(#d1d1d6, #48484a)" align-self="center" margin-bottom=12
+                  row padding-left=20 padding-right=16 height=44 align-items="center" justify-content="space-between"
+                    text (newConversation ? "New Message" : "Choose a Model") font-size=24 font-weight=700
+                    button press=dismiss testId="close-models" class=GlassButton backgroundMaterial="glass" aria-label="Close"
+                      text "×" font-size=26 class=Secondary
+                  text "Chat with any model on OpenRouter" font-size=14 class=Secondary margin-left=20 margin-bottom=16
+                  input value=modelQuery input=searchModels placeholder="Search models" aria-label="Search models" testId="model-search" font-size=17 min-height=40 margin-left=16 margin-right=16 margin-bottom=12 padding-left=12 padding-right=12 border-radius=12 border-width=0 background-color="light-dark(#efeff0, #1c1c1e)" class=Ink
+                  scroll flex=1 min-height=0 testId="models-list"
+                    each m in models key=m.id
+                      button press=model(m.id) testId=`model-${m.id}` disabled=(data.busy and not newConversation) display="flex" flex-direction="row" align-items="center" gap=12 padding-left=20 padding-right=20 padding-top=12 padding-bottom=12
+                        Avatar(initials=m.initials, color=m.color, size=44)
+                        column flex=1 min-width=0 gap=3
+                          text m.name font-size=17 font-weight=600 line-clamp=1 text-align="left"
+                          text m.maker font-size=13 class=Secondary text-align="left"
+                        when m.id == data.model and not newConversation
+                          text "✓" font-size=20 color="#0088ff"
+                    when length(models) == 0
+                      text "No models found" font-size=17 class=Secondary text-align="center" margin-top=24

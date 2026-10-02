@@ -253,11 +253,14 @@ pub fn tag(name: &str) -> Option<Tag> {
         // column"): a block <button> would centre its content in an anonymous
         // box, which a flex one does not, so the web lays it out as the
         // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
+        // box (`appearance: none`); `appearance="auto"` asks for the platform's.
         "button" => Tag {
             node_type: NodeType::Pressable,
             fixed_styles: &[
                 (StyleId::Display, "flex"),
                 (StyleId::FlexDirection, "column"),
+                (StyleId::Appearance, "none"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
             positional: None,
@@ -618,6 +621,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
+        "glassGroup" => AttrTarget::Prop(p("glassGroup")),
+        "buttonStyle" => AttrTarget::Prop(p("buttonStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
@@ -1367,7 +1372,6 @@ pub(crate) fn host_transform_recipients(
                     collect(lower, otherwise, parent, repeated, boxes);
                 }
                 Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
-                Node::Provide { body, .. } => collect(lower, body, parent, repeated, boxes),
                 Node::Match { some, none, .. } => {
                     collect(lower, &some.1, parent, repeated, boxes);
                     collect(lower, none, parent, repeated, boxes);

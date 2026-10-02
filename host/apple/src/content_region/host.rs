@@ -961,9 +961,9 @@ mod selected_current_tests {
         let source = r#"component App
   state corner = 4
   state draft = ""
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
-  action revise writes corner
+  action revise
     corner = 8
   view
     column width="100%" height="100%"

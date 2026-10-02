@@ -1,7 +1,7 @@
 // The native menu arm (exact2 LLP 1021 D3), macOS: a popover whose rows
 // are buttons presents as an NSMenu popped below its invoker, built from
 // the rows' data (text → title, aria-checked → the checkmark, disabled →
-// dimmed; a row without a press handler becomes the separator), and a
+// dimmed; a row without an action becomes the separator), and a
 // selection dispatches the row's press by view id into the runner — the
 // same journal entry a painted click makes. The invoker's own press has
 // already gone to the runner when the menu is built (the pop is deferred
@@ -21,10 +21,6 @@ final class MenuHost: NSObject {
     /// After a batch: hide every popover, remember who invokes what.
     func sync() {
         guard let presenter else { return }
-        // A closed HTML dialog never paints as ordinary application content.
-        for v in presenter.carrying("tag:dialog") {
-            v.isHidden = true
-        }
         // An agent run gets the painted subtree, not the platform's menu
         // (LLP 1021 D4): the popover stays visible and the rows are tapped
         // by view id, so no NSMenu tracking loop ever blocks a driver.
@@ -49,11 +45,6 @@ final class MenuHost: NSObject {
     /// one turn later so the press's own batch — the switcher's refresh —
     /// is in the items.
     func pressed(_ id: UInt32) {
-        if let source = presenter?.views[id], let target = source.props["commandfor"],
-           presenter?.carrying("tag:dialog").contains(where: { $0.props["id"] == target }) == true {
-            presenter?.session?.log("dialog refused: AppKit projection is not implemented")
-            return
-        }
         guard let target = invokers[id], let popId = popovers[target] else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, let presenter = self.presenter,
@@ -68,12 +59,12 @@ final class MenuHost: NSObject {
     }
 
     /// The menu grammar, extracted (LLP 1021 D3).
-    private func menu(of pop: NodeView) -> NSMenu {
+    func menu(of pop: NodeView) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         var boundary = false
         for case let row as NodeView in pop.container.subviews {
-            guard row.handlers.contains("press") else {
+            guard row.pressable else {
                 boundary = true
                 continue
             }
@@ -84,6 +75,8 @@ final class MenuHost: NSObject {
             item.representedObject = NSNumber(value: row.id)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             item.isEnabled = row.props["disabled"] != "true"
+            // A row's symbol is its item's image, custom or native (LLP 1069.011.000 D5).
+            if row.isButton, let symbol = row.face?.symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
             menu.addItem(item)
         }
         return menu
@@ -91,12 +84,18 @@ final class MenuHost: NSObject {
 
     @objc private func pick(_ sender: NSMenuItem) {
         if let id = (sender.representedObject as? NSNumber)?.uint32Value {
-            presenter?.press(id)
+            // The source subtree is hidden because NSMenu presents it.
+            presenter?.press(id, fromNativeMenu: true)
         }
     }
 
     private func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
+        // A native button's children are its face, not views: its title, else its label.
+        if v.isNativeButton { return v.face?.shown ?? "" }
+        // A custom button whose face fits shows it too: a symbol-only row its
+        // label (LLP 1069.011.000 D5); other content keeps its text.
+        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         return v.container.subviews
             .compactMap { ($0 as? NodeView).map(title(of:)) }
             .filter { !$0.isEmpty }

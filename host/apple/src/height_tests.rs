@@ -33,15 +33,15 @@ fn fixture_measurer(extra: &str, measurer: Box<dyn exact_kernel::TextMeasurer>) 
   state eligible = true
   state hidden = false
   state counter = 0
-  action grow writes size
+  action grow
     size = 300
-  action unsupported writes eligible
+  action unsupported
     eligible = false
-  action hide writes hidden
+  action hide
     hidden = true
-  action show writes hidden
+  action show
     hidden = false
-  action unrelated writes counter
+  action unrelated
     counter = counter + 1
   view
     column testId="root" width="100%" height="100%"
@@ -406,7 +406,7 @@ fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
     let source = r#"component App
   resource rows = rows() as shape list<number>
   state h = 120
-  action grow writes h
+  action grow
     h = 300
   view
     column height="100%" width="100%"
@@ -584,19 +584,19 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
   state mounted = true
   state contentHeight = 120
   state counter = 0
-  action toggleFirst writes first
+  action toggleFirst
     first = not first
-  action toggleSecond writes second
+  action toggleSecond
     second = not second
-  action optOut writes allowed
+  action optOut
     allowed = false
-  action hide writes hidden
+  action hide
     hidden = true
-  action show writes hidden
+  action show
     hidden = false
-  action remove writes mounted
+  action remove
     mounted = false
-  action growContent writes contentHeight, counter
+  action growContent
     contentHeight = 240
     counter = counter + 1
   view

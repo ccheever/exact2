@@ -19,18 +19,18 @@ const SOURCE: &str = r#"component App
   state bw = 0
   state shown = true
   state reference = "photo"
-  action geometry(w: number, h: number, pw: number, ph: number) writes measured, bw
+  action geometry(w: number, h: number, pw: number, ph: number)
     measured = measured + 1
     bw = w
-  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes released, x, y
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     released = released + 1
     x = px
     y = py
-  action zoomIn writes zoom
+  action zoomIn
     zoom = 2
-  action unbind writes reference
+  action unbind
     reference = "absent"
-  action remove writes shown
+  action remove
     shown = false
   view
     column
@@ -662,14 +662,30 @@ fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length()
 fn each_missing_handler_refuses_publication_geometry_and_pair_admission() {
     for missing in [" transformgeometry=geometry", " transformrelease=finish"] {
         let source = SOURCE.replace(missing, "");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-transform-drag-handlers");
+        // Authored plans are refused by the compiler. A decoded plan must
+        // still meet the host's handler-pair check at its binary boundary.
+        let mut plan = contract::compile(SOURCE).unwrap();
+        let event = if missing.contains("transformgeometry") {
+            exact_plan::EventKind::Transformgeometry
+        } else {
+            exact_plan::EventKind::Transformrelease
+        };
+        let handler = plan.handlers.iter().position(|h| h.event == event).unwrap() as u32;
+        let node = plan
+            .nodes
+            .iter_mut()
+            .find(|n| n.handlers.iter().any(|h| h.0 == handler))
+            .unwrap();
+        assert_eq!(node.handlers.len, 2);
+        if node.handlers.start == handler {
+            node.handlers.start += 1;
+        }
+        node.handlers.len -= 1;
         exact_web::link(exact_web_capabilities::ALL);
-        let (mut host, batch) = Host::boot(
-            &contract::compile(&source).unwrap().encode(),
-            NoData,
-            Default::default(),
-            "/",
-        )
-        .unwrap();
+        let (mut host, batch) =
+            Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
         let publication = batch.split("\"op\":\"transform-drag\"").nth(1).unwrap();
         assert!(
             publication.contains("\"target\":null"),

@@ -602,6 +602,7 @@ impl Parser {
             name,
             props: Vec::new(),
             injects: Vec::new(),
+            provides: Vec::new(),
             slot: false,
             states: Vec::new(),
             derives: Vec::new(),
@@ -628,10 +629,7 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(
-                        w.as_str(),
-                        "props" | "inject" | "slot" | "view" | "contract"
-                    ) {
+                    if matches!(w.as_str(), "props" | "inject" | "provide" | "slot" | "view") {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -658,6 +656,29 @@ impl Parser {
                             } else {
                                 c.injects = list;
                             }
+                        }
+                        // @ref LLP 1035.005.000 D9 — one binding per line; a
+                        // bare name provides the in-scope value of that name.
+                        "provide" => {
+                            self.next();
+                            self.newline()?;
+                            let mut provides: Vec<Binding> = Vec::new();
+                            for b in self.block(|p| {
+                                let (name, span) = p.field_name()?;
+                                let expr = if p.eat_punct("=") {
+                                    p.expr()?
+                                } else {
+                                    Expr::Ident(name.clone(), span)
+                                };
+                                p.newline()?;
+                                Ok(Binding { name, expr, span })
+                            })? {
+                                if let Some(first) = provides.iter().find(|p| p.name == b.name) {
+                                    return duplicate("provided name", &b.name, b.span, first.span);
+                                }
+                                provides.push(b);
+                            }
+                            c.provides = provides;
                         }
                         "slot" => {
                             self.next();
@@ -690,11 +711,15 @@ impl Parser {
                             self.newline()?;
                             c.view = self.block(|p| p.node())?;
                         }
+                        // @ref LLP 1035.005.000 D8 — accepted assertion text
+                        // that compiled to nothing promised more than a comment.
                         "contract" => {
-                            self.next();
-                            self.newline()?;
-                            // Contract blocks are agent assertions; not compiled in v1.
-                            self.block(|p| p.skip_line())?;
+                            return self.err(
+                                "syntax-contract-block",
+                                "a component's `contract` section is not part of Contract: \
+                                 write the assertions as `test` blocks in `app.test.contract` \
+                                 (LLP 1017 P7)",
+                            )
                         }
                         other => {
                             return self.err(
@@ -713,19 +738,6 @@ impl Parser {
             }
         }
         Ok(c)
-    }
-
-    fn skip_line(&mut self) -> R<()> {
-        while !matches!(
-            self.peek_kind(),
-            TokenKind::Newline | TokenKind::Eof | TokenKind::Dedent | TokenKind::Indent
-        ) {
-            self.next();
-        }
-        if matches!(self.peek_kind(), TokenKind::Indent) {
-            self.block(|p| p.skip_line())?;
-        }
-        self.newline()
     }
 
     fn resource(&mut self) -> R<ResourceDecl> {
@@ -822,22 +834,20 @@ impl Parser {
             }
             self.expect_punct(")")?;
         }
-        let mut writes = Vec::new();
+        // @ref LLP 1035.005.000 D1 — the body is the one statement of effects.
         if self.at_ident("writes") {
-            self.next();
-            loop {
-                writes.push(self.ident()?);
-                if !self.eat_punct(",") {
-                    break;
-                }
-            }
+            return self.err(
+                "syntax-writes-clause",
+                format!(
+                    "`{name}`'s effects are inferred from its body: delete the `writes` clause"
+                ),
+            );
         }
         self.newline()?;
         let body = self.block(|p| p.stmt())?;
         Ok(Action {
             name,
             params,
-            writes,
             body,
             span,
         })
@@ -931,6 +941,16 @@ impl Parser {
             self.newline()?;
             return Ok(Stmt::Refresh { target, span });
         }
+        // @ref LLP 1035.005.000 D2 — `let` starts a statement only before a
+        // name, as `send` does; `let = x` assigns a state named `let`.
+        if self.at_ident("let") && matches!(self.peek2(), TokenKind::Ident(_)) {
+            self.next();
+            let (name, span) = self.ident()?;
+            self.expect_punct("=")?;
+            let expr = self.expr()?;
+            self.newline()?;
+            return Ok(Stmt::Let { name, expr, span });
+        }
         let (name, span) = self.ident()?;
         if self.eat_punct("=") {
             let expr = self.expr()?;
@@ -948,7 +968,7 @@ impl Parser {
         }
         self.err(
             "syntax-expected-statement",
-            "expected `slot = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
+            "expected `slot = expr`, `let name = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
         )
     }
 
@@ -1044,19 +1064,22 @@ impl Parser {
             );
         }
         match word.as_str() {
+            // @ref LLP 1035.005.000 D9 — `provide` is a component section;
+            // the nested view form, whose scope was its subtree, is gone.
             "provide" => {
-                self.next();
-                let name = self.named_ident(span)?;
-                self.expect_punct("=")?;
-                let expr = self.expr()?;
-                self.newline()?;
-                let body = self.block(|p| p.node())?;
-                Ok(Node::Provide {
-                    name,
-                    expr,
-                    body,
-                    span,
-                })
+                let name = match self.peek2() {
+                    TokenKind::Ident(name) => name.clone(),
+                    _ => "name".into(),
+                };
+                self.err(
+                    "syntax-provide-in-view",
+                    format!(
+                        "`provide` is a component section, not a view node: write `provide` \
+                         beside `props` and `inject`, with `{name} = …` (or `{name}` alone, \
+                         for the value of that name) indented under it; it reaches the \
+                         component's whole view"
+                    ),
+                )
             }
             "children" => {
                 self.next();

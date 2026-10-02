@@ -85,7 +85,7 @@ pub fn joint_matrix(model: &Model, local: &[f32], node: u32) -> Mat4 {
 // Conservative reach: maximum sum of local translation lengths along a chain,
 // scaled by ancestor scale, plus each influenced vertex's inverse-bind radius.
 pub fn animated_bounds(model: &Model) -> [f32; 6] {
-    if model.skins.is_empty() {
+    if model.skins.is_empty() && model.clips.is_empty() {
         return model.bounds;
     }
     let rest = bind_pose(model);
@@ -129,7 +129,7 @@ pub fn animated_bounds(model: &Model) -> [f32; 6] {
         global_scale[i] = s * scales[i];
     }
     let mut radius = reach.iter().copied().fold(0., f32::max);
-    for node in &model.nodes {
+    for (index, node) in model.nodes.iter().enumerate() {
         if let (Some(mesh), Some(skin)) = (node.mesh, node.skin) {
             let mesh = &model.meshes[mesh as usize];
             let skin = &model.skins[skin as usize];
@@ -146,6 +146,11 @@ pub fn animated_bounds(model: &Model) -> [f32; 6] {
                                     .length(),
                     );
                 }
+            }
+        } else if let Some(mesh) = node.mesh {
+            for position in model.meshes[mesh as usize].positions.chunks_exact(3) {
+                radius = radius
+                    .max(reach[index] + global_scale[index] * Vec3::from_slice(position).length());
             }
         }
     }

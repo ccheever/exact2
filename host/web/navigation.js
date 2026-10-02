@@ -756,3 +756,41 @@ export function typeControl(el, request) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
+
+// A view's box as the agent reports it. A text folded into its box's content
+// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
+// anonymous block its text is, as a style-less block child's was — its line
+// boxes along the main axis, and its box's content box across when the box
+// stretches its items (a block, or a flex or grid box that stretches).
+export function viewBox(el) {
+  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect(), p = el.parentElement;
+  if (!p) return t;
+  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
+  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
+  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
+  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
+  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
+  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
+  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}
+
+// WHATWG URL normalization for the wasm grant parser, using the browser's
+// existing tables. This is pure parsing: it grants no host I/O to the app.
+export function grantOrigins(memory) {
+  return { origin(ptr, len, wildcard, out, capacity) {
+    try {
+      const target = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(memory().buffer, ptr >>> 0, len >>> 0));
+      const u = new URL(target), port = u.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[u.protocol];
+      if (!u.hostname || port == null) return -1;
+      const address = u.hostname.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(u.protocol) && /^[\d.]+$/.test(u.hostname);
+      if (wildcard && (address || !['', '/'].includes(u.pathname) || target.includes('?') || target.includes('#')
+        || u.hostname.endsWith('.') || u.hostname.split('.').filter(Boolean).length < 2)) return -1;
+      const bytes = new TextEncoder().encode([u.protocol.slice(0, -1), u.hostname.toLowerCase(), port].join('\0'));
+      if (capacity) { if (capacity < bytes.length) return -1; new Uint8Array(memory().buffer, out >>> 0, bytes.length).set(bytes); }
+      return bytes.length;
+    } catch { return -1; }
+  } };
+}

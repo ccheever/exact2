@@ -31,5 +31,11 @@ flate2 = "1"
 # SIGTERM drains the server (D10).
 libc = "0.2"
 
+[features]
+# Integration tests only: a new executor waits for a native-worker slot
+# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
+test-wait = []
+
 [dev-dependencies]
+exact-render = { path = ".", features = ["test-wait"] }
 contract = { path = "../../contract/cli" }

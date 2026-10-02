@@ -1,7 +1,7 @@
 // Raster alpha, every fit and natural axes; Chrome at 390×460, 1×.
 component Tint
   state dark = false
-  action scheme writes dark
+  action scheme
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view

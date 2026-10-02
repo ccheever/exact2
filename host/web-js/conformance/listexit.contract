@@ -28,9 +28,9 @@ component ListExit
   resource coins = coins(0) as shape list<Coin>
   state a = ""
   state b = ""
-  action drop writes a
+  action drop
     a = "c1"
-  action far writes b
+  action far
     b = "c30"
   view
     column testId="root" height="100%" display="flex" flex-direction="column"

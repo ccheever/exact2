@@ -24,10 +24,10 @@ component App
   mutation session as shape Session
   mutation probe as shape Session
 
-  action typed(v) writes who, session
+  action typed(v)
     who = v
     send session = login(v, "pw")
-  action refusing writes session, probe
+  action refusing
     send session = login("zed", "pw")
     send probe = refused()
 

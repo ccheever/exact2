@@ -8,6 +8,8 @@ use std::os::unix::{
 };
 #[path = "../../apple/src/executor_core.rs"]
 mod core;
+/// A new executor waits for a native-worker slot only under test (the core's `reserve`).
+const WAIT_FOR_SLOT: bool = cfg!(test);
 
 /// Ordered native work plus explicitly independent HTTP, with a poll wake.
 pub struct Executor {

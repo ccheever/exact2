@@ -87,7 +87,7 @@ component Expose
   derive inThread = screen == "messages" and thread == "expose"
   derive banner = bannerAt > 0 and not inThread
 
-  action tick writes nowMs, bannerSeen, bannerAt, toastAt
+  action tick
     if nowMs == 0
       setScheme(appearance)
     nowMs = now()
@@ -102,91 +102,91 @@ component Expose
   task ticker mount
     every(1000, tick)
 
-  action go(target: string) writes screen, thread, article, page, toastAt
+  action go(target: string)
     screen = target
     thread = ""
     article = ""
     page = ""
     toastAt = 0
-  action unlock writes screen
+  action unlock
     screen = "home"
-  action lock writes screen, thread, article, page
+  action lock
     screen = "lock"
     thread = ""
     article = ""
     page = ""
-  action openThread(id: string) writes screen, thread, article, page, draft, bannerAt
+  action openThread(id: string)
     screen = "messages"
     thread = id
     article = ""
     page = ""
     draft = ""
     bannerAt = 0
-  action closeThread writes thread, draft
+  action closeThread
     thread = ""
     draft = ""
-  action write(value) writes draft
+  action write(value)
     draft = value
-  action sendDraft writes reply, draft
+  action sendDraft
     if trim(draft) != ""
       send reply = ask("expose", draft, "", epoch)
       draft = ""
       focus("composer")
-  action askAbout(id: string) writes reply, screen, thread, article, page, draft
+  action askAbout(id: string)
     send reply = ask("expose", "", id, epoch)
     screen = "messages"
     thread = "expose"
     article = ""
     page = ""
     draft = ""
-  action clearChat writes cleared
+  action clearChat
     send cleared = clearThread("expose")
-  action openArticle(id: string) writes screen, article, thread, page
+  action openArticle(id: string)
     screen = "reader"
     article = id
     thread = ""
     page = ""
-  action closeArticle writes article
+  action closeArticle
     article = ""
-  action openPage(name: string) writes screen, page, keyDraft, keySaved
+  action openPage(name: string)
     screen = "settings"
     page = name
     keyDraft = ""
     keySaved = false
-  action closePage writes page
+  action closePage
     page = ""
-  action dismiss(id: string) writes dismissed
+  action dismiss(id: string)
     dismissed = `${dismissed},${id}`
-  action clearNotices writes dismissed
+  action clearNotices
     dismissed = "all"
-  action nope(name: string) writes toast, toastAt
+  action nope(name: string)
     toast = `${name} isn’t in this demo yet`
     toastAt = now()
-  action setScale(value: number) writes scale
+  action setScale(value: number)
     scale = value
-  action setAirplane(on: bool) writes airplane, wifi
+  action setAirplane(on: bool)
     airplane = on
     if on
       wifi = false
-  action setWifi(on: bool) writes wifi
+  action setWifi(on: bool)
     wifi = on
-  action setBluetooth(on: bool) writes bluetooth
+  action setBluetooth(on: bool)
     bluetooth = on
-  action setAppearance(value: string) writes appearance
+  action setAppearance(value: string)
     appearance = value
     setScheme(value)
-  action writeKey(value) writes keyDraft, keySaved
+  action writeKey(value)
     keyDraft = value
     keySaved = false
-  action saveKey writes saved, keyDraft, keySaved
+  action saveKey
     send saved = saveKey(keyDraft)
     keyDraft = ""
     keySaved = true
-  action forgetKey writes saved, keyDraft, keySaved
+  action forgetKey
     send saved = saveKey("")
     keyDraft = ""
     keySaved = false
-  action chooseModel(value: string) writes saved
+  action chooseModel(value: string)
     send saved = saveModel(value)
 
   view

@@ -277,7 +277,7 @@ fn real_runner_terminal_is_synchronous_and_stale_refusal_does_not_poison_actions
         .split("component InteractionGallery")
         .next()
         .unwrap();
-    let plan = contract::compile(&format!("{shapes}\ncomponent ReorderProof\n  resource initial = gallery() as shape GalleryState\n  mutation changed as shape GalleryState\n  derive gallery = match changed {{ case some(value) => value, case none => initial }}\n  resource rows = galleryRows(gallery.revision, 0, true) as shape list<Photo>\n  state draft = \"\"\n  action place(item: string, before: option<string>, revision: number) writes changed\n    send changed = galleryReorder(item, before, revision)\n  action edit(value: string) writes draft\n    draft = value\n  view\n    column\n      text gallery.notice testId=\"notice\"\n      text draft testId=\"draft\"\n")).unwrap();
+    let plan = contract::compile(&format!("{shapes}\ncomponent ReorderProof\n  resource initial = gallery() as shape GalleryState\n  mutation changed as shape GalleryState\n  derive gallery = match changed {{ case some(value) => value, case none => initial }}\n  resource rows = galleryRows(gallery.revision, 0, true) as shape list<Photo>\n  state draft = \"\"\n  action place(item: string, before: option<string>, revision: number)\n    send changed = galleryReorder(item, before, revision)\n  action edit(value: string)\n    draft = value\n  view\n    column\n      text gallery.notice testId=\"notice\"\n      text draft testId=\"draft\"\n")).unwrap();
     let mut runner = Runner::boot(
         plan,
         Counted::default(),

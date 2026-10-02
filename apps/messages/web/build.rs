@@ -1,5 +1,3 @@
-#[path = "../bake.rs"]
-mod bake;
 fn main() {
-    bake::build("web");
+    exact_js_bake::build(std::path::Path::new(".."), "web").expect("bake Messages");
 }

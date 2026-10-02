@@ -36,20 +36,20 @@ component Textflow
   derive bodyHeight = viewport.width < 700 ? 450 : 480
   derive logicalHeight = bodyHeight / scale
   resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape list<Part>
-  action choose(value: string) writes scene, elapsed
+  action choose(value: string)
     scene = value
     elapsed = 0
-  action appearance writes dark
+  action appearance
     dark = not dark
     setScheme(dark ? "light" : "dark")
-  action typeSize writes largeType
+  action typeSize
     largeType = not largeType
-  action pause writes running
+  action pause
     running = not running
-  action step writes elapsed
+  action step
     if running
       elapsed = elapsed + 16
-  action moveOrb(which: number, dx: number, dy: number) writes x1, y1, x2, y2, x3, y3
+  action moveOrb(which: number, dx: number, dy: number)
     if which == 1
       x1 = min(552, max(0, x1 + dx / scale))
       y1 = min(logicalHeight - 104, max(0, min(y1, logicalHeight - 104) + dy / scale))

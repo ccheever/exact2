@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import {readFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {proof} from '../../proof.mjs';
+import {proof, captureWorld, diffWorlds, formatWorldDiff, equal} from '../../proof.mjs';
 import {crop, decodePng, diff} from '../../../scripts/png.mjs';
 
 export async function walkTo(world, check, x, z) {
@@ -20,6 +20,14 @@ export async function walkTo(world, check, x, z) {
   }
   const p=await world.local_position('player');
   check(`walk reaches (${x}, ${z}) within 0.15 m`,Math.hypot(p[0]-x,p[2]-z)<0.15,p);
+}
+
+export function compare(rows, {root}) {
+  const captures = rows.map(row => JSON.parse(readFileSync(resolve(root,
+    `${row.host}-0-${row.repeat}`, 'tap-timing.json'), 'utf8')));
+  if (captures.some(capture => !equal(capture, captures[0])))
+    throw new Error('tap timing differs on the first affected tick across hosts');
+  console.log('TAPS first affected tick and world hash agree across hosts');
 }
 
 // Build products stay beside this game, including in callers with a shared target.
@@ -60,7 +68,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     pin(0, initial);
     check('six seeded crates', initial.entities.filter(e => /^crate-/.test(e.name)).length === 6);
     check('capsule radius 0.4 height 1.8', equal(await world(s).get('player','Mesh'), {Capsule:{height:1.8,radius:0.4}}));
+    const beforeMove = await captureWorld(s);
     await world(s).hold('KeyW',1500);
+    const afterMove = await captureWorld(s);
+    const movement = diffWorlds(beforeMove, afterMove);
+    check('world diff identifies the player movement field', movement.changes.some(c =>
+      c.path === 'entities["player"].Transform.position[2]' && c.before === 0 && c.after < -5));
+    check('unchanged world capture compares equal', diffWorlds(afterMove, await captureWorld(s)).total === 0);
+    writeFileSync(resolve(out, 'before-move.json'), JSON.stringify(beforeMove));
+    writeFileSync(resolve(out, 'after-move.json'), JSON.stringify(afterMove));
+    say(formatWorldDiff(movement));
     const p = await position(s);
     check('W exactly 1.5 s: expected (0, 0.9, -5.3666644), tolerance 1 mm', Math.hypot(p[0],p[1]-0.9,p[2]+5.3666644) < 0.001,p);
     pin(90,await snapshot(s));
@@ -163,5 +180,20 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   await world(restored).run(100);
   await restored.type('world',{key:'Space',phase:'up'});
   check('click Pause then Resume leaves Space to jump', (await position(restored))[1] > 0.9);
+  // Keep world-changing taps in parity coverage, including fractional boundaries.
+  await world(restored).settle();
+  const taps = [];
+  for (const offset of [0, 0.001, 16.665, 16.667, 0.333, 1500]) {
+    await world(restored).run(offset);
+    const before = await snapshot(restored);
+    await world(restored).tap('Space');
+    await world(restored).run(16.667);
+    const after = await snapshot(restored);
+    check(`tap at offset ${offset} changes the next tick`, after.tick === before.tick + 1
+      && (await world(restored).get('player', 'Character')).airborne);
+    taps.push({offset, before:{tick:before.tick,hash:before.hash}, after:{tick:after.tick,hash:after.hash}});
+    await world(restored).run(1000);
+  }
+  writeFileSync(resolve(out, 'tap-timing.json'), JSON.stringify(taps));
   await restored.close();
 });

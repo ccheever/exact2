@@ -93,7 +93,7 @@ fn every_new_row_and_offsets_update_through_one_commit() {
   state wrap = "auto"
   state outline = "none"
   state margin = 0
-  action move() writes x, y, wrap, outline, margin
+  action move()
     x = 200
     y = 90
     wrap = "both"

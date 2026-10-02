@@ -213,6 +213,21 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 row: id,
                 reason: "grid rows are not lowered in v1",
             }),
+            // @ref LLP 1069.011 D8 — the accent also as an inherited custom
+            // property a native button's look reads; `auto` is the browser's.
+            (StyleId::AccentColor, _) if lowered(id, &value) => {
+                property(&mut out, id);
+                out.push(':');
+                declared(&mut out, id, &value);
+                out.push_str(";--exact-accent:");
+                let start = out.len();
+                declared(&mut out, id, &value);
+                if &out[start..] == "auto" {
+                    out.truncate(start);
+                    out.push_str("AccentColor");
+                }
+                out.push(';');
+            }
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');

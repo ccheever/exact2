@@ -39,6 +39,7 @@ final class ControlHost: NSObject {
         let made: NSControl
         switch kind {
         case "switch": made = NSSwitch()
+        case "button": made = makeNativeButton(node) // LLP 1069.011
         case "checkbox":
             let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
@@ -47,7 +48,8 @@ final class ControlHost: NSObject {
         }
         made.tag = Int(node.id)
         made.target = self
-        made.action = kind == "switch" || kind == "checkbox" ? #selector(changed(_:)) : #selector(valueChanged(_:))
+        made.action = kind == "button" ? #selector(nativePressed(_:))
+            : kind == "switch" || kind == "checkbox" ? #selector(changed(_:)) : #selector(valueChanged(_:))
         controls[node.id] = made
         kinds[node.id] = kind
         return made
@@ -56,11 +58,14 @@ final class ControlHost: NSObject {
     func sync() {
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
-        for id in Array(controls.keys) where !live.contains(id) {
+        // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
+        let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
+        for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
             kinds.removeValue(forKey: id)
             menus.removeValue(forKey: id)
+            lastRange.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -70,32 +75,52 @@ final class ControlHost: NSObject {
                 control.removeFromSuperview()
                 continue
             }
-            if control.superview !== owner { owner.addSubview(control) }
+            let mount = owner.controlMount
+            if control.superview !== mount { mount.addSubview(control) }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
-            if control is NSSwitch || kinds[owner.id] == "checkbox" {
+            if let b = control as? NativeButtonMac {
+                configureNative(b, owner, accent: accent)
+            } else if control is NSSwitch || kinds[owner.id] == "checkbox" {
                 if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
                 // NSSwitch takes the system accent; AppKit gives it no tint.
                 (control as? NSButton)?.contentTintColor = accent
             } else {
                 configureValue(control, owner, accent: accent)
             }
-            control.isEnabled = !owner.disabled
-            control.setAccessibilityLabel(owner.props["accessibilityLabel"])
-            control.setAccessibilityIdentifier(owner.props["testId"])
+            if !(control is NativeButtonMac) {
+                control.isEnabled = !owner.disabled
+                control.setAccessibilityLabel(owner.props["accessibilityLabel"])
+                control.setAccessibilityIdentifier(owner.props["testId"])
+            }
             let natural = naturalSize(control)
             let box = owner.contentBox()
-            // A slider's track spans its box, as the web's does; the others
-            // keep their own size, centred.
-            let width = control is NSSlider ? box.width : natural.width
-            control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
-                                   width: width, height: natural.height)
+            // A slider's track spans its box, as the web's does; a native
+            // button fills it, its chrome inside (LLP 1069.011 D6); the
+            // others keep their own size, centred.
+            if control is NativeButtonMac {
+                // The box is the button's alignment rect, as its natural size
+                // is; its bezel's shadow and insets fall outside it.
+                let frame = control.frame(forAlignmentRect: box)
+                if control.frame != frame { control.frame = frame }
+            } else {
+                let width = control is NSSlider ? box.width : natural.width
+                control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                                       width: width, height: natural.height)
+            }
             if reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
             }
         }
         // Published outside the batch being applied, as images' are.
-        if !sizes.isEmpty { DispatchQueue.main.async { [weak self] in self?.presenter.onIntrinsic?(sizes) } }
+        // A control destroyed before then reports nothing.
+        if !sizes.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let live = sizes.filter { self.controls[$0.0] != nil && self.presenter.views[$0.0] != nil }
+                if !live.isEmpty { self.presenter.onIntrinsic?(live) }
+            }
+        }
     }
 
     @objc private func changed(_ sender: NSControl) {
@@ -109,7 +134,8 @@ final class ControlHost: NSObject {
 
     /// The agent's `tap` (LLP 1069.001 D9): the control's own activation.
     func activate(_ node: NodeView) -> Bool? {
-        guard let control = controls[node.id] else { return nil }
+        // A native button takes the ordinary click path (LLP 1069.011 D10).
+        guard let control = controls[node.id], !(control is NativeButtonMac) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert, !control.isHiddenOrHasHiddenAncestor else { return false }
         // A click at a slider's middle moves its knob there, as a click
         // does; AppKit's own tracking loop would wait for a mouse-up the
@@ -130,6 +156,7 @@ final class ControlHost: NSObject {
 
     func observation(_ node: NodeView) -> [String: Any]? {
         guard let control = controls[node.id] else { return nil }
+        if let b = control as? NativeButtonMac { return nativeObservation(b) }
         if let value = valueObservation(control) {
             return value.merging(["size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]) { a, _ in a }
         }
@@ -143,6 +170,7 @@ final class ControlHost: NSObject {
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()
+        lastRange.removeAll()
     }
 }
 #endif

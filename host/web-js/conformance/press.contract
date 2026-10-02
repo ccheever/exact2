@@ -4,7 +4,7 @@
 // the press runs at the lift, and a node without press-scale shows none.
 component Press
   state presses = 0
-  action press writes presses
+  action press
     presses = presses + 1
   view
     column testId="root" padding=40 gap=24 background-color="#ffffff" height=900 box-sizing="border-box"

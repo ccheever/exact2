@@ -15,6 +15,10 @@ impl<D: DataSource> Presenter<D> {
         if node.node_type != NodeType::Control {
             return false;
         }
+        // A native button presses as any button does (LLP 1069.011 D3).
+        if node.props.str(PropId::Type) == Some("button") {
+            return false;
+        }
         // A visible file input's press opens its picker (LLP 1069.002 D1).
         if node.props.str(PropId::Type) == Some("file") {
             if node.props.bool(PropId::Disabled) != Some(true) {
@@ -227,6 +231,33 @@ impl<D: DataSource> Presenter<D> {
                 }
                 // A select fits its widest option; a date control its
                 // widest value (D3).
+                // A native button: its title in its look's font, padded
+                // (LLP 1069.011 D6); Linux draws no symbol, which keeps the
+                // room the other hosts give it.
+                if node.props.str(PropId::Type) == Some("button") {
+                    let face = kernel.press_face(id).unwrap_or_default();
+                    let (px, py) = crate::paint::control::button_padding(
+                        crate::paint::control::button_look(&node),
+                    );
+                    let p = text.paragraph(
+                        &crate::paint::text_spec(
+                            &crate::paint::control::button_text_style(),
+                            face.title.as_deref().unwrap_or(" "),
+                        ),
+                        None,
+                    );
+                    let symbol = if face.symbol.is_some() {
+                        p.height + if face.title.is_some() { 4.0 } else { 0.0 }
+                    } else {
+                        0.0
+                    };
+                    let w = if face.title.is_some() { p.width } else { 0.0 };
+                    sizes.push((
+                        id,
+                        ((w + symbol + 2.0 * px).ceil(), (p.height + 2.0 * py).ceil()),
+                    ));
+                    continue;
+                }
                 let labels: Vec<String> = match node.props.str(PropId::Type) {
                     Some("select") => kernel
                         .select_choices(id)

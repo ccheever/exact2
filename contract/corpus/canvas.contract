@@ -5,9 +5,9 @@
 component Map
   state zoom = 1
   state label = ""
-  action zoomIn writes zoom
+  action zoomIn
     zoom = zoom + 1
-  action setLabel(value) writes label
+  action setLabel(value)
     label = value
   view
     column testId="root"

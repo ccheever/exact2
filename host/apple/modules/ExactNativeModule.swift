@@ -485,7 +485,7 @@ public final class ExactToolbar {
 }
 #endif
 
-/// The nine events, as the kernel's `EventKind` ordinals.
+/// The nine events (kernel `EventKind` ordinals) and host-only size reports.
 public final class ExactNativeEvents: @unchecked Sendable {
     let fn: ExactNativeEventFn
     let ctx: UnsafeMutableRawPointer?
@@ -504,6 +504,25 @@ public final class ExactNativeEvents: @unchecked Sendable {
     public func submit() { send(6) }
     public func load() { send(7) }
     public func message(_ text: String) { send(8, text) }
+    /// Preferred content size in points, independent of the assigned frame.
+    /// Report after creation and whenever content changes; nil forgets it.
+    /// Both axes must be finite and positive. CSS still owns the final frame;
+    /// no aspect ratio is inferred. This is not a constrained measure callback.
+    /// Any thread; stale instances are ignored, and a turn's reports coalesce.
+    public func intrinsicSize(_ size: CGSize?) {
+        guard let size else { send(9); return }
+        send(9, "\(size.width),\(size.height)")
+    }
+}
+
+/// Agent-only input. Text replaces the widget's value, as standard `type`
+/// does; keys use the agent's web-named chord and optional down/up phase.
+/// A nil phase is one complete key press (down followed by up).
+/// Throw before changing anything for an unsupported input. Human input and
+/// IME continue through the platform responder, never through this hook.
+public enum ExactNativeInput {
+    case text(String)
+    case key(String, phase: String?)
 }
 
 /// One instance of a module tag.
@@ -518,6 +537,14 @@ open class ExactNativeInstance {
     /// `view`, contained in the route's controller as a child while it shows.
     open var controller: UIViewController? { nil }
     #endif
+    /// Optional focus destination: the view itself or an attached descendant.
+    /// The host owns first-responder changes; return nil to refuse focus.
+    open var focusTarget: ExactNativeView? { nil }
+    /// Synchronous, main-thread agent input, after the host focuses this view.
+    /// Return only after delivery; do not retain a request for later delivery.
+    open func agentInput(_ input: ExactNativeInput) throws {
+        throw ExactNativeRefusal("native view does not support agent input")
+    }
     /// The whole props object, replaced; throw to refuse it.
     open func setProps(_ props: [String: String]) throws {}
     /// PNG bytes of the view, for a tag whose factory sets `snapshot`.
@@ -633,6 +660,27 @@ private let setProps: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UI
         write(String(describing: error), out, capacity)
         return 1
     }
+}
+
+private let focusTarget: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
+    handle(raw)?.instance.focusTarget.map { Unmanaged.passUnretained($0).toOpaque() }
+}
+
+private let agentInput: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32 = { raw, json, length, out, capacity in
+    do {
+        guard let h = handle(raw) else { throw ExactNativeRefusal("no native instance") }
+        let request = try props(json, length)
+        let input: ExactNativeInput
+        if let key = request["key"], request["text"] == nil {
+            let phase = request["phase"]
+            guard phase == nil || phase == "down" || phase == "up" else { throw ExactNativeRefusal("invalid key phase") }
+            input = .key(key, phase: phase)
+        } else if let text = request["text"], request["key"] == nil, request["phase"] == nil {
+            input = .text(text)
+        } else { throw ExactNativeRefusal("expected text or key") }
+        try h.instance.agentInput(input)
+        return 0
+    } catch { write(String(describing: error), out, capacity); return 1 }
 }
 
 private let snapshot: @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void = { raw, token in
@@ -862,13 +910,13 @@ private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> Uns
 }
 
 /// The ABI major this artifact was built against; the host refuses others.
-private let major: UInt32 = 2
+private let major: UInt32 = 3
 
 private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     }.joined(separator: ",") + "}"
-    let size = 176
+    let size = 184
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -879,19 +927,21 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(setProps, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(snapshot, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(destroy, to: UnsafeRawPointer.self), toByteOffset: 48, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(agentInput, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(focusTarget, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleCreate, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleDestroy, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleLater, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleCall, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(prepareForReuse, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleConnect, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleNavigation, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleRoute, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleTabs, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleTabContainer, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleConnect, to: UnsafeRawPointer.self), toByteOffset: 120, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleNavigation, to: UnsafeRawPointer.self), toByteOffset: 128, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleRoute, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTabs, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTabContainer, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
     return t
 }()
 

@@ -3,8 +3,8 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory } from './rt.js';
-import { environment, navigation, guestOutline, guestTap, guestType } from './navigation.js';
+import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { environment, navigation, guestOutline, guestTap, guestType, viewBox } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook']];
@@ -24,10 +24,11 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'input' && /^(file|checkbox|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
+    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
@@ -96,7 +97,7 @@ export function install(exact) {
       for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) if (a.style.getPropertyValue(prop) || declared(a).has(prop)) { from = id(a); break; }
       style[row] = { value: cs.getPropertyValue(prop), ...(from != null ? { source: 'inherited', from } : { source: 'initial' }) };
     }
-    const r = el.getBoundingClientRect(), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
+    const r = viewBox(el), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
     const scroll = [], clip = [];
     let clipped = r.width === 0 || r.height === 0, parent = null;
     for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) {
@@ -120,7 +121,10 @@ export function install(exact) {
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
       scroll, clip,
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
-      native: { element: el.localName },
+      native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
+        source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath,
+        ...(!el.dataset.symbolPath ? { reason: el.dataset.symbolSource === 'symbol:sf/' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
+      } } : {}) },
       browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
       observed: { clock: exact.clock.now, wall: Date.now() },
     };
@@ -199,7 +203,7 @@ export function install(exact) {
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
         const r2 = x => Math.round(x * 100) / 100;
         const nodes = all().map(n => {
-          const el = views.get(n.id), b = el.getBoundingClientRect();
+          const el = views.get(n.id), b = viewBox(el);
           // An iframe says whether its centre hits it (glue.js).
           const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
           return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
@@ -241,10 +245,23 @@ export function install(exact) {
             await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
             if (exact.inflight.n > holds().length) continue;
-            // Animations (and springs, `settleAt`) that end later move the clock there.
-            const to = anim.settle();
-            if (!(to > exact.clock.now)) break;
-            exact.advance(to); seek();
+            // Animations (and springs, `settleAt`) that end later move the clock there; an
+            // armed `then` runs now, and what it starts is settled in the next round.
+            // What is in flight lands before the next timer or `then` fires, as in a
+            // jump (below; glue.js's clock, the Linux agent's): the advance stops
+            // after each commit that sends and waits for its reply, within this
+            // round, so a run of sends never spends the rounds. Past the deadline,
+            // or 4096 stops, the rest is one advance.
+            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle();
+            for (let stops = 0; ; stops++) {
+              const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
+              const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
+              if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (!stopped) break;
+              while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+            }
+            if (!(to > at) && exact.clock.epoch === epoch) break;
+            seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
           retime();
@@ -259,8 +276,10 @@ export function install(exact) {
         // A jump that fires timers which send nothing is one advance (one
         // journal line), as the runner's is.
         for (const end = performance.now() + 20000; ;) {
-          const before = exact.inflight.n;
-          if (!exact.advance(req.to, false, () => exact.inflight.n > before)) break;
+          const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
+          // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
+          if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
@@ -283,7 +302,9 @@ export function install(exact) {
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
         const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
-        return { slots, derives, resources, pending, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
+        const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
+        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }

@@ -21,7 +21,7 @@ component Lists
   derive coins = match changed { case some(m) => m, case none => initial }
   // Every coin's tags that are not empty, and a count.
   derive tagged = filter(coins, c => length(filter(c.tags, t => t != "")) > 0)
-  action tick writes changed
+  action tick
     send changed = tick()
   view
     column testId="root"

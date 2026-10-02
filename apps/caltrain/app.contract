@@ -1,15 +1,25 @@
 // Caltrain — the v1 app, in Contract, on the LLP 1004 boundary.
 //
 // No JavaScript anywhere: schedule data comes from the Rust data crate
-// (apps/caltrain/data) through `resource` declarations; formatting comes from
-// the stdlib roster; everything else is Contract. The first frame is
-// compiled data — the build bakes every resource's boot value into the plan.
+// (apps/caltrain/data) through `resource` declarations; the clock time comes
+// from the stdlib roster's `formatTime`; everything else is Contract. The
+// first frame is compiled data — the build bakes every resource's boot value
+// into the plan.
 
 // @ref LLP 1048.003 D5 — the one page renders at build into dist/ (and its
 // 404 with it); the view doesn't branch on the route, so nothing it shows moves.
 routes nav
   tab home "/" render=build
   notfound render=build
+
+// @ref LLP 1035.005.000 D8 — Caltrain's own wording, over the roster's floor,
+// max and toString: whole minutes to a departure (a ceiling is -floor(-x),
+// never below 0), miles to one decimal ("nearby" under 0.1; the tenths are
+// split so 2 prints "2.0"), and a walk at 80 metres a minute, at least 1.
+fn countdownText(at: number, now: number): string = toString(max(0, -floor(-((at - now) / 60000))))
+fn tenthsText(tenths: number): string = `${floor(tenths / 10)}.${tenths - floor(tenths / 10) * 10}`
+fn distanceText(metres: number): string = metres / 1609.344 < 0.1 ? "nearby" : `${tenthsText(floor(metres / 1609.344 * 10 + 0.5))} mi`
+fn walkText(metres: number): string = `${max(1, -floor(-(metres / 80)))} min walk`
 
 shape Location
   lat: number
@@ -67,57 +77,61 @@ component Caltrain
   resource matches = search(query, location) as shape list<Station>
   resource delivery = exactDelivery() as shape DeliveryState
 
-  action tick writes nowMs
+  action tick
     nowMs = nowMs + 1000
   action activateUpdate
     deliveryActivate()
-  action openStations writes screen
+  action openStations
     screen = "stations"
-  action openDeck writes screen, deckLoaded, deckLoads, deckMessage
+  action openDeck
     screen = "web-deck"
     deckLoaded = false
     deckLoads = 0
     deckMessage = ""
-  action goHome writes screen, query
+  action goHome
     screen = "home"
     query = ""
-  action selectStation(id) writes stationId, screen, query, searchFocused
+  action selectStation(id)
     stationId = some(id)
     screen = "home"
     query = ""
     searchFocused = false
-  action setQuery(value) writes query
+  action setQuery(value)
     query = value
   action setScheme(scheme: string)
     setScheme(scheme)
-  action setMaterial(m: string) writes material
+  action setMaterial(m: string)
     material = m
-  action toggleDeck writes deck
+  action toggleDeck
     deck = not deck
-  action focusDeparture(id) writes focus
+  action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
   derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
-  action hoverStation(id, over) writes hoverId, hoverOn
+  action hoverStation(id, over)
     hoverId = id
     hoverOn = over
-  action focusSearch writes searchFocused
+  action focusSearch
     searchFocused = true
-  action blurSearch writes searchFocused
+  action blurSearch
     searchFocused = false
-  action searchKey(k) writes lastKey
+  action searchKey(k)
     lastKey = k
-  action recordDeckLoad writes deckLoaded, deckLoads
+  action recordDeckLoad
     deckLoaded = true
     deckLoads = deckLoads + 1
-  action recordDeckMessage(payload) writes deckMessage
+  action recordDeckMessage(payload)
     deckMessage = payload
-  action toggleSky writes sky
+  action toggleSky
     sky = match sky { case some(c) => none, case none => some("#05081a") }
 
   task ticker mount
     every(1000, tick)
 
+  // One accent for every card and header below, provided once (LLP 1017
+  // P4a, LLP 1035.005.000 D9).
+  provide
+    accent = "#c0392b"
   view
     // The sky is optional (the "Sky off" button): the same content inside
     // the aurora canvas — captured through its surface, the shader every
@@ -138,12 +152,10 @@ component Caltrain
           text `${deckLoaded}` testId="deck-loaded" color="#ffffff"
           text deckMessage testId="deck-message" color="#ffffff"
       else
-        // One accent for every card and header below, provided once (LLP 1017 P4a).
-        provide accent = "#c0392b"
-          // The sky or the plain page around the same content, written once:
-          // `Sky` declares a slot and the content is what is indented under it.
-          Sky(on=skyOn, material=material, selectedId=selectedId)
-            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
+        // The sky or the plain page around the same content, written once:
+        // `Sky` declares a slot and the content is what is indented under it.
+        Sky(on=skyOn, material=material, selectedId=selectedId)
+          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 
@@ -218,7 +230,7 @@ component Content
             image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
             text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color=accent testId="brand"
             text station.name font-size=24 font-weight=700 testId="station-name" aria-level=1
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` font-size=12 color="#666666"
+            text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size=12 color="#666666"
           column gap=6 align-items="flex-end"
             button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
               text "Change station" font-size=13 font-weight=600
@@ -249,11 +261,11 @@ component Content
           when material == "glass"
             text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#9ad8ff"
             text station.name font-size=34 font-weight=800 color="#ffffff" testId="aurora-title"
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size=12 color="#d0e4ff"
+            text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size=12 color="#d0e4ff"
           else
             text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#8a5a2b"
             text station.name font-size=34 font-weight=800 color="#2a1f14" testId="aurora-title"
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size=12 color="#5a4a3a"
+            text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size=12 color="#5a4a3a"
         canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 border-radius=16 testId="line-map"
           column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
             each s in allStations key=s.id
@@ -273,7 +285,7 @@ component Content
                 button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
                   column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
                     row gap=8 align-items="flex-end"
-                      text formatCountdownMinutes(d.at, nowMs) font-size=30 font-weight=800
+                      text countdownText(d.at, nowMs) font-size=30 font-weight=800
                       text "min" font-size=13 color="#666666"
                     text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
           else
@@ -316,7 +328,7 @@ component DirectionCard
       else
         each d in board key=d.id
           row gap=8 align-items="flex-end" testId=`dep-${d.id}`
-            text formatCountdownMinutes(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
+            text countdownText(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
             text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
 
 component StationRow
@@ -332,10 +344,10 @@ component StationRow
           column gap=2
             text station.name font-size=15 font-weight=600
             text `Zone ${station.zone}` font-size=12 color="#999999"
-          text formatDistance(station.distance) font-size=12 color="#666666"
+          text distanceText(station.distance) font-size=12 color="#666666"
       else
         row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%"
           column gap=2
             text station.name font-size=15 font-weight=600
             text `Zone ${station.zone}` font-size=12 color="#999999"
-          text formatDistance(station.distance) font-size=12 color="#666666"
+          text distanceText(station.distance) font-size=12 color="#666666"

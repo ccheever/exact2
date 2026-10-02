@@ -68,7 +68,7 @@ extension NodeView {
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
-        let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
+        let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let fits = radius == 0 || (oneRadius && content == bounds && shown == content)
         guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else {
@@ -124,6 +124,7 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children only
     /// where the overflow clips.
     func applyBoxLayer() {
+        defer { syncEllipticalClip() }
         let background = channels("background_color").map { TextEngine.color($0).cgColor }
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
@@ -137,7 +138,7 @@ extension NodeView {
         // and Core Animation's own limit (half the shorter side) not reached.
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
-        let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
+        let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let gradient = style["background_image"] != nil
         // A layout transition's size shows the surface on its own layer.

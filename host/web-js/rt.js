@@ -2,6 +2,7 @@ import { renderMarkup, reportPlace } from "./navigation.js";
 import { conforms, eq } from "./shape.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -122,7 +123,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false;
+/** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
+class Failed extends Refusal {}
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
 export const journal = [];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -141,7 +144,7 @@ export function commit(f, what = "commit") {
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
   stamp();
-  const undo = [], saved = Resources.map(r => r.save()), store = Store.save();
+  const undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
   let ok = true;
   try {
     untracked(f);
@@ -158,9 +161,9 @@ export function commit(f, what = "commit") {
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
-    Resources.forEach((r, k) => r.restore(saved[k]));
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
     Store.restore(store);
-    Out = []; Commands = []; Landed = [];
+    Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
     if (!(e instanceof Refusal)) console.error(e);
     try { settle(); } catch {}
@@ -178,8 +181,8 @@ export function commit(f, what = "commit") {
   Store.persist();
   for (const go of out) go();
   for (const c of cmds) command(...c);
-  // An answer's `then` runs as its own commit, after this one stood.
-  for (const m of landed) if (m.then) setTimeout(() => m.then());
+  // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
+  for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
   return true;
 }
 /** What runs after each commit's tree update (a loaded piece's publication),
@@ -191,21 +194,13 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); paintFlush(); for (const f of After) f(); }
-/** `<html data-scrolldocument>` while an element is the page's scroller
- * (LLP 1048.003 D4), which the shell's rule reads, as the web host's glue. */
-const Docs = new Set();
-let Marked = false;
-function markDocument() {
-  Marked = false;
-  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
-  document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
-}
+export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
+let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
     if (e.$jump) e.$jump(name, at);
-    else if (e[name] !== at) { if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+    else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
   Scrolls.clear();
 }
@@ -223,7 +218,6 @@ function command(name, args) {
   say(`command ${name}`);
   if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
-
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // `now()` is elapsed time: the driver's clock under the agent and in a
@@ -255,20 +249,24 @@ export function frames(action) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
   if (!clock.agent) paint();
 }
-/** Move the clock to `to`, firing each due timer at its own time, in order;
- * a seek fires frame tasks' virtual frames too, the wall clock's (`wall`) none. */
-/** `stop()`, asked after each timer, ends the advance there (the agent's:
- * one that sent a request): true when it stopped short of `to`. Under the
+/** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
+ * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
+ * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time, and a
+ * non-finite `to` (NonFiniteClock) leaves the clock where it was: its journal line, as the runner's error. Under the
  * agent the journal gets the runner's line for an advance that fired. */
 export function advance(to, wall, stop) {
+  if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
-    let next = null;
+    let next = null, then = null;
     for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
-    if (!next) break;
-    clock.now = next.due;
-    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms;
-    fire(next);
+    // An answer's `then` goes before a timer due at the same time: the answer landed first.
+    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
+    if (!next && !then) break;
+    if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
+    if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
+    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
+    if (fire(then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
     fired++;
     if (stop?.()) { stopped = true; break; }
   }
@@ -278,12 +276,12 @@ export function advance(to, wall, stop) {
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
-function fire(t) { Timing = true; try { t.action(); } finally { Timing = false; } }
+function fire(f) { Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 function drive() {
   clearTimeout(driving);
   let next = Infinity;
-  for (const t of clock.timers) if (!t.frame && t.due < next) next = t.due;
+  for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
 }
@@ -298,7 +296,7 @@ function paint() {
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
-    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t); }
+    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -351,6 +349,22 @@ function ask(source, args, name) {
   if (a && a.then) { const p = a; return { promise: p }; }
   return a;
 }
+/** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
+ * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
+ * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
+function reply(t, name, source, held, f, next, gone) {
+  return o => {
+    if (commit(() => {
+      if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
+      let p;
+      try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
+      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
+      f(p);
+    }, `reply ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
+    gone(); commit(() => {}, "a failed request");
+  };
+}
 /** A resource: its value, the arguments it settled with, one ticket in flight. */
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
@@ -362,26 +376,29 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   const hold = () => {
     if (r.value !== undefined) return;
     const v = typeof ph === "function" ? ph() : ph;
-    if (v === undefined) throw new Refusal(`${name} answers later and has nothing to show; give it an \`else\``);
+    if (v === undefined) throw new Failed(`${name} answers later and has nothing to show; give it an \`else\``);
     r.value = v;
   };
   const take = (v, a) => {
-    if (type && !conforms(v, type, [0], r.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     r.checked = v;
     r.value = v; r.settled = a;
   };
-  const land = t => outcome => commit(() => {
-    if (r.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(source, t.args, outcome, Store);
+  // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
+  const land = t => reply(t, name, source, () => r.ticket === t, p => {
     if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    take(p.v, t.args); r.ticket = null;
+    take(p.v, t.args); r.ticket = r.failed = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
+    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
+    if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
+    flag(fail, r.failed);
+    if (r.failed) return r.value;
     if (!forced && !reread && !rev) {
       if (r.settled !== undefined && eq(a, r.settled)) return r.value;
       if (r.ticket && eq(a, r.ticket.args)) return r.value;
@@ -390,15 +407,14 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     try { ans = ask(source, a, name); }
     catch (e) {
       if (e instanceof Refusal) throw e;
-      if (e.refuse) throw new Refusal(`resource ${name}: ${e.message}`);
-      flag(fail, String(e.message)); say(`resource ${name} failed: ${e.message}`); return r.value;
+      if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
+      r.failed = a; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
       take(ans.v, a);
       if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
       if (!r.ticket) flag(pend, false);
-      flag(fail, null);
       return r.value;
     }
     // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
@@ -423,8 +439,8 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -440,22 +456,21 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
 export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
-  const m = { ticket: null, then: null };
+  const m = { name, ticket: null, then: null, due: Infinity };
   Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
-  const land = t => outcome => commit(() => {
-    if (m.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(t.source, t.args, outcome, Store);
+  // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
+  const land = t => reply(t, name, t.source, () => m.ticket === t, p => {
     if (p.req) { t.req = p.req; send(t, land(t)); return; }
-    if (type && !conforms(p.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
     m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
   Object.assign(m, {
     forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
     send(source, args, undo) {
@@ -488,6 +503,7 @@ let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
+  if (attrs?.["aria-keyshortcuts"] != null) input();
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
@@ -506,7 +522,6 @@ export function cv(e) {
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
   if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
-
 // ---------------------------------------------------------------- adoption (LLP 1048.000 D6)
 // A page rendered ahead (by the Rust render host or by this runtime under
 // Bun) is adopted, not rebuilt: construction walks the document with a
@@ -545,13 +560,13 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-
 const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
 export function P(e, name, f) {
+  if (name === "aria-keyshortcuts") input();
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
@@ -771,7 +786,7 @@ export function on(e, kind, f) {
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
     // The port's offsets, as the web host sends them (`glue.js` `attach`).
-    case "scroll": return l(kind, () => f(e.scrollLeft, e.scrollTop));
+    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
@@ -960,24 +975,13 @@ function input() {
       velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) } });
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
-/** The page's `<head>` fields (LLP 1048.003 D1); a field bound to state
- * follows it while its head is in the tree. */
+/** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
+ * element in the tree, and its fields, the page's while it is the innermost
+ * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
-  // The head's node, as the kernel keeps it: an inert element in the tree.
   const t = document.createElement("template");
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
-  for (const [k, v] of Object.entries(fields)) effect(() => head(k, typeof v === "function" ? v() : v));
-}
-/** The head's fields as last set, for a renderer. */
-export const Head = {};
-function head(k, v) {
-  Head[k] = v;
-  if (k === "headTitle") document.title = v;
-  else if (k === "headDescription") {
-    let m = document.querySelector('meta[name="description"]');
-    if (!m) { m = document.createElement("meta"); m.name = "description"; document.head.append(m); }
-    m.content = v;
-  }
+  onEnd(head(t, fields, effect, After));
 }
 
 // ---------------------------------------------------------------- regions
@@ -1222,7 +1226,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1232,7 +1236,7 @@ export function mount(f) {
     root.textContent = "";
     commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  if (!built) throw new Error("boot refused: " + journal.at(-1));
+  Booting = false; if (!built) throw new Error("boot refused: " + journal.at(-1));
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
@@ -1289,9 +1293,6 @@ export function x_formatTime(ms, off) {
   const w = Math.trunc(ms) + off * 60000, m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
   return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-export const x_formatCountdownMinutes = (at, now) => String(Math.max(0, Math.ceil((at - now) / 6e4)));
-export const x_formatDistance = m => (m /= 1609.344) < 0.1 ? "nearby" : `${(Math.round(m * 10) / 10).toFixed(1)} mi`;
-export const x_formatWalk = m => `${Math.max(1, Math.ceil(m / 80))} min walk`;
 
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
@@ -1423,6 +1424,7 @@ export function x_push(r, location) {
   const d = dest(r, location), i = sel(r);
   if (!d) return refuse(r, `no route matches ${canonical(location)}`);
   if (i < 0) return refuse(r, "router has no selected stack");
+  if (r[1][i][1].at(-1)?.[2] === d.url) return r; // the location on top: no new visit (route/src/router.rs)
   const out = copy(r); out[1][i][1].push(mint(out, d)); return out;
 }
 export function x_replace(r, location) {
@@ -1462,9 +1464,10 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * the web host's own), and a popstate back as the navigation root's
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
+/** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
 export function router(slot, history) {
-  RouterSlot = slot; History = history;
-  history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
+  RouterSlot = slot; navigationRoots(history);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
@@ -1489,7 +1492,6 @@ export function router(slot, history) {
     const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
     Shown = r;
     history.apply({ top: top[0], url: top[2], removed });
-    queueMicrotask(() => history.project(document.getElementById("exact-root"), say));
   });
 }
 export const navigateTo = f => { Navigate = f; };

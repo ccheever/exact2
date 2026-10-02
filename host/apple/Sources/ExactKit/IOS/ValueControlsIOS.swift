@@ -45,6 +45,10 @@ extension ControlHost {
             let s = control.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
             return CGSize(width: ceil(s.width), height: ceil(s.height))
         }
+        if control is NativeButtonIOS {
+            let s = control.intrinsicContentSize
+            return CGSize(width: ceil(s.width), height: ceil(s.height))
+        }
         guard let button = control as? UIButton, let config = button.configuration else { return control.intrinsicContentSize }
         let probe = UIButton(configuration: config)
         var size = CGSize.zero
@@ -81,7 +85,7 @@ extension ControlHost {
             return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                     "reason": "the iOS carrier drags no thumb (UIKit moves one under a finger); `type <id> <value>` sets it"]
         }
-        guard controls[node.id] is UIButton else { return nil }
+        guard controls[node.id] is UIButton, !(controls[node.id] is NativeButtonIOS) else { return nil }
         return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                 "reason": "the iOS carrier opens no menu (UIKit presents one under a finger); `type <id> <value>` chooses"]
     }
@@ -96,7 +100,7 @@ extension ControlHost {
             guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeDate(picker, node, value)
         }
-        guard let control = controls[node.id], control is UIButton else { return nil }
+        guard let control = controls[node.id], control is UIButton, !(control is NativeButtonIOS) else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
         if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
         chose(node.id, value)
@@ -110,7 +114,7 @@ extension ControlHost {
         if let picker = control as? UIDatePicker {
             return ["view": "UIDatePicker(compact)", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.date)]
         }
-        guard let button = control as? UIButton else { return nil }
+        guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }
         let menu = menus[UInt32(button.tag)]
         return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": button.currentTitle as Any,
                 "options": menu?.options.map(\.label) ?? []]

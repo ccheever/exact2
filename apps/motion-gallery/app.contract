@@ -49,9 +49,9 @@ keyframes tour
 
 component Gallery
   state page = 1
-  action fixtures writes page
+  action fixtures
     page = 1
-  action shimmer writes page
+  action shimmer
     page = 2
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" gap=12 padding=12 background-color="#ffffff" color="#0f172a" font-family="system-ui"

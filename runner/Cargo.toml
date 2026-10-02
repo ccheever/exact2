@@ -16,6 +16,7 @@ name = "exact_runner"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-grants = { path = "../grants" }
 exact-canvas = { path = "../canvas" }
 exact-kernel = { path = "../kernel" }
 exact-motion = { path = "../motion" }

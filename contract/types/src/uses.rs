@@ -47,7 +47,6 @@ pub(crate) fn check_prop_names(
                 check_prop_names(children, file, sink, explained);
             }
             Node::Element { children, .. } => check_prop_names(children, file, sink, explained),
-            Node::Provide { body, .. } => check_prop_names(body, file, sink, explained),
             Node::When {
                 then, otherwise, ..
             } => {
@@ -228,12 +227,6 @@ fn walk_use(
             }
             Node::Element { children, .. } => {
                 walk_uses(children, scope, types, file, actions, sink)
-            }
-            Node::Provide { expr, body, .. } => {
-                if actions {
-                    infer(expr, scope, &types.shapes)?;
-                }
-                walk_uses(body, scope, types, file, actions, sink);
             }
             Node::Children { .. } => {}
             Node::When {

@@ -102,23 +102,23 @@ component Weatherlight
   resource outlook = outlook(forecast, units, selected, lat, lon) as shape Outlook
   resource places = places(submitted) as shape Places
 
-  action openSearch writes searching
+  action openSearch
     searching = true
     focus("city-query")
-  action closeSearch writes searching
+  action closeSearch
     searching = false
-  action changeQuery(value) writes query
+  action changeQuery(value)
     query = value
-  action search writes submitted
+  action search
     submitted = query
     refresh places
-  action searchKey(k: string) writes submitted, searching
+  action searchKey(k: string)
     if k == "Enter"
       submitted = query
       refresh places
     if k == "Escape"
       searching = false
-  action choose(name: string, detail: string, latitude: number, longitude: number) writes city, region, lat, lon, selected, searching, query, submitted
+  action choose(name: string, detail: string, latitude: number, longitude: number)
     city = name
     region = detail
     lat = latitude
@@ -127,16 +127,16 @@ component Weatherlight
     searching = false
     query = ""
     submitted = ""
-  action setUnits(value: string) writes units
+  action setUnits(value: string)
     units = value
-  action explore(id: string) writes selected
+  action explore(id: string)
     selected = id
-  action reloadWeather writes revision, selected
+  action reloadWeather
     revision = revision + 1
     selected = "now"
-  action toggleMotion writes animated
+  action toggleMotion
     animated = not animated
-  action tick writes ticks, revision
+  action tick
     if ticks == 0
       revision = revision + 1
     ticks = (ticks + 1) % 600

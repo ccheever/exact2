@@ -4,7 +4,7 @@ export const appId = 'com.exact.updatelab';
 export const grants = '';
 
 // Edit these two values for the TypeScript update experiment.
-const VERSION = 'TS v9';
+const VERSION = 'TS v13';
 const MULTIPLIER = 4;
 
 export const answer: Answer = (source, args) => {

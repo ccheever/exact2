@@ -2,7 +2,7 @@
 // the host lowers it to frames (LLP 1002 D2); the easing beside it stays CSS.
 component Pop
   state big = false
-  action toggle writes big
+  action toggle
     big = not big
   view
     column testId="root"

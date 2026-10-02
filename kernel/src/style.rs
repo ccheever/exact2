@@ -544,7 +544,7 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
-        match self {
+        let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
@@ -566,7 +566,22 @@ impl StyleValue {
                 style,
                 expected: "number, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
             }),
+        }?;
+        if matches!(
+            style,
+            StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft
+        ) && (!value.is_finite()
+            || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
+        {
+            return Err(StyleValueError::WrongKind {
+                style,
+                expected: "nonnegative finite length or percentage",
+            });
         }
+        Ok(value)
     }
 
     /// A colour as a row holds it. `light-dark(a, b)` is the one text a
@@ -1391,7 +1406,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // An explicit CSS min-height still owns that constraint; no natural ratio
     // or preferred width is inferred from this container measurement.
     if !arena.node_type(slot).is_replaced()
-        && arena.node_type(slot) != NodeType::Control
+        && !matches!(
+            arena.node_type(slot),
+            NodeType::Control | NodeType::NativeView
+        )
         && s.min_size.height.is_auto()
     {
         if let Some((_, height)) = arena.intrinsic(slot) {

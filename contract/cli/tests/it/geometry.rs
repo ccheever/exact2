@@ -21,7 +21,7 @@ const SRC: &str = r#"component App
   state sized = 0
   state answered = false
   state missing = false
-  action read writes room, top, natural, sized, answered, missing
+  action read
     room = frame("bay").height
     top = frame("sheet").y
     natural = measure("sheet").height

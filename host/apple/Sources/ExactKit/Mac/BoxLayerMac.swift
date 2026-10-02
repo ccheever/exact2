@@ -82,7 +82,7 @@ extension NodeView {
         // and Core Animation's own limit (half the shorter side) not reached.
         let radii = cornerRadii(in: bounds)
         p.radius = radii.max() ?? 0
-        p.oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
+        p.oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
             && p.radius <= min(bounds.width, bounds.height) / 2 + 0.01
         p.corners = cornerMask(radii)
         let gradient = style["background_image"] != nil
@@ -110,6 +110,7 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children
     /// only where the overflow clips.
     func applyBoxLayer() {
+        defer { syncEllipticalClip() }
         guard layerBoxEligible else { applyClipOnly(); return }
         let p = boxPlan
         applyBoxLayer(p)
@@ -184,9 +185,12 @@ extension NodeView {
     /// layer carries only the clip's radius, reduced as CSS reduces it.
     private func applyClipOnly() {
         guard let l = clipBox?.layer ?? layer else { return }
-        let radii = cornerRadii(in: bounds)
+        let radii = cornerSizes(in: bounds)
         let clips = clipsToBounds || clipBox != nil
-        let radius = clips && radii.allSatisfy({ abs($0 - radii[0]) < 0.01 }) ? radii[0] : 0
+        let first = radii[0]
+        let circular = radii.allSatisfy { abs($0.width - $0.height) < 0.01 && abs($0.width - first.width) < 0.01 }
+            && first.width <= min(bounds.width, bounds.height) / 2
+        let radius = clips && circular ? first.width : 0
         if l.cornerRadius != radius { l.cornerRadius = radius }
     }
 
@@ -227,7 +231,7 @@ extension NodeView {
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
-        let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
+        let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let fits = radius == 0 || (oneRadius && content == bounds && shown == content)
         guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else { return nil }

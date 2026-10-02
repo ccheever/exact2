@@ -9,8 +9,184 @@ import XCTest
 /// and sublayers, and the view answers `wantsUpdateLayer`, so AppKit never
 /// gives it a backing store. Only what the layer cannot say still draws.
 final class BoxLayerMacTests: XCTestCase {
+    func testPercentageRadiusClipsMaterialAndOverflowAfterResize() throws {
+        var style: NodeStyle = ["overflow_x": "hidden", "overflow_y": "hidden"]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node(style, size: CGSize(width: 160, height: 80))
+        n.props["backgroundMaterial"] = "ultra-thin"
+        n.updateMaterial()
+        n.applyBoxLayer()
+        let material = try XCTUnwrap(n.materialView)
+        material.wantsLayer = true
+        let materialLayer = try XCTUnwrap(material.layer)
+        let nodeLayer = try XCTUnwrap(n.layer)
+        let materialMask = try XCTUnwrap(materialLayer.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(materialMask.path).contains(CGPoint(x: 20, y: 5)))
+        XCTAssertTrue(try XCTUnwrap(materialMask.path).contains(CGPoint(x: 80, y: 5)))
+        let clip = try XCTUnwrap(nodeLayer.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(clip.path).contains(CGPoint(x: 20, y: 5)))
+        n.frame.size = CGSize(width: 80, height: 160)
+        n.layoutSubtreeIfNeeded()
+        let resized = try XCTUnwrap(materialLayer.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(resized.path).contains(CGPoint(x: 5, y: 20)))
+        XCTAssertTrue(try XCTUnwrap(resized.path).contains(CGPoint(x: 5, y: 80)))
+        n.applyStyle([:])
+        n.updateMaterial()
+        n.applyBoxLayer()
+        XCTAssertNil(materialLayer.mask, "a later square style removes the elliptical clip")
+        XCTAssertNil(nodeLayer.mask)
+    }
+
+    func testVideoPercentageRadiusUsesTheContentEdgeAndClears() throws {
+        var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node(style, size: CGSize(width: 160, height: 80))
+        let media = MediaPlatformView()
+        VideoView.layout(media, in: n)
+        let mediaLayer = try XCTUnwrap(media.layer)
+        XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
+        let mask = try XCTUnwrap(mediaLayer.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
+        XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 70, y: 5)))
+        n.frame.size = CGSize(width: 80, height: 160)
+        VideoView.layout(media, in: n)
+        XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 60, height: 140))
+        let resized = try XCTUnwrap(mediaLayer.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(resized.path).contains(CGPoint(x: 5, y: 10)))
+        n.applyStyle([:])
+        VideoView.layout(media, in: n)
+        XCTAssertNil(mediaLayer.mask)
+    }
+
+    func testPercentageOverflowClipComposesWithAuthoredClipPath() throws {
+        var style: NodeStyle = ["overflow_x": "hidden", "overflow_y": "hidden",
+            "clip_path": ["commands": [["M", [0, 0]], ["L", [80, 0]], ["L", [80, 80]], ["L", [0, 80]], ["Z", []]]]]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node(style, size: CGSize(width: 160, height: 80))
+        n.applyBoxLayer()
+        let mask = try XCTUnwrap(n.layer!.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 20, y: 5)))
+        let authored = try XCTUnwrap(mask.mask as? CAShapeLayer)
+        XCTAssertTrue(try XCTUnwrap(authored.path).contains(CGPoint(x: 60, y: 40)))
+        XCTAssertFalse(try XCTUnwrap(authored.path).contains(CGPoint(x: 100, y: 40)))
+        let layer = try XCTUnwrap(n.layer)
+        func alpha(_ x: Int, _ y: Int) -> UInt8 {
+            let width = Int(n.bounds.width), height = Int(n.bounds.height)
+            let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            // An opaque descendant proves both masks clip real rendered content.
+            let child = CALayer()
+            child.frame = n.bounds
+            child.backgroundColor = CGColor(gray: 1, alpha: 1)
+            layer.addSublayer(child)
+            defer { child.removeFromSuperlayer() }
+            layer.render(in: context)
+            let row = layer.isGeometryFlipped ? height - 1 - y : y
+            return context.data!.assumingMemoryBound(to: UInt8.self)[(row * width + x) * 4 + 3]
+        }
+        XCTAssertEqual(alpha(20, 5), 0, "outside ellipse")
+        XCTAssertEqual(alpha(60, 40), 255, "inside both masks")
+        XCTAssertEqual(alpha(100, 40), 0, "outside authored clip")
+        n.frame.size = CGSize(width: 80, height: 160)
+        n.applyBoxLayer()
+        XCTAssertEqual(alpha(5, 20), 0, "resized ellipse")
+        XCTAssertEqual(alpha(40, 40), 255)
+        XCTAssertEqual(alpha(40, 120), 0, "authored clip survives resize")
+        n.applyStyle([:])
+        n.applyBoxLayer()
+        XCTAssertNil(layer.mask)
+        XCTAssertEqual(alpha(5, 5), 255, "removing the style clears both masks")
+    }
+
+    func testPercentageOverflowClipSurvivesSurfaceRoundTrip() throws {
+        for shadow in [false, true] {
+            var style: NodeStyle = ["overflow_x": "hidden", "overflow_y": "hidden"]
+            for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+                style["border_radius_" + corner] = ["pct": 50]
+            }
+            if shadow {
+                style["shadow_color"] = [0, 0, 0, 128]
+                style["shadow_radius"] = 4
+                style["shadow_opacity"] = 1
+            }
+            let n = node(style, size: CGSize(width: 160, height: 80))
+            n.applyBoxLayer()
+            if shadow { XCTAssertNotNil(n.clipBox) }
+            let target = try XCTUnwrap(n.clipBox?.layer ?? n.layer)
+            n.layoutScale = CGPoint(x: 0.5, y: 0.5)
+            n.applySurface()
+            XCTAssertTrue(target.mask === n.surface?.clip)
+            n.layoutScale = CGPoint(x: 1, y: 1)
+            n.applySurface()
+            n.display()
+            XCTAssertNil(n.surface)
+            let mask = try XCTUnwrap(target.mask as? CAShapeLayer, "ellipse restored, shadow=\(shadow)")
+            XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 20, y: 5)))
+            XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 80, y: 5)))
+        }
+    }
+
+    func testPercentageClipOnlyKindsUseAnEllipseWithoutACircularClip() throws {
+        for kind in ["text", "canvas", "iframe"] {
+            var style: NodeStyle = ["overflow_x": "hidden", "overflow_y": "hidden"]
+            for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+                style["border_radius_" + corner] = ["pct": 50]
+            }
+            let n = node(style, kind: kind, size: CGSize(width: 160, height: 80))
+            n.applyBoxLayer()
+            XCTAssertEqual(n.layer?.cornerRadius, 0, kind)
+            let mask = try XCTUnwrap(n.layer?.mask as? CAShapeLayer)
+            XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 20, y: 5)))
+            XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 80, y: 5)))
+        }
+    }
+
+    func testVideoStyleChangesRefreshGeometryWithoutPropChanges() throws {
+        let n = node([:], size: CGSize(width: 160, height: 80))
+        let video = VideoView(owner: n)
+        n.video = video
+        guard let media = n.subviews.first else {
+            throw XCTSkip("the optional video module is not beside this test runner")
+        }
+        video.update()
+        var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        n.applyStyle(style)
+        XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
+        let mask = try XCTUnwrap(media.layer?.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
+        n.applyStyle([:])
+        XCTAssertEqual(media.frame, n.bounds)
+        XCTAssertNil(media.layer?.mask)
+        n.applyStyle(style)
+        XCTAssertNotNil(media.layer?.mask)
+    }
+
     private let white: BatchValue = [255, 255, 255, 255]
     private let blue: BatchValue = [0, 136, 255, 255]
+
+    func testPercentageRadiusUsesBothAxesAndFollowsResize() {
+        var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node(style, size: CGSize(width: 160, height: 80))
+        XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 80, height: 40), count: 4))
+        XCTAssertFalse(n.roundedPath(in: n.bounds).cgPath.contains(CGPoint(x: 20, y: 5)))
+        XCTAssertTrue(n.roundedPath(in: n.bounds).cgPath.contains(CGPoint(x: 80, y: 5)))
+        n.frame.size = CGSize(width: 80, height: 160)
+        XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 40, height: 80), count: 4))
+        XCTAssertNil(FlatPaint(style), "percentage geometry cannot use a fixed-radius flat leaf")
+    }
 
     private func node(_ style: NodeStyle, kind: String = "view", size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {
         _ = NSApplication.shared

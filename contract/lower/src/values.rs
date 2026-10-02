@@ -17,6 +17,80 @@ fn literal_text(e: &Expr) -> String {
     }
 }
 
+/// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
+/// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
+/// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
+/// literal is refused.
+pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
+    match e {
+        Expr::Str(s, span) if s == "auto" => Ok(Expr::Number(-1.0, *span)),
+        Expr::Str(s, span) => err(
+            "lower-attr-value",
+            format!("`glassGroup` takes a spacing in points or `\"auto\"`; given `\"{s}\"`"),
+            *span,
+        ),
+        Expr::Ternary(c, a, b, span) => Ok(Expr::Ternary(
+            c.clone(),
+            Box::new(glass_group(a)?),
+            Box::new(glass_group(b)?),
+            *span,
+        )),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => Ok(Expr::Match {
+            subject: subject.clone(),
+            var: var.clone(),
+            some: Box::new(glass_group(some)?),
+            none: Box::new(glass_group(none)?),
+            span: *span,
+        }),
+        // A shared derive's `let`: its value rewritten only when it is a
+        // spacing as written (a condition it binds is not), its body always.
+        Expr::Let {
+            name,
+            value,
+            body,
+            span,
+        } => Ok(Expr::Let {
+            name: name.clone(),
+            value: Box::new(if spacing_tree(value) {
+                glass_group(value)?
+            } else {
+                (**value).clone()
+            }),
+            body: Box::new(glass_group(body)?),
+            span: *span,
+        }),
+        _ => {
+            if let Some(spacing) = numeric_literal(e) {
+                if !(0.0..=10_000.0).contains(&spacing) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`glassGroup` takes a spacing from 0 to 10000 points, or `\"auto\"`; given {spacing}"),
+                        e.span(),
+                    );
+                }
+            }
+            Ok(e.clone())
+        }
+    }
+}
+
+/// Whether a value is a spacing as written: `"auto"`, a number, or a choice
+/// of them.
+fn spacing_tree(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s == "auto",
+        Expr::Ternary(_, a, b, _) => spacing_tree(a) && spacing_tree(b),
+        Expr::Match { some, none, .. } => spacing_tree(some) && spacing_tree(none),
+        _ => numeric_literal(e).is_some(),
+    }
+}
+
 pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
     match e {
         Expr::Number(n, _) => Some(*n),
@@ -497,7 +571,7 @@ pub(crate) fn check_prop_value(
     if prop == PropId::ImageSource {
         if let Expr::Str(source, _) = value {
             if let Some(role) = source.strip_prefix("symbol:") {
-                if exact_kernel::generated::symbol(role).is_none() {
+                if !role.starts_with("sf/") && exact_kernel::generated::symbol(role).is_none() {
                     return err(
                         "lower-attr-value",
                         format!(
@@ -552,6 +626,43 @@ pub(crate) fn check_prop_value(
             ),
             span,
         );
+    }
+    Ok(())
+}
+
+/// @ref LLP 1053.000.000 D6 — where a glass group cannot be: beside the
+/// element's own material (the group's glass would fuse with it), on a
+/// scroll (its content belongs to the scroll and its rows), on a canvas
+/// (whose overlay's direct children are captured and placed).
+pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(group) = attrs.iter().find(|a| a.name == "glassGroup") else {
+        return Ok(());
+    };
+    let refuse = |why: &str| {
+        err(
+            "lower-glass-group",
+            format!("`glassGroup` {why}"),
+            group.span,
+        )
+    };
+    if let Some(m) = attrs
+        .iter()
+        .find(|a| a.name == "backgroundMaterial" || a.name == "backdrop-filter")
+    {
+        return refuse(&format!(
+            "and `{}` on one element: the group's glass would fuse with the element's own; put the group on the parent",
+            m.name
+        ));
+    }
+    let scrolls = attrs.iter().any(|a| {
+        matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y")
+            && matches!(&a.value, Expr::Str(v, _) if v == "scroll")
+    });
+    if tag.node_type.scrolls_by_default() || scrolls {
+        return refuse("on an element that scrolls: put the group on a child inside the scroll");
+    }
+    if tag.node_type == exact_kernel::NodeType::Canvas {
+        return refuse("on a `canvas`: put the group on a child of the canvas");
     }
     Ok(())
 }

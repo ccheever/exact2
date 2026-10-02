@@ -7,11 +7,11 @@ component Clock
   state running = false
   state at = 0
   derive minute = floor(now() / 60000)
-  action tick writes ticks
+  action tick
     ticks = running ? ticks + 1 : ticks
-  action toggle writes running
+  action toggle
     running = not running
-  action stamp writes at
+  action stamp
     at = now()
   task beat mount
     every(4000, tick)

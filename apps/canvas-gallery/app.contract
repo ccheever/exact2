@@ -26,19 +26,19 @@ component Gallery
   state page = 1
   state step = 0
   state dark = false
-  action one writes page
+  action one
     page = 1
-  action two writes page
+  action two
     page = 2
-  action three writes page
+  action three
     page = 3
-  action four writes page
+  action four
     page = 4
-  action five writes page
+  action five
     page = 5
-  action advance writes step
+  action advance
     step = step + 1
-  action flip writes dark
+  action flip
     dark = not dark
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"

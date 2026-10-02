@@ -128,7 +128,14 @@ pub(super) fn check(file: &File, types: &Types, expanded: &Component) -> Result<
     for (ci, c) in file.components.iter().enumerate() {
         let scoped = if ci == 0 { expanded } else { c };
         let mut scope = types.component_scope(scoped, &types.components[ci]);
-        graph.nodes(ci, &c.view, &mut scope, &mut Vec::new())?;
+        // The component's `provide` section covers its whole view (LLP
+        // 1035.005.000 D9); a slot fill is walked in its caller's view.
+        let mut providers: Vec<_> = c
+            .provides
+            .iter()
+            .map(|b| (b.name.clone(), graph.binding(ci, &b.expr, &scope, b.span)))
+            .collect();
+        graph.nodes(ci, &c.view, &mut scope, &mut providers)?;
     }
     while let Some(id) = graph.queue.pop_front() {
         let need = graph.interfaces[id]
@@ -397,19 +404,6 @@ impl Graph<'_> {
                             }),
                         }
                     }
-                }
-                Node::Provide {
-                    name,
-                    expr,
-                    body,
-                    span,
-                } => {
-                    providers.push((
-                        name.clone(),
-                        self.binding(ci, expr, scope, self.file.names.name(*span)),
-                    ));
-                    self.nodes(ci, body, scope, providers)?;
-                    providers.pop();
                 }
                 Node::Children { .. } => {}
                 Node::When {

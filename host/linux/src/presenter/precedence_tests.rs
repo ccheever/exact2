@@ -17,9 +17,9 @@ impl DataSource for NoData {
 const SOURCE: &str = r#"component App
   state replies = 0
   state panned = 0
-  action reply writes replies
+  action reply
     replies = replies + 1
-  action moved(dx: number, dy: number) writes panned
+  action moved(dx: number, dy: number)
     panned = panned + dy
   view
     column width=400 height=500 pan=moved

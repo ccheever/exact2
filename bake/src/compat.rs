@@ -106,7 +106,8 @@ pub fn compatibility_id(
 
 /// Compatibility for separately owned language sources. With `rust_grants`,
 /// `grants` describes JavaScript; the host admits their union and hashes each
-/// child's exact grant declaration independently.
+/// child's exact grant declaration independently. Grants that do not parse
+/// refuse the bake, whichever language declared them.
 pub fn compatibility_id_sources(
     app_dir: &Path,
     platform: &str,
@@ -129,6 +130,7 @@ pub fn compatibility_id_sources(
         Err(std::env::VarError::NotPresent) => "development".into(),
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
+    crate::reach::parsed(app_dir, grants, rust_grants)?;
     let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
     let mut compat = compatibility_with_trust(
         app_dir,
@@ -325,7 +327,7 @@ fn compatibility_with_trust(
         // is a binary change, never a bundle (LLP 1047 D8).
         "nativeModules": match contract::native::roster(manifest)? {
             tags if tags.is_empty() => Value::Null,
-            tags => json!({ "abi": 1, "tags": tags }),
+            tags => json!({ "appleAbi": 3, "webAbi": 1, "tags": tags }),
         },
         "icons": icons,
         "capabilities": {
@@ -730,6 +732,48 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    /// A Rust-only app's grants are read here and nowhere earlier: a set a
+    /// device would refuse whole refuses the bake, naming each line.
+    #[test]
+    fn grants_that_do_not_parse_refuse_the_bake_naming_the_line() {
+        let dir = app("unparsed-grants");
+        let manifest = Manifest::read(&dir).unwrap();
+        let bake = |grants, rust| {
+            super::compatibility_id_sources(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                &manifest,
+                Some(grants),
+                rust,
+            )
+        };
+        // Crew's set (the port report of 2026-09-24, F1).
+        let crew = "net.fetch https://crew.test\nsecret.keep crewHost\nstorage.kv crew state";
+        assert_eq!(
+            bake(crew, None).unwrap_err(),
+            "grant-parse: the Rust source: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})\n\
+             grant-parse: the Rust source: line 3: unexpected `state` after the target"
+        );
+        // A mixed app: each child's lines, by its own numbers.
+        let error = bake("secret.keep jwtToken", Some(crew)).unwrap_err();
+        assert!(
+            error.starts_with("grant-parse: app.ts: line 1: `jwtToken` is not a secret name")
+                && error.contains("\ngrant-parse: the Rust source: line 2: `crewHost`"),
+            "{error}"
+        );
+        // An app with an `app.ts` and no Rust grants declared them there.
+        std::fs::write(dir.join("app.ts"), "").unwrap();
+        let error = bake(crew, None).unwrap_err();
+        assert!(
+            error.starts_with("grant-parse: app.ts: line 2: "),
+            "{error}"
+        );
+        std::fs::remove_file(dir.join("app.ts")).unwrap();
+        assert!(bake("net.fetch https://crew.test\nsecret.keep crew.host", None).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn id(dir: &Path, platform: &str) -> String {

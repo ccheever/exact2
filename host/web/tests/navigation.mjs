@@ -250,6 +250,9 @@ try {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
     await tap('push-post'); await record('push post', '/post/42', n + 1, 2, 0);
+    // A push of the location shown is no new visit: no history entry (LLP 1038 `push`).
+    await tap('push-post'); const again = await record('push of the top adds nothing', '/post/42', n + 1, 2, 0);
+    assert.equal(again.calls.filter(c => c.name === 'pushState').length, 0, 'a same-URL push writes no history entry');
     await historyTap(-1); await until(`location.pathname==='/'`);
     const back = await record('browser Back', '/', n + 1, 1, 1);
     if (!js) assert.equal(back.logs.lines.filter(l => l.includes('(back)')).length, 1);
@@ -493,8 +496,8 @@ try {
     served = published;
     const n = await fresh('/post/42'); await record('published /post/42', '/post/42', n, 2, 0);
     await fresh('/prompt/5/write'); const s = await state(); assert.deepEqual(s.navigation.stack, ['1','5','6']);
-    // A JS-target build carries no install pages or envelope: a deploy's root takes the bake's (deploy.mjs).
-    for (const path of ['/post/42', '/prompt/5/write', ...(js ? [] : ['/.exact/install/']), '/missing.png', '/__dev/missing', '/.exact/missing', '/.git/config']) {
+    // A JS-target build carries no envelope (a deploy's root takes the bake's, deploy.mjs); both carry the install pages.
+    for (const path of ['/post/42', '/prompt/5/write', '/.exact/install/', '/missing.png', '/__dev/missing', '/.exact/missing', '/.git/config']) {
       const response = await fetch(url + path), body = await response.text();
       const entry = { name: 'published HTTP', path, status: response.status, type: response.headers.get('content-type'), vary: response.headers.get('vary') }; rows.push(entry); console.log(JSON.stringify(entry));
       assert.equal(response.status, path === '/post/42' || path === '/prompt/5/write' || path === '/.exact/install/' ? 200 : 404);

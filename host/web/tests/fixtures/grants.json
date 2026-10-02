@@ -1,0 +1,252 @@
+[
+  {
+    "spec": "# comment\n\nnet.fetch https://api.test\nsecret.keep castle.session",
+    "ok": true,
+    "fetch": [
+      [
+        "https://api.test/x",
+        true
+      ],
+      [
+        "https://api.test.evil/x",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "secret.keep good\nnet.fetch https://ok.test\nsecret.keep crewHost",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep good\nunknown.cap anything",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep a b",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep .",
+    "ok": false
+  },
+  {
+    "spec": "storage.kv ...",
+    "ok": false
+  },
+  {
+    "spec": "fs.read ../data",
+    "ok": false
+  },
+  {
+    "spec": "fs.read app:/data/../x",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch :///",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.127.0.0.1",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com/path",
+    "ok": false
+  },
+  {
+    "spec": "net.websocket wss://*.example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://a.*.example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://example.com:65536",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch file:///tmp",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://[:::]",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*example.com",
+    "ok": false
+  },
+  {
+    "spec": "",
+    "ok": true
+  },
+  {
+    "spec": "env.read NODE_ENV",
+    "ok": true
+  },
+  {
+    "spec": "secret.keep castle.state-1_x",
+    "ok": true
+  },
+  {
+    "spec": "fs.read /home//user/",
+    "ok": true
+  },
+  {
+    "spec": "fs.write app:/data",
+    "ok": true
+  },
+  {
+    "spec": "sqlite.open doc:/",
+    "ok": true
+  },
+  {
+    "spec": "storage.kv exact.kept",
+    "ok": true
+  },
+  {
+    "spec": "net.websocket wss://example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com:",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com/path?q#f",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://user:pass@example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://m\u00fcnchen.de",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://01.2.3.4",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch http://127.1",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://[::ffff:1.2.3.4]",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://a..example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com.",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch app://host:1",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://*.a..example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://user@*.example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com:8443/",
+    "ok": true,
+    "fetch": [
+      [
+        "https://a.example.com:8443/x",
+        true
+      ],
+      [
+        "https://example.com:8443",
+        false
+      ],
+      [
+        "https://a.example.com",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch HTTPS://API.Example.COM:443/path",
+    "ok": true,
+    "fetch": [
+      [
+        "https://api.example.com/z",
+        true
+      ],
+      [
+        "http://api.example.com",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch app://one:1",
+    "ok": true,
+    "fetch": [
+      [
+        "app://one:1/x",
+        true
+      ],
+      [
+        "app://two:1/x",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch https://m\u00fcnchen.de",
+    "ok": true,
+    "fetch": [
+      [
+        "https://xn--mnchen-3ya.de/x",
+        true
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch https://*.example.com?",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com#",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch custom://*.127.0.0.1:90",
+    "ok": true,
+    "fetch": [
+      [
+        "custom://sub.127.0.0.1:90",
+        true
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch custom://EXAMPLE.com:90",
+    "ok": true,
+    "fetch": [
+      [
+        "custom://example.COM:90",
+        true
+      ]
+    ]
+  }
+]

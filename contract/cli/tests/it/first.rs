@@ -22,7 +22,7 @@ const SRC: &str = r#"
 component App
   state full = true
   resource names = names(full) as shape list<string>
-  action clear writes full
+  action clear
     full = false
   view
     column

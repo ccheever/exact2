@@ -77,28 +77,29 @@ component App
   state choice = some("chosen")
   resource items = loadItems() as shape list<Item>
   mutation saved as shape Item
-  action edit(textValue: string) writes textValue
+  action edit(textValue: string)
     textValue = textValue
-  action save(item: Item) writes saved
+  action save(item: Item)
     send saved = saveItem(item)
     refresh items
     focus("entry")
-  action tick writes textValue
+  action tick
     textValue = "tick"
   task ticker mount
     every(1000, tick)
+  provide
+    accent = "#fff"
   view
-    provide accent = "#fff"
-      column navigationBack="entry"
-        input id="entry" testId="entry-test" value=textValue change=edit
-        each item in items key=item.id
-          Row(item=item, onPick=save)
-        match choice
-          case some(textValue)
-            text textValue
-          case none
-            text textValue
-        text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
+    column navigationBack="entry"
+      input id="entry" testId="entry-test" value=textValue change=edit
+      each item in items key=item.id
+        Row(item=item, onPick=save)
+      match choice
+        case some(textValue)
+          text textValue
+        case none
+          text textValue
+      text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
 component Row
   props
     item: Item
@@ -147,6 +148,20 @@ fn exact_ranges_cover_declarations_sources_locals_fields_and_ids() {
     let action = at_line(&graph, "tick", line(SOURCE, "every(1000"));
     assert_eq!(action.len(), 1);
     assert_eq!(target(&graph, action[0])["kind"], "action");
+    // An action's effects are inferred and shown on its definition
+    // (LLP 1035.005.000 D1); nothing else carries `writes`.
+    for (name, writes) in [
+        ("edit", vec!["textValue"]),
+        ("save", vec!["saved"]),
+        ("tick", vec!["textValue"]),
+    ] {
+        let action = definition(&graph, "action", name, None);
+        assert_eq!(action["writes"], serde_json::json!(writes));
+    }
+    assert!(refs(&graph).iter().all(|r| r.get("writes").is_none()));
+    assert!(defs(&graph)
+        .iter()
+        .all(|d| (d["kind"] == "action") == d.get("writes").is_some()));
 }
 
 #[test]
@@ -157,7 +172,7 @@ fn parameters_and_branch_bindings_shadow_reads_but_never_assignment_targets() {
     assert_eq!(both.len(), 2);
     assert_eq!(target(&graph, both[0])["kind"], "state");
     assert_eq!(target(&graph, both[1])["kind"], "parameter");
-    let local_line = line(SOURCE, "            text textValue");
+    let local_line = line(SOURCE, "          text textValue");
     let some = at_line(&graph, "textValue", local_line);
     let none = at_line(&graph, "textValue", local_line + 2);
     assert_eq!(target(&graph, some[0])["kind"], "local");
@@ -509,4 +524,35 @@ fn route_paths_and_router_slot_offsets_follow_the_type_checker() {
         .iter()
         .any(|r| r["kind"] == "fn" && r["name"] == "path"));
     assert!(refs(&graph).iter().all(|r| r["kind"] != "route"));
+}
+
+#[test]
+fn a_let_is_a_local_for_its_block_and_a_record_names_its_shape_and_fields() {
+    // LLP 1035.005.000 D2 and D3.
+    let fixture = Fixture::new("let-records");
+    let graph = fixture.query(
+        "shape F\n  title: string\n  done: bool\ncomponent App\n  state f = F(title=\"a\", done=false)\n  action go\n    let next = F(f, done=true)\n    f = next\n  view\n    text f.title\n",
+    );
+    let local = definition(&graph, "local", "next", Some("go"));
+    assert_eq!(
+        (local["line"].as_u64(), local["col"].as_u64()),
+        (Some(7), Some(9))
+    );
+    let reads = at_line(&graph, "next", 8);
+    assert_eq!(reads.len(), 1);
+    assert_eq!(target(&graph, reads[0]), local);
+    let shape = definition(&graph, "shape", "F", None);
+    for line in [5, 7] {
+        let uses = at_line(&graph, "F", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), shape);
+        assert_eq!(spelling(uses[0]), "F");
+    }
+    let done = definition(&graph, "field", "done", Some("F"));
+    for line in [5, 7] {
+        let uses = at_line(&graph, "done", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), done);
+        assert_eq!(spelling(uses[0]), "done");
+    }
 }

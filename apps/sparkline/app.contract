@@ -44,9 +44,9 @@ component Sparkline
   state frozen = false
   state version = 0
   resource coins = coins(version) as shape list<Coin>
-  action toggleFreeze writes frozen
+  action toggleFreeze
     frozen = not frozen
-  action tick writes version
+  action tick
     version = version + 1
   view
     main testId="sparkline" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#000000" font-family="system-ui"

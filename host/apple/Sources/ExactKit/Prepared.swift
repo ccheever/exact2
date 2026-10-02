@@ -66,6 +66,8 @@ struct FlatPaint: Equatable {
 
     init?(_ style: NodeStyle) {
         for (key, value) in style {
+            // A percentage needs the final box; let the view paint it.
+            if key.hasPrefix("border_radius_"), value.number == nil { return nil }
             if Self.inert.contains(key) { continue }
             switch key {
             case "background_color":

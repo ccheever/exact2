@@ -436,6 +436,13 @@ final class Runtime {
     func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
+    /// A button's face, custom or native (LLP 1069.011.000 D1).
+    func buttonFace(_ view: UInt32) -> ButtonFace {
+        return on(busy: ButtonFace()) {
+            let len = exact_press_face(rt, view)
+            return ButtonFace(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
     /// A select's options and the one it shows (LLP 1069.001 D5).
     func selectOptions(_ view: UInt32) -> SelectMenu {
         return on(busy: SelectMenu(json: Data())) {

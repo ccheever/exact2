@@ -34,7 +34,11 @@ impl ObservedRaster {
         let (x, y, w, h) = s.rect;
         let mut bits = point((x, y), ts).to_vec();
         bits.extend(point((x + w, y + h), ts));
-        bits.extend(s.radii.map(f32::to_bits));
+        bits.extend(
+            s.radii
+                .into_iter()
+                .flat_map(|(x, y)| [x.to_bits(), y.to_bits()]),
+        );
         bits.extend(rect_bits(s.rect));
         bits.extend(transform_bits(ts));
         bits.extend_from_slice(extra);
@@ -195,9 +199,9 @@ fn app(fractional: bool) -> String {
         r##"component App
   state top = {y}
   state text = "{text}"
-  action move writes top
+  action move
     top = {next}
-  action replaceAndMove writes text, top
+  action replaceAndMove
     text = "Candidate B must not supply retained source A pixels or hits."
     top = {next}
   view

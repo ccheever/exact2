@@ -32,11 +32,11 @@ const APP: &str = r#"component App
   state disabled = false
   state showing = true
   state draft = ""
-  action geometry(w: number, h: number, pw: number, ph: number) writes geometryCount, boxWidth, portWidth
+  action geometry(w: number, h: number, pw: number, ph: number)
     geometryCount = geometryCount + 1
     boxWidth = w
     portWidth = pw
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes x, y, count, seenScale, seenX, seenY, seenVx
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     x = px
     y = py
     count = count + 1
@@ -44,17 +44,17 @@ const APP: &str = r#"component App
     seenY = py
     seenScale = s
     seenVx = vx
-  action fit writes zoom
+  action fit
     zoom = 1
-  action shift writes left
+  action shift
     left = 40
-  action disable writes disabled
+  action disable
     disabled = true
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
-  action edit(value) writes draft
+  action edit(value)
     draft = value
   view
     box width="100%" height="100%"
@@ -315,15 +315,10 @@ fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
 
 #[test]
 fn geometry_callback_deletion_clears_owner_and_does_not_dispatch_again() {
-    let source = APP
-        .replace(
-            "writes geometryCount, boxWidth, portWidth",
-            "writes geometryCount, boxWidth, portWidth, showing",
-        )
-        .replace(
-            "    portWidth = pw",
-            "    portWidth = pw\n    showing = false",
-        );
+    let source = APP.replace(
+        "    portWidth = pw",
+        "    portWidth = pw\n    showing = false",
+    );
     let mut p = boot(&source);
     assert!(p.host().kernel().find_by_test_id("target").is_empty());
     assert!(p.host().transform_bindings().is_empty());

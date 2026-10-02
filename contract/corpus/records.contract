@@ -1,0 +1,55 @@
+// LLP 1035.005.000 D3: records built in expressions. `Fields(title=…,
+// body=…, pinned=…)` names every field of a declared shape; `Fields(base,
+// title=…)` copies `base` with the named fields replaced. Built here in a
+// state initializer, a `fn` body, a derive, an action, the view, a handler's
+// argument and a source's argument, and compared with `!=`.
+shape Fields
+  title: string
+  body: string
+  pinned: bool
+
+shape Note
+  id: string
+  fields: Fields
+
+fn blank(title: string): Fields = Fields(title=title, body="", pinned=false)
+
+component App
+  state loaded = Fields(title="Groceries", body="eggs", pinned=false)
+  state draft = none
+  resource echoed = echo(Fields(loaded, pinned=true)) as shape Fields
+  derive fields = match draft { case some(d) => d, case none => loaded }
+  derive dirty = fields != loaded
+  derive note = Note(id="n1", fields=Fields(fields, body=`${fields.body}.`))
+  action retitle(value: string)
+    draft = some(Fields(fields, title=value))
+  action pin
+    draft = some(Fields(fields, pinned=not fields.pinned))
+  action replace(next: Fields)
+    draft = some(next)
+  action save
+    loaded = fields
+    draft = none
+  action discard
+    draft = none
+  view
+    column
+      text fields.title testId="title"
+      text fields.body testId="body"
+      text `${fields.pinned ? "pinned" : "loose"}` testId="pinned"
+      text `${dirty ? "dirty" : "clean"}` testId="dirty"
+      text `${note.id} ${note.fields.title} ${note.fields.body}` testId="note"
+      text Fields(fields, body="preview").body testId="preview"
+      text `${echoed.title} ${echoed.pinned ? "pinned" : "loose"}` testId="echoed"
+      button press=retitle("Errands") testId="retitle"
+        text "retitle"
+      button press=pin testId="pin"
+        text "pin"
+      button press=replace(blank("Fresh")) testId="blank"
+        text "blank"
+      button press=replace(Fields(title="Inline", body="b", pinned=true)) testId="inline"
+        text "inline"
+      button press=save testId="save"
+        text "save"
+      button press=discard testId="discard"
+        text "discard"

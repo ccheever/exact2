@@ -324,8 +324,14 @@ pub struct Component {
     /// `props` (empty for the root).
     pub props: Vec<Param>,
     /// `inject` declarations: typed names a use site does not pass — the
-    /// nearest enclosing `provide name = expr` fills them (LLP 1017 P4a).
+    /// nearest enclosing component's `provide` section fills them (LLP 1017
+    /// P4a, LLP 1035.005.000 D9).
     pub injects: Vec<Param>,
+    /// The `provide` section (LLP 1035.005.000 D9): each binding fills the
+    /// same-named `inject` of every component used in this component's view,
+    /// unless a nearer component's section provides it too. A bare name is
+    /// `name = name`; the span is the name's.
+    pub provides: Vec<Binding>,
     /// Whether the component declares `slot`: the nodes indented under a use
     /// of it fill its `children` node (LLP 1017 P4b).
     pub slot: bool,
@@ -432,24 +438,81 @@ pub struct Param {
     pub span: Span,
 }
 
-/// `action name(params) writes a, b` with a body of statements.
+/// `action name(params)` with a body of statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Action {
     /// Name.
     pub name: String,
     /// Parameters.
     pub params: Vec<Param>,
-    /// The `writes` list.
-    pub writes: Vec<(String, Span)>,
     /// Statements.
     pub body: Vec<Stmt>,
     /// Where.
     pub span: Span,
 }
 
+/// One slot an action body assigns (`x = …`) or sends (`send m = …`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Effect<'a> {
+    /// The state or mutation.
+    pub target: &'a str,
+    /// The statement.
+    pub span: Span,
+    /// `send`, not an assignment.
+    pub send: bool,
+}
+
+impl Action {
+    /// Every slot the body assigns or sends, through every branch of its
+    /// `if`s and `match`es, in statement order with repeats. An action's
+    /// effects are inferred, never declared (LLP 1035.005.000 D1).
+    pub fn effects(&self) -> Vec<Effect<'_>> {
+        fn walk<'a>(stmts: &'a [Stmt], out: &mut Vec<Effect<'a>>) {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Assign { target, span, .. } => out.push(Effect {
+                        target,
+                        span: *span,
+                        send: false,
+                    }),
+                    Stmt::Send { target, span, .. } => out.push(Effect {
+                        target,
+                        span: *span,
+                        send: true,
+                    }),
+                    Stmt::If {
+                        then, otherwise, ..
+                    } => {
+                        walk(then, out);
+                        walk(otherwise, out);
+                    }
+                    Stmt::Match { some, none, .. } => {
+                        walk(&some.1, out);
+                        walk(none, out);
+                    }
+                    Stmt::Command { .. } | Stmt::Refresh { .. } | Stmt::Let { .. } => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.body, &mut out);
+        out
+    }
+}
+
 /// A statement in an action body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    /// `let name = expr` (LLP 1035.005.000 D2): an immutable local, read by
+    /// the statements after it in its block and the blocks nested there.
+    Let {
+        /// The local.
+        name: String,
+        /// Its value, evaluated once where the statement stands.
+        expr: Expr,
+        /// The name.
+        span: Span,
+    },
     /// `slot = expr`.
     Assign {
         /// The slot.
@@ -571,19 +634,6 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `provide name = expr` with children: every component used below that
-    /// declares `inject name` reads `expr`, the innermost `provide` winning;
-    /// the compiler fills it at inlining — no runtime lookup (LLP 1017 P4a).
-    Provide {
-        /// The provided name.
-        name: String,
-        /// The value, an expression in the providing scope.
-        expr: Expr,
-        /// The subtree it covers.
-        body: Vec<Node>,
-        /// Where.
-        span: Span,
-    },
     /// `children` — where a `slot` component's use puts the nodes indented
     /// under it (LLP 1017 P4b).
     Children {
@@ -640,7 +690,6 @@ impl Node {
         match self {
             Node::Element { span, .. }
             | Node::Use { span, .. }
-            | Node::Provide { span, .. }
             | Node::Children { span }
             | Node::When { span, .. }
             | Node::Each { span, .. }

@@ -24,11 +24,11 @@ component Fields
   state few = false
   resource coins = coins(version) as shape list<Coin>
   derive shown = filter(coins, c => not few or c.up)
-  action tick writes version
+  action tick
     version = version + 1
-  action flip writes mode
+  action flip
     mode = mode == "a" ? "b" : "a"
-  action narrow writes few
+  action narrow
     few = not few
   view
     column testId="root" gap=4 padding=8

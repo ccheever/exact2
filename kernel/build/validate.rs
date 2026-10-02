@@ -2,7 +2,7 @@ fn validate(schema: &Schema) {
     let mut roles = BTreeSet::new();
     for [role, apple, path] in &schema.symbols {
         assert!(
-            !role.is_empty() && role.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+            !role.is_empty() && role != "sf" && role.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
             "schema: invalid symbol role"
         );
         assert!(roles.insert(role), "schema: duplicate symbol role {role}");

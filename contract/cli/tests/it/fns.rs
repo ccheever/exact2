@@ -73,7 +73,7 @@ fn scoped_actions_and_action_props_keep_their_names_when_the_roster_grows() {
     let plan = contract::compile(
         r#"component App
   state selected = ""
-  action open(value: string) writes selected
+  action open(value: string)
     selected = value
   view
     column

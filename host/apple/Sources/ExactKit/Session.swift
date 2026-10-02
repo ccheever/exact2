@@ -681,6 +681,7 @@ public final class ExactSession {
             if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
+        presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout

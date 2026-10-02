@@ -14,9 +14,9 @@ component App
   state who = ""
   mutation session as shape Session
   derive busy = pending(session)
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action submit writes session
+  action submit
     send session = login(who)
   view
     column testId="app"
@@ -232,4 +232,61 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
     assert!(wire.contains(r#""op":"surfaceWork""#));
     assert!(wire.contains("surface request combines multiple host-work kinds"));
     assert!(!wire.contains(r#""payload":"#));
+}
+
+/// Crew's set (the port report of 2026-09-24, F1): one camelCase secret name
+/// among good lines. A native host holds nothing of it; neither does the web.
+#[derive(Default)]
+struct Crew;
+
+impl DataSource for Crew {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::Unavailable(source.into()))
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<Answer, DataError> {
+        store.set("token", "t")?;
+        Ok(Answer::Later(Request::get("https://crew.test/session")))
+    }
+    fn grants(&self) -> &'static str {
+        "net.fetch https://crew.test\nsecret.keep crewHost\nsecret.keep token\n"
+    }
+}
+
+#[test]
+fn grants_that_do_not_parse_reach_the_page_as_none_with_the_reason() {
+    const WHY: &str = "the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})";
+    let plan = contract::compile(SRC).unwrap();
+    let baked = contract::bake(plan, Crew).unwrap();
+    let (mut host, first) = Host::boot(&baked.encode(), Crew, Default::default(), "/").unwrap();
+    assert!(
+        first.contains(&format!(
+            "{{\"op\":\"grants\",\"lines\":[],\"error\":\"{WHY}\"}}"
+        )),
+        "{first}"
+    );
+    let journal = |host: &Host<Crew>| host.runner().journal().collect::<Vec<_>>().join("\n");
+    assert!(
+        journal(&host).contains(&format!("{WHY}; nothing is granted")),
+        "said once at boot: {}",
+        journal(&host)
+    );
+    // The store names nothing either, `token` included, and says why.
+    host.dispatch(view_of(&host, "who"), Event::Change("ada".into()));
+    let batch = host.dispatch(view_of(&host, "login"), Event::Press);
+    assert!(!batch.contains("\"op\":\"request\""), "{batch}");
+    assert!(
+        journal(&host).contains(&format!("secret token is not granted: {WHY}")),
+        "{}",
+        journal(&host)
+    );
+}
+
+fn view_of<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
+    let k = host.runner().kernel();
+    k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }

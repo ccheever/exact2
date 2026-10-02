@@ -41,7 +41,10 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let card = style_of("card");
     assert_eq!(card.padding_top, Dimension::Points(16.0));
     assert_eq!(card.padding_left, Dimension::Points(16.0));
-    assert_eq!(card.border_radius_top_left, 16.0);
+    assert_eq!(
+        card.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
@@ -51,7 +54,10 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
     assert_eq!(tight.padding_bottom, Dimension::Points(4.0));
-    assert_eq!(tight.border_radius_top_left, 16.0);
+    assert_eq!(
+        tight.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(
         tight.background_color,
         Color::parse_hex("#000000").unwrap().into()
@@ -412,7 +418,7 @@ fn direction_is_css_direction() {
 /// computed value, a `light-dark()` arm and a border side.
 #[test]
 fn transparent_is_a_colour() {
-    let src = "component A\n  state on = false\n  action flip writes on\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
+    let src = "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     let plan = contract::bake(plan, NoData).unwrap();
     let mut r = Runner::boot(
@@ -560,6 +566,178 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
             .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
         "{error}"
     );
+}
+
+/// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
+/// numbers (nested too), lowers to the reserved `-1`; every literal arm is a
+/// spacing from 0 to 10,000; any other string is refused.
+#[test]
+fn a_glass_group_may_take_its_spacing_from_its_gap() {
+    use exact_kernel::{PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state wide = true
+  state inner = true
+  action flip
+    wide = not wide
+  action turn
+    inner = not inner
+  view
+    column
+      row testId="auto" glassGroup="auto" gap=8
+      row testId="choice" glassGroup=(wide ? "auto" : 12)
+      row testId="nested" glassGroup=(wide ? (inner ? 4 : "auto") : 12)
+      Group(spacing="auto")
+      button testId="flip" press=flip
+        text "flip"
+      button testId="turn" press=turn
+        text "turn"
+component Group
+  props
+    spacing: string
+  state on = true
+  derive mode = "auto"
+  view
+    column
+      row testId="forwarded" glassGroup=(on ? "auto" : spacing)
+      row testId="shared" glassGroup=(on ? mode : mode)
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let spacing = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .get(PropId::GlassGroup)
+            .cloned()
+    };
+    assert_eq!(spacing(&r, "auto"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(4.0)));
+    // A component's derive read twice is a `let` (both reviews of the build).
+    assert_eq!(spacing(&r, "shared"), Some(PropValue::Float(-1.0)));
+    // A component's string prop forwarding "auto" (astra's review).
+    assert_eq!(spacing(&r, "forwarded"), Some(PropValue::Float(-1.0)));
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    // The nested "auto" arm, reached.
+    let turn = id(&r, "turn");
+    r.dispatch(turn, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(-1.0)));
+    let flip = id(&r, "flip");
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(12.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(12.0)));
+    for (value, id, says) in [
+        ("\"wide\"", "lower-attr-value", "or `\"auto\"`"),
+        // Only the literal `"auto"` is a spacing; another string in a choice is refused.
+        ("(w ? \"wide\" : 4)", "lower-attr-value", "or `\"auto\"`"),
+        ("(w ? \"auto\" : -2)", "lower-attr-value", "from 0 to 10000"),
+        ("(w ? 20000 : 4)", "lower-attr-value", "from 0 to 10000"),
+        // A shared derive's spacing is range-checked through its `let`.
+        (
+            "(w ? (w ? -2 : 8) : (w ? -2 : 8))",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
+    ] {
+        let source =
+            format!("component App\n  state w = true\n  view\n    box glassGroup={value}\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{value}: {error:?}");
+        assert!(error.message.contains(says), "{value}: {error:?}");
+    }
+}
+
+/// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
+/// makes no containing block, refused out of range and where a group cannot
+/// be: beside the element's own material, on a scroll, on a canvas.
+#[test]
+fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
+    use exact_kernel::{PositionType::Static, PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state gap = 8
+  view
+    column
+      row testId="group" glassGroup=12
+        box testId="lit" backgroundMaterial="glass"
+        box position="absolute"
+      row testId="bound" glassGroup=gap
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    for (id, spacing) in [("group", 12.0), ("bound", 8.0)] {
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        assert_eq!(
+            node.props.get(PropId::GlassGroup),
+            Some(&PropValue::Float(spacing)),
+            "{id}"
+        );
+        // A group holding an absolute child is not its containing block.
+        assert_eq!(node.style.position_type, Static, "{id}");
+    }
+    for (source, id, says) in [
+        ("box glassGroup=-1", "lower-attr-value", "from 0 to 10000"),
+        (
+            "box glassGroup=20000",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
+        (
+            "box glassGroup=4 backgroundMaterial=\"glass\"",
+            "lower-glass-group",
+            "put the group on the parent",
+        ),
+        (
+            "box glassGroup=4 backdrop-filter=\"blur(8px)\"",
+            "lower-glass-group",
+            "`backdrop-filter`",
+        ),
+        (
+            "box glassGroup=4 overflow=\"scroll\" height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "scroll glassGroup=4 height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "canvas glassGroup=4",
+            "lower-glass-group",
+            "child of the canvas",
+        ),
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {source}\n")).unwrap_err();
+        assert_eq!(error.id, id, "{source}: {error:?}");
+        assert!(error.message.contains(says), "{source}: {error:?}");
+    }
+    contract::compile("component App\n  view\n    box glassGroup=0 overflow=\"hidden\"\n").unwrap();
 }
 
 /// LLP 1074 T1: `position` is `static` unless authored, except on a box that
@@ -837,4 +1015,46 @@ fn context_source_can_scroll_in_the_authored_root() {
         box contextTarget="bubble" width=50 height=30
 "#,
     );
+}
+
+#[test]
+fn percentage_corner_radii_survive_boot_and_dynamic_updates() {
+    let plan = contract::compile(
+        r#"
+component Corners
+  state round = false
+  action flip
+    round = not round
+  view
+    button press=flip testId="box" width=160 height=80 border-radius=(round ? "50%" : "4px")
+      view testId="static" border-radius="25%"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let style = |r: &Runner<NoData>, name: &str| {
+        let k = r.kernel();
+        let n = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        (n.id, n.style.border_radius_top_left)
+    };
+    let (id, initial) = style(&r, "box");
+    assert_eq!(initial, Dimension::Points(4.0));
+    assert_eq!(style(&r, "static").1, Dimension::Percent(25.0));
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    assert_eq!(style(&r, "box").1, Dimension::Percent(50.0));
+}
+
+#[test]
+fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
+    for value in ["-1px", "-1%", "auto", "3e38in"] {
+        let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
+        assert!(contract::compile(&source).is_err(), "{value}");
+    }
 }

@@ -37,7 +37,7 @@ fn words_lower_to_one_sorted_row_that_follows_state() {
     let src = r#"component A
   state count = 1
   state wide = false
-  action bump writes count, wide
+  action bump
     count = count + 1
     wide = true
   view

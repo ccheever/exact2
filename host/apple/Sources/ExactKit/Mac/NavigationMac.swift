@@ -87,6 +87,13 @@ final class NavigationHost {
         for id in touched {
             guard let node = presenter.views[id] else { continue }
             gates[id] = [node.isHidden, node.routeInert, node.props["inert"] == "true", node.props["accessibilityElementsHidden"] == "true"]
+        }
+        refreshInputGates(touched.compactMap { presenter.views[$0] })
+    }
+
+    /// Top-layer ownership changes the same native input/AX gates as inert.
+    func refreshInputGates(_ nodes: [NodeView]) {
+        for node in nodes {
             let inert = node.inert
             let hidden = inert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
             // The AX getter can traverse the legacy unsupported-attribute path

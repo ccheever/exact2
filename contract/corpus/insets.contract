@@ -11,17 +11,17 @@ component Insets
   state presses = 0
   state lastKey = ""
   state under = 0
-  action pressUnder writes under
+  action pressUnder
     under = under + 1
-  action retain writes presses
+  action retain
     presses = presses + 1
-  action menuKey(value) writes lastKey
+  action menuKey(value)
     lastKey = value
-  action setNote(value) writes note
+  action setNote(value)
     note = value
-  action focusIn writes focused
+  action focusIn
     focused = true
-  action focusOut writes focused
+  action focusOut
     focused = false
   view
     main testId="root" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"

@@ -1,0 +1,105 @@
+// data: completion-storm
+// Synthetic conformance plan: a mutation's `then` (LLP 1016.001; Charlie,
+// 2026-09-27) on both executors, on Completion Storm's sources: `settings`
+// answers now; `fixtureStats` answers later, a loopback fetch whose failure
+// (no fixture on 127.0.0.1:4320) is the answer the source shapes. The answers
+// that land before the next advance run the `then` once, reading the latest
+// (a typed field: its focus and its input each answer); it is its own commit,
+// due at once, and goes before a timer due at the same time; a refused `then`
+// leaves its answer standing, and its refusal stops that advance there. A
+// `clock settle` that crosses a timer lands each reply before the next
+// commit fires: `go` starts a second-long move, and its answer's `then`
+// sends `echo` (the later source); the timer due during the move sends
+// `echo` too, and both answers land, each running `onEcho` (`C E K E`) — one
+// request per mutation, so a settle that did not stop after the `then`'s send
+// would drop its reply (`C K E`). The root paints the page white over the
+// data app's manifest background.
+shape Settings
+  count: number
+  errors: number
+
+shape Control
+  message: string
+  received: number
+  issued: number
+  held: number
+
+component Then
+  state runs = 0
+  state log = ""
+  state draft = ""
+  state refuse = false
+  state gone = false
+  mutation quick as shape Settings then onQuick
+  mutation later as shape Control then onLater
+  mutation probe as shape Settings
+  mutation chain as shape Settings then onChain
+  mutation echo as shape Control then onEcho
+  derive latest = match quick { case some(s) => s.count, case none => 0 }
+  derive stats = match later { case some(c) => c.held, case none => -1 }
+  action onQuick
+    runs = runs + 1
+    log = `${log} T${latest}`
+    // Lane 500 is out of range: the source refuses the send, so this commit.
+    if refuse
+      send probe = completion(1, 500, 1, true)
+  action onLater
+    log = `${log} L${stats}`
+  action ask(n: string)
+    log = `${log} a${n}`
+    send quick = settings(n, "0")
+  action focused
+    send quick = settings("2", "0")
+  action typed(v: string)
+    draft = v
+    send quick = settings(v, "0")
+  action fetchLater
+    send later = fixtureStats()
+  action first
+    log = `${log} A`
+    send quick = settings("7", "0")
+  action second
+    log = `${log} B`
+  action arm
+    log = `${log} R`
+    refuse = true
+    send quick = settings("9", "0")
+  action disarm
+    log = `${log} D`
+    refuse = false
+  action go
+    log = `${log} G`
+    gone = true
+    send chain = settings("4", "0")
+  action onChain
+    log = `${log} C`
+    send echo = fixtureStats()
+  action onEcho
+    log = `${log} E`
+  action tock
+    log = `${log} K`
+    send echo = fixtureStats()
+  task one mount
+    after(1000, first)
+  task two mount
+    after(1000, second)
+  task three mount
+    after(2000, arm)
+  task four mount
+    after(2000, disarm)
+  task five mount
+    after(2300, tock)
+  view
+    column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      text `runs ${runs} latest ${latest}` testId="runs"
+      text log testId="log"
+      button press=ask("3") testId="ask-3"
+        text "ask 3"
+      button press=ask("5") testId="ask-5"
+        text "ask 5"
+      input value=draft focus=focused input=typed testId="field" aria-label="count"
+      button press=fetchLater testId="later"
+        text "later"
+      button press=go testId="go"
+        text "go"
+      column testId="mover" width=10 height=10 background-color="#3366cc" translate=(gone ? "100px 0px" : "0px 0px") transition="translate 1000ms linear"

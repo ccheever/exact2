@@ -467,6 +467,9 @@ impl<D: DataSource> Host<D> {
             host.svg.box_motion,
             &|v| !runner.handlers_of(v).is_empty(),
         );
+        for view in svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine) {
+            host.svg.element(host.runner.kernel(), view);
+        }
         host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
@@ -1252,6 +1255,9 @@ impl<D: DataSource> Host<D> {
                 self.svg.box_motion,
                 &|v| !runner.handlers_of(v).is_empty(),
             );
+            for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
+                self.svg.element(self.runner.kernel(), view);
+            }
             self.play_exits(&mut batch);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
@@ -1419,6 +1425,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.
@@ -1438,8 +1445,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         {
             out.insert(
                 "symbolName".into(),
-                exact_kernel::generated::symbol(role)
-                    .map(|s| s.0)
+                role.strip_prefix("sf/")
+                    .or_else(|| exact_kernel::generated::symbol(role).map(|s| s.0))
                     .unwrap_or("")
                     .into(),
             );

@@ -1,0 +1,52 @@
+// Synthetic conformance plan: the document's head (LLP 1048.003 D1;
+// runner/src/head.rs). The innermost active `head` wins field by field: a
+// deeper head over a shallower one wherever each stands in document order,
+// the later of two at one depth whichever changed last, and none inside a
+// route its navigation root has not selected (a pushed route covers the
+// detail route, whose head still changes there). A head that leaves gives
+// its fields back: going back from the detail route restores the outer
+// title, and the deep head leaving the shallow description. Conformance
+// compares `state.head` after every step.
+routes nav
+  tab home "/"
+    detail "/detail/:item"
+    plain "/plain"
+
+component Heads
+  state deep = true
+  state label = "one"
+  derive current = top(nav)
+  action push(url: string)
+    nav = push(nav, url)
+  action back
+    nav = back(nav)
+  action toggle
+    deep = not deep
+  action rename
+    label = label == "one" ? "two" : "one"
+  view
+    column testId="page" width="100%" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      column testId="outer"
+        when deep
+          column testId="deep"
+            head description=`Deep ${label}`
+      head title="Shallow" description="Shallow" robots=`early ${label}`
+      head robots="late" image="/late.png"
+      text `${current.name} · ${label} · ${deep ? "deep" : "shallow"}` testId="where"
+      row gap=4 flex-wrap="wrap"
+        button press=push("/detail/7") testId="push-detail"
+          text "detail"
+        button press=push("/plain") testId="push-plain"
+          text "plain"
+        button press=back testId="back"
+          text "back"
+        button press=toggle testId="toggle"
+          text "toggle"
+        button press=rename testId="rename"
+          text "rename"
+      main navigationKey=`${current.id}` navigationBack="back" testId="navigation" flex=1
+        each e in stack(nav) key=e.id
+          column navigationKey=`${e.id}` testId=`route-${e.name}` padding=8
+            text e.name testId=`entry-${e.name}`
+            when e.name == "detail"
+              head title=`Detail ${e.params.item} ${label}` canonical=`/detail/${e.params.item}` status=404

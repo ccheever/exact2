@@ -1,7 +1,8 @@
 // The JS target's conformance harness: the same plan through the Rust web runner
 // (app.wasm + glue.js) and the JavaScript runner (exact-web-js + rt.js), in the
 // same Chrome, driven by the same agent operations (scripts/agent.mjs's
-// `open`). After every step it compares the runner's typed state, the tree
+// `open`). After every step it compares the runner's typed state and the
+// document's head (`state.head`), the tree
 // (preorder: depth, type, testId, text, value, label, handlers), layout boxes
 // by testId and a screenshot. `app.test.contract` files run on both.
 // Every failure is reported in one run; the exit code is 0 unless `--strict`,
@@ -104,7 +105,8 @@ function diffPng(a, b, sideBySide, masks = []) {
   }
   return share;
 }
-const STATE_KEYS = ['slots', 'derives', 'resources'];
+// The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
+const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
 
 // The wasm page's route stack carries the browser's location; the Linux
 // host has none. So, and only in a route stack (entries shaped { id, name,
@@ -234,9 +236,16 @@ async function drive(t, report, fail, dir, ws, js) {
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
       const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
-      try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; }
-      try { await run(J); } catch (e) { fail(line, `js: ${e.message.split('\n')[0]}`); continue; }
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
+      // stops the advance at its time) is refused by the others too, then compared.
+      let refused = null;
+      try { await run(W); } catch (e) { if (op !== 'clock') { report.steps.push({ target: t.name, step: line, skipped: `wasm: ${e.message.split('\n')[0]}` }); continue; } refused = e.message.split('\n')[0]; }
+      const answered = who => { if (refused) fail(line, `${who}: answered where wasm refused (${refused})`); };
+      let jsRefused = null;
+      try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
+      if (jsRefused && !refused) { fail(line, `js: ${jsRefused}`); continue; }
+      if (!jsRefused) answered('js');
+      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
       tree = await compare(line);
     }

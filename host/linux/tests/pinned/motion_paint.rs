@@ -11,9 +11,9 @@ use std::path::PathBuf;
 const APP: &str = r##"component App
   state on = false
   state dark = false
-  action toggle writes on
+  action toggle
     on = not on
-  action scheme writes dark
+  action scheme
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view
@@ -166,7 +166,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
   to box-shadow="0 16px 24px #1d4ed8"
 component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="page" width=200 height=300

@@ -54,6 +54,7 @@ final class NodeExtras {
     var paintedThisTurn: Bool = false
     var placement: [Double]?
     var symbolView: UIImageView?
+    var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
     var focusRing: CAShapeLayer?
@@ -70,6 +71,9 @@ final class NodeExtras {
     var hiddenBeforePlacement = false
     var placementHidden = false
     var materialView: UIVisualEffectView?
+    /// `glassGroup`'s view and a grouped glass's slot (`GlassGroup.swift`).
+    var glassGroupView: GlassGroupView?
+    var glassSlot: GlassSlot?
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
@@ -133,6 +137,7 @@ extension NodeView {
     var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
     var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue } } }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
+    var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
@@ -145,6 +150,8 @@ extension NodeView {
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }
     var materialKind: String? { get { extras?.materialKind } set { if newValue != nil || extras != nil { more.materialKind = newValue } } }
+    var glassGroupView: GlassGroupView? { get { extras?.glassGroupView } set { if newValue != nil || extras != nil { more.glassGroupView = newValue } } }
+    var glassSlot: GlassSlot? { get { extras?.glassSlot } set { if newValue != nil || extras != nil { more.glassSlot = newValue } } }
     var materialInteractive: Bool { get { extras?.materialInteractive ?? false } set { if newValue || extras != nil { more.materialInteractive = newValue } } }
     var readingAnchors: [(node: NodeView, y: CGFloat)] {
         get { extras?.readingAnchors ?? [] }

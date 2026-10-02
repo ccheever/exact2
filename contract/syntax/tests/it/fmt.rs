@@ -1,5 +1,5 @@
 //! Source preservation is independent of AST equivalence: the AST discards
-//! comments and opaque contract bodies, and numbers lose their spelling.
+//! comments, and numbers lose their spelling.
 use contract_syntax::{fmt::format, Lexer, TokenKind};
 
 fn trivia(src: &str) -> Vec<String> {
@@ -53,7 +53,7 @@ fn comments_on_branches_continuations_and_arguments_keep_their_anchors() {
 // header
 component A
     state n=0 // state
-    action go writes n
+    action go
         if n > 0
             n=0
         // the other case
@@ -94,7 +94,7 @@ component A
 }
 
 #[test]
-fn raw_literals_and_opaque_contract_bodies_survive() {
+fn raw_literals_survive() {
     let huge = "9".repeat(400); // lexer accepts an overflowing decimal
     let src = format!(
         r#"
@@ -109,9 +109,6 @@ component A
     derive sub = n - n
     derive property = 1 . field
     derive message = `unchanged ${{n+2}} ${{`nested ${{"}}"}}`}}`
-    contract
-        has   text "a\t\n\`\$"  // opaque spacing stays
-        opaque   words
     view
         text "a\t\n\`\$" font-size=12
 "#
@@ -120,9 +117,7 @@ component A
     assert!(after.contains("0001.00"));
     assert!(after.contains(&huge));
     assert!(after.contains("1 .field"));
-    assert!(after.contains(
-        "      has   text \"a\\t\\n\\`\\$\"  // opaque spacing stays\n      opaque   words\n"
-    ));
+    assert!(after.contains(r#"text "a\t\n\`\$" font-size=12"#));
     assert!(after.contains("`unchanged ${n+2} ${`nested ${\"}\"}`}`"));
 }
 
@@ -174,7 +169,7 @@ fn nested_multiline_values_stay_stable_when_attribute_wrapping_adds_a_level() {
 
 #[test]
 fn an_empty_list_is_spelled_without_a_space() {
-    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear writes picked\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
+    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
     let after = preserved(src);
     assert!(!after.contains("[ "), "{after}");
     assert_eq!(after.matches("[]").count(), 4, "{after}");
@@ -247,8 +242,19 @@ fn positionals_after_named_attributes_stay_on_the_elements_head() {
 
 #[test]
 fn send_as_a_name_and_the_send_statement_both_round_trip() {
-    // `send` spaces like any other name: `who` beside it gets the same treatment.
-    let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go writes session\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
-    let expected = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
+    // `send` spaces like any other name: `who` beside it gets the same
+    // treatment. A named argument's `=` stays against its name, in a call as
+    // at a use (LLP 1035.005.000 D3: `Shape(field=value)`).
+    let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
+    assert_eq!(preserved(src), src);
+    let spaced = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
+    assert_eq!(preserved(&spaced), src);
+}
+
+#[test]
+fn a_provide_section_spaces_like_bindings() {
+    // LLP 1035.005.000 D9: a bare name stays bare; a binding spaces like a state's.
+    let src = "component A\n  state a = 1\n  provide\n    // the value itself\n    a\n    b   =   a+1\n  view\n    text \"x\"\n";
+    let expected = src.replace("b   =   a+1", "b = a + 1");
     assert_eq!(preserved(src), expected);
 }

@@ -8,10 +8,10 @@
 component MapDemo
   state selected = ""
   state picks = 0
-  action pick(id: string) writes selected, picks
+  action pick(id: string)
     selected = id
     picks = picks + 1
-  action choose(id: string) writes selected
+  action choose(id: string)
     selected = id
   view
     main testId="map-demo" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#15171c" font-family="system-ui"

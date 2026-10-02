@@ -30,6 +30,7 @@ mod pages;
 mod serve;
 mod source;
 mod stream;
+mod viewport;
 
 pub use direct::boot_swap_js;
 pub use executor::Executor;
@@ -417,20 +418,38 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         .unwrap_or_else(|| Executor::start(&grants));
     let until = Instant::now() + deadline;
     let watchdog = Watchdog::arm(settling.interrupt(), until);
-    let kernel = if detached {
-        Kernel::detached()
-    } else {
-        Kernel::with_monospace_on_demand()
+    let kernel = || {
+        if detached {
+            Kernel::detached()
+        } else {
+            Kernel::with_monospace_on_demand()
+        }
     };
-    let mut runner = Runner::boot_at(plan.clone(), settling, kernel, viewport, location, now_ms)
-        .map_err(|e| format!("boot: {e:?}"))?;
+    let boot = |source| Runner::boot_at(plan.clone(), source, kernel(), viewport, location, now_ms);
+    // A realm made ahead (or kept warm) is active, so boot asks its sources
+    // itself: a call the deadline stops there is the deadline, as it is in
+    // `activate` for a fresh realm. The page boots again on a realm not yet
+    // active, which asks nothing, and ends at the deadline with what boot
+    // asked shown as placeholders (a boot error was a 500 before).
+    let (mut runner, booted_late) = match boot(settling) {
+        Ok(runner) => (runner, false),
+        Err(_) if watchdog.fired() => (
+            boot(Anonymous::new(data())).map_err(|e| format!("boot: {e:?}"))?,
+            true,
+        ),
+        Err(e) => return Err(format!("boot: {e:?}")),
+    };
     // The boot document, before any answer: a route's `paint=boot`
     // (LLP 1048.005).
     if let Some(on_boot) = on_boot {
         on_boot(&runner);
     }
-    let settled = match activate(&mut runner, until)
-        .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+    let settled = match (!booted_late)
+        .then(|| {
+            activate(&mut runner, until)
+                .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+        })
+        .unwrap_or(Ok(Settled::Deadline))
     {
         Ok(settled) => settled,
         // The call running at the deadline was stopped and refused, so what

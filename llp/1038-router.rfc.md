@@ -219,14 +219,14 @@ reports one refusal (the caller journals it, 1035.001 D6).
 | verb | effect |
 |---|---|
 | `open(r, loc)` | Select the matched route's tab; replace that tab's stack with `chain(loc)`. Positions whose existing entry has the same `url` keep their `id`; the rest are fresh. Other tabs are untouched. A launch, a reload, a notification, a deep link. |
-| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. |
+| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. A `loc` that is already the top is unchanged: as HTML replaces the entry for a same-URL navigation, a link to the screen shown adds no visit (2026-10-02; RealWorld's Home and feed tabs added duplicates). |
 | `replace(r, loc)` | Give the top entry `loc`'s name, url and params; keep its `id`. A search query mirrored into the URL; a redirect. At depth 1, only a location matching the tab's own root route is allowed; another route leaves the value unchanged with one refusal. |
 | `back(r)` | Drop the top entry. At depth 1, unchanged. |
 | `select(r, t)` | Select tab `t`, showing its retained stack. Selecting the selected tab pops it to its root (the platform convention: `UITabBarController`, Twitter). Unknown `t`: unchanged, refused. |
 | `go(r, loc)` | Traverse: if `loc` is the top, unchanged; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A browser Back or Forward past one step; a pasted in-app link. |
 
 **Laws** (the corpus is these, over a fixed table):
-`stack(back(push(r, u))) = stack(r)`; `back(r) = r` when `depth(r) = 1`;
+`stack(back(push(r, u))) = stack(r)` for `u` not the top's url; `push(r, top(r).url) = r`; `back(r) = r` when `depth(r) = 1`;
 `select(select(r, t), t)` has depth 1; `open(open(r, u), u) = open(r, u)`;
 `top(replace(r, u)).id = top(r).id`; `go(r, top(r).url) = r`; ids in any
 reachable value are distinct and `next` exceeds them all; every entry's

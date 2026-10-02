@@ -28,6 +28,28 @@ fn document(src: &str) -> String {
     host(src, Says(""), "/").document().unwrap().root
 }
 
+#[test]
+fn raw_symbols_prerender_as_nonfetching_decorative_images() {
+    let doc = document(
+        r#"component App
+  view
+    row font-size=28
+      image "symbol:sf/airpodsmax" testId="raw"
+      image "symbol:sf/" width=40 testId="empty"
+"#,
+    );
+    assert!(
+        doc.contains("data-symbol-source=\"symbol:sf/airpodsmax\""),
+        "{doc}"
+    );
+    assert!(doc.contains("data-symbol-source=\"symbol:sf/\""), "{doc}");
+    assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 2, "{doc}");
+    assert!(!doc.contains("src=\"symbol:"), "{doc}");
+    assert_eq!(doc.matches("width='28' height='28'").count(), 2, "{doc}");
+    assert_eq!(doc.matches("data-symbol-path=\"\"").count(), 2, "{doc}");
+    assert_eq!(doc.matches("alt=\"\"").count(), 2, "{doc}");
+}
+
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);
@@ -166,7 +188,7 @@ fn properties_become_the_attributes_and_text_the_glue_gives_them() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column inert=true
@@ -239,7 +261,7 @@ component App
     let button_in_button = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId="outer"
@@ -262,7 +284,7 @@ fn a_buttons_containers_are_spans() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column
@@ -345,7 +367,7 @@ routes nav
   tab home "/"
     post "/post/:post"
 component App
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
@@ -374,7 +396,7 @@ fn a_head_is_the_pages_head_never_an_element() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column testId="page"
@@ -463,4 +485,16 @@ fn the_page_scroller_is_marked_in_the_document() {
     assert!(!marked(
         "component A\n  state on = false\n  view\n    scroll document=on height=100\n      text \"a\"\n"
     ));
+}
+
+/// LLP 1053.000.000.000 D3: `glassGroup="auto"` is written as `auto`, not its
+/// reserved `-1`; a number as the number. Nothing draws it.
+#[test]
+fn an_auto_glass_group_is_written_as_auto() {
+    let doc = document(
+        "component App\n  view\n    column\n      row glassGroup=\"auto\" gap=8\n        box width=4 height=4\n      row glassGroup=12\n        box width=4 height=4\n",
+    );
+    assert!(doc.contains("glassGroup=\"auto\""), "{doc}");
+    assert!(doc.contains("glassGroup=\"12\""), "{doc}");
+    assert!(!doc.contains("glassGroup=\"-1\""), "{doc}");
 }

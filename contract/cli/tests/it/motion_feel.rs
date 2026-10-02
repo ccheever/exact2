@@ -52,7 +52,7 @@ fn press_scale_is_a_row_set_only_where_authored() {
 fn a_press_scale_from_an_expression_follows_its_state() {
     let mut r = boot(concat!(
         "component App\n  state firm = false\n",
-        "  action soften writes firm\n    firm = not firm\n",
+        "  action soften\n    firm = not firm\n",
         "  view\n    button press=soften press-scale=(firm ? 1 : 0.97) testId=\"b\"\n      text \"b\"\n",
     ));
     assert_eq!(style(&r, "b").press_scale, 0.97);
@@ -121,7 +121,7 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
     use exact_kernel::Dimension::{Percent, Points};
     let mut r = boot(concat!(
         "component App\n  state low = false\n",
-        "  action drop writes low\n    low = not low\n",
+        "  action drop\n    low = not low\n",
         "  view\n    column testId=\"root\"\n",
         "      view rotate=3 transform-origin=\"top left\" testId=\"a\"\n",
         "      view scale=0.9 transform-origin=\"25%\" testId=\"b\"\n",

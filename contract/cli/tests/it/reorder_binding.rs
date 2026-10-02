@@ -10,7 +10,7 @@ impl DataSource for Rows {
     }
 }
 fn source(params: &str, target: &str, callback: &str) -> String {
-    format!("component App\n  state received = \"initial\"\n  resource rows = rows() as shape list<string>\n  action receive({params}) writes received\n    received = item\n  view\n    list id=\"arrange\" virtualized=true height=200 reorderdrop={callback} testId=\"list\"\n      each x in rows key=x\n        column reorderFor={target} testId=`grip-${{x}}`\n          text x\n")
+    format!("component App\n  state received = \"initial\"\n  resource rows = rows() as shape list<string>\n  action receive({params})\n    received = item\n  view\n    list id=\"arrange\" virtualized=true height=200 reorderdrop={callback} testId=\"list\"\n      each x in rows key=x\n        column reorderFor={target} testId=`grip-${{x}}`\n          text x\n")
 }
 #[test]
 fn reorder_prop_event_roundtrip_and_exact_payload_types() {

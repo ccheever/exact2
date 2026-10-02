@@ -143,7 +143,7 @@ component Panel
     label: string
   state n = 0
   derive doubled = n * 2
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId=label

@@ -12,9 +12,9 @@ const SOURCE: &str = r#"shape Window
 component App
   state cursor = 1
   resource history = history(cursor) as shape Window
-  action start writes cursor
+  action start
     cursor = history.earlier
-  action end writes cursor
+  action end
     cursor = history.later
   view
     list virtualized=true height=320 reachstart=start reachend=end

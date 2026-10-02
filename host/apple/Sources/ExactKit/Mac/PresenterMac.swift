@@ -35,8 +35,16 @@ final class Presenter {
     func carrying(_ key: String) -> [NodeView] {
         chrome.ids(key).sorted().compactMap { views[$0] }
     }
+    /// Reparenting into/out of the top layer changes text's paint/selection walk.
+    func topLayerChanged() {
+        selection.clear()
+        selection.structureChanged()
+        textViewportIndex = nil
+        refreshVisibleText()
+    }
     /// Scroll containers: the only views with a position to keep across a batch.
     var scrollers: Set<UInt32> = []
+    let glassGroups = GlassGroups()
     /// Views with an authored offset waiting for their frames.
     var pendingScrolls: Set<UInt32> = []
     var heightBindings: [UInt32: HeightDragBinding] = [:]
@@ -62,6 +70,7 @@ final class Presenter {
     private var textViewportIndex: TextViewportIndex?
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var dialogs = DialogHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
@@ -538,6 +547,7 @@ final class Presenter {
         autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
+        dialogs.reset()
         toolbar.reset()
         navigation.reset()
         segments.reset()
@@ -599,6 +609,7 @@ final class Presenter {
             if view.isHidden || (view as? NodeView)?.inert == true { return }
             ancestor = view.superview
         }
+        if target.kind == "native", !selectText { _ = session?.natives.focus(target); return }
         if selectText, target.textArea == nil, target.field == nil { return }
         if let field = target.field, window.firstResponder === field.currentEditor() {
             if selectText { field.currentEditor()?.selectAll(nil) }
@@ -618,6 +629,11 @@ final class Presenter {
         guard let window = viewport.window else { return }
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            if target.kind == "native" {
+                guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
+                window.makeFirstResponder(nil)
+                return
+            }
             let responder: NSView = target.textArea ?? target.field ?? target
             guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
         }
@@ -683,9 +699,11 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32) {
-        guard let node = textHost(id), !node.inert else { return }
-        onPress?(id)
+    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
+        guard let node = textHost(id), !node.inert, !node.disabled else { return }
+        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
+        if command == nil || node.handlers.contains("press") { onPress?(id) }
+        command?()
         // An invoker's press also drops its menu (LLP 1021 D3).
         menus.pressed(id)
     }
@@ -713,6 +731,7 @@ final class Presenter {
     func controlValue(_ id: UInt32, _ value: String, input: Bool, change: Bool) { onControlValue?(id, value, input, change) }
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
+    var buttonFace: ((UInt32) -> ButtonFace)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
@@ -738,7 +757,7 @@ final class Presenter {
     /// element never lands inside a batch (LLP 1075.003 §3.4).
     func afterBatch(_ work: @escaping () -> Void) { if applying { afterBatchWork.append(work) } else { work() } }
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
-        guard textHost(id) != nil else { return }
+        guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
@@ -879,12 +898,14 @@ final class Presenter {
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
+                dialogs.children(container, want)
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
                 for (i, child) in want.enumerated() {
+                    if dialogs.owns(child) { continue }
                     if child.superview !== container {
                         reparented.insert(child.id)
                         child.prepareToMount()
@@ -915,14 +936,17 @@ final class Presenter {
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:
+                dialogs.children(root, op.ids.compactMap { views[UInt32($0)] })
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
+                    if dialogs.owns(r) { continue }
                     r.prepareToMount()
                     root.addSubview(r)
                 }
             case .frame:
                 guard let v = views[id] else { continue }
-                v.frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                if !dialogs.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
@@ -975,6 +999,8 @@ final class Presenter {
         segments.sync()
         controls.sync()
         menus.sync()
+        dialogs.sync()
+        glassGroups.reconcile()
         positionContexts()
         toolbar.sync()
         shortcuts.sync()
@@ -1041,8 +1067,11 @@ final class Presenter {
         }
     }
 
-    /// The view that takes Tab for this node: an input's field, else itself.
-    private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
+    /// The same editing descendant takes explicit, sequential and modal focus.
+    func keyView(of v: NodeView) -> NSView {
+        if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
+        return v.textArea ?? v.field ?? v
+    }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
@@ -1070,7 +1099,8 @@ final class Presenter {
             if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
         }
-        for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) }
+        if let dialog = dialogs.active { walk(dialog) }
+        else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
         let tabbable = listed.enumerated().sorted { a, b in
             let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
@@ -1093,12 +1123,13 @@ final class Presenter {
 
     private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
 
-    private static func tabbable(_ v: NodeView) -> Bool {
+    static func tabbable(_ v: NodeView) -> Bool {
         if v.props["disabled"] == "true" { return false }
         let index = tabIndex(v)
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
-        if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
+        if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
+        if v.isButton || v.kind == "toggle" || v.pressable { return true }
         if v.canBecomeKeyView { return true }
         return index > 0
     }

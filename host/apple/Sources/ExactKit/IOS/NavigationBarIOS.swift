@@ -17,6 +17,9 @@ import UIKit
 struct HeaderShape: Equatable {
     struct Item: Equatable {
         let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        /// A native button's prominent style: a prominent bar item (iOS 26),
+        /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
+        let prominent: Bool
         init(_ button: NodeView) {
             var symbol: String?, text = ""
             func walk(_ node: NodeView) {
@@ -26,15 +29,23 @@ struct HeaderShape: Equatable {
                     else { walk(child) }
                 }
             }
-            walk(button)
+            // A native button's children are its face, not views (LLP 1069.011.000 D1).
+            let face = button.isNativeButton ? button.face : nil
+            if let face {
+                symbol = face.symbol
+                text = face.title ?? ""
+            } else {
+                walk(button)
+            }
             id = button.id
             self.symbol = symbol
             title = text
-            label = button.props["accessibilityLabel"]
+            label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
+            prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled)" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent)" }
     }
     let header: NodeView
     let title: String
@@ -284,6 +295,7 @@ extension NavigationHost {
             ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
+        if #available(iOS 26.0, *), i.prominent { item.style = .prominent }
         return item
     }
 

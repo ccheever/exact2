@@ -30,6 +30,7 @@ final class Presenter {
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
     var materialNodes: Set<UInt32> = []
+    let glassGroups = GlassGroups()
     var contextNodes: Set<UInt32> = []
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
@@ -526,6 +527,7 @@ final class Presenter {
     func controlValue(_ id: UInt32, _ value: String, input: Bool, change: Bool) { onControlValue?(id, value, input, change) }
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
+    var buttonFace: ((UInt32) -> ButtonFace)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
@@ -821,13 +823,14 @@ final class Presenter {
                 if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
                 node.applyPendingScroll()
             }
-            if let material = node.materialView { node.sendSubviewToBack(material) }
+            if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         navigation.sync(batch)
         segments.sync()
         controls.sync()
         menus.sync()
+        glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
         positionContexts()

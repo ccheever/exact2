@@ -20,7 +20,7 @@ fn index_keys(list: &str) {
             ))
         }
     }
-    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape list<string>\n  action next writes step\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      each item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
+    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape list<string>\n  action next\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      each item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
     let mut r = Runner::boot(
         contract::compile(&src).unwrap(),
         SharedRows(["a", "b", "c", "x", "d"].map(Value::str).to_vec()),
@@ -212,9 +212,9 @@ component App
   state draft = ""
   state suffix = 0
   resource rows = rows() as shape list<number>
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action revise writes suffix
+  action revise
     suffix = suffix + 1
   view
     column
@@ -227,7 +227,7 @@ component Counter
     id: number
     suffix: number
   state n = 0
-  action increment writes n
+  action increment
     n = n + 1
   view
     button press=increment testId=`row-${id}`
@@ -333,7 +333,7 @@ fn inherited_typography_changes_measurement_epochs_without_rekeying() {
     let source = r#"component App
   state size = 16
   resource rows = rows() as shape list<number>
-  action revise writes size
+  action revise
     size = size + 1
   view
     column font-size=size
@@ -431,7 +431,7 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
             Ok(Value::list(values.into_iter().map(Value::Number).collect()))
         }
     }
-    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number) writes version\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
+    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number)\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
     let boot = |source: &str| {
         Runner::boot(
             contract::compile(source).unwrap(),

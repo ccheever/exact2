@@ -508,6 +508,12 @@ async function rejects(action, matches) {
   mkdirSync(projectTmp);
   const priorTmp = process.env.TMPDIR;
   process.env.TMPDIR = projectTmp;
+  // Staged additions deleted from disk are absent from the captured worktree;
+  // they must neither resurrect index bytes nor make git add fail.
+  writeFileSync(join(internal, 'staged-missing.txt'), 'never captured');
+  spawnSync('git', ['add', 'staged-missing.txt'], { cwd: internal });
+  rmSync(join(internal, 'staged-missing.txt'));
+  const realIndex = spawnSync('git', ['ls-files', '--stage', '-z'], { cwd: internal }).stdout;
   let internalSnapshot;
   try { internalSnapshot = snapshotOf(internalApp, {}, internal); }
   finally {
@@ -522,6 +528,9 @@ async function rejects(action, matches) {
   const cleanRun = deployRun(internalApp.target, 'clean-race');
   const cleanMaterialized = materializeSnapshot(internalSnapshot, cleanRun, internalApp);
   const cleanRaceBytes = readFileSync(join(cleanMaterialized.exactRoot, 'host/runtime.rs'), 'utf8');
+  result('capture omits missing staged additions and preserves the real index', !existsSync(join(cleanMaterialized.exactRoot, 'staged-missing.txt'))
+    && realIndex.equals(spawnSync('git', ['ls-files', '--stage', '-z'], { cwd: internal }).stdout));
+  spawnSync('git', ['reset', '--', 'staged-missing.txt'], { cwd: internal });
   const projectTmpRejected = relative(internal, cleanMaterialized.sourceRoot).startsWith('..');
   writeFileSync(join(internal, 'host/runtime.rs'), 'old\n');
   // Restore the live file immediately after the capture freezes its tree. A

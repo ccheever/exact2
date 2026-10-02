@@ -44,9 +44,9 @@ for(const host of ['Mac','IOS']) test(`${host} hidden placement box is zero, not
   const end=source.indexOf(host==='Mac'?'        let clip =':'        let vp =',body);
   const guard=source.slice(body,end);
   const swift=`struct Rect: Equatable {var width:Int;static let zero=Rect(width:0)}
-class View {}
+class View {var bounds=Rect(width:100)}
 class NodeView: View {var placedAncestor:NodeView?;var placementHidden=false}
-func box(_ v:View)->Rect {${guard}\nreturn Rect(width:100)}
+func box(_ v:View, region:Rect?=nil)->Rect {${guard}\nreturn bounds}
 let parent=NodeView(), child=NodeView();child.placedAncestor=parent
 precondition(box(child).width==100);parent.placementHidden=true
 precondition(box(child)==Rect.zero)

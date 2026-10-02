@@ -625,22 +625,26 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"grants","lines":[…]}` — the hosts the app may reach (LLP 1016
-    /// D6), once at boot; the page refuses a request outside them itself.
+    /// `{"op":"grants","lines":[…]}` — what the app may reach (LLP 1016 D6),
+    /// once at boot, from the runner's one parse of the whole set; the page
+    /// refuses a request outside them itself. A set that does not parse
+    /// grants nothing, as on a native host: `lines` is empty and `error`
+    /// says why, for the page to name in each refusal.
     pub fn grants(&mut self, grants: &str) {
+        let parsed = exact_runner::grants::parse(grants);
         let mut s = String::from("{\"op\":\"grants\",\"lines\":[");
-        for (i, line) in grants
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .enumerate()
-        {
+        for (i, line) in parsed.iter().flat_map(|set| set.lines()).enumerate() {
             if i > 0 {
                 s.push(',');
             }
             quote(line, &mut s);
         }
-        s.push_str("]}");
+        s.push(']');
+        if let Err(errors) = &parsed {
+            s.push_str(",\"error\":");
+            quote(&exact_runner::grants::refusal(errors), &mut s);
+        }
+        s.push('}');
         self.ops.push(s);
     }
 

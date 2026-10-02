@@ -380,12 +380,12 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
 #[test]
 fn missing_component_props_report_the_whole_call_interface() {
     let app = App::new("missing-props");
-    let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Light\"\n      Row()\n";
+    let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  provide\n    theme = \"Light\"\n  view\n    Row()\n";
     let unused_root =
         "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    text \"No instance\"\n";
     let root = app.write("app.contract", used_root);
     app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n    selected: bool\n    choose: action\n  inject\n    theme: string\n  view\n    button press=choose\n      text `${theme} ${title} ${count} ${selected}`\n");
-    let row = "use Card from \"./card.contract\"\ncomponent Row\n  state clicks = 0\n  action choose() writes clicks\n    clicks = clicks + 1\n  view\n    Card(ARGS)\n";
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  state clicks = 0\n  action choose()\n    clicks = clicks + 1\n  view\n    Card(ARGS)\n";
     for (root_source, id) in [
         (used_root, "syntax-missing-prop"),
         (unused_root, "type-missing-prop"),
@@ -563,7 +563,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
     let app = App::new("unknown-props");
     let root = app.write("app.contract", "");
     app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n  inject\n    theme: string\n  view\n    text `${theme} ${title} ${count}`\n");
-    let row = "use Card from \"./card.contract\"\ncomponent Row\n  view\n    provide theme = \"Light\"\n      Card(ARGS)\n";
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  provide\n    theme = \"Light\"\n  view\n    Card(ARGS)\n";
     for view in ["Row()", "text \"Unused import\""] {
         app.write(
             "app.contract",
@@ -592,7 +592,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
             assert_eq!(expected.id, "type-unknown-prop");
             assert_eq!(expected.message, message);
             let first = extra.split('=').next().unwrap();
-            let col = source.lines().nth(4).unwrap().find(first).unwrap() + 1;
+            let col = source.lines().nth(5).unwrap().find(first).unwrap() + 1;
             let errors = diagnostics(
                 &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
                 1,
@@ -600,7 +600,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
             assert_eq!(errors.len(), 1);
             same_error(&errors[0], &expected);
             assert_eq!(errors[0]["file"], path.to_str().unwrap());
-            assert_eq!(errors[0]["line"], 5);
+            assert_eq!(errors[0]["line"], 6);
             assert_eq!(errors[0]["col"], col);
             assert_eq!(errors[0]["end_col"], col + first.len());
             assert!(!app.0.join("refused.plan").exists());
@@ -628,138 +628,114 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
     assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
 }
 
+/// Each action's allowlist in the plan, as slot names, in plan order.
+fn plan_writes(plan: &exact_plan::Plan) -> Vec<(String, Vec<String>)> {
+    let name = |id: exact_plan::StrId| plan.strings[id.0 as usize].clone();
+    plan.actions
+        .iter()
+        .map(|a| {
+            let slots = (a.writes.start..a.writes.start + a.writes.len)
+                .map(|w| name(plan.slots[plan.writes[w as usize].slot.0 as usize].name))
+                .collect();
+            (name(a.name), slots)
+        })
+        .collect()
+}
+
+// @ref LLP 1035.005.000 D1 — effects are inferred; the clause is refused.
 #[test]
-fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
+fn an_imported_writes_clause_is_refused_at_its_token_and_symbols_show_the_inferred_effects() {
     let app = App::new("action-effects");
     let used = "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    column\n      Toggle()\n      Toggle()\n";
     let unused =
         "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
     let root = app.write("app.contract", used);
-    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        clicks = value + 1\n        touched = true\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
     for root_source in [used, unused] {
         app.write("app.contract", root_source);
-        for (writes, message, line, col, end_col) in [
-            ("", "`choose` has undeclared effects on `clicks`, `enabled`, `touched`; add these names to its `writes` declaration", 7, 7, 13),
-            (" writes clicks", "`choose` has undeclared effects on `enabled`, `touched`; add these names to its `writes` declaration", 9, 7, 14),
-            (" writes clicks, enabled", "`choose` writes `touched` but does not declare it: add `writes touched`", 13, 9, 16),
-        ] {
-            let path = app.write("lib/toggle.contract", &source.replace("WRITES", writes)).canonicalize().unwrap();
-            let expected = contract::compile_path(&root).unwrap_err();
-            assert_eq!(expected.id, "analyze-write-not-declared");
-            assert_eq!(expected.message, message);
-            let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]), 1);
-            same_error(&errors[0], &expected);
-            assert_eq!(errors[0]["file"], path.to_str().unwrap());
-            assert_eq!(errors[0]["line"], line);
-            assert_eq!(errors[0]["col"], col);
-            assert_eq!(errors[0]["end_col"], end_col);
-            assert!(!app.0.join("refused.plan").exists());
-            let human = app.run(&[root.to_str().unwrap()]);
-            assert_eq!(human.status.code(), Some(1));
-            assert!(String::from_utf8_lossy(&human.stderr).contains(message));
-        }
-        for (writes, id, message) in [
-            (
-                " writes enabled, enabled",
-                "analyze-writes-duplicate",
-                "`enabled` listed twice in `writes`",
-            ),
-            (
-                " writes absent",
-                "analyze-writes-unknown-state",
-                "`absent` in `writes` is not a state or a mutation; available writes: `clicks`, `enabled`, `touched`",
-            ),
-        ] {
-            app.write("lib/toggle.contract", &source.replace("WRITES", writes));
-            let error = contract::compile_path(&root).unwrap_err();
-            assert_eq!(error.id, id);
-            assert_eq!(error.message, message);
-        }
-        app.write(
-            "lib/toggle.contract",
-            &source.replace("WRITES", " writes enabled, clicks, touched"),
+        let path = app
+            .write(
+                "lib/toggle.contract",
+                &source.replace("WRITES", " writes clicks"),
+            )
+            .canonicalize()
+            .unwrap();
+        let expected = contract::compile_path(&root).unwrap_err();
+        assert_eq!(expected.id, "syntax-writes-clause");
+        assert_eq!(
+            expected.message,
+            "`choose`'s effects are inferred from its body: delete the `writes` clause"
         );
-        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
-    }
-}
-
-#[test]
-fn unknown_writes_report_all_names_and_choices_in_the_authored_component() {
-    let app = App::new("writes-choices");
-    let child = "component Row\n  props\n    label: string\n  state count = 0\n  state enabled = false\n  derive total = count + 1\n  action add(value: number) writes cuont, enabeld, cuont\n    count = count + value\n    enabled = true\n  view\n    button label press=add(1)\n";
-    for view in [
-        "      Row(label=\"a\")\n      Row(label=\"b\")\n",
-        "      text \"unused\"\n",
-    ] {
-        let root = app.write("app.contract", &format!("use Row from \"./lib/row.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  state parent = 0\n  view\n    column\n{view}"));
-        let path = app.write("lib/row.contract", child).canonicalize().unwrap();
-        let error = contract::compile_path(&root).unwrap_err();
-        assert_eq!(error.id, "analyze-writes-unknown-state");
-        assert_eq!(error.message, "`cuont`, `enabeld` in `writes` are not states or mutations; available writes: `count`, `enabled`");
         let errors = diagnostics(
             &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
             1,
         );
-        same_error(&errors[0], &error);
+        same_error(&errors[0], &expected);
         assert_eq!(errors[0]["file"], path.to_str().unwrap());
-        assert_eq!(errors[0]["line"], 7);
-        assert_eq!(errors[0]["col"], 36);
-        assert_eq!(errors[0]["end_col"], 41);
-        assert!(!app.0.join("refused.plan").exists());
-        let human = app.run(&[root.to_str().unwrap()]);
-        assert_eq!(human.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
-        app.write(
-            "lib/row.contract",
-            &child.replace("cuont, enabeld, cuont", "count, enabled"),
+        assert_eq!(
+            (
+                errors[0]["line"].as_u64(),
+                errors[0]["col"].as_u64(),
+                errors[0]["end_col"].as_u64()
+            ),
+            (Some(6), Some(19), Some(25))
         );
+        assert!(!app.0.join("refused.plan").exists());
+        app.write("lib/toggle.contract", &source.replace("WRITES", ""));
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+        let symbols: Value =
+            serde_json::from_str(&contract::symbols_json(&root, Some("choose")).unwrap()).unwrap();
+        let definitions = symbols["definitions"].as_array().unwrap();
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0]["kind"], "action");
+        assert_eq!(
+            definitions[0]["writes"],
+            serde_json::json!(["enabled", "clicks", "touched"])
+        );
+        assert!(symbols["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r.get("writes").is_none()));
     }
 }
 
 #[test]
-fn unknown_writes_choices_include_router_and_mutations_but_not_lifted_slots() {
-    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number) writes cuont, reslut, nva, reslut\n    count = value\n    send result = save()\n    nav = push(nav, \"/\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1)\ncomponent Child\n  state hidden = false\n  view\n    text \"child\"\n";
+fn a_child_action_cannot_write_its_parents_state() {
+    // What `writes` once caught is scope: a child names only its own slots.
+    let source = "component App\n  state parent = 0\n  view\n    column\n      Row()\ncomponent Row\n  state count = 0\n  action add\n    parent = count\n  view\n    button \"Add\" press=add\n";
     let error = contract::compile(source).unwrap_err();
-    assert_eq!(error.id, "analyze-writes-unknown-state");
-    assert_eq!(error.message, "`cuont`, `reslut`, `nva` in `writes` are not states or mutations; available writes: `count`, `nav`, `result`");
-    assert!(
-        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, result, nav"))
-            .is_ok()
-    );
-    let duplicate =
-        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, count, missing"))
-            .unwrap_err();
-    assert_eq!(duplicate.id, "analyze-writes-duplicate");
-    assert_eq!(duplicate.message, "`count` listed twice in `writes`");
-    let empty =
-        "component App\n  action noop writes missing\n  view\n    button \"Run\" press=noop\n";
-    let error = contract::compile(empty).unwrap_err();
-    assert_eq!(error.id, "analyze-writes-unknown-state");
-    assert_eq!(error.message, "`missing` in `writes` is not a state or a mutation; this component has no state or mutation slots");
-    assert!(contract::compile(&empty.replace(" writes missing", "")).is_ok());
+    assert_eq!(error.id, "type-assign-not-state");
+    assert_eq!(error.message, "`parent` is not a state or a mutation");
+    assert!(contract::compile(&source.replace("parent = count", "count = count + 1")).is_ok());
 }
 
 #[test]
-fn missing_effects_include_sends_and_do_not_repeat_targets() {
-    let source = "shape Reply\n  ok: bool\ncomponent App\n  state waiting = false\n  mutation result as shape Reply\n  action submitWRITES\n    send result = save()\n    waiting = true\n    if waiting\n      send result = save()\n  view\n    button press=submit\n      text \"Save\"\n";
-    for (writes, message) in [
-        ("", "`submit` has undeclared effects on `result`, `waiting`; add these names to its `writes` declaration"),
-        (" writes waiting", "`submit` sends `result` but does not declare it: add `writes result`"),
-        (" writes result", "`submit` writes `waiting` but does not declare it: add `writes waiting`"),
-    ] {
-        let error = contract::compile(&source.replace("WRITES", writes)).unwrap_err();
-        assert_eq!(error.id, "analyze-write-not-declared");
-        assert_eq!(error.message, message);
+fn the_plans_allowlist_is_every_slot_the_body_writes_or_sends_in_slot_order() {
+    // Router state, a send, a branch, a repeat; a lifted child's slots stay its own.
+    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  state waiting = false\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number)\n    send result = save()\n    count = value\n    if value > 1\n      nav = push(nav, \"/\")\n      send result = save()\n    else\n      count = 0\n  action idle\n    focus(\"save\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1) testId=\"save\"\ncomponent Child\n  state hidden = false\n  action hide\n    hidden = true\n  view\n    button \"child\" press=hide\n";
+    let writes = plan_writes(&contract::compile(source).unwrap());
+    let of = |name: &str| writes.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    assert_eq!(of("submit"), ["nav", "count", "result"]);
+    assert_eq!(of("idle"), Vec::<String>::new());
+    let hides: Vec<_> = writes
+        .iter()
+        .filter(|(n, _)| n != "submit" && n != "idle")
+        .collect();
+    assert_eq!(hides.len(), 2, "{writes:?}");
+    for (_, slots) in hides {
+        assert_eq!(slots.len(), 1, "{writes:?}");
+        assert!(slots[0].contains("hidden"), "{writes:?}");
     }
-    assert!(contract::compile(&source.replace("WRITES", " writes result, waiting")).is_ok());
 }
 
 #[test]
 fn missing_providers_report_every_absent_inject_on_the_use_path() {
     let app = App::new("missing-provides");
-    // A provider in a sibling branch cannot satisfy the component use.
-    let root = app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+    // A sibling component's `provide` section cannot satisfy the use
+    // (LLP 1035.005.000 D9: a section covers its own component's view).
+    let sibling = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      Other()\n      Row()\ncomponent Other\n  provide\n    locale = \"Sibling\"\n  view\n    text \"Other branch\"\n";
+    let root = app.write("app.contract", sibling);
     app.write("lib/card.contract", "component Card\n  inject\n    theme: string\n    locale: string\n    density: number\n  view\n    text `${theme} ${locale} ${density}`\n");
     for (providers, missing) in [
         (vec![], vec!["theme", "locale", "density"]),
@@ -768,18 +744,16 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
             vec!["locale = \"en\"", "theme = \"Light\""],
             vec!["density"],
         ),
-        (
-            vec!["theme = 1", "theme = \"Night\""],
-            vec!["locale", "density"],
-        ),
+        (vec!["theme = \"Night\""], vec!["locale", "density"]),
     ] {
-        let mut source = "use Card from \"./card.contract\"\ncomponent Row\n  view\n".to_owned();
-        let mut indent = "    ".to_owned();
-        for provider in &providers {
-            source.push_str(&format!("{indent}provide {provider}\n"));
-            indent.push_str("  ");
+        let mut source = "use Card from \"./card.contract\"\ncomponent Row\n".to_owned();
+        if !providers.is_empty() {
+            source.push_str("  provide\n");
+            for provider in &providers {
+                source.push_str(&format!("    {provider}\n"));
+            }
         }
-        source.push_str(&format!("{indent}Card()\n"));
+        source.push_str("  view\n    Card()\n");
         let path = app
             .write("lib/row.contract", &source)
             .canonicalize()
@@ -789,16 +763,13 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
             .map(|name| format!("`{name}`"))
             .collect::<Vec<_>>()
             .join(", ");
-        let scopes = missing
+        let bindings = missing
             .iter()
-            .map(|name| format!("`provide {name} = …`"))
+            .map(|name| format!("`{name} = …`"))
             .collect::<Vec<_>>()
             .join(", ");
-        let message = if missing.len() == 1 {
-            format!("`Card` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
-        } else {
-            format!("`Card` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
-        };
+        let them = if missing.len() == 1 { "it" } else { "them" };
+        let message = format!("`Card` injects {names}, and no component above this use provides {them}: in this component or one that uses it, write a `provide` section with {bindings} indented under it");
         let expected = contract::compile_path(&root).unwrap_err();
         assert_eq!(expected.id, "syntax-missing-provide");
         assert_eq!(expected.message, message);
@@ -809,18 +780,23 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
         assert_eq!(errors.len(), 1);
         same_error(&errors[0], &expected);
         assert_eq!(errors[0]["file"], path.to_str().unwrap());
-        assert_eq!(errors[0]["line"], 4 + providers.len());
-        assert_eq!(errors[0]["col"], indent.len() + 1);
-        assert_eq!(errors[0]["end_col"], indent.len() + 5);
+        let section = if providers.is_empty() {
+            0
+        } else {
+            1 + providers.len()
+        };
+        assert_eq!(errors[0]["line"], 4 + section);
+        assert_eq!(errors[0]["col"], 5);
+        assert_eq!(errors[0]["end_col"], 9);
         assert!(!app.0.join("refused.plan").exists());
         let human = app.run(&[root.to_str().unwrap()]);
         assert_eq!(human.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&human.stderr).contains(&message));
-        // Repair all reported names at the caller. Nearer providers in Row
-        // remain authoritative, including the correctly typed inner shadow.
-        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Outer\"\n      provide locale = \"en\"\n        provide density = 1\n          Row()\n");
+        // Repair all reported names at the caller. Row's own section stays
+        // authoritative for what it provides.
+        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  provide\n    theme = \"Outer\"\n    locale = \"en\"\n    density = 1\n  view\n    Row()\n");
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
-        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+        app.write("app.contract", sibling);
     }
     // An unused component can still require providers from its future caller.
     app.write(
@@ -894,7 +870,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
 
     for source in [
         "fn paints(n: number): number = n\nfn points(n: number): number = n\ncomponent App\n  view\n    text `${pints(1)}`\n".to_owned(),
-        "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
+        "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number)\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
         "component App\n  props\n    points: action\n  view\n    text `${pints(1)}`\n".to_owned(),
         "component App\n  view\n    text `${puch(1)}`\n".to_owned(), // push requires routes
         "component App\n  view\n    text `${zzz(1)}`\n".to_owned(),
@@ -914,7 +890,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
         contract::compile(&source.replace(typo, correct)).unwrap();
     }
-    let lifted_ambiguity = "fn paints(n: number): number = n\ncomponent App\n  view\n    Row()\ncomponent Row\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n";
+    let lifted_ambiguity = "fn paints(n: number): number = n\ncomponent App\n  view\n    Row()\ncomponent Row\n  state count = 0\n  action points(n: number)\n    count = n\n  view\n    text `${pints(1)}`\n";
     let error = contract::compile(lifted_ambiguity).unwrap_err();
     assert_eq!(error.id, "type-unknown-function");
     assert!(!error.message.contains("did you mean"), "{error}");
@@ -937,7 +913,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         contract::compile(&source.replace("pth(", "path(")).unwrap();
     }
     // A parameter shadows the similarly named action; it is not callable.
-    let source = "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  action invoke(points: number) writes count\n    count = pints(points)\n  view\n    button \"Run\" press=invoke(1)\n";
+    let source = "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number)\n    count = n\n  action invoke(points: number)\n    count = pints(points)\n  view\n    button \"Run\" press=invoke(1)\n";
     let error = contract::compile(source).unwrap_err();
     assert!(
         error.message.ends_with("; did you mean `paints`?"),
@@ -962,7 +938,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
 #[test]
 fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     let app = App::new("action-hints");
-    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    let action = "  state count = 0\n  action save\n    count = count + 1\n";
     for (typo, id) in [
         ("svae", "type-unknown-name"),
         ("sav()", "type-unknown-function"),
@@ -1004,7 +980,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     for (source, typo, correct) in [
         (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit\n"), "svae", "save"),
         (format!("component App\n{action}  view\n    Row(commit=save)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=comimt\n"), "comimt", "commit"),
-        (format!("component App\n{action}  view\n    provide commit = save\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
+        (format!("component App\n{action}  provide\n    commit = save\n  view\n    Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
         (format!("component App\n{action}  view\n    Row()\n      button \"Save\" press=svae\ncomponent Row\n  slot\n  view\n    column\n      children\n"), "svae", "save"),
         (format!("component App\n{action}  task timer mount\n    every(1000, svae)\n  view\n    text toString(count)\n"), "svae", "save"),
     ] {
@@ -1018,7 +994,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     for source in [
         format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
         format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
-        format!("component App\n{action}  action sale writes count\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
+        format!("component App\n{action}  action sale\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
         format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
         format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
         "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
@@ -1037,12 +1013,12 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
 #[test]
 fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers() {
     let app = App::new("forwarded-action-hints");
-    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    let action = "  state count = 0\n  action save\n    count = count + 1\n";
     for (source, typo) in [
         (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    Leaf(submit=commit)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Save\" press=submit\n"), "svae"),
-        (format!("component App\n{action}  view\n    provide commit = svae\n      Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
-        ("component App\n  state count = 0\n  action save(value: number) writes count\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
-        (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
+        (format!("component App\n{action}  provide\n    commit = svae\n  view\n    Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
+        ("component App\n  state count = 0\n  action save(value: number)\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
+        (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
     ] {
         let path = app.write("app.contract", &source).canonicalize().unwrap();
         let error = contract::compile_path(&path).unwrap_err();
@@ -1062,7 +1038,7 @@ fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers
         line.replace_range(related.span.col as usize-1..related.span.end_col as usize-1, "save");
         contract::compile(&repaired.join("\n")).unwrap();
     }
-    let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
+    let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
     // Each child's call site is checked in its own scope, so each gets the
     // correction its own actions support, first `First`'s, then `Second`'s.
     let error = contract::compile(source).unwrap_err();
@@ -1087,11 +1063,13 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         ("path", "paht", ""),
         ("save", "svae", "fn save(): number = 1\n"),
     ] {
-        let declarations = format!("{global}component App\n  state count = 0\n  action {name} writes count\n    count = count + 1\n");
+        let declarations = format!(
+            "{global}component App\n  state count = 0\n  action {name}\n    count = count + 1\n"
+        );
         for view in [
             format!("  view\n    button \"Save\" press={typo}()\n"),
             format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
-            format!("  view\n    provide commit = {typo}\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
+            format!("  provide\n    commit = {typo}\n  view\n    Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
         ] {
             let error = contract::compile(&format!("{declarations}{view}")).unwrap_err();
             assert_eq!(error.id, "type-unknown-function", "{error}");
@@ -1348,7 +1326,7 @@ fn deep_views_are_refused_without_aborting_the_compiler() {
 #[test]
 fn scroll_payload_arity_is_a_diagnostic() {
     for params in ["x: number", "x: number, y: number"] {
-        let source = format!("component App\n  state n = 0\n  action onScroll({params}) writes n\n    n = x\n  view\n    scroll scroll=onScroll height=100\n      text \"hi\"\n");
+        let source = format!("component App\n  state n = 0\n  action onScroll({params})\n    n = x\n  view\n    scroll scroll=onScroll height=100\n      text \"hi\"\n");
         let result = contract::compile(&source);
         if params.contains(',') {
             result.unwrap();

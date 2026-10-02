@@ -24,9 +24,9 @@ const APP: &str = r##"keyframes fade
   to opacity=0
 component App
   state y = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes y
+  action geometry(w: number, h: number, pw: number, ph: number)
     y = y
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes y
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     y = (py > 120 ? 900 : 0)
   view
     box width="100%" height="100%"
@@ -114,7 +114,7 @@ component Row
   props
     n: number
   state kept = false
-  action keep writes kept
+  action keep
     kept = not kept
   view
     box testId=`row-${n}` timeline-scope="--swipe" width=300 height=56 flex-shrink=0 position="relative" overflow="hidden" box-sizing="border-box" padding=0 border-width=0
@@ -223,9 +223,9 @@ const UNRESOLVED: &str = r##"keyframes fade
   to opacity=1
 component App
   state two = true
-  action flip writes two
+  action flip
     two = not two
-  action noop writes two
+  action noop
     two = two
   view
     column width=300 height="100%"
@@ -319,9 +319,9 @@ keyframes rise
   to scale=1
 component App
   state x = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes x
+  action geometry(w: number, h: number, pw: number, ph: number)
     x = x
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes x
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     x = ((px > 120 or vx > 800) ? 600 : 0)
   view
     box width="100%" height="100%"

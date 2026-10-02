@@ -8,6 +8,13 @@
 export const abi = 1;
 export const roster = { 'exact-fixture': { snapshot: true }, 'exact-plain': { snapshot: false }, 'exact-screen': { snapshot: false } };
 
+const size = (h, props) => {
+  if (h.tag === 'exact-plain') {
+    h.box.style.width = props.natural === 'false' ? '0px' : '120px';
+    h.box.style.height = props.natural === 'false' ? '0px' : props.expanded === 'true' ? '64px' : '32px';
+  }
+};
+
 const echo = (props) => 'props:' + JSON.stringify(Object.fromEntries(Object.entries(props).sort(([a], [b]) => (a < b ? -1 : 1))));
 
 export function create(tag, element, json, event) {
@@ -18,6 +25,7 @@ export function create(tag, element, json, event) {
   box.style.cssText = 'width:100%;height:100%;pointer-events:none';
   root.replaceChildren(box);
   const h = { tag, box, event, emit: props.emit ?? '0' };
+  size(h, props);
   box.style.backgroundColor = props.tint ?? 'gray';
   // The web's form of a native screen (LLP 1075.003 §3.6): its own element.
   if (tag === 'exact-screen') { box.textContent = 'A native screen'; box.style.cssText += ';display:grid;place-items:center;background:#f2f2f7'; }
@@ -28,6 +36,7 @@ export function create(tag, element, json, event) {
 export function setProps(h, json) {
   const props = JSON.parse(json);
   if (h.tag === 'exact-fixture' && props.reject === 'true') throw new Error('reject=true');
+  size(h, props);
   h.box.style.backgroundColor = props.tint ?? 'gray';
   if (h.tag !== 'exact-fixture') return;
   h.event(8, echo(props));

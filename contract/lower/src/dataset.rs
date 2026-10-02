@@ -172,7 +172,6 @@ fn attr_words(file: &File, pick: impl Fn(&Attr) -> Option<String> + Copy) -> Vec
                     walk(children, out, pick);
                 }
                 Node::Use { children, .. } => walk(children, out, pick),
-                Node::Provide { body, .. } => walk(body, out, pick),
                 Node::When {
                     then, otherwise, ..
                 } => {

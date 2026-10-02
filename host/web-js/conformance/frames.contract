@@ -7,12 +7,12 @@ component Frames
   state at = 0
   state beats = 0
   state running = true
-  action step writes frames, at
+  action step
     frames = running ? frames + 1 : frames
     at = running ? now() : at
-  action beat writes beats
+  action beat
     beats = beats + 1
-  action toggle writes running
+  action toggle
     running = not running
   task ticker mount
     every(frame, step)
