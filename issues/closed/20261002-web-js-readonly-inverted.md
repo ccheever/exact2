@@ -1,6 +1,7 @@
 # On the web's JS target a dynamically bound readonly is inverted, so Fieldnotes' title and body can't be typed in
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 28d617918.
 **Systems:** host/web-js, web host, Contract lowering
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
