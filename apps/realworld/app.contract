@@ -65,11 +65,9 @@ shape Comment
   author: Profile
   mine: bool
 shape Auth
-  stamp: number
   ok: bool
   errors: list<string>
 shape Change
-  stamp: number
   kind: string
   ok: bool
   slug: string

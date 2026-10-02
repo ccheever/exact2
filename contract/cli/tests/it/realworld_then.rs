@@ -19,7 +19,6 @@ struct Api;
 
 fn change(kind: &str, slug: &str) -> Value {
     Value::record(vec![
-        Value::Number(1.0),
         Value::str(kind),
         Value::Bool(true),
         Value::str(slug),
@@ -44,11 +43,7 @@ impl DataSource for Api {
         _: Outcome,
     ) -> Result<Answer, DataError> {
         Ok(Answer::Now(match source {
-            "login" => Value::record(vec![
-                Value::Number(1.0),
-                Value::Bool(true),
-                Value::list(vec![]),
-            ]),
+            "login" => Value::record(vec![Value::Bool(true), Value::list(vec![])]),
             "publish" => change("publish", "my-post"),
             "deleteArticle" => change("delete", ""),
             "currentUser" => Value::record(vec![
