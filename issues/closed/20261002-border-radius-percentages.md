@@ -1,6 +1,7 @@
 # border-radius accepts only a number, so CSS's border-radius: 50% is refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 28d617918.
 **Systems:** kernel, Contract lowering, hosts
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

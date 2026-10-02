@@ -30,9 +30,11 @@
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { BINARYEN } from '../host/web/stages.mjs';
 import { resolve } from 'node:path';
-import { resolveApp } from './app.mjs';
+import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
@@ -304,12 +306,75 @@ function list() {
   for (const row of rows) console.log(line(row));
 }
 
+/** Binaryen release archives append their tag; package-manager builds may omit it. */
+export function binaryenVersion(output) {
+  return /^wasm-opt (version \d+)(?: \([^)]*\))?$/.exec(output.trim())?.[1] ?? output.trim();
+}
+
+/** Install the versions declared by the SDK, once per machine. */
+export function setup({check = false} = {}) {
+  const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
+  const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
+  const version = BINARYEN.replace(' ', '_');
+  const binaryen = resolve(homedir(), '.cache/exact/binaryen', version);
+  const run = (cmd, args) => {
+    console.log([cmd, ...args].join(' '));
+    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit'});
+    if (result.status !== 0) throw new Error(`${cmd} failed: ${result.error?.message ?? result.status}`);
+  };
+  const output = (cmd, args) => {
+    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8'});
+    return result.status === 0 ? result.stdout.trim() : '';
+  };
+  if (!output('rustup', ['--version'])) throw new Error('install rustup from https://rustup.rs, then rerun exact setup');
+  if (!check) {
+    run('rustup', ['toolchain', 'install', pin.channel, '--profile', pin.profile,
+      ...pin.components.flatMap(c => ['--component', c]), ...pin.targets.flatMap(t => ['--target', t])]);
+    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src']);
+    webToolchainEnv(process.env); // Fetch the nightly standard library's locked sources too.
+    if (output('wasm-bindgen', ['--version']) !== `wasm-bindgen ${bindgen}`)
+      run('cargo', [`+${pin.channel}`, 'install', 'wasm-bindgen-cli', '--version', bindgen, '--locked', '--force']);
+    if (binaryenVersion(output('wasm-opt', ['--version'])) !== BINARYEN) {
+      const platform = {darwin: 'macos', linux: 'linux'}[process.platform];
+      const arch = process.arch === 'arm64' ? (platform === 'linux' ? 'aarch64' : 'arm64') : process.arch === 'x64' ? 'x86_64' : null;
+      if (!platform || !arch) throw new Error(`no Binaryen setup for ${process.platform}/${process.arch}`);
+      const name = `binaryen-${version}-${arch}-${platform}.tar.gz`;
+      const url = `https://github.com/WebAssembly/binaryen/releases/download/${version}/${name}`;
+      const stage = mkdtempSync(resolve(tmpdir(), 'exact-binaryen-'));
+      try {
+        const archive = resolve(stage, name), sum = `${archive}.sha256`;
+        run('curl', ['-fL', '--retry', '3', '-o', archive, url]);
+        run('curl', ['-fL', '--retry', '3', '-o', sum, `${url}.sha256`]);
+        const expected = readFileSync(sum, 'utf8').trim().split(/\s+/)[0];
+        if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== expected) throw new Error('Binaryen checksum mismatch');
+        mkdirSync(binaryen, {recursive: true});
+        run('tar', ['-xzf', archive, '--strip-components=1', '-C', binaryen]);
+        process.env.PATH = `${resolve(binaryen, 'bin')}:${process.env.PATH ?? ''}`;
+      } finally { rmSync(stage, {recursive: true, force: true}); }
+    }
+    run(process.execPath, ['install', '--frozen-lockfile']);
+  }
+  const rows = [
+    ['Bun', process.versions.bun, JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4)],
+    ['Rust', output('rustc', [`+${pin.channel}`, '--version']).split(' ')[1], pin.channel],
+    ['wasm-bindgen', output('wasm-bindgen', ['--version']), `wasm-bindgen ${bindgen}`],
+    ['wasm-opt', binaryenVersion(output('wasm-opt', ['--version'])), BINARYEN],
+  ];
+  for (const [name, have, want] of rows) console.log(`${name}: ${have || 'missing'} (SDK ${want})`);
+  const nightlyRoot = output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']);
+  if (!nightlyRoot || !existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml')))
+    throw new Error(`${WEB_TOOLCHAIN} or rust-src missing; run exact setup`);
+  if (rows.some(([, have, want]) => have !== want)) throw new Error('SDK tools differ; use the pinned Bun and run exact setup');
+  console.log('SDK tools ready. Build scripts select the pinned stable/nightly without changing rustup default.');
+}
+
 const USAGE = `exact — run an Exact app from the command line (macOS)
 
   exact run <app> [file …]     build and launch it here; ^C ends it
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
+  exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
@@ -325,6 +390,7 @@ EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
+  if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   if (verb === 'new') return console.log(createApp(name, { update: rest.includes('--update') }));
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }

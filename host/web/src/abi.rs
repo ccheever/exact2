@@ -163,13 +163,19 @@ impl<D: DataSource> Bridge<D> {
     pub fn logic_info(&mut self, data: D) -> u32 {
         if let Some(revision) = data.revision() {
             let mut json = String::from("{");
+            // Grants that do not parse admit nothing (the runner's one parse):
+            // `unparsed` says why, and the module's early fetch stands down.
+            let unparsed = exact_runner::grants::parse(data.grants())
+                .err()
+                .map(|errors| exact_runner::grants::refusal(&errors));
             for (i, (key, value)) in [
                 ("appId", data.app_id()),
                 ("grants", data.grants()),
                 ("revision", revision),
                 ("placement", data.placement().name()),
             ]
-            .iter()
+            .into_iter()
+            .chain(unparsed.as_deref().map(|why| ("unparsed", why)))
             .enumerate()
             {
                 if i > 0 {

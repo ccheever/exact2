@@ -8,7 +8,9 @@ use crate::{
     math, Component, Data, Entity, Mesh, Quat, Transform, Vec3, World,
 };
 use glam::Mat4;
+mod layers;
 mod sockets;
+pub use layers::{Layer, Layers};
 use sockets::SocketCache;
 pub use sockets::{socket, socket_matrix, socket_node, socket_stale, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap, sync::Arc};
@@ -319,6 +321,8 @@ pub struct Animator {
     pub since: f32,
     pub params: Vec<(String, Param)>,
     from: Vec<f32>,
+    // Saved pre-overlay sample: fades must never feed a layer back into itself.
+    base: Vec<f32>,
     fade_time: f32,
     fade_duration: f32,
 }
@@ -495,7 +499,7 @@ pub struct Ik {
 #[derive(Default)]
 struct Runtime {
     entities: Vec<Entity>,
-    stamp: Option<[u64; 6]>,
+    stamp: Option<[u64; 7]>,
     output: Motion,
     sockets: SocketCache,
     rigs: BTreeMap<String, Rig>,
@@ -870,6 +874,7 @@ pub fn step(w: &mut World) -> Motion {
             w.membership::<Animation>(),
             w.membership::<Blend>(),
             w.membership::<Animator>(),
+            w.membership::<Layers>(),
             w.revision::<Ik>(),
             w.revision::<Mesh>(),
         ]
@@ -892,6 +897,7 @@ pub fn step(w: &mut World) -> Motion {
         && w.storage::<Blend>().is_none_or(|s| s.is_empty())
         && w.storage::<Animator>().is_none_or(|s| s.is_empty())
         && w.storage::<Ik>().is_none_or(|s| s.is_empty())
+        && w.storage::<Layers>().is_none_or(|s| s.is_empty())
     {
         return Motion::default();
     }
@@ -910,6 +916,9 @@ pub fn step(w: &mut World) -> Motion {
     runtime
         .entities
         .extend(w.query::<&Ik>().iter().map(|(e, _)| e));
+    runtime
+        .entities
+        .extend(w.query::<&Layers>().iter().map(|(e, _)| e));
     runtime
         .errors
         .retain(|e, _| w.contains(*e) && runtime.entities.contains(e));
@@ -964,6 +973,9 @@ pub fn step(w: &mut World) -> Motion {
             {
                 return Err(format!("saved pose does not match model `{name}`"));
             }
+            if let Some(layers) = w.get::<Layers>(e) {
+                layers.validate(&model)?;
+            }
             drop(mesh);
             if !w.has::<Pose>(e) || redelivered {
                 w.insert(
@@ -983,6 +995,17 @@ pub fn step(w: &mut World) -> Motion {
             p.stepped = pose.stepped;
             p.crossed.clear();
             p.root_motion = Vec3::ZERO;
+            let mut layers = w.get::<Layers>(e).map(|l| l.clone());
+            let layered = layers.is_some();
+            let mut finish = |p: &mut Pose, scratch: &mut Vec<f32>, root| -> Result<(), String> {
+                if let Some(layers) = &mut layers {
+                    layers.apply(&model, &rig.rest, p, dt, scratch, root);
+                }
+                if let Some(ik) = w.get::<Ik>(e) {
+                    solve_ik(&model, &mut p.local, &ik)?;
+                }
+                Ok(())
+            };
             if let Some(mut a) = w.get_mut::<Animation>(e) {
                 if !a.time.is_finite() || !a.speed.is_finite() {
                     return Err("non-finite animation clock".into());
@@ -1014,9 +1037,7 @@ pub fn step(w: &mut World) -> Motion {
                     &rig.rest,
                     &mut p.local,
                 );
-                if let Some(ik) = w.get::<Ik>(e) {
-                    solve_ik(&model, &mut p.local, &ik)?;
-                }
+                finish(p, &mut runtime.scratch, root)?;
                 if !stepped {
                     a.time = time;
                     a.sampled = true;
@@ -1034,29 +1055,45 @@ pub fn step(w: &mut World) -> Motion {
                     root,
                     true,
                 );
-                if let Some(ik) = w.get::<Ik>(e) {
-                    solve_ik(&model, &mut p.local, &ik)?;
-                }
+                finish(p, &mut runtime.scratch, root)?;
                 if !stepped {
                     b.playback.record(p);
                 }
             } else if let Some(mut a) = w.get_mut::<Animator>(e) {
-                a.advance(
+                // Stage the state machine too: a refused IK/layer leaves its clock intact.
+                let mut candidate = layered.then(|| a.clone());
+                let next = candidate.as_mut().unwrap_or(&mut *a);
+                let ik = w.get::<Ik>(e);
+                let root = next.playback.root(&model)?;
+                if next.base.len() == p.local.len() && !redelivered {
+                    p.local.clone_from(&next.base);
+                }
+                next.advance(
                     p,
                     &model,
                     (!stepped).then_some(dt),
                     &mut runtime.scratch,
                     &rig.rest,
-                    w.get::<Ik>(e).as_deref(),
+                    if layered { None } else { ik.as_deref() },
                 )?;
+                if layered {
+                    next.base.clone_from(&p.local);
+                    finish(p, &mut runtime.scratch, root)?;
+                } else {
+                    next.base.clear();
+                }
                 if !stepped {
-                    a.playback.record(p);
+                    next.playback.record(p);
+                }
+                if let Some(candidate) = candidate {
+                    *a = candidate;
                 }
             } else {
                 p.local.copy_from_slice(&rig.rest);
-                if let Some(ik) = w.get::<Ik>(e) {
-                    solve_ik(&model, &mut p.local, &ik)?;
-                }
+                finish(p, &mut runtime.scratch, None)?;
+            }
+            if let Some(layers) = layers {
+                *w.get_mut::<Layers>(e).unwrap() = layers;
             }
             // Commit history only after successful sampling/IK. Birth has no bind predecessor.
             if pose.stepped.is_none() || redelivered {
@@ -1145,7 +1182,7 @@ pub fn step(w: &mut World) -> Motion {
     *self::runtime(w) = runtime;
     output
 }
-/// Agent inspection only: all unique skin joints in imported-node order (models cap nodes at 256).
+/// Agent inspection only: skin joints and rigid mesh nodes in imported-node order.
 pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
     let mesh = w.get::<Mesh>(e).ok_or("pose needs a model")?;
     let Mesh::Asset(name) = &*mesh else {
@@ -1174,6 +1211,14 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
         .iter()
         .flat_map(|s| &s.joints)
         .copied()
+        .chain(
+            model
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, node)| node.mesh.is_some() && node.skin.is_none())
+                .map(|(i, _)| i as u32),
+        )
         .collect();
     for i in joints {
         rows.push(format!(
@@ -1190,7 +1235,13 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
 /// Open restores exactly; Carry overlays definitions while retaining the sampled situation.
 #[derive(Default)]
 pub struct Definitions(Vec<Declaration>);
-type Declaration = (String, Option<Animation>, Option<Blend>, Option<Animator>);
+type Declaration = (
+    String,
+    Option<Animation>,
+    Option<Blend>,
+    Option<Animator>,
+    Option<Layers>,
+);
 impl Definitions {
     pub fn capture(w: &World) -> Self {
         Self(
@@ -1199,15 +1250,43 @@ impl Definitions {
                     let a = w.get::<Animation>(e).map(|v| v.clone());
                     let b = w.get::<Blend>(e).map(|v| v.clone());
                     let c = w.get::<Animator>(e).map(|v| v.clone());
-                    (a.is_some() || b.is_some() || c.is_some())
-                        .then(|| (w.name(e).unwrap_or("").into(), a, b, c))
+                    let layers = w.get::<Layers>(e).map(|v| v.clone());
+                    (a.is_some()
+                        || b.is_some()
+                        || c.is_some()
+                        || layers.is_some()
+                        || w.has::<Mesh>(e))
+                    .then(|| (w.name(e).unwrap_or("").into(), a, b, c, layers))
                 })
                 .collect(),
         )
     }
     pub fn apply(self, w: &mut World) {
-        for (name, a, b, c) in self.0 {
+        for (name, a, b, c, layers) in self.0 {
             let Some(e) = w.named(&name) else { continue };
+            if let Some(mut fresh) = layers {
+                if let Some(old) = w.get::<Layers>(e) {
+                    let mut available: Vec<_> = old.0.iter().collect();
+                    for layer in &mut fresh.0 {
+                        if let Some(index) = available
+                            .iter()
+                            .position(|previous| layer.animation.clip == previous.animation.clip)
+                        {
+                            let previous = available.remove(index);
+                            layer.animation.time = previous.animation.time;
+                            layer.animation.sampled = previous.animation.sampled;
+                            layer
+                                .animation
+                                .playback
+                                .crossed
+                                .clone_from(&previous.animation.playback.crossed);
+                        }
+                    }
+                }
+                w.insert(e, fresh);
+            } else {
+                w.remove::<Layers>(e);
+            }
             // Membership is authored too: the saved world may predate this controller.
             // Keep dynamic playback only when the controller kind still agrees.
             if let Some(fresh) = &a {
@@ -1235,6 +1314,11 @@ impl Definitions {
                     ));
                 }
             }
+            if a.is_none() && b.is_none() && c.is_none() {
+                w.remove::<Animation>(e);
+                w.remove::<Blend>(e);
+                w.remove::<Animator>(e);
+            }
             if let (Some(fresh), Some(mut old)) = (a, w.get_mut::<Animation>(e)) {
                 old.clip = fresh.clip;
                 old.speed = fresh.speed;
@@ -1254,7 +1338,12 @@ impl Definitions {
                     if crate::hash::of(&old.states) != crate::hash::of(&fresh.states) {
                         // An edited blend starts from the carried pose, never from bind.
                         if let Some(pose) = w.get::<Pose>(e) {
-                            old.from.clone_from(&pose.local);
+                            if old.base.len() == pose.local.len() {
+                                let base = old.base.clone();
+                                old.from = base;
+                            } else {
+                                old.from.clone_from(&pose.local);
+                            }
                             old.from_motion = pose.root_motion;
                             old.fade_time = 0.;
                             old.fade_duration = fresh.states[current].fade.max(0.1);

@@ -31,7 +31,7 @@ function worldFile(path) {
   return bytes;
 }
 import { connect } from 'node:net';
-import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
+import { contactSheet, decodePng, encodeApng, encodePng, locateScreen } from './png.mjs';
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
 import { tmpdir } from 'node:os';
@@ -671,14 +671,17 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     // — a simulator window carries a bezel and a scale of its own that no
     // frame arithmetic knows: the Mac's pointer is hovered at two desktop
     // points inside the window and the app reports where its viewport saw
-    // each (`layout.pointer`); the uniform scale and offset follow. Redone
-    // whenever the window's frame changes.
+    // each (`layout.pointer`). Device Hub emits no hover: match its captured
+    // window against simctl's framebuffer instead. Redone when geometry changes.
     let mapping = null;
     const calibrate = async (p) => {
       const found = await p.ask({ op: 'window', title: dev.name });
       if (found.error) return { error: found.error };
-      const keyOf = (w) => `${w.x},${w.y},${w.w},${w.h}`;
+      if (found.windows.filter(w => w.bundle === 'com.apple.dt.Devices' && w.title === dev.name).length > 1) return { error: 'more than one Device Hub window has this device name; leave only its device window open' };
+      const layout = await ask({ op: 'layout' }), screen = layout.screen;
+      const keyOf = (w) => `${w.id},${w.x},${w.y},${w.w},${w.h},${JSON.stringify(screen)}`;
       if (mapping && found.windows.some((w) => keyOf(w) === mapping.key)) return mapping;
+      if (contact) return { error: 'the simulator geometry changed during the contact; release it before recalibrating' };
       const probe = async (x, y) => {
         const r = await p.ask({ op: 'hover', x, y });
         if (r.error) return { error: r.error };
@@ -687,6 +690,21 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         return l.pointer ?? null;
       };
       const against = async (w) => {
+        if (w.bundle === 'com.apple.dt.Devices') {
+          if (w.title !== dev.name || !screen) return { error: 'Device Hub image calibration needs the named device window and screen geometry' };
+          const devicePath = resolve(dir, 'device.png'), windowPath = resolve(dir, 'window.png');
+          const captured = spawnSync('xcrun', ['simctl', 'io', dev.udid, 'screenshot', devicePath], { encoding: 'utf8', timeout: 5000 });
+          if (captured.status !== 0) return { error: 'simulator framebuffer capture failed: ' + captured.stderr };
+          const picture = await p.ask({ op: 'snapshot', id: w.id, path: windowPath });
+          if (picture.error) return picture;
+          if (['x','y','w','h'].some(k => picture[k] !== w[k])) return { error: 'the simulator window moved during capture; try again' };
+          const device = decodePng(readFileSync(devicePath)), window = decodePng(readFileSync(windowPath));
+          const m = locateScreen(window, device);
+          if (m.error) return m;
+          const sx = m.scale * device.width / screen.w, sy = m.scale * device.height / screen.h;
+          if (Math.abs(sx - sy) / sx > 0.01) return { error: 'the simulator framebuffer and app screen disagree in aspect ratio' };
+          return { key: keyOf(w), scale: sx, ox: w.x + m.x + screen.x * sx, oy: w.y + m.y + screen.y * sy, window: w };
+        }
         const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
         const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
         const pa = await probe(a.x, a.y);
@@ -700,9 +718,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         return { key: keyOf(w), scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
       };
       // The helper cannot tell which simulator window is this device's when
-      // titles are unreadable, and Device Hub's main window is titled with a
-      // device too: the one the app sees a hover in is it. The first
-      // candidate's refusal is the one reported.
+      // titles are unreadable: Simulator's hover identifies the app. Device
+      // Hub requires one exact-name window and a unique framebuffer match.
       let refused = null;
       for (const w of found.windows) {
         const m = await against(w);
@@ -739,10 +756,24 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         // Device Hub opens for this device, which takes a moment to appear.
         showSimulator(dev);
         for (let i = 0; i < 10 && (await p.ask({ op: 'window', title: dev.name })).named !== true; i++) await sleep(150);
+        const found = await p.ask({ op: 'window', title: dev.name });
+        if (!trusted.capture && found.windows?.some(w => w.bundle === 'com.apple.dt.Devices') && !found.windows.some(w => w.bundle === 'com.apple.iphonesimulator')) return unsupported('Device Hub calibration needs Screen Recording permission for this terminal');
+        const w = found.windows?.find(w => w.title === dev.name && w.bundle === 'com.apple.dt.Devices');
+        if (w) {
+          const raised = await p.ask({ op: 'raise', id: w.id });
+          if (raised.error) return unsupported(raised.error);
+          showSimulator(dev);
+        }
         await sleep(300);
       } else if (!contact) throw new Error('no contact is down');
       if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
       if (kind === 'cancel') return { phase: 'cancel', at: [contact.x, contact.y], delivery: 'unsupported', reason: 'a desktop pointer has no cancel; the contact is still down — send up' };
+      if (kind === 'up') {
+        const sent = await p.ask({ op: 'up', ...contactDesktop });
+        if (sent.error) return unsupported(sent.error);
+        const at = [contact.x, contact.y]; contact = null; contactDesktop = null;
+        return { phase: 'up', at, delivery: 'platform' };
+      }
       const m = await calibrate(p);
       if (m.error) return unsupported(m.error);
       const map = (x, y) => ({ x: m.ox + x * m.scale, y: m.oy + y * m.scale });
@@ -752,29 +783,26 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         if (!b || (b.w === 0 && b.h === 0)) throw new Error(`view ${id} has no box on screen`);
         const x = opts.x ?? b.x + b.w / 2, y = opts.y ?? b.y + b.h / 2;
         contactDesktop = map(x, y);
-        await p.ask({ op: 'down', ...contactDesktop });
+        const sent = await p.ask({ op: 'down', id: m.window.id, frame: m.window, ...contactDesktop });
+        if (sent.error) { contactDesktop = null; return unsupported(sent.error); }
         contact = { x, y };
         return { contact: id, phase: 'down', at: [x, y], delivery: 'platform', desktop: [contactDesktop.x, contactDesktop.y] };
       }
       if (kind === 'move') {
-        const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
+        const from = { ...contact }, to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
         const ms = Math.max(0, opts.ms ?? 0);
         const steps = Math.max(1, Math.round(ms / 16));
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
-          contactDesktop = map(contact.x + (to.x - contact.x) * t, contact.y + (to.y - contact.y) * t);
-          await p.ask({ op: 'move', ...contactDesktop });
+          const at = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }, desktop = map(at.x, at.y);
+          const sent = await p.ask({ op: 'move', id: m.window.id, frame: m.window, ...desktop });
+          if (sent.error) return unsupported(sent.error);
+          contact = at; contactDesktop = desktop;
           if (ms) await sleep(ms / steps);
         }
         contact = to;
         return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
       }
-      contactDesktop = map(contact.x, contact.y);
-      await p.ask({ op: 'up', ...contactDesktop });
-      const at = [contact.x, contact.y];
-      contact = null;
-      contactDesktop = null;
-      return { phase: 'up', at, delivery: 'platform' };
     };
     const closeWithPointer = async () => {
       if (pointer) {
@@ -821,9 +849,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
-
 // ---------------------------------------------------------------- the eight operations
-
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
   return {
@@ -1240,9 +1266,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
-
 // ---------------------------------------------------------------- the CLI
-
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);

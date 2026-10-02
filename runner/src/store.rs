@@ -7,7 +7,9 @@
 //! platform. A read is a map lookup; a write is a map update and a
 //! [`StoreWrite`] for the host. The `secret.keep <name>` lines of the data
 //! crate's grants say which names exist: an ungranted name reads as absent
-//! and refuses a write, identically on every host.
+//! and refuses a write, identically on every host. The grants are read by
+//! one parse of the whole set ([`crate::grants`]): a set that does not parse
+//! names nothing, as a native host holds nothing, and each refusal says why.
 
 use crate::runner::DataError;
 
@@ -21,6 +23,9 @@ use crate::runner::DataError;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Store {
     granted: Vec<String>,
+    scope_reader: ScopeReader,
+    /// Why nothing is granted: the grants did not parse.
+    unparsed: Option<String>,
     /// A child executor may see only the intersection with its own grants.
     restricted: bool,
     values: exact_kernel::SortedMap<String, String>,
@@ -43,6 +48,40 @@ pub struct Store {
     copied: usize,
 }
 
+// A module mirror must remain importless. Its host already enforced the whole
+// grant set; scopes there read only secret names. Ordinary stores retain the
+// strict reader, including for nested child scopes.
+#[derive(Debug, Clone, Copy)]
+struct ScopeReader(fn(&str) -> Vec<String>);
+impl Default for ScopeReader {
+    fn default() -> Self {
+        Self(module_secret_names)
+    }
+}
+impl PartialEq for ScopeReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.0, other.0)
+    }
+}
+fn module_secret_names(grants: &str) -> Vec<String> {
+    grants
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            if words.next()? != "secret.keep" {
+                return None;
+            }
+            let name = words.next()?;
+            (exact_grants::valid_name(name) && words.next().is_none()).then(|| name.to_string())
+        })
+        .collect()
+}
+fn strict_secret_names(grants: &str) -> Vec<String> {
+    crate::grants::parse(grants)
+        .map(|set| set.secrets().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 /// One write for the host to persist, in order: `value` `None` forgets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreWrite {
@@ -57,15 +96,17 @@ pub struct StoreWrite {
 pub enum StoreError {
     /// The name is not in the app's `secret.keep` grants.
     Refused(String),
+    /// The app's grants did not parse, so they name nothing: the name, then
+    /// why ([`crate::grants::refusal`]).
+    Unparsed(String, String),
 }
 
 impl From<StoreError> for DataError {
     fn from(e: StoreError) -> Self {
-        match e {
-            StoreError::Refused(name) => {
-                DataError::Unavailable(format!("secret {name} is not granted"))
-            }
-        }
+        DataError::Unavailable(match e {
+            StoreError::Refused(name) => format!("secret {name} is not granted"),
+            StoreError::Unparsed(name, why) => format!("secret {name} is not granted: {why}"),
+        })
     }
 }
 
@@ -76,30 +117,54 @@ pub(crate) struct StoreCheckpoint {
 }
 
 impl Store {
-    /// The store for `grants` (its `secret.keep <name>` lines), filled from
-    /// `snapshot`; an entry the grant does not name is dropped.
+    /// The store for `grants` (its `secret.keep <name>` lines, when the whole
+    /// set parses), filled from `snapshot`; an entry the grant does not name
+    /// is dropped.
     pub fn new(grants: &str, snapshot: impl IntoIterator<Item = (String, String)>) -> Store {
         // One body for every caller's snapshot type (LLP 1047 §6).
         Store::from_snapshot(grants, snapshot.into_iter().collect())
     }
 
     fn from_snapshot(grants: &str, snapshot: Vec<(String, String)>) -> Store {
-        let granted: Vec<String> = grants
-            .lines()
-            .filter_map(|l| {
-                let mut p = l.split_whitespace();
-                (p.next()? == "secret.keep")
-                    .then(|| p.next())
-                    .flatten()
-                    .map(str::to_string)
-            })
-            .collect();
+        let (granted, unparsed): (Vec<String>, _) = match crate::grants::parse(grants) {
+            Ok(set) => (set.secrets().map(str::to_string).collect(), None),
+            Err(errors) => (Vec::new(), Some(crate::grants::refusal(&errors))),
+        };
+        Self::from_names(
+            granted,
+            unparsed,
+            ScopeReader(strict_secret_names),
+            snapshot,
+        )
+    }
+
+    /// Local mirror inside an importless logic module (LLP 1029): the host
+    /// validates the complete declaration before loading the snapshot and
+    /// atomically validates every returned write. This grants no host access.
+    /// Host runners must use `new`, which validates the declaration itself.
+    pub fn module_mirror(grants: &str, snapshot: Vec<(String, String)>) -> Store {
+        Self::from_names(
+            module_secret_names(grants),
+            None,
+            ScopeReader::default(),
+            snapshot,
+        )
+    }
+
+    fn from_names(
+        granted: Vec<String>,
+        unparsed: Option<String>,
+        scope_reader: ScopeReader,
+        snapshot: Vec<(String, String)>,
+    ) -> Store {
         let values = snapshot
             .into_iter()
             .filter(|(n, _)| granted.iter().any(|g| g == n) || Store::is_kept(n))
             .collect();
         Store {
             granted,
+            scope_reader,
+            unparsed,
             restricted: false,
             values,
             writes: Vec::new(),
@@ -117,6 +182,19 @@ impl Store {
         &self.granted
     }
 
+    /// Why no name is granted, when the grants did not parse: what a host
+    /// journals once and each refusal carries.
+    pub fn unparsed(&self) -> Option<&str> {
+        self.unparsed.as_deref()
+    }
+
+    fn refused(&self, name: &str) -> StoreError {
+        match &self.unparsed {
+            Some(why) => StoreError::Unparsed(name.to_string(), why.clone()),
+            None => StoreError::Refused(name.to_string()),
+        }
+    }
+
     /// Run one child executor with only its admitted secret grants. Values,
     /// observations, and writes remain in this transaction; even unwinding
     /// restores the caller's grant scope. Nested scopes can only narrow access.
@@ -132,7 +210,7 @@ impl Store {
                 self.store.restricted = self.restricted;
             }
         }
-        let admitted = Store::new(grants, []).granted;
+        let admitted = (self.scope_reader.0)(grants);
         let narrowed = self
             .granted
             .iter()
@@ -214,7 +292,7 @@ impl Store {
     /// the grant.
     pub fn set(&mut self, name: &str, value: &str) -> Result<(), StoreError> {
         if !self.is_granted(name) {
-            return Err(StoreError::Refused(name.to_string()));
+            return Err(self.refused(name));
         }
         self.remember(name);
         self.values.insert(name.to_string(), value.to_string());
@@ -230,7 +308,7 @@ impl Store {
     /// kept); refused outside the grant.
     pub fn forget(&mut self, name: &str) -> Result<(), StoreError> {
         if !self.is_granted(name) {
-            return Err(StoreError::Refused(name.to_string()));
+            return Err(self.refused(name));
         }
         self.remember(name);
         self.values.remove(name);
@@ -366,6 +444,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn module_mirror_has_only_its_host_endowed_secret_scope() {
+        let mut mirror = Store::module_mirror(
+            "secret.keep token\nnet.fetch https://example.test",
+            vec![
+                ("token".into(), "value".into()),
+                ("other".into(), "hidden".into()),
+            ],
+        );
+        assert_eq!(mirror.get("token"), Some("value"));
+        assert_eq!(mirror.get("other"), None);
+        mirror.with_grants("secret.keep other", |s| {
+            assert!(s.set("token", "no").is_err())
+        });
+        assert!(mirror.set("token", "yes").is_ok());
+        let mut mirror = Store::module_mirror(
+            "secret.keep exact.kept.token",
+            vec![("exact.kept.token".into(), "hidden".into())],
+        );
+        assert_eq!(mirror.get("exact.kept.token"), None);
+        assert!(mirror.set("exact.kept.token", "no").is_err());
+    }
+
+    #[test]
     fn a_checkpoint_copies_what_the_transaction_writes_not_the_store() {
         let kept = format!("{}answer", Store::KEPT);
         let big = "x".repeat(1 << 20);
@@ -380,5 +481,40 @@ mod tests {
         assert_eq!(store.get("token"), Some("old"));
         assert_eq!(store.kept(&kept), Some(big.as_str()));
         assert!(store.take_writes().is_empty());
+    }
+
+    #[test]
+    fn grants_that_do_not_parse_name_no_secret_and_every_refusal_says_why() {
+        // Crew's set (the port report of 2026-09-24, F1): one camelCase name
+        // among good lines. A native host holds nothing; neither does this.
+        let kept = format!("{}answer", Store::KEPT);
+        let mut store = Store::new(
+            "net.fetch https://crew.test\nsecret.keep crewHost\nsecret.keep token\n",
+            [
+                ("token".into(), "old".into()),
+                ("crewHost".into(), "h".into()),
+                (kept.clone(), "seed".into()),
+            ],
+        );
+        assert!(store.granted().is_empty());
+        assert_eq!(store.get("token"), None);
+        assert_eq!(store.get("crewHost"), None);
+        assert_eq!(store.names(), [kept.as_str()], "the runner's own stay");
+        let why = "the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})";
+        assert_eq!(store.unparsed(), Some(why));
+        for refused in [store.set("token", "new"), store.forget("token")] {
+            assert_eq!(
+                DataError::from(refused.unwrap_err()),
+                DataError::Unavailable(format!("secret token is not granted: {why}"))
+            );
+        }
+        assert!(store.take_writes().is_empty());
+        // A child's scope reads the same parse.
+        let mut parent = Store::new("secret.keep a\nsecret.keep b", []);
+        parent.with_grants("secret.keep a\nsecret.keep B", |scope| {
+            assert!(scope.set("a", "1").is_err());
+        });
+        assert_eq!(parent.unparsed(), None);
+        assert!(parent.set("a", "1").is_ok());
     }
 }

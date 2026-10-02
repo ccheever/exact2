@@ -21,10 +21,7 @@ pub const MAX_HOST_WORK_BYTES: usize = 16 << 20;
 pub fn io_grants(spec: &str) -> String {
     spec.lines()
         .map(str::trim)
-        .filter(|line| !line.starts_with("surface.read ") && !line.starts_with("surface.write "))
-        .filter(|line| !crate::device::is_device_line(line))
-        .filter(|line| !line.starts_with("auth."))
-        .filter(|line| !line.is_empty())
+        .filter(|line| !crate::grants::own(line) && !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
 }

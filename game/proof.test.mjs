@@ -1,11 +1,15 @@
+import {parseFlags} from '../scripts/agent-launch.mjs';
+import {runFocusCommands} from '../host/web/navigation.js';
+import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {proofCommand, worldObservations} from './proof.mjs';
+import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
 
@@ -356,13 +360,13 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
   // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
-  const start=source.indexOf('  for (const { args, selectText } of focusCommands) {'), end=source.indexOf('  positionContexts();\n  return batch.timers;');
+  const start=source.indexOf('  runFocusCommands(focusCommands,'), end=source.indexOf('  positionContexts(); presence.live?.after');
   expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
-  const code=source.slice(start,end);
+  const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
   new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
   expect(calls).toEqual(['explicit']);
 });
 
@@ -512,13 +516,14 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
   expect(comparePlacement(a,b)).toBe(true);
 });
 
-for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
+for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-report-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
+  if (scenario === 'external-repin') expect(spawnSync('git', ['init', '-q', app]).status).toBe(0);
   try {
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(pins));
     writeFileSync(resolve(app,'proof.mjs'),`
@@ -544,7 +549,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       const calls=readFileSync(resolve(app,'calls.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
       return {code,text:stdout+stderr,calls,root:stdout.match(/^ARTIFACTS (.+)$/m)?.[1]};
     };
-    if (scenario === 'report' || directory) {
+    if (scenario === 'report' || scenario.startsWith('external-report-')) {
     const selected = command => !directory || scenario === `external-report-${command}`;
     if (selected('ordinary')) {
     const ordinary=await run(['--report']);
@@ -611,6 +616,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
     expect(written.reason).toBe('Saved glow is a Tween sampled by the renderer');
     expect(written.inputs).toBe('c'.repeat(64));
+    if (scenario === 'external-repin') expect(written.at).toBe('inputs:'+'c'.repeat(64));
     expect(written.game).toBe(name); expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
     const empty={ticks:{},saves:{}};
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
@@ -747,7 +753,7 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
   const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  const cli=new Function('open','resolve','render','console',`${body}; return main;`)(async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
+  const cli=new Function('parseFlags','open','resolve','render','console',`${body}; return main;`)(parseFlags,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
   for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
   expect(calls).toEqual([['layout','world:sign'],['state']]);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
@@ -948,7 +954,8 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     expect(await evaluate('presses === 2 && worldKeys === 1')).toBe(true);
     await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:15,y:15});
     expect(await evaluate('getComputedStyle(document.getElementById("pause")).filter')).toBe('none');
-    expect(await evaluate('getComputedStyle(document.getElementById("pause")).outlineStyle')).toBe('solid');
+    // Pointer activation handed focus to the canvas; hover alone is not focus-visible.
+    expect(await evaluate('getComputedStyle(document.getElementById("pause")).outlineStyle')).toBe('none');
     expect(await evaluate('const outside=document.createElement("button");document.body.append(outside);outside.focus();getComputedStyle(outside).outlineStyle')).toBe('none');
     await evaluate('outside.id="ordinary";outside.style="position:fixed;left:0;top:80px;width:100px;height:30px";outside.addEventListener("click",e=>uiFocus.press(e,outside,()=>{}))');
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:90,button:'left',clickCount:1});
@@ -983,7 +990,9 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-},600000);
+// Each authored game owns its compiler intermediates, including on the first
+// cold run. This is a hash-equivalence check, not a build-latency assertion.
+},1200000);
 
 
 test('proof commands quote the actual script and every argument', async () => {
@@ -1201,12 +1210,12 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
     const root = process.env.EXACT_PHONE_TEST_ROOT, dir = mkdtempSync(resolve(tmpdir(), 'phone-carrier-'));
     const bundle = resolve(dir, 'Phone.app'), input = resolve(dir, 'input.world'), output = resolve(dir, 'output.world');
     const bytes = Buffer.from([0, 1, 127, 255]), calls = [], children = [];
-    const app = {id:'com.exact.phone-fixture',dir,target:dir};
+    const app = {id:'com.exact.phone-fixture',dir,target:dir,crate:kind=>`phone-fixture-${kind}`};
     mkdirSync(bundle); writeFileSync(input, bytes);
     writeFileSync(resolve(bundle, 'ExactIOS'), JSON.stringify({id:'0'.repeat(32),inputs:{app:app.id}}));
     const apps = await import(resolve(root, 'scripts/app.mjs'));
     const apple = await import(resolve(root, 'host/apple/build.mjs'));
-    mock.module(resolve(root, 'scripts/app.mjs'), () => ({...apps, resolveApp:() => app}));
+    mock.module(resolve(root, 'scripts/app.mjs'), () => ({...apps, resolveApp:() => app, bakeOutput:() => dir}));
     mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle}), phone:pick => {
       assert.equal(pick, 'fixture-phone'); return {udid:pick};
     }}));
@@ -1266,3 +1275,121 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
   });
   expect({status:result.status,stderr:result.stderr}).toEqual({status:0,stderr:''});
 }, 25000);
+
+// Captures deliberately compare inspected JSON, not the binary save protocol.
+function diffCapture(overrides = {}) {
+  return {format:'exact-world-state-v1', name:'Example', tick:0, hash:'0x1', truncated:false,
+    entities:[{id:1, name:'player', components:{Transform:{position:[0,1,0]}, Health:{hp:10}}}],
+    resources:{Match:{score:0}}, simulation:{hz:60, seed:7, args:{}, input:{held:[]}, published:{}}, ...overrides};
+}
+
+test('world diff names changed fields and preserves added/removed/null/type distinctions', () => {
+  const a = diffCapture(), b = structuredClone(a);
+  b.tick = 1; b.hash = '0x2';
+  b.entities[0].components.Transform.position[0] = 2;
+  delete b.entities[0].components.Health;
+  b.entities[0].components.Target = null;
+  b.resources.Match.score = '0';
+  b.simulation.input.held.push('KeyW');
+  const diff = diffWorlds(a,b);
+  expect(diff.changes).toEqual([
+    {path:'entities["player"].Health', kind:'removed', before:{hp:10}},
+    {path:'entities["player"].Target', kind:'added', after:null},
+    {path:'entities["player"].Transform.position[0]', kind:'changed', before:0, after:2},
+    {path:'resources.Match.score', kind:'changed', before:0, after:'0'},
+    {path:'simulation.input.held[0]', kind:'added', after:'KeyW'},
+  ]);
+  expect(formatWorldDiff(diff)).toContain('changed entities["player"].Transform.position[0]: 0 → 2');
+  expect(a.entities[0].components.Health.hp).toBe(10);
+});
+
+test('world diff matches names across reordered slots, distinguishes unnamed ids and escapes paths', () => {
+  const a = diffCapture({entities:[
+    {id:0,name:'__proto__',components:{'a.b':{x:1}}},
+    {id:1,name:null,components:{X:1}}, {id:2,name:'#1',components:{}},
+  ]});
+  const b = diffCapture({entities:[
+    {id:4,name:'#1',components:{}}, {id:3,name:'__proto__',components:{'a.b':{x:2}}},
+    {id:5,name:null,components:{X:1}},
+  ]});
+  expect(diffWorlds(a,b).changes.map(c=>[c.path,c.kind])).toEqual([
+    ['entities["__proto__"]["a.b"].x','changed'],
+    ['entities[#1]','removed'], ['entities[#5]','added'],
+  ]);
+  expect(diffWorlds(a,structuredClone(a)).total).toBe(0);
+});
+
+test('world diff bounds output, counts omitted changes, and never claims hash equality from JSON', () => {
+  const a = diffCapture(), b = structuredClone(a);
+  b.resources.Match.score = 2; b.entities[0].components.Health.hp = 0;
+  expect(diffWorlds(a,b,{limit:1})).toMatchObject({total:2,omitted:1});
+  const hashOnly = diffWorlds(a,{...a,hash:'0x2'});
+  expect(formatWorldDiff(hashOnly)).toContain('not a complete binary save comparison');
+  expect(()=>diffWorlds(a,b,{limit:0})).toThrow('positive integer');
+});
+
+test('world diff refuses partial, malformed, duplicate, and cross-game captures', () => {
+  const a = diffCapture();
+  for (const b of [null, {...a,truncated:true}, {...a,resources:undefined},
+    {...a,entities:[...a.entities,...a.entities]}, {...a,name:'Another'},
+    {...a,resources:{bad:NaN}}]) expect(()=>diffWorlds(a,b)).toThrow();
+  expect(diffWorlds({...a,resources:{x:null}}, {...a,resources:{x:[]}}).changes)
+    .toEqual([{path:'resources.x',kind:'changed',before:null,after:[]}]);
+});
+
+test('capture uses existing reads and refuses mixed-tick or incomplete results', async () => {
+  const a = diffCapture(), calls = [];
+  const world = {name:a.name,tick:a.tick,hash:a.hash,entities:1,resources:a.resources,...a.simulation};
+  const session = {world:name=>({snapshot:async()=>{calls.push(name);return a;}}),
+    target:async name=>({id:9}), op:async request=>{calls.push(request);return {world};}};
+  expect(await captureWorld(session,'arena')).toEqual(a);
+  expect(calls).toEqual(['arena',{op:'state',id:9,world:true}]);
+  world.tick++;
+  await expect(captureWorld(session)).rejects.toThrow('changed during capture');
+  world.tick--; world.entities++;
+  await expect(captureWorld(session)).rejects.toThrow('incomplete');
+});
+
+test('offline world diff CLI reports differences and refuses invalid captures with distinct exits', () => {
+  const dir = mkdtempSync(resolve(tmpdir(),'world-diff-'));
+  try {
+    const a = resolve(dir,'a.json'), b = resolve(dir,'b.json');
+    writeFileSync(a,JSON.stringify(diffCapture()));
+    const run = () => Bun.spawnSync([process.execPath,resolve(import.meta.dir,'proof.mjs'),'diff',a,b]);
+    writeFileSync(b,readFileSync(a)); expect(run().exitCode).toBe(0);
+    writeFileSync(b,JSON.stringify(diffCapture({resources:{Match:{score:3}}})));
+    const changed = run();
+    expect(changed.exitCode).toBe(1);
+    expect(changed.stdout.toString()).toContain('resources.Match.score: 0 → 3');
+    writeFileSync(b,'{}'); expect(run().exitCode).toBe(2);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('game proof outputs do not invalidate host freshness, but game sources do', async () => {
+  const { newerThan } = await import('../scripts/agent-launch.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'game-freshness-'));
+  try {
+    for (const name of ['artifacts', 'dist.previous', 'logic']) {
+      mkdirSync(resolve(dir, name), {recursive:true});
+      writeFileSync(resolve(dir, name, 'changed'), 'new');
+    }
+    const changed = newerThan(0, [dir]);
+    expect(changed.length).toBe(1);
+    expect(changed[0].endsWith('/logic/changed')).toBe(true);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('repin provenance distinguishes commit-less games from broken Git repositories', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'repin-revision-'));
+  try {
+    expect(pinRevision(dir, 'digest')).toBe('inputs:digest');
+    expect(spawnSync('git', ['init', '-q', dir]).status).toBe(0);
+    expect(pinRevision(dir, 'digest')).toBe('inputs:digest');
+    expect(spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], {cwd:dir}).status).toBe(0);
+    expect(pinRevision(dir, 'digest')).toBe(spawnSync('git', ['rev-parse', 'HEAD'], {cwd:dir,encoding:'utf8'}).stdout.trim());
+    writeFileSync(resolve(dir, '.git/HEAD'), 'corrupt head\n');
+    expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});

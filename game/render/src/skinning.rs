@@ -23,6 +23,7 @@ struct Template {
     fresh: bool,
     rest: Vec<f32>,
     joints: usize,
+    rigid: bool,
 }
 pub(crate) struct Skinning {
     pub weights: Buffer,
@@ -69,7 +70,7 @@ impl Skinning {
         }
     }
     pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, model: &Model) -> Vec<u32> {
-        if model.skins.is_empty() {
+        if model.skins.is_empty() && model.clips.is_empty() {
             return vec![];
         }
         if model.nodes.len() > self.joint_capacity {
@@ -124,7 +125,20 @@ impl Skinning {
         let order = animation::node_order(model);
         let rest = animation::bind_pose(model);
         let mut ids = Vec::new();
-        for skin in &model.skins {
+        // Rigid mesh nodes use the same interpolated local hierarchy, with one
+        // palette matrix and no vertex weights. Nothing changes in the asset/save.
+        let rigid: Vec<_> = model
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.mesh.is_some() && n.skin.is_none())
+            .map(|(i, _)| exact_game::asset::Skin {
+                joints: vec![i as u32],
+                inverse_binds: glam::Mat4::IDENTITY.to_cols_array().to_vec(),
+                ..Default::default()
+            })
+            .collect();
+        for (index, skin) in model.skins.iter().chain(&rigid).enumerate() {
             ids.push(self.templates.len() as u32);
             self.templates.push(Template {
                 meta: self.metadata.len() as u32,
@@ -132,6 +146,7 @@ impl Skinning {
                 words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
+                rigid: index >= model.skins.len(),
             });
             self.metadata
                 .extend([model.nodes.len() as u32, skin.joints.len() as u32, 0, 0]);
@@ -243,7 +258,8 @@ impl Skinning {
                     .templates
                     .get(skin as usize)
                     .ok_or_else(|| RenderError::scene("unknown skin template".into()))?;
-                self.offsets.push(palette as u32);
+                self.offsets
+                    .push(palette as u32 | if t.rigid { 1 << 31 } else { 0 });
                 self.records
                     .push((record.transform as usize, skin as usize));
                 self.jobs_words
@@ -396,6 +412,80 @@ pub(crate) mod tests {
         read.unmap();
         bytes
     }
+    #[test]
+    fn unskinned_nodes_use_interpolated_hierarchy_palettes() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut model = crate::test_model::skinned_model();
+        model.skins.clear();
+        for node in &mut model.nodes {
+            node.skin = None;
+        }
+        for mesh in &mut model.meshes {
+            mesh.joints.clear();
+            mesh.weights.clear();
+        }
+        let node = model.nodes.iter().position(|n| n.mesh.is_some()).unwrap();
+        model.clips.push(exact_game::asset::Clip {
+            name: "move".into(),
+            ..Default::default()
+        });
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("rigid.model", &model).unwrap();
+        let draw = renderer.models.loaded["rigid.model"].nodes[0];
+        assert_eq!(draw.2, Mat4::IDENTITY);
+        let mut w = World::new(60, 0);
+        let previous = animation::bind_pose(&model);
+        let mut local = previous.clone();
+        local[node * 10] += 2.;
+        let mut middle = previous.clone();
+        middle[node * 10] += 1.;
+        let expected = animation::joint_matrix(&model, &middle, node as u32);
+        let mut pose = Pose::default();
+        pose.previous = previous;
+        pose.local = local;
+        let e = w.spawn((Transform::default(), pose));
+        w.load(&w.save()).unwrap();
+        let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 80,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut values = [0f32; 20];
+        values[19] = 0.5;
+        gpu.queue.write_buffer(&uniform, 0, bytes(&values));
+        let skin = renderer.models.skinning.as_mut().unwrap();
+        skin.set(
+            &gpu.device,
+            &gpu.queue,
+            &uniform,
+            &[DrawInstance {
+                data: 0,
+                transform: e.index(),
+                geometry: draw.0,
+                material: draw.1,
+                local: draw.2,
+                skin: draw.3,
+            }],
+        )
+        .unwrap();
+        assert_ne!(skin.offsets[0] & (1 << 31), 0);
+        skin.feed(&gpu.queue, &w, &[e], false);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        skin.encode(&mut encoder, None);
+        gpu.queue.submit([encoder.finish()]);
+        let actual: Vec<_> = read(&gpu, &skin.palette.raw, 64)
+            .chunks_exact(4)
+            .map(|v| f32::from_ne_bytes(v.try_into().unwrap()))
+            .collect();
+        for (a, b) in actual.iter().zip(expected.to_cols_array()) {
+            assert!((a - b).abs() < 1e-5, "{actual:?}");
+        }
+    }
+
     #[test]
     fn unchanged_skin_buffers_keep_the_compute_binding() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {

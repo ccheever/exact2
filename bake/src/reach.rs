@@ -155,6 +155,37 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     Ok(())
 }
 
+/// Refuse grants that do not parse, before anything is derived from them: a
+/// host that cannot parse the set holds none of it (the runner's one parse,
+/// `exact_runner::grants`), so the build stops instead, every bad line named
+/// by its source and its number there. With `rust`, `grants` is `app.ts`'s.
+pub(crate) fn parsed(
+    app_dir: &Path,
+    grants: Option<&str>,
+    rust: Option<&str>,
+) -> Result<(), String> {
+    const RUST: &str = "the Rust source";
+    let typescript = rust.is_some() || app_dir.join("app.ts").is_file();
+    let sources = [
+        (grants, if typescript { "app.ts" } else { RUST }),
+        (rust, RUST),
+    ];
+    let errors: Vec<String> = sources
+        .iter()
+        .filter_map(|(spec, source)| Some((exact_runner::grants::parse((*spec)?).err()?, source)))
+        .flat_map(|(errors, source)| {
+            errors
+                .into_iter()
+                .map(move |e| format!("grant-parse: {source}: {e}"))
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
 /// `auth` rows): every callback, for the web build's two client-metadata
 /// documents (one per `application_type`, ruled); and on Apple the

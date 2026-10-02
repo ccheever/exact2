@@ -89,6 +89,18 @@ fn cases() -> Vec<(&'static str, String)> {
         ),
         ("collections", one(|b| b.collections("[{\"view\":1}]"))),
         ("refuse", one(|b| b.refuse(9, "no \"way\"\n"))),
+        (
+            "grants",
+            one(|b| {
+                b.grants("# reach\n\n net.fetch https://api.example \nsecret.keep app.token\nsurface.read \"sketch\"\n")
+            }),
+        ),
+        // Crew's set (the port report of 2026-09-24, F1): one bad line, and
+        // the page is handed nothing to admit.
+        (
+            "grants-unparsed",
+            one(|b| b.grants("net.fetch https://crew.test\nsecret.keep crewHost")),
+        ),
         ("textflow", one(|b| b.textflow("[]"))),
         (
             "create",
@@ -270,6 +282,14 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "refuse",
         r#"{"ops":[{"op":"refuse","ticket":9,"message":"no \"way\"\n"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "grants",
+        r#"{"ops":[{"op":"grants","lines":["net.fetch https://api.example","secret.keep app.token","surface.read \"sketch\""]}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "grants-unparsed",
+        r#"{"ops":[{"op":"grants","lines":[],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "textflow",

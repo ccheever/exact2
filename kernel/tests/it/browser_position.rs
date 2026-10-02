@@ -205,3 +205,14 @@ fn an_authored_static_root_is_the_last_containing_block() {
         .collect();
     check(failures(&rooted, false), NOT_IN_THE_KERNEL);
 }
+
+/// Chrome 154, 2026-10-02: this fixture uses 16px/18px monospace with
+/// `letter-spacing: calc(10px - 1ch)` so each glyph matches the kernel's
+/// 10px test advance. Insets, margins, wrapping and used widths are measured.
+#[test]
+fn available_space_with_margins_matches_chrome() {
+    check(
+        failures(include_str!("fixtures/browser_available_space.tsv"), false),
+        &[],
+    );
+}

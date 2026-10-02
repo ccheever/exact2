@@ -439,6 +439,12 @@ test('the SDK lock decides every version; a game that adds packages captures its
   const added=lock([['glam','0.33.7','aa'],['itoa','1.0.15','dd'],['libm','0.2.9','ee']]);
   assert.deepEqual(outsideSdkLock(added,sdk,members),['itoa 1.0.15 registry+https://github.com/rust-lang/crates.io-index','libm 0.2.9 registry+https://github.com/rust-lang/crates.io-index']);
   assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','changed']]),sdk,members),['glam 0.33.7 registry+https://github.com/rust-lang/crates.io-index'],'a checksum is part of the identity');
+  // The SDK must inherit every core patch, including host-only dependencies.
+  const {outsideWorkspaceProblems} = await import('../scripts/app.mjs');
+  assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
+  const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
+  const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
+  assert.deepEqual(sdkCargo.profile['apple-dev'], coreCargo.profile['apple-dev']);
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
 }, 120000);
@@ -566,3 +572,17 @@ test('RUSTFLAGS without -fp-contract=off is refused in a generated game shell, n
     assert.match(checked.stderr,/RUSTFLAGS="\$RUSTFLAGS -C llvm-args=-fp-contract=off"/);
   } finally {rmSync(root,{recursive:true,force:true});}
 },300000);
+
+test('copies of the same game own distinct intermediate build directories', async () => {
+  const {gameDefaults,gameShells} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-copies-')));
+  try {
+    const a = resolve(root,'first'), b = resolve(root,'second');
+    createGame(a); cpSync(a,b,{recursive:true});
+    for (const app of [a,b]) {
+      gameShells(app,gameDefaults(app).game,import.meta.dir);
+      const config = Bun.TOML.parse(readFileSync(resolve(app,'.shells/.cargo/config.toml'),'utf8'));
+      assert.equal(config.build['build-dir'], resolve(app,'target'));
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

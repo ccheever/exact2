@@ -18,15 +18,18 @@
 //                                       back, then the rest, largest first (window titles are
 //                                       unreadable without Screen Recording permission, and Device
 //                                       Hub's own window carries a device's name too); the first is
-//                                       repeated at the top level. The driver takes the first one
-//                                       its app sees a hover in.
+//                                       repeated at the top level, with its window id and bundle.
+//   {"op":"snapshot","id":N,"path":P}   window-only PNG and captured frame; Screen Recording required
+//   {"op":"raise","id":N}              raises its simulator app; never called for background reads
 //   {"op":"hover","x":X,"y":Y}          posts a mouseMoved there (the driver's calibration: the app
 //                                       reports where its viewport saw the pointer)
-//   {"op":"down"|"move"|"up","x":X,"y":Y}   posts leftMouseDown / leftMouseDragged / leftMouseUp there
+//   {"op":"down"|"move"|"up","x":X,"y":Y}   posts leftMouseDown / leftMouseDragged / leftMouseUp there;
+//                                       id/frame bind down/move to the calibrated window
 // Nothing here knows the device: the driver maps viewport points to these
 // coordinates and owns the contact's state.
 import AppKit
 import CoreGraphics
+import ScreenCaptureKit
 
 func reply(_ object: [String: Any]) {
     let data = try! JSONSerialization.data(withJSONObject: object)
@@ -77,13 +80,59 @@ func screenLocked() -> Bool {
     ((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool) ?? false
 }
 
+/// A window-only picture, without the shadow, in desktop points. Device Hub
+/// delivers contacts but no hover; the driver matches the simulator's own
+/// framebuffer in this picture instead of guessing bezel or toolbar offsets.
+func snapshot(_ number: UInt32, path: String) -> [String: Any] {
+    // Initializes the Window Server connection even if snapshot is the first
+    // request; ScreenCaptureKit otherwise asserts CGS_REQUIRE_INIT.
+    guard ordinaryWindows().contains(where: { $0[kCGWindowNumber as String] as? UInt32 == number && showsSimulators($0) }) else {
+        return ["error": "the simulator window disappeared"]
+    }
+    guard CGPreflightScreenCaptureAccess() else {
+        return ["error": "simulator image calibration needs Screen Recording permission for this terminal"]
+    }
+    var result: [String: Any]?
+    let lock = NSLock()
+    func finish(_ value: [String: Any]) { lock.lock(); result = value; lock.unlock() }
+    func completed() -> [String: Any]? { lock.lock(); defer { lock.unlock() }; return result }
+    SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { content, error in
+        guard let window = content?.windows.first(where: { $0.windowID == number }),
+              simulatorApps.contains(window.owningApplication?.bundleIdentifier ?? "") else {
+            finish(["error": error?.localizedDescription ?? "the simulator window disappeared"])
+            return
+        }
+        let config = SCStreamConfiguration()
+        config.width = Int(window.frame.width.rounded())
+        config.height = Int(window.frame.height.rounded())
+        config.showsCursor = false
+        config.ignoreShadowsSingleWindow = true
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) { image, error in
+            guard let image,
+                  let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                finish(["error": error?.localizedDescription ?? "the simulator window gave no picture"])
+                return
+            }
+            do {
+                try data.write(to: URL(fileURLWithPath: path))
+                finish(["path": path, "x": window.frame.origin.x, "y": window.frame.origin.y,
+                          "w": window.frame.width, "h": window.frame.height])
+            } catch { finish(["error": error.localizedDescription]) }
+        }
+    }
+    let deadline = Date(timeIntervalSinceNow: 3)
+    while completed() == nil && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01)) }
+    return completed() ?? ["error": "simulator window capture timed out"]
+}
+
 while let line = readLine() {
     guard let data = line.data(using: .utf8),
           let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let op = req["op"] as? String else { reply(["error": "unreadable request"]); continue }
     switch op {
     case "trusted":
-        reply(["trusted": AXIsProcessTrusted(), "locked": screenLocked()])
+        reply(["trusted": AXIsProcessTrusted(), "locked": screenLocked(), "capture": CGPreflightScreenCaptureAccess()])
     case "window":
         let title = req["title"] as? String ?? ""
         let windows = ordinaryWindows().filter(showsSimulators)
@@ -91,7 +140,9 @@ while let line = readLine() {
         let rest = windows.filter { title.isEmpty || !name($0).contains(title) }.sorted { area($0) > area($1) }
         let found: [[String: Any]] = (named.map { ($0, true) } + rest.map { ($0, false) }).compactMap { window, named in
             guard let r = bounds(window) else { return nil }
-            return ["x": r.origin.x, "y": r.origin.y, "w": r.width, "h": r.height, "title": name(window), "named": named]
+            return ["x": r.origin.x, "y": r.origin.y, "w": r.width, "h": r.height, "title": name(window), "named": named,
+                    "id": window[kCGWindowNumber as String] as? UInt32 ?? 0,
+                    "bundle": bundles[window[kCGWindowOwnerPID as String] as? pid_t ?? 0] ?? ""]
         }
         guard var first = found.first else {
             reply(["error": "no simulator window on screen (Simulator's, or Device Hub's for the device)"])
@@ -99,6 +150,21 @@ while let line = readLine() {
         }
         first["windows"] = found
         reply(first)
+    case "snapshot":
+        guard let number = req["id"] as? UInt32, let path = req["path"] as? String else {
+            reply(["error": "snapshot needs a window id and path"]); continue
+        }
+        reply(snapshot(number, path: path))
+    case "raise":
+        guard !screenLocked(), AXIsProcessTrusted(), let number = req["id"] as? UInt32,
+              let window = ordinaryWindows().first(where: { $0[kCGWindowNumber as String] as? UInt32 == number && showsSimulators($0) }),
+              let pid = window[kCGWindowOwnerPID as String] as? pid_t else {
+            reply(["error": "raising a simulator needs its visible window, an unlocked screen and Accessibility permission"]); continue
+        }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        let result = AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        reply(result == .success ? ["raised": number] : ["error": "Device Hub could not be raised (Accessibility \(result.rawValue))"])
     case "hover", "down", "move", "up":
         guard let x = req["x"] as? Double, let y = req["y"] as? Double, x.isFinite, y.isFinite else {
             reply(["error": "\(op) needs finite x and y"])
@@ -106,9 +172,14 @@ while let line = readLine() {
         }
         let point = CGPoint(x: x, y: y)
         let under = top(under: point)
+        if op != "up", let expected = req["frame"] as? [String: Any], let actual = under.flatMap(bounds),
+           expected["x"] as? Double != actual.origin.x || expected["y"] as? Double != actual.origin.y || expected["w"] as? Double != actual.width || expected["h"] as? Double != actual.height {
+            reply(["error": "the simulator window moved or resized before the pointer event; recalibrate"]); continue
+        }
         // A release is posted wherever it lands: a held button must never
         // be left down. Anything else lands only in a simulator's window.
-        if op != "up", !(under.map(showsSimulators) ?? false) {
+        let expected = req["id"] as? UInt32
+        if op != "up", !(under.map(showsSimulators) ?? false) || (op != "up" && expected != nil && under?[kCGWindowNumber as String] as? UInt32 != expected) {
             let by = (under?[kCGWindowOwnerName as String] as? String) ?? "nothing"
             reply(["error": "the simulator's window is not the topmost at \(Int(x)),\(Int(y)): \(by) is; raise it and keep it unobscured", "covered": true, "by": by])
             continue
@@ -121,6 +192,6 @@ while let line = readLine() {
         event.post(tap: .cghidEventTap)
         reply(["posted": op, "x": x, "y": y])
     default:
-        reply(["error": "unknown op \(op) (trusted, window, hover, down, move, up)"])
+        reply(["error": "unknown op \(op) (trusted, window, snapshot, raise, hover, down, move, up)"])
     }
 }

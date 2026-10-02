@@ -1,6 +1,7 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Open — not reproduced in review round 2
+**Status:** Closed
+**Resolution:** Fixed delayed GPU-load race: detached queued canvases no longer claim surface names, and stale publishers yield to live replacements; actual Caltrain reproduction, 66 surface tests and rebuilt web smoke pass.
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -45,20 +46,25 @@ took 47 s each, minutes later, load near 40. So it is still there and shows
 under load; it had been closed as no longer reproducing after 13 passing
 runs at ad57fdc0. The probe above was not applied.
 
-## Review round 2 (2026-10-02)
+## Reproduced and fixed (2026-10-02)
 
-The earlier explanation was disproved: `emit_receipts` emits all destroys
-before any surface publication, so that batch cannot create before destroy.
-Also, the attempted `live()` check used a GPU object id; an id is still zero
-while the GPU module loads, so two genuinely connected publishers could be
-silently accepted during precisely the slow-load window implicated here.
+The delayed-module path retains queued surfaces after their canvases leave.
+Holding only `gpu-glue.js` in the real Caltrain page, clicking Sky off and on
+with browser mouse events, then releasing the response deterministically
+reproduced the error: the queue held old `glass` view 1 with
+`isConnected=false` and replacement view 4 with `isConnected=true`. The
+detached entry claimed the publisher name before the live entry arrived.
 
-The duplicate check was instrumented with old/new view, connection,
-`surfaces` registration, host view registration, generation, id, and stack.
-Three sequential `bun scripts/smoke.mjs web` runs did not reach it. They
-failed only on the builder's existing DBus/WebGPU/screenshot and scroll-limit
-failures. The permanent predicate now replaces an old publisher only when its
-surface or host view is no longer registered, or its element is disconnected;
-it never uses the GPU id. A regression test queues two connected, registered
-publishers before GPU load and requires the duplicate diagnostic. The original
-intermittent cause remains unknown, so this issue is open.
+`surface()` now ignores disconnected targets and retires a named publisher
+whose canvas or view registration is stale before admitting its replacement.
+The liveness decision never uses the GPU object id, which is still zero while
+the module loads. Two genuinely live canvases still produce the duplicate
+diagnostic. A late destroy of the retired view cannot clear the replacement's
+publication.
+
+The same delayed-load Caltrain drive now reports zero console errors and one
+live sky. The existing surface-record suite passes all 66 tests, including
+new detached-queue and replacement/late-destroy cases and the retained real
+duplicate test. Rebuilt Caltrain web smoke (`--app-only`) passes with its
+three Contract tests. Existing fixture mocks were brought up to date with
+the host's timeline and document-scroll bookkeeping.

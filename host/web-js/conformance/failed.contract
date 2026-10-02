@@ -1,0 +1,74 @@
+// data: completion-storm
+// Synthetic conformance plan: a request that fails without an answer is let
+// go (runner/src/runner/admission.rs `release_failed`; LLP 1054.000.002 D4,
+// LLP 1016 D4), on Completion Storm's sources. `lost(n, _)` answers now for
+// n = 0, with how many requests it has sent, and otherwise sends one whose
+// reply its parse never takes; `fixtureStats()` answers a record `Mismatch`
+// does not describe. Either way the request is no longer pending: a resource
+// keeps its last value and is `failed` for those arguments, not asked again
+// for them (an equal argument, a declared refresh's re-read at a send), and
+// asked again for new ones or by `refresh`; a commit refused after it cleared
+// the failure (`lost(-1, …)` refuses its arguments) restores it; a mutation
+// ends unsent, its slot as it was and its `then` not run. `sent` counts the
+// requests `lost` sent, so an ask that should not happen shows. The root
+// paints the page white over the data app's manifest background.
+shape Mismatch
+  message: number
+  received: number
+
+component Failed
+  state n = 0
+  state tick = 0
+  state log = ""
+  resource probe = lost(floor(n / 10), 0) as shape number
+  resource sent = lost(0, tick) as shape number
+  resource stats = fixtureStats() as shape Mismatch else empty()
+  mutation write as shape number refreshes probe then onWrite
+  mutation wrong as shape Mismatch then onWrong
+  derive written = match write { case some(v) => v, case none => -1 }
+  derive mismatched = match wrong { case some(v) => v.received, case none => -1 }
+  action ask(k: number)
+    n = k
+    tick = tick + 1
+  action retry
+    refresh probe
+    tick = tick + 1
+  action sendNow
+    send write = lost(0, tick)
+    tick = tick + 1
+  action sendLost
+    send write = lost(1, 0)
+    tick = tick + 1
+  action sendWrong
+    send wrong = fixtureStats()
+    tick = tick + 1
+  action onWrite
+    log = `${log} W${written}`
+  action onWrong
+    log = `${log} X`
+  view
+    column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      text `probe ${probe} ${pending(probe) ? "pending" : "settled"} ${failed(probe) ? "failed" : "ok"}` testId="probe"
+      text `sent ${sent}` testId="sent"
+      text `stats ${stats.received} ${pending(stats) ? "pending" : "settled"} ${failed(stats) ? "failed" : "ok"}` testId="stats"
+      text `write ${written} ${pending(write) ? "pending" : "settled"} · wrong ${mismatched} ${pending(wrong) ? "pending" : "settled"}` testId="mutations"
+      text `log${log}` testId="log"
+      row gap=4 flex-wrap="wrap"
+        button press=ask(10) testId="ask-10"
+          text "ask 1"
+        button press=ask(11) testId="ask-11"
+          text "ask 1 again"
+        button press=ask(-10) testId="ask-bad"
+          text "ask -1"
+        button press=ask(20) testId="ask-20"
+          text "ask 2"
+        button press=ask(0) testId="ask-0"
+          text "ask 0"
+        button press=retry testId="retry"
+          text "refresh"
+        button press=sendNow testId="send-now"
+          text "send now"
+        button press=sendLost testId="send-lost"
+          text "send lost"
+        button press=sendWrong testId="send-wrong"
+          text "send wrong"

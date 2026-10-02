@@ -659,6 +659,68 @@ fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length()
 }
 
 #[test]
+fn each_missing_handler_refuses_publication_geometry_and_pair_admission() {
+    for missing in [" transformgeometry=geometry", " transformrelease=finish"] {
+        let source = SOURCE.replace(missing, "");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-transform-drag-handlers");
+        // Authored plans are refused by the compiler. A decoded plan must
+        // still meet the host's handler-pair check at its binary boundary.
+        let mut plan = contract::compile(SOURCE).unwrap();
+        let event = if missing.contains("transformgeometry") {
+            exact_plan::EventKind::Transformgeometry
+        } else {
+            exact_plan::EventKind::Transformrelease
+        };
+        let handler = plan.handlers.iter().position(|h| h.event == event).unwrap() as u32;
+        let node = plan
+            .nodes
+            .iter_mut()
+            .find(|n| n.handlers.iter().any(|h| h.0 == handler))
+            .unwrap();
+        assert_eq!(node.handlers.len, 2);
+        if node.handlers.start == handler {
+            node.handlers.start += 1;
+        }
+        node.handlers.len -= 1;
+        exact_web::link(exact_web_capabilities::ALL);
+        let (mut host, batch) =
+            Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+        let publication = batch.split("\"op\":\"transform-drag\"").nth(1).unwrap();
+        assert!(
+            publication.contains("\"target\":null"),
+            "missing {missing}: {publication}"
+        );
+        let handle = host.runner().kernel().find_by_test_id("handle")[0];
+        // The kernel's source resolver deliberately does not own event handlers.
+        let binding = host
+            .runner()
+            .kernel()
+            .transform_drag_binding(handle)
+            .unwrap();
+        let mut p = Packet {
+            op: 10,
+            identity: [
+                quoted(publication, "runtime"),
+                exact_kernel::motion::motion_node(handle),
+                exact_kernel::motion::motion_node(binding.target),
+                exact_kernel::motion::motion_node(binding.clip),
+                1,
+            ],
+            tokens: [0; 2],
+            values: [320.25, 200.5, 320.25, 200.5, 0.0, 0.0],
+            now: 100.0,
+        };
+        assert!(p.send(&mut host).contains("\"accepted\":false"));
+        p.op = 11;
+        p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+        assert!(p.send(&mut host).contains("\"accepted\":false"));
+        assert_eq!(host.springs().engine().now(), 0.0);
+        assert_eq!(count(&host, "measured"), 0.0);
+    }
+}
+
+#[test]
 fn one_target_multiple_handles_refuses_second_target_until_owner_disappears() {
     let source=SOURCE.replace("      text `${released}", "      column testId=\"clip-other\" width=320.25 height=200.5 overflow=\"hidden\" padding=0 border-width=0\n        column id=\"other-photo\" testId=\"other-photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\" padding=0 border-width=0\n          column testId=\"other-handle\" transformDragFor=\"other-photo\" transformgeometry=geometry transformrelease=finish\n      text `${released}")
         .replace("            column testId=\"handle\" transformDragFor=reference transformgeometry=geometry transformrelease=finish", "            column testId=\"handle\" transformDragFor=reference transformgeometry=geometry transformrelease=finish\n            column testId=\"handle-two\" transformDragFor=reference transformgeometry=geometry transformrelease=finish");

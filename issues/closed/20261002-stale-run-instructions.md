@@ -1,6 +1,7 @@
 # Stale run instructions: Textflow's README sets EXACT_APP, which nothing reads, and Caltrain's test file says node and eight operations
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 28d617918.
 **Systems:** apps/textflow, apps/caltrain, docs
 **Severity:** P4
 **Author:** Claude (Opus 5.5) for Charlie Cheever

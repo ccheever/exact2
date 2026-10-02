@@ -1,6 +1,7 @@
 # Apps made by exact new: web-build builds the retiring wasm target, and there is no verb to test or drive the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 28d617918.
 **Systems:** game/new.mjs (exact new), web build, agent
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

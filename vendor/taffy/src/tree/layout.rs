@@ -140,7 +140,8 @@ pub struct LayoutInput {
     /// Parent size dimensions are intended to be used for percentage resolution.
     pub parent_size: Size<Option<f32>>,
     /// Available space represents an amount of space to layout into, and is used as a soft constraint
-    /// for the purpose of wrapping.
+    /// for the purpose of wrapping. Definite values constrain the border box: callers
+    /// subtract the child's margins, and child algorithms subtract only padding/border.
     pub available_space: Size<AvailableSpace>,
     /// Specific to CSS Block layout. Used for correctly computing margin collapsing. You probably want to set this to `Line::FALSE`.
     pub vertical_margins_are_collapsible: Line<bool>,

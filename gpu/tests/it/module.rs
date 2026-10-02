@@ -757,7 +757,7 @@ fn asset_names_use_the_portable_bounded_ascii_path_grammar() {
 }
 
 #[test]
-fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
+fn answered_names_beyond_256_retire_and_device_loss_reopens_delivery() {
     use exact_gpu::{wgpu, AssetError, Frame, Surface, SurfaceError, Value};
     #[derive(Default)]
     struct Probe {
@@ -806,15 +806,15 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("bounded").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).requests.len(), 256);
-    assert_eq!(module.agent(id, "").as_deref(), Some("256.model"));
+    assert_eq!(module.take_assets(id).requests.len(), 257);
+    assert_eq!(module.agent(id, "").as_deref(), Some(""));
     assert!(module.asset(id, "0.model", Ok(&[])));
     assert!(module.take_assets(id).requests.is_empty());
     assert!(module.bind(id, &[Value::Bool(true)], None));
     assert_eq!(module.take_assets(id).requests, ["0.model"]);
     assert!(module.asset(id, "0.model", Ok(&[])));
     module.lose_device();
-    assert_eq!(module.take_assets(id).requests.len(), 256);
+    assert_eq!(module.take_assets(id).requests.len(), 257);
 }
 
 #[test]

@@ -3,7 +3,9 @@ use crate::data::text::{Fixed, Float};
 use crate::{math, Component, Data, Entity, Resource, Vec3, World};
 use std::collections::BTreeMap;
 mod sound;
+mod spatial;
 pub use sound::{Fade, Sample, Sound};
+pub use spatial::{DistanceModel, Spatial};
 
 /// Oscillator shape. Noise uses a fixed local integer stream, never the world's RNG.
 #[derive(Data, Default, Clone, Copy, Debug)]
@@ -321,6 +323,8 @@ pub struct Voice {
     pub pan: f32,
     /// Gain ramp, for fading in or out.
     pub fade: Option<Fade>,
+    /// Per-voice distance controls; absent uses the attached entity or defaults.
+    pub spatial: Option<Spatial>,
 }
 impl Voice {
     /// Whether this voice repeats its definition.
@@ -584,6 +588,7 @@ impl World {
                 offset: 0.0,
                 pan: 0.0,
                 fade: None,
+                spatial: None,
             },
         }
     }
@@ -612,6 +617,12 @@ impl Play<'_> {
     /// Play without spatial attenuation.
     pub fn ui(mut self) -> Self {
         self.voice.at = At::Ui;
+        self
+    }
+    /// Set distance attenuation for this voice.
+    pub fn spatial(mut self, spatial: Spatial) -> Self {
+        assert!(spatial.valid(), "invalid spatial audio controls");
+        self.voice.spatial = Some(spatial);
         self
     }
     /// Set play gain.
@@ -714,6 +725,9 @@ fn detach(world: &World, entity: Entity) {
         for voice in &mut voices.voices {
             if matches!(voice.at, At::Entity(e) if e == entity) {
                 voice.position = world.current_global(entity).map(|t| t.translation.into());
+                voice.spatial = voice
+                    .spatial
+                    .or_else(|| world.get::<Spatial>(entity).map(|s| *s));
             }
         }
     }

@@ -165,8 +165,6 @@ struct AlgoConstants {
     min_size: Size<Option<f32>>,
     /// The item's max_size style
     max_size: Size<Option<f32>>,
-    /// The margin of this section
-    margin: Rect<f32>,
     /// The border of this section
     border: Rect<f32>,
     /// The space between the content box and the border box.
@@ -554,7 +552,6 @@ fn compute_constants(
     #[cfg(feature = "flexbox_balance")]
     let line_count = if is_wrap { Some(style.flex_line_count().max(1)) } else { None };
 
-    let margin = style.margin().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let padding = style.padding().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let border = style.border().resolve_or_zero(parent_size.width, |val, basis| tree.calc(val, basis));
     let padding_border_sum = padding.sum_axes() + border.sum_axes();
@@ -622,7 +619,6 @@ fn compute_constants(
         line_count,
         min_size,
         max_size,
-        margin,
         border,
         gap,
         content_box_inset,
@@ -875,7 +871,8 @@ fn generate_anonymous_flex_items(
 ///
 /// For each dimension, if that dimension of the flex container’s content box is a definite size, use that;
 /// if that dimension of the flex container is being sized under a min or max-content constraint, the available space in that dimension is that constraint;
-/// otherwise, subtract the flex container’s margin, border, and padding from the space available to the flex container in that dimension and use that value.
+/// otherwise, subtract border and padding from the border-box space supplied by the parent.
+/// The parent has already subtracted this container's margins.
 /// **This might result in an infinite value**.
 #[inline]
 #[must_use]
@@ -889,7 +886,6 @@ fn determine_available_space(
         Some(node_width) => AvailableSpace::Definite(node_width - constants.content_box_inset.horizontal_axis_sum()),
         None => outer_available_space
             .width
-            .maybe_sub(constants.margin.horizontal_axis_sum())
             .maybe_sub(constants.content_box_inset.horizontal_axis_sum()),
     };
 
@@ -897,7 +893,6 @@ fn determine_available_space(
         Some(node_height) => AvailableSpace::Definite(node_height - constants.content_box_inset.vertical_axis_sum()),
         None => outer_available_space
             .height
-            .maybe_sub(constants.margin.vertical_axis_sum())
             .maybe_sub(constants.content_box_inset.vertical_axis_sum()),
     };
 
@@ -950,7 +945,7 @@ fn determine_flex_base_size(
         // Available space for child sizing
         // Min/max sizes transferred through the aspect ratio are taken into account here
         // https://github.com/w3c/csswg-drafts/issues/10997
-        let cross_axis_margin_sum = constants.margin.cross_axis_sum(dir);
+        let cross_axis_margin_sum = child.margin.cross_axis_sum(dir);
         // EXACT PATCH 12: never into a dimension the item sizes itself.
         let sized = child.size_style.map(|d| !d.is_auto());
         let transferred_min_size = transfer_into_unsized(child.min_size, child.aspect_ratio, sized);
@@ -1132,7 +1127,7 @@ fn determine_flex_base_size(
                         },
                     ),
                 )
-                .with_cross(dir, cross_axis_available_space);
+                .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
             debug_log!("COMPUTE CHILD BASE SIZE:");
             break 'flex_basis tree.measure_child_size(
@@ -1175,7 +1170,8 @@ fn determine_flex_base_size(
 
         child.resolved_minimum_main_size = style_min_main_size.unwrap_or_else(|| {
             let min_content_main_size = {
-                let child_available_space = Size::MIN_CONTENT.with_cross(dir, cross_axis_available_space);
+                let child_available_space = Size::MIN_CONTENT
+                    .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
                 debug_log!("COMPUTE CHILD MIN SIZE:");
                 tree.measure_child_size(
@@ -1563,7 +1559,7 @@ fn determine_container_main_size(
                                 let cross_axis_parent_size = constants.node_inner_size.cross(dir);
 
                                 // Available space for child sizing
-                                let cross_axis_margin_sum = constants.margin.cross_axis_sum(dir);
+                                let cross_axis_margin_sum = item.margin.cross_axis_sum(dir);
                                 let child_min_cross = item.min_size.cross(dir).maybe_add(cross_axis_margin_sum);
                                 let child_max_cross = item.max_size.cross(dir).maybe_add(cross_axis_margin_sum);
                                 let cross_axis_available_space: AvailableSpace = available_space
@@ -1573,7 +1569,9 @@ fn determine_container_main_size(
                                     })
                                     .maybe_clamp(child_min_cross, child_max_cross);
 
-                                let child_available_space = available_space.with_cross(dir, cross_axis_available_space);
+                                let child_available_space = available_space.with_cross(
+                                    dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum),
+                                );
 
                                 // Known dimensions for child sizing
                                 let child_known_dimensions = {
@@ -1940,6 +1938,7 @@ fn determine_hypothetical_cross_size(
         let child_available_cross = available_space
             .cross(constants.dir)
             .map_definite_value(|val| constants.divided_cross_space(val))
+            .maybe_sub(child.margin.cross_axis_sum(constants.dir))
             .maybe_clamp(transferred_min_cross, transferred_max_cross)
             .maybe_max(padding_border_sum);
 
@@ -1961,6 +1960,18 @@ fn determine_hypothetical_cross_size(
             _ => child_available_cross,
         };
 
+        let child_cross = child_cross.or_else(|| {
+            if !constants.is_row && child.size_style.width.is_auto() && child.aspect_ratio.is_none()
+                && !tree.get_flexbox_child_style(child.node).is_compressible_replaced() {
+                child_available_cross.into_option().map(|available_width| {
+                    crate::compute::common::fit_content_width(
+                        tree, child.node, Size { width: None, height: Some(child.target_size.height) },
+                        item_known_dimension_definiteness(constants, child),
+                        constants.node_inner_size, available_width, SizingMode::ContentSize,
+                    ).maybe_clamp(transferred_min_cross, transferred_max_cross).max(padding_border_sum)
+                })
+            } else { None }
+        });
         let child_inner_cross = child_cross.unwrap_or_else(|| {
             tree.compute_child_layout(
                 child.node,

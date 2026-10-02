@@ -111,19 +111,28 @@ fn loops_follow_sources_and_cache_once() {
 #[test]
 fn poses_pan_and_attenuate() {
     let l = Listener::default();
-    let (a, b) = spatial_gains(l, Vec3::NEG_Z, 1.0);
+    let (a, b) = spatial_gains(l, Vec3::NEG_Z, 1.0, Default::default());
     assert!((a - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
     assert_eq!(a, b);
-    assert_eq!(spatial_gains(l, Vec3::X, 1.0), (0.0, 1.0));
-    assert_eq!(spatial_gains(l, Vec3::NEG_X, 1.0), (1.0, 0.0));
-    assert_eq!(spatial_gains(l, Vec3::X * 40.0, 1.0), (0.0, 0.0));
-    let near = spatial_gains(l, Vec3::X * 2.0, 1.0).1;
-    assert!(near > 0.49 && near < 0.5);
+    assert_eq!(
+        spatial_gains(l, Vec3::X, 1.0, Default::default()),
+        (0.0, 1.0)
+    );
+    assert_eq!(
+        spatial_gains(l, Vec3::NEG_X, 1.0, Default::default()),
+        (1.0, 0.0)
+    );
+    assert_eq!(
+        spatial_gains(l, Vec3::X * 40.0, 1.0, Default::default()),
+        (0.0, 0.025)
+    );
+    let near = spatial_gains(l, Vec3::X * 2.0, 1.0, Default::default()).1;
+    assert_eq!(near, 0.5);
     let turned = Listener {
         position: Vec3::new(2.0, 0.0, 0.0),
         rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
     };
-    let (a, b) = spatial_gains(turned, Vec3::new(2.0, 0.0, -1.0), 1.0);
+    let (a, b) = spatial_gains(turned, Vec3::new(2.0, 0.0, -1.0), 1.0, Default::default());
     assert!(a < 0.001 && b > 0.999);
 }
 
@@ -652,4 +661,62 @@ fn finite_attached_sources_refuse_by_name_even_when_created_late() {
             .count(),
         1
     );
+}
+
+#[test]
+fn spatial_controls_are_saved_and_distance_models_have_no_hidden_cutoff() {
+    use exact_game::audio::{DistanceModel, Spatial};
+    let inverse = Spatial::default();
+    assert_eq!(inverse.attenuation(40.), 0.025);
+    assert_eq!(inverse.attenuation(100.), 0.01);
+    let linear = Spatial {
+        distance_model: DistanceModel::Linear,
+        ref_distance: 10.,
+        max_distance: 110.,
+        ..inverse
+    };
+    assert_eq!(linear.attenuation(60.), 0.5);
+    assert_eq!(linear.attenuation(110.), 0.);
+    let exponential = Spatial {
+        distance_model: DistanceModel::Exponential,
+        ref_distance: 10.,
+        rolloff_factor: 2.,
+        ..inverse
+    };
+    assert_eq!(exponential.attenuation(20.), 0.25);
+    assert_eq!(
+        Spatial {
+            rolloff_factor: 0.,
+            ..inverse
+        }
+        .attenuation(1000.),
+        1.
+    );
+    assert_eq!(
+        Spatial {
+            ref_distance: f32::NAN,
+            ..inverse
+        }
+        .attenuation(1.),
+        0.
+    );
+    let mut w = World::new(60, 0);
+    w.sounds([("tone", Synth::default())]);
+    w.play("tone")
+        .at_point(Vec3::X * 60.)
+        .spatial(linear)
+        .start();
+    let bytes = w.save();
+    w.load(&bytes).unwrap();
+    assert_eq!(
+        w.resource::<exact_game::audio::Voices>().voices[0].spatial,
+        Some(linear)
+    );
+    let mut p = recording();
+    p.sync(&w, Some(Listener::default()), Default::default());
+    assert!(p
+        .output
+        .calls
+        .iter()
+        .any(|c| matches!(c, Call::Set { left, right, .. } if *left == 0. && *right == 0.5)));
 }

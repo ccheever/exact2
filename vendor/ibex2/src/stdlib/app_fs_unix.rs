@@ -407,7 +407,7 @@ pub fn resolve_sqlite(
         )?;
         let real = crate::stdlib::fs::realize(&path);
         crate::boundary::admit(
-            &grants.realized_fs(),
+            &crate::grant::realized_fs(grants),
             &Operation::SqliteOpen {
                 path: real.to_string_lossy().into_owned(),
             },

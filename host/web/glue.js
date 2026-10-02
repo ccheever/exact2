@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
+import { grantOrigins, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -688,7 +688,7 @@ function apply(batch) {
         }
         break;
       }
-      case "grants": { grants = op.lines; if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
+      case "grants": { grants = op.lines; unparsed = op.error ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
         // origin-scoped, is the web's secret store. Never in agent mode — a
@@ -730,7 +730,7 @@ function apply(batch) {
         const requestIncarnation=incarnation;
         const p=Promise.resolve().then(async()=>{
           if(op.refusal)throw Object.assign(new Error(op.refusal),{kind:2});
-          if(!surfaceGranted(op))throw Object.assign(new Error(`refused by grant: surface ${op.name}`),{kind:2});
+          if(!surfaceGranted(op))throw Object.assign(new Error(`refused by grant: surface ${op.name}${unparsed&&`: ${unparsed}`}`),{kind:2});
           loadGpuIfNeeded();await gpuLoading;
           if(!exact.gpu)throw Object.assign(new Error(`surface ${op.name}: expected one live surface, found 0`),{kind:2});
           if(requestIncarnation!==incarnation||wasm.exact_request_active(op.ticket)!==1)throw Object.assign(new Error('surface request retired'),{kind:4});
@@ -751,7 +751,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
+          grants, granted, unparsed, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
@@ -935,10 +935,9 @@ function commitFonts(faces) {
   for (const face of faces) document.fonts.add(face);
   installedFonts = faces;
 }
-// LLP 1016: the app's grants (`net.fetch <url prefix>` lines, from the boot
-// batch), the fetches in flight (the agent's `settle` waits on them), and
-// the reply path into the wasm.
-let grants = [];
+// LLP 1016: grants come from a whole-set parse; invalid sets arrive empty, with `unparsed` naming why.
+// The agent's settle waits on active fetches; replies return to the wasm.
+let grants = [], unparsed = "";
 let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set(), forgettable = new Map();
@@ -955,12 +954,13 @@ const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES
 // A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
 // domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
 function grantAdmits(granted, url) {
-  const star = /^([a-z][a-z0-9+.-]*):\/\/\*\.([^*/?#]+)$/i.exec(granted);
   try {
-    const target = new URL(url), grant = new URL(star ? `${star[1]}://${star[2]}` : granted), host = grant.hostname;
-    if (!star) return !granted.includes("*") && grant.origin === target.origin;
-    return grant.protocol === target.protocol && grant.port === target.port && !/^[\d.]+$|^\[/.test(host) && host.split(".").length >= 2
-      && !host.endsWith(".") && target.hostname.length > host.length + 1 && target.hostname.endsWith("." + host);
+    const wild = granted.includes('://*.'), text = wild ? granted.replace('://*.', '://') : granted;
+    const target = new URL(url), grant = new URL(text), host = grant.hostname.toLowerCase(), targetHost = target.hostname.toLowerCase();
+    if (text.includes('*') || grant.protocol !== target.protocol || grant.port !== target.port) return false;
+    if (!wild) return host === targetHost;
+    return ['', '/'].includes(grant.pathname) && !text.includes('?') && !text.includes('#') && !(host.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(grant.protocol) && /^[\d.]+$/.test(host))
+      && host.split('.').filter(Boolean).length >= 2 && !host.endsWith('.') && targetHost.length > host.length + 1 && targetHost.endsWith('.' + host);
   } catch { return false; }
 }
 function granted(url, scope = null) {
@@ -1347,7 +1347,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
-  grants = [];
+  grants = []; unparsed = "";
   for (const controller of controllers) controller.abort();
   controllers.clear(); forgettable.clear();
   inflight.clear();
@@ -1432,7 +1432,7 @@ async function main() {
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
   // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
-  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_geometry: { read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0 } }, aborted = e => e?.name === "AbortError";
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_geometry: { read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0 } }, aborted = e => e?.name === "AbortError";
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;

@@ -147,9 +147,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
     var inert: Bool {
+        if presenter?.dialogs.blocks(self) == true { return true }
         var ancestor: NSView? = self
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
             ancestor = view.superview
         }
         return false
@@ -174,10 +176,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var acceptsFirstResponder: Bool {
         if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
-        return isParagraph || tabbable
+        return props["semanticTag"] == "dialog" || isParagraph || tabbable
     }
+    var pressable: Bool { handlers.contains("press") || (kind == "button" && props["commandfor"] != nil) }
     var tabbable: Bool {
-        kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+        kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -199,14 +202,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return ok
     }
     override func drawFocusRingMask() {
-        guard field == nil, handlers.contains("press") else { return }
+        guard field == nil, pressable else { return }
         roundedPath(in: bounds).fill()
     }
     /// A key down at a focused node, by the web's key name. Space and Enter
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
+        guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
         guard !disabled else { return }
+        if presenter?.dialogs.key(event) == true { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": presenter?.selection.selectAll(); return
@@ -216,7 +221,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
-        if handlers.contains("press"), name == "Enter" || name == " " {
+        if pressable, name == "Enter" || name == " " {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
@@ -225,9 +230,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.keyDown(with: event)
     }
     override func keyUp(with event: NSEvent) {
+        guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: false, source: self) != true { super.keyUp(with: event) }
     }
     override func flagsChanged(with event: NSEvent) {
+        guard !inert else { return }
         if canvasInput?.flags(event) != true { super.flagsChanged(with: event) }
     }
     /// ⌘A while this node's field is being edited. The Edit menu is the
@@ -305,6 +312,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseMoved(with event: NSEvent) {
+        guard !inert else { return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
         presenter?.hoverInline(run?.id)
@@ -1346,10 +1354,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // same (a click on the page's ground).
     override func accessibilityPerformPress() -> Bool {
         if isSurfaceControl { return control("down") && control("up") }
-        guard !disabled, !inert, handlers.contains("press") else { return false }
+        guard !disabled, !inert, pressable else { return false }
         presenter?.press(id); return true
     }
     override func mouseDown(with event: NSEvent) {
+        guard !inert else { return }
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
@@ -1364,7 +1373,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
+        if isParagraph, !pressable, !hasPressableAncestor {
             window?.makeFirstResponder(self)
             presenter?.selection.begin(self, event: event)
             return
@@ -1376,7 +1385,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             focusNode = view.superview
         }
         if acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(self) }
-        if handlers.contains("press") {
+        if pressable {
             if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
             pressed = true
         } else { super.mouseDown(with: event) }
@@ -1384,12 +1393,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
-            if let node = view as? NodeView, (node.handlers.contains("press") || node.isSurfaceControl) { return true }
+            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl) { return true }
             next = view.superview
         }
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
@@ -1405,6 +1415,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
         defer { presenter?.interacting = 0 }

@@ -538,8 +538,14 @@ impl World {
                 TypeId::of::<crate::Animation>(),
                 TypeId::of::<crate::Blend>(),
                 TypeId::of::<crate::Animator>(),
+                TypeId::of::<crate::animation::Layers>(),
             ]
             .contains(&TypeId::of::<C>())
+            && !self.has::<crate::Animation>(e)
+            && !self.has::<crate::Blend>(e)
+            && !self.has::<crate::Animator>(e)
+            && !self.has::<crate::animation::Layers>(e)
+            && !self.has::<crate::Ik>(e)
         {
             self.remove::<crate::Pose>(e);
         }
