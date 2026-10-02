@@ -1,5 +1,5 @@
 //! The display loop's input dispatch, testable without a DRM master.
-use crate::input::{InputEvent, Key};
+use crate::input::InputEvent;
 use crate::Presenter;
 use exact_runner::DataSource;
 
@@ -11,7 +11,7 @@ pub(super) fn dispatch<D: DataSource>(
     event: InputEvent,
     now_ms: f64,
 ) -> Result<(), String> {
-    if !matches!(event, InputEvent::Key(_) | InputEvent::Cancel)
+    if !matches!(event, InputEvent::Key { .. } | InputEvent::Cancel)
         && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
@@ -46,13 +46,22 @@ pub(super) fn dispatch<D: DataSource>(
         }
         InputEvent::Cancel => p.pointer_cancel(now_ms)?,
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-        InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, now_ms),
-        InputEvent::Key(Key::Backspace) => p.key(None, true, now_ms),
-        InputEvent::Key(Key::Escape) => {
-            p.pointer_cancel(now_ms)?;
-            p.blur();
+        // The same targeted path as VNC and agent keys: text, Escape blur and a
+        // canvas's held keys (`hardware_key`). Escape also ends a pointer hold.
+        InputEvent::Key {
+            code,
+            shift,
+            down,
+            repeat,
+        } => {
+            let Some((code, key)) = crate::input::key(code, shift) else {
+                return Ok(());
+            };
+            if code == "Escape" && down {
+                p.pointer_cancel(now_ms)?;
+            }
+            p.hardware_key(code, key, down, repeat);
         }
-        InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, now_ms),
     }
     Ok(())
 }
@@ -64,6 +73,15 @@ mod tests {
     use exact_kernel::PropId;
     use exact_runner::{DataError, Value};
     use std::path::PathBuf;
+    /// An evdev key press (1 Escape, 45 x).
+    fn press(code: u16) -> InputEvent {
+        InputEvent::Key {
+            code,
+            shift: false,
+            down: true,
+            repeat: false,
+        }
+    }
     struct NoData;
     impl DataSource for NoData {
         fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -102,11 +120,7 @@ mod tests {
     }
     #[test]
     fn relative_and_absolute_display_events_release_or_escape_once() {
-        for cancel in [
-            None,
-            Some(InputEvent::Key(Key::Escape)),
-            Some(InputEvent::Cancel),
-        ] {
+        for cancel in [None, Some(press(1)), Some(InputEvent::Cancel)] {
             let mut p = fixture();
             let mut at = (20., 40.);
             for (time, event) in [
@@ -177,15 +191,7 @@ mod tests {
             )
             .is_err());
             assert_eq!(at, (20., 40.));
-            dispatch(
-                &mut p,
-                &mut at,
-                extent,
-                scale,
-                InputEvent::Key(Key::Char('x')),
-                1.,
-            )
-            .unwrap();
+            dispatch(&mut p, &mut at, extent, scale, press(45), 1.).unwrap();
             dispatch(&mut p, &mut at, extent, scale, InputEvent::Cancel, 1.).unwrap();
         }
         let b = p.display_frame().unwrap();
@@ -288,11 +294,7 @@ mod tests {
       text `${count}` testId="count"
       text `${seen}` testId="seen"
 "#).unwrap();
-        for cancel in [
-            None,
-            Some(InputEvent::Cancel),
-            Some(InputEvent::Key(Key::Escape)),
-        ] {
+        for cancel in [None, Some(InputEvent::Cancel), Some(press(1))] {
             let mut p = Presenter::boot_with(
                 &plan.encode(),
                 NoData,
