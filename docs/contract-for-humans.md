@@ -652,6 +652,43 @@ returns host-managed handles through the addressed element's `change` handler;
 cancellation uses `cancel`. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
+### Choosing a native button
+
+An ordinary `button` is an authored box with `appearance="none"`. Opt into the
+platform control with a literal `appearance="auto"`:
+
+```contract
+component NativeButtonExample
+  state presses = 0
+  action send
+    presses = presses + 1
+  view
+    column gap=12
+      button appearance="auto" buttonStyle="filled" press=send testId="send"
+        text "Send"
+      text `${presses}` testId="presses"
+```
+
+Its text and optional `image "symbol:…"` children describe the button's face;
+they are not arbitrary layout children. A symbol-only face needs a nonempty
+`aria-label`. The platform measures the control and supplies its chrome. UIKit
+and AppKit use native controls; the web and Linux use their documented looks,
+which are not a promise of identical glass rendering.
+
+`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
+`bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
+`prominent-clear-glass`. This is a declared host-policy property, not a CSS
+standard property. It can live in a style and can choose among checked literal
+names. `appearance`, however, must resolve to a literal after class application;
+use a view branch if switching between native and custom buttons.
+
+Native buttons deliberately restrict authored paint, typography, face content,
+and parent contexts so the platform can own the control. Do not transfer every
+custom-button style to one. Use `accent-color` where supported, and follow
+[the native-button fixture](../scripts/fixtures/native-buttons.contract) and
+[its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
+
 ## Navigation and documents
 
 A root-file `routes` table declares paths and an implicit router state. Nested

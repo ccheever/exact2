@@ -311,6 +311,15 @@ are fixed-height flex rows, without wrapping or reverse flow; use the axis's
 estimate property. Only the supported one-level nesting is admitted. Do not
 revive the removed legacy `item-height` windowing mechanism.
 
+A native button is an explicit `button appearance="auto"` after class merging;
+an ordinary button remains an authored `appearance="none"` pressable. The switch
+must be literal. Native title/symbol children are face data, not general layout.
+A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
+styleable host-policy prop; its names and allowable branches are checked against
+`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
+checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
+platform look. Do not assume arbitrary custom paint or typography is admitted.
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.

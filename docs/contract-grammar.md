@@ -90,7 +90,8 @@ route-children = INDENT route-row { route-row } DEDENT ;
 A font face's weight is a whole number in 1–1000. Keyframe percentages are in
 0–100; `from` and `to` are 0% and 100%. Lowering checks whether keyframe properties
 are animatable and constant-call values can be evaluated at compilation.
-Styles accept literal style attributes, not arbitrary expressions or event props.
+Styles accept literal style attributes and explicitly styleable props (currently
+`buttonStyle`), not arbitrary expressions or event props.
 
 A `use` path begins with `./`, stays below its importing file without `..`
 segments, and resolves to a `.contract` file inside the app directory. Imports
@@ -356,6 +357,15 @@ Style and prop names come from [`schema.json`](../kernel/tables/schema.json) and
 restrictions. This document does not duplicate their changing property tables.
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
+
+`button appearance="auto"` selects a native control; the literal switch is
+resolved after class merging. Default/`none` keeps the authored pressable.
+Native face content, styles, transitions/keyframes, and enclosing contexts have
+an explicit allowlist in [`controls.rs`](../contract/lower/src/controls.rs).
+`buttonStyle` is a styleable host-policy prop whose complete vocabulary is the
+schema's `buttonStyles` table; default `bordered`. This adds no tag or new
+expression grammar. Platform looks and stand-ins are documented in
+[LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
 
 ## Events
 
