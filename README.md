@@ -3,6 +3,22 @@
 **Write an app once. It runs natively on the web, macOS, iOS, and Linux, and an AI
 agent can build it, run it, see it, and test it on every one of them.**
 
+> [!TIP]
+> **Try it with a coding agent.** On a Mac with Xcode, Rust, Bun, and Chrome installed,
+> give Claude Code this prompt:
+>
+> ```text
+> Clone https://github.com/ccheever/exact2 and follow its README to make a new Exact
+> app with `exact new`: a todo list where I can add items, check them off, delete them,
+> and see how many are left. Put the view in Contract and keep the list in `app.ts`.
+> Write an `app.test.contract`, pass it on web, macOS, and the iOS Simulator with
+> `scripts/agent.mjs`, then open the app for me on all three.
+> ```
+>
+> A fresh Claude Code session given this prompt finished in about 23 minutes, most of it
+> spent on the first native builds, and its tests passed on all three platforms. On a
+> machine that has never built Hermes, that build comes first and adds time.
+
 <table>
   <tr>
     <th>Web</th>
@@ -214,6 +230,11 @@ bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run f
 cargo build --release -p caltrain-linux     # Linux: a DRM/KMS console, or headless anywhere
 ```
 
+A first native build takes a few minutes; later builds reuse it. iOS commands use an
+iPhone simulator that's already booted, or boot the newest iPhone Pro. To choose one,
+set `EXACT_SIM` to its name or UDID (or pass `--sim` to `build.mjs`), and keep the same
+setting for `agent.mjs ios`.
+
 ### 4. Drive it the way an agent does
 
 ```sh
@@ -253,71 +274,119 @@ EXACT_APP_DIR=../hello bun scripts/agent.mjs web --app hello tree "screenshot he
 ## Contract
 
 Contract describes what an app shows and how its state changes. It doesn't fetch, read
-files, or run arbitrary code. That's what data sources are for. Here is a complete app
-in a Contract file, a TypeScript file, and a test. This exact app was built and run on
-the web host, and its test passed.
+files, or run arbitrary code. That's what data sources are for. Here is a complete todo
+app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
+macOS, and the iOS Simulator, and its test passed on all three.
 
 ```
-// app.contract
+// app.contract: the view, its state, and what each action changes
 shape Todo
   id: string
   title: string
   done: bool
 
+shape Change
+  count: number
+
 style Card
-  padding=16 border-radius=12
+  padding=12 border-radius=10 gap=10 align-items="center"
   background-color="light-dark(#f2f2f5, #1c1c1e)"
 
 component Todos
-  state showDone = true
+  state draft = ""
+  mutation changed as shape Change refreshes todos
   resource todos = todos() as shape list<Todo>
-  derive shown = filter(todos, t => showDone or not t.done)
+  derive left = length(filter(todos, t => not t.done))
 
-  action toggle writes showDone
-    showDone = not showDone
+  action edit(value: string) writes draft
+    draft = value
+  action add writes draft, changed
+    if trim(draft) != ""
+      send changed = addTodo(trim(draft))
+      draft = ""
+  action toggle(id: string) writes changed
+    send changed = toggleTodo(id)
+  action remove(id: string) writes changed
+    send changed = removeTodo(id)
 
   view
     column padding=24 gap=12
-      text `${length(shown)} of ${length(todos)}` font-size=28 font-weight=700 testId="count"
-      each t in shown key=t.id
-        row class=Card gap=8 testId=`todo-${t.id}`
-          text (t.done ? "✓" : "○")
-          text t.title
-      button press=toggle padding=12 testId="toggle"
-        text (showDone ? "Hide done" : "Show done")
+      text `${left} left` font-size=28 font-weight=700 testId="count"
+      row gap=8
+        input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 padding=10
+        button press=add padding=10 testId="add"
+          text "Add"
+      each t in todos key=t.id
+        row class=Card testId=`todo-${t.id}`
+          button press=toggle(t.id) aria-label="Toggle" testId=`toggle-${t.id}`
+            text (t.done ? "✓" : "○")
+          text t.title flex=1 text-decoration-line=(t.done ? "line-through" : "none")
+          button press=remove(t.id) aria-label="Delete" testId=`remove-${t.id}`
+            text "✕"
 ```
 
 ```ts
-// app.ts: answers the sources app.contract asks for
+// app.ts: keeps the list, and answers what app.contract asks for
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.hello';
+export const appId = 'com.example.todo';
 export const grants = '';  // e.g. 'net.fetch https://api.example.com'
 
+type Todo = { id: string; title: string; done: boolean };
+let todos: Todo[] = [];
+let next = 1;
+
 const sources: Sources = {
-  todos: () => [
-    { id: 'contract', title: 'Describe the screen in Contract', done: true },
-    { id: 'source', title: 'Answer its data in TypeScript', done: false },
-    { id: 'ship', title: 'Run it on four platforms', done: false },
-  ],
+  todos: () => todos,
+  addTodo: ([title]) => {
+    todos = [...todos, { id: String(next++), title, done: false }];
+    return { count: todos.length };
+  },
+  toggleTodo: ([id]) => {
+    todos = todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+    return { count: todos.length };
+  },
+  removeTodo: ([id]) => {
+    todos = todos.filter((t) => t.id !== id);
+    return { count: todos.length };
+  },
 };
 
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 ```
 
-<img src="docs/screenshots/todos.webp" width="300" align="right" alt="The Todos example running on the web host">
-
 ```
-// app.test.contract: runs on any host with `agent.mjs <host> --test`
-test "hiding finished items"
-  expect text "count" == "3 of 3"
-  tap "toggle"
-  expect text "count" == "2 of 3"
-  expect tree missing "todo-contract"
+// app.test.contract: runs on any host with `scripts/agent.mjs <host> --test`
+test "add, finish and delete"
+  expect text "count" == "0 left"
+  type "new-todo" "Buy milk"
+  tap "add"
+  type "new-todo" "Walk the dog"
+  type "new-todo" key "Enter"
+  expect text "count" == "2 left"
+  tap "toggle-1"
+  expect text "count" == "1 left"
+  tap "remove-1"
+  expect tree missing "todo-1"
+  expect tree has "todo-2"
 ```
 
-<br clear="right">
+<table>
+  <tr><th>Web</th><th>macOS</th><th>iOS Simulator</th></tr>
+  <tr>
+    <td><img src="docs/screenshots/todo-web.webp" width="260" alt="The todo app on the web host"></td>
+    <td><img src="docs/screenshots/todo-macos.webp" width="260" alt="The todo app on macOS"></td>
+    <td><img src="docs/screenshots/todo-ios.webp" width="260" alt="The todo app on the iOS Simulator"></td>
+  </tr>
+</table>
+
+The view never edits the list itself. An action `send`s a *mutation* to a source,
+`app.ts` changes its data and answers, and `refreshes todos` asks for the list again.
+Data lives in one place, and every change to it is a named, typed call an agent can see.
+This list lives in memory. To keep it across launches, give `app.ts` a grant like
+`sqlite.open app:/data/todos.db` and use `storage.sqlite`, as
+[Fieldnotes](apps/fieldnotes) does.
 
 ### The pieces
 
@@ -328,12 +397,13 @@ test "hiding finished items"
 | `state` | A value the component owns. Under an `each`, child state belongs to that keyed row. |
 | `derive` | A value computed from others, recomputed when they change. |
 | `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
-| `mutation` / `send` | A write to a source, with `pending(x)` and `failed(x)` to show progress. |
+| `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, and `pending(x)` and `failed(x)` show progress. |
 | `action … writes …` | The only place state changes. The `writes` list is required and checked. |
 | `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
 | `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |
 | `style` / `class=` | A named set of CSS properties. The node's own attributes win, and there is no cascade. |
 | `fn`, `map` / `filter` / `join` | Pure, single-expression helpers. Recursion is refused. |
+| Built-in functions | `length`, `trim`, `includes`, `at`, `first`, `formatDate`, `formatNumber`, and the rest are listed with their types under `stdlib` in [`plan/tables/format.json`](plan/tables/format.json). |
 | `routes` | A router: a location and a retained stack per tab, moved with `open`, `push`, `replace`, and `back`, and read with `top`. |
 | `font` | Declares a font family and binds it to files at build time. |
 | `use … from "./x.contract"` | Imports components, shapes, styles, and `fn`s from another Contract file. |
@@ -346,8 +416,10 @@ test "hiding finished items"
   `focus(…)` and `share(…)`. Data crosses one seam: a source answers, and the runner
   checks the answer.
 - **No loops, no `let`, no `await`.** A list is an `each`, a computation is a
-  `derive` or a `fn`, and anything slower lives in a source. That's what lets the plan
-  be baked, diffed, inspected, and executed the same way on four hosts.
+  `derive` or a `fn`, and anything slower lives in a source. A list that changes
+  changes where its data lives, through a mutation, as in the example above. That's
+  what lets the plan be baked, diffed, inspected, and executed the same way on four
+  hosts.
 - **No escape hatch.** Where an app needs a platform widget, it uses a *native
   module*: a hyphenated tag like `native-map`, backed by Swift or Rust, laid out by the
   kernel like any other box.
