@@ -62,6 +62,21 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "the node is in the key loop")
     }
 
+    func testItFocusesAsAClickDoesAndPressesOnlyAnAncestorItIsIn() throws {
+        let p = presenter(box(1) + native(2, handlers: ["focus"]) + box(4, handlers: ["press"]) + native(3, handlers: [], x: 320) + native(5, handlers: [])
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 4, "ids": [3, 5]], ["op": "roots", "ids": [1, 4]]],
+                          faces: [2: face("Mark"), 3: face("Out"), 5: face("In")])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac).performClick(nil)
+        XCTAssertTrue(window.firstResponder === p.views[2], "with no press anywhere, the clicked node still takes the focus")
+        XCTAssertEqual(pressed, [])
+        try XCTUnwrap(p.controls.controls[5] as? NativeButtonMac).performClick(nil)
+        XCTAssertEqual(pressed, [4], "inside its ancestor: the ancestor's press")
+        try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac).performClick(nil)
+        XCTAssertEqual(pressed, [4], "outside its ancestor's box: no press, as on iOS")
+    }
+
     func testAGlassButtonIsIsolatedInItsGroup() throws {
         guard #available(macOS 26.0, *) else { throw XCTSkip("Liquid Glass is macOS 26") }
         let p = presenter(box(1, ["glassGroup": "24"]) + native(2) + native(3, x: 130)

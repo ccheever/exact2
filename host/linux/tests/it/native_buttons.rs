@@ -24,6 +24,8 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
       text `pressed ${n}` testId="count"
       button appearance="auto" buttonStyle="filled" press=go testId="filled"
         text "Send"
+      button appearance="auto" buttonStyle="filled" press=go testId="wider"
+        text "Send this much longer title"
       button appearance="auto" testId="ancestor"
         text "Up"
       button appearance="auto" buttonStyle="filled" press=go disabled=true testId="off"
@@ -62,6 +64,12 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
         "{frame:?}: Send in 13.33 px plus 2 × 12"
     );
     assert!(frame.height > 25. && frame.height < 35., "{frame:?}");
+    // Measured, not the kernel's 64 × 34 before a host reports a size.
+    let wider = p.host().kernel().node(id(&p, "wider")).unwrap().frame;
+    assert!(
+        wider.width > frame.width + 80.,
+        "{wider:?} against {frame:?}: each is its own title's width"
+    );
     p.tap(filled).unwrap();
     assert_eq!(count(&p), "pressed 1");
     let ancestor = id(&p, "ancestor");

@@ -870,9 +870,12 @@ kernel, never laid out. Declared: its box is `border-box` on every host with
 the platform's chrome inside it; its box refuses `padding`, `border`,
 `background`, `box-shadow`, `filter`, `overflow`, colour and typography,
 which LLP 1069.001 D6 lets other controls' boxes take, because a browser
-drops a native button's look under them; inherited typography is reset on
-the web's native face; Linux draws no symbol. Its size is the platform's, as
-any control's is.
+drops a native button's look under them; it refuses `direction` and
+`pointer-events` too (its face's order is its children's, and the platform
+hit-tests its own control); `accent-color` colours what the platform colours
+with its tint, as iOS does on the web and Linux; inherited typography is
+reset on the web's native face; Linux draws no symbol. Its size is the
+platform's, as any control's is.
 
 ### Window toolbars
 

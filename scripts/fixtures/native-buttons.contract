@@ -1,6 +1,8 @@
 // LLP 1069.011: native buttons — every `buttonStyles` row with a title,
 // then a symbol, a symbol and a title, a fixed width, a stretched one, a
-// disabled one, an accent, and glass buttons in a glass group with a
+// disabled one, an accent (on a button, and inherited by the styles that
+// draw their title in the label colour), a long title in a narrow button,
+// and glass buttons in a glass group with a
 // fading one. The platform draws each; the web draws its stated look.
 component NativeButtons
   state presses = 0
@@ -53,6 +55,28 @@ component NativeButtons
           image "symbol:forward"
       button appearance="auto" buttonStyle="bordered-prominent" press=go testId="wide" width=240 accent-color="#34c759"
         text "Fixed 240 wide"
+      row gap=8 align-items="center" accent-color="#34c759" testId="accented"
+        button appearance="auto" buttonStyle="plain" press=go testId="a-plain"
+          image "symbol:send"
+          text "plain"
+        button appearance="auto" buttonStyle="gray" press=go testId="a-gray"
+          image "symbol:send"
+          text "gray"
+        button appearance="auto" buttonStyle="bordered" press=go testId="a-bordered"
+          image "symbol:send"
+          text "bordered"
+      row gap=8 align-items="center" accent-color="#34c759"
+        button appearance="auto" buttonStyle="glass" press=go testId="a-glass"
+          image "symbol:send"
+          text "glass"
+        button appearance="auto" buttonStyle="clear-glass" press=go testId="a-clear"
+          image "symbol:send"
+          text "clear"
+        button appearance="auto" buttonStyle="tinted" press=go testId="a-tinted"
+          image "symbol:send"
+          text "tinted"
+      button appearance="auto" buttonStyle="filled" press=go testId="narrow" width=90
+        text "Send this very long message"
       button appearance="auto" press=go testId="stretched"
         text "Stretched (default bordered)"
       button appearance="auto" buttonStyle="filled" press=go testId="disabled" disabled=true align-self="flex-start"

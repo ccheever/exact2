@@ -373,11 +373,6 @@ pub(crate) fn button_context(
     control: Option<&str>,
 ) -> Option<&'static str> {
     let has = |name: &str| attrs.iter().any(|a| a.name == name);
-    let literal = |name: &str, v: &str| {
-        attrs
-            .iter()
-            .any(|a| a.name == name && matches!(&a.value, Expr::Str(s, _) if s == v))
-    };
     match tag {
         "canvas" => return Some("a `canvas`"),
         "header" => return Some("a `header`"),
@@ -389,8 +384,12 @@ pub(crate) fn button_context(
     if has("toolbarPlacement") {
         return Some("a toolbar (`toolbarPlacement`)");
     }
-    if literal("role", "tablist") {
-        return Some("a `tablist`");
+    if let Some(role) = attrs.iter().find(|a| a.name == "role") {
+        match literals(&role.value) {
+            Some(roles) if roles.contains(&"tablist") => return Some("a `tablist`"),
+            Some(_) => {}
+            None => return Some("an element whose `role` is bound (it could be a `tablist`)"),
+        }
     }
     if has("popover") {
         return Some("a popover");
@@ -402,8 +401,9 @@ pub(crate) fn button_context(
 }
 
 /// The style rows a native button's box may carry (LLP 1069.011 D6): where it
-/// sits and how big it is, its opacity and transforms, its clip, its accent.
-/// Everything else is the platform's to draw.
+/// sits and how big it is, whether it shows (`display` is checked to be its
+/// own `flex` or `none`), its opacity and transforms, its clip, its accent.
+/// Everything else is the platform's to draw or hit-test.
 const NATIVE_ROWS: &[StyleId] = &[
     StyleId::Width,
     StyleId::Height,
@@ -429,7 +429,6 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::ZIndex,
     StyleId::GridColumn,
     StyleId::GridRow,
-    StyleId::Direction,
     StyleId::Opacity,
     StyleId::Visibility,
     StyleId::Translate,
@@ -438,7 +437,6 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::Transform,
     StyleId::TransformOrigin,
     StyleId::ClipPath,
-    StyleId::PointerEvents,
     StyleId::AccentColor,
     StyleId::Appearance,
     StyleId::Transition,
@@ -450,6 +448,27 @@ const NATIVE_ROWS: &[StyleId] = &[
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
     matches!(p, P::Opacity | P::Translate | P::Scale | P::Rotate)
+}
+
+/// Whether a value can be empty: a blank literal, `none`, or an arm of a
+/// choice that is one.
+fn may_be_empty(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s.trim().is_empty(),
+        Expr::None(_) => true,
+        Expr::Ternary(_, a, b, _) => may_be_empty(a) || may_be_empty(b),
+        _ => false,
+    }
+}
+
+/// Whether a value is always empty: every arm blank or `none`.
+fn always_empty(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s.trim().is_empty(),
+        Expr::None(_) => true,
+        Expr::Ternary(_, a, b, _) => always_empty(a) && always_empty(b),
+        _ => false,
+    }
 }
 
 /// Every literal a value can be: itself, or each arm of a choice.
@@ -512,6 +531,15 @@ impl Lowerer<'_> {
                         format!("a native button draws its own glass: no `{name}` on it (put a `glassGroup` on its parent)"),
                     )
                 }
+                "display"
+                    if !literals(&a.value)
+                        .is_some_and(|ds| ds.iter().all(|d| matches!(*d, "flex" | "none"))) =>
+                {
+                    return refuse(
+                        "lower-button-style-attr",
+                        "a native button's `display` is its own `\"flex\"` or `\"none\"` (or a choice between them): the platform lays out its face".into(),
+                    )
+                }
                 "buttonStyle" => match literals(&a.value) {
                     Some(names) => {
                         if let Some(bad) = names
@@ -553,20 +581,19 @@ impl Lowerer<'_> {
                     }
                 }
                 Some(crate::tags::AttrTarget::Handler(h))
-                    if !matches!(
-                        h,
-                        "press" | "focus" | "blur" | "keydown" | "keyup" | "hover"
-                    ) =>
+                    if !matches!(h, "press" | "focus" | "blur" | "key" | "hover") =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button takes `press`, `focus`, `blur`, key and hover handlers, not `{name}`: {alternative}"),
+                        format!("a native button takes `press`, `focus`, `blur`, `key` and `hover` handlers, not `{name}`: {alternative}"),
                     );
                 }
                 _ => {}
             }
         }
-        let labelled = attrs.iter().any(|a| a.name == "aria-label");
+        let labelled = attrs
+            .iter()
+            .any(|a| a.name == "aria-label" && !may_be_empty(&a.value));
         let faces = face_counts(children)?;
         if faces.contains(&(0, 0)) {
             return err(
@@ -585,7 +612,7 @@ impl Lowerer<'_> {
         if !labelled && faces.contains(&(0, 1)) {
             return err(
                 "lower-button-content",
-                "a native button that shows only a symbol needs an `aria-label`",
+                "a native button that shows only a symbol needs an `aria-label` that is never empty",
                 span,
             );
         }
@@ -703,7 +730,25 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
                     );
                 }
                 match tag.as_str() {
-                    "text" => vec![(1, 0)],
+                    // A blank title shows nothing: it is no title.
+                    "text" => {
+                        match positional.first() {
+                            Some(e) if always_empty(e) => return err(
+                                "lower-button-content",
+                                "a native button's `text` is its title: this one is always empty",
+                                *span,
+                            ),
+                            Some(e) if may_be_empty(e) => vec![(1, 0), (0, 0)],
+                            Some(_) => vec![(1, 0)],
+                            None => {
+                                return err(
+                                    "lower-button-content",
+                                    "a native button's `text` is its title: give it one",
+                                    *span,
+                                )
+                            }
+                        }
+                    }
                     "image" => {
                         let ok = positional.first().and_then(literals).is_some_and(|srcs| {
                             srcs.iter().all(|s| {

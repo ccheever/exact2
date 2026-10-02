@@ -37,7 +37,7 @@ fn app(body: &str) -> String {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     format!(
-        "keyframes fade\n  from opacity=0\n  to opacity=1\nkeyframes flash\n  from background-color=\"#ff0000\"\n  to background-color=\"#0000ff\"\ncomponent App\n  state busy = false\n  state n = 0\n  action go writes n\n    n = n + 1\n  view\n    column\n{body}"
+        "keyframes fade\n  from opacity=0\n  to opacity=1\nkeyframes flash\n  from background-color=\"#ff0000\"\n  to background-color=\"#0000ff\"\ncomponent App\n  state busy = false\n  state n = 0\n  action go writes n\n    n = n + 1\n  action keys(k: string) writes n\n    n = n + 1\n  view\n    column\n{body}"
     )
 }
 
@@ -188,6 +188,28 @@ fn its_face_is_a_title_a_symbol_or_both() {
             "button appearance=\"auto\" press=go\n  when busy\n    text \"Wait\"",
             "neither",
         ),
+        // A blank title is no title (astra's code review).
+        (
+            "button appearance=\"auto\" press=go\n  image \"symbol:add\"\n  text",
+            "give it one",
+        ),
+        (
+            "button appearance=\"auto\" press=go\n  image \"symbol:add\"\n  text \" \"",
+            "always empty",
+        ),
+        (
+            "button appearance=\"auto\" press=go\n  image \"symbol:add\"\n  text (busy ? \"Add\" : \"\")",
+            "aria-label",
+        ),
+        // A label that can be empty is no label (grok's code review).
+        (
+            "button appearance=\"auto\" press=go aria-label=(busy ? \"Add\" : \"\")\n  image \"symbol:add\"",
+            "never empty",
+        ),
+        (
+            "button appearance=\"auto\" press=go aria-label=\"\"\n  image \"symbol:add\"",
+            "never empty",
+        ),
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-content", "{body}: {message}");
@@ -198,7 +220,7 @@ fn its_face_is_a_title_a_symbol_or_both() {
 #[test]
 fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
     boot(&app(
-        "button appearance=\"auto\" press=go width=120 margin-top=8 align-self=\"center\" opacity=0.5 translate=\"4px 0px\" accent-color=\"#34c759\" transition=\"opacity 200ms\" animation=\"fade 300ms\"\n  text \"Go\"",
+        "button appearance=\"auto\" press=go key=keys width=120 margin-top=8 align-self=\"center\" display=(busy ? \"none\" : \"flex\") opacity=0.5 translate=\"4px 0px\" accent-color=\"#34c759\" transition=\"opacity 200ms\" animation=\"fade 300ms\"\n  text \"Go\"",
     ));
     for body in [
         "button appearance=\"auto\" press=go background-color=\"#ff0000\"\n  text \"Go\"",
@@ -212,6 +234,10 @@ fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
         "button appearance=\"auto\" press=go glassGroup=8\n  text \"Go\"",
         "button appearance=\"auto\" press=go transition=\"background-color 200ms\"\n  text \"Go\"",
         "button appearance=\"auto\" press=go animation=\"flash 300ms\"\n  text \"Go\"",
+        // Its face's layout and its hit test are the platform's (both code reviews).
+        "button appearance=\"auto\" press=go display=\"grid\"\n  text \"Go\"",
+        "button appearance=\"auto\" press=go direction=\"rtl\"\n  text \"Go\"",
+        "button appearance=\"auto\" press=go pointer-events=\"none\"\n  text \"Go\"",
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-style-attr", "{body}: {message}");
@@ -222,6 +248,7 @@ fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
 fn it_is_refused_where_its_children_or_input_are_read_another_way() {
     for body in [
         "row role=\"tablist\"\n  button appearance=\"auto\" press=go\n    text \"Tab\"",
+        "row role=(busy ? \"tablist\" : \"group\")\n  button appearance=\"auto\" press=go\n    text \"Tab\"",
         "header\n  button appearance=\"auto\" press=go\n    text \"Back\"",
         "row toolbarPlacement=\"top\"\n  button appearance=\"auto\" press=go\n    text \"Edit\"",
         "button appearance=\"auto\" press=go popovertarget=\"menu\"\n  text \"More\"",

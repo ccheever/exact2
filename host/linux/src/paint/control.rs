@@ -266,6 +266,9 @@ pub(crate) fn button_look(node: &NodeRef<'_>) -> &'static str {
 pub(crate) fn button_text_style() -> exact_kernel::StyleProps {
     exact_kernel::StyleProps {
         font_size: 13.333,
+        // One line, as the web's face (`white-space: nowrap`) and the
+        // platforms' titles are; its end is ellipsized where it is too wide.
+        white_space: exact_kernel::WhiteSpace::Nowrap,
         ..Default::default()
     }
 }
@@ -343,19 +346,26 @@ impl super::Painter {
         if title.is_empty() {
             return;
         }
+        // One line, ending in "…" where the look's padding leaves too little
+        // room, and clipped to the button, as the platforms draw a title.
         let spec = super::text_spec(&button_text_style(), title);
-        let paragraph = self.text.borrow_mut().paragraph(&spec, None);
+        let full = self.text.borrow_mut().paragraph(&spec, None);
         let (x, y, w, h) = content;
+        let room = (w - 2.0 * button_padding(look).0).max(0.0);
+        let paragraph = full.ellipsized(room).unwrap_or(full);
         let origin = (
             x + ((w - paragraph.width) / 2.0).max(0.0),
             y + ((h - paragraph.height) / 2.0).max(0.0),
         );
-        let mut engine = self.text.borrow_mut();
         let palette = [crate::text::RunPaint {
             color: dim(ink),
             source: node.id,
         }];
+        self.backend.push_clip(&Shape::rect(content), ts);
+        let mut engine = self.text.borrow_mut();
         self.backend
             .text(&mut engine, &paragraph, &palette, origin, ts);
+        drop(engine);
+        self.backend.pop_clip();
     }
 }

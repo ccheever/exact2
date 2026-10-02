@@ -282,7 +282,9 @@ impl Kernel {
             match child.node_type {
                 NodeType::Text if face.title.is_none() => {
                     let text: String = child.text_runs().iter().map(|r| &*r.text).collect();
-                    face.title = Some(text.split_whitespace().collect::<Vec<_>>().join(" "));
+                    let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    // A blank title shows nothing: it is no title.
+                    face.title = (!title.is_empty()).then_some(title);
                 }
                 NodeType::Image if face.symbol.is_none() => {
                     face.symbol = child

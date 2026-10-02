@@ -70,29 +70,48 @@ extension NodeView {
         return b
     }
 
-    /// D4: the button's action is what a custom button's click does, once:
-    /// the press goes to this node or, without a handler, the nearest
-    /// ancestor with one (refused at a disabled one); that node takes the
-    /// focus unless a `retainFocus` ancestor keeps it, else the focus goes;
-    /// then `press` and the canvas's pointer return.
+    /// D4: the button's action is what a custom button's click does, once.
+    /// The target is this node or, without a handler, the nearest ancestor
+    /// with one whose box holds the click (refused at a disabled or inert
+    /// one), as iOS resolves it. Each node from this one up to the target
+    /// takes the focus when it can, unless a `retainFocus` ancestor keeps it,
+    /// as a click's `mouseDown` walks them; a target that cannot take it
+    /// clears it. Then `press` and the canvas's pointer return.
     func activateNative() {
-        var at: NSView? = self
+        guard let presenter, !disabled, !inert else { return }
+        let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
         var target: NodeView?
+        var at: NSView? = self
         while let view = at {
             if let node = view as? NodeView {
-                if node.disabled || node.inert { return }
-                if node.handlers.contains("press") { target = node; break }
+                if node.disabled || node.inert { break }
+                if node.handlers.contains("press") {
+                    if node.bounds.contains(node.convert(click, from: nil)) { target = node }
+                    break
+                }
             }
             at = view.superview
         }
-        guard let target, let presenter, presenter.views[target.id] === target else { return }
-        var retain = false
-        var up: NSView? = target
-        while let view = up {
-            if (view as? NodeView)?.props["retainFocus"] == "true" { retain = true; break }
-            up = view.superview
+        let retains = { (node: NodeView) -> Bool in
+            var up: NSView? = node
+            while let view = up {
+                if (view as? NodeView)?.props["retainFocus"] == "true" { return true }
+                up = view.superview
+            }
+            return false
         }
-        if !retain { window?.makeFirstResponder(target.acceptsFirstResponder ? target : nil) }
+        at = self
+        while let view = at, view !== presenter.viewport {
+            if let node = view as? NodeView {
+                if node.acceptsFirstResponder, !retains(node) { window?.makeFirstResponder(node) }
+                if node === target {
+                    if !node.acceptsFirstResponder, !retains(node) { window?.makeFirstResponder(nil) }
+                    break
+                }
+            }
+            at = view.superview
+        }
+        guard let target, presenter.views[target.id] === target else { return }
         presenter.press(target.id)
         target.finishPointerPress()
     }

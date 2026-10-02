@@ -93,6 +93,27 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(p.views[2]).isFirstResponder, "to the button's node, the focus owner")
     }
 
+    func testItTakesTheFocusWithNoPressAnywhere() throws {
+        let p = presenter(box(1) + native(2, handlers: ["focus"])
+                          + [["op": "create", "id": 3, "kind": "input", "props": [:], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
+                             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
+                             ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Mark")])
+        var focused: [UInt32] = []
+        p.onFocus = { focused.append($0) }
+        let field = try XCTUnwrap(p.views[3]?.field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        try button(p, 2).sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(try XCTUnwrap(p.views[2]).isFirstResponder, "a custom button's touch focuses it too")
+        XCTAssertEqual(focused, [2])
+    }
+
+    func testAPanCancelsItsTouchAsACustomButtons() {
+        let scroll = ScrollView()
+        XCTAssertTrue(scroll.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())))
+        XCTAssertFalse(scroll.touchesShouldCancel(in: UISwitch()), "other controls keep UIKit's rule")
+    }
+
     func testASelectStaysASelect() throws {
         let p = presenter(box(1) + native(2)
                           + [["op": "create", "id": 3, "kind": "control", "props": ["type": "select"], "handlers": ["change"], "style": ["text_color": [0, 0, 0, 255]]],
