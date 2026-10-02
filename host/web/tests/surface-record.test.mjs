@@ -232,8 +232,8 @@ test('a missing adapter leaves a settled fallback through dirty frames and agent
   f.gpu.gpu_dirty=()=>dirty;
   f.gpu.gpu_render=()=>{renders++;dirty=false;return 0;};
   f.frame();
-  const failure=Object.assign(new Error('no adapter: no suitable graphics adapter found'),{code:'no-adapter'});
-  f.gpu.gpu_recover=async()=>{attempts++;throw failure;};
+  // gpu_recover resolves Rust's typed report (gpu/src/web.rs); the glue must carry its code.
+  f.gpu.gpu_recover=async()=>{attempts++;return '{"status":"failed","code":"no-adapter","error":"no adapter: no suitable graphics adapter found"}';};
   f.exact.gpu.deviceLost();
   for(let i=0;i<4;i++) await Promise.resolve();
   assert.equal(renders,1);
@@ -261,7 +261,7 @@ test('the last bounded non-adapter failure enters fallback and logs the terminal
   let attempts=0;
   f.gpu.gpu_recover=async()=>{
     attempts++;
-    throw Object.assign(new Error('no device: limits rejected'),{code:'no-device'});
+    return '{"status":"failed","code":"no-device","error":"no device: limits rejected"}';
   };
   f.exact.gpu.deviceLost();
   for(let i=0;i<4;i++) await Promise.resolve();

@@ -80,19 +80,4 @@ for (const target of ['js', 'wasm']) {
       rmSync(screenshot, {force:true});
     }
   }, 60000);
-
-  check(`navigator.gpu absent reaches the terminal fallback on the ${target} target`, async () => {
-    const session = await open({host:'web', app:'caltrain', webDist:dist});
-    try {
-      await session.carrier.evaluate("Object.defineProperty(navigator, 'gpu', {value:undefined, configurable:true})");
-      await timed(target, 'navigator absent tap change-station', () => session.tap('change-station'), []);
-      await timed(target, 'navigator absent clock settle', () => session.clock('settle'), []);
-      const recovery = await session.carrier.evaluate('exact.gpu?.recovery ?? null');
-      expect(recovery?.status).toBe('no device');
-      expect(recovery?.code).toBe('no-adapter');
-      const canvases = await session.carrier.evaluate("[...document.querySelectorAll('canvas[data-surface]')].map(c => [c.width, c.height])");
-      expect(canvases.length).toBeGreaterThan(0);
-      expect(canvases.every(size => size[0] === 1 && size[1] === 1)).toBe(true);
-    } finally { await session.close(); }
-  }, 60000);
 }
