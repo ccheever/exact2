@@ -61,7 +61,7 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
-    /// A viewport segment's length (LLP 1077 D3): `env(viewport-segment-<var>
+    /// A viewport segment's length (LLP 1078 D3): `env(viewport-segment-<var>
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
     Segment(SegmentVar, u8, u8, f32),
@@ -141,7 +141,7 @@ impl Dimension {
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
     /// `env(safe-area-inset-<edge>)`, `env(viewport-segment-<var> <x> <y>)`
-    /// (LLP 1077 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
+    /// (LLP 1078 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
     /// argument: the host always defines the insets, and an undefined
     /// segment takes the row's initial value. A text that names one of the
     /// variables wrongly is `None` too; [`env::parse`] says why.
@@ -161,7 +161,7 @@ impl Dimension {
         }
     }
 
-    /// Whether this is a segment length `env` does not define (LLP 1077 D3).
+    /// Whether this is a segment length `env` does not define (LLP 1078 D3).
     fn undefined_segment(self, env: &Env) -> bool {
         matches!(self, Dimension::Segment(_, x, y, _) if env.segment(x, y).is_none())
     }
@@ -341,7 +341,7 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
-        // @ref LLP 1077 D7, D8, D11 — the rows that take CSS text or a
+        // @ref LLP 1078 D7, D8, D11 — the rows that take CSS text or a
         // range of their own.
         if let Some(value) = space::f32_row(self, style) {
             return value;
@@ -497,7 +497,7 @@ impl StyleValue {
         match self {
             StyleValue::Auto if keyword == "auto" => Ok(None),
             StyleValue::Text(t) if t.eq_ignore_ascii_case(keyword) => Ok(None),
-            // @ref LLP 1077 D7 — a colour, else the shorthand's colour part.
+            // @ref LLP 1078 D7 — a colour, else the shorthand's colour part.
             StyleValue::Text(t) if style == StyleId::TextStrokeColor => {
                 self.color_value(style).map(Some).or_else(|_| {
                     stroke::parse(t)
@@ -610,7 +610,7 @@ fn parse_translate(text: &str) -> Option<Vec2> {
         Some(s) => parse_pixel_length(s)?,
         None => 0.0,
     };
-    // A third length is `translate`'s z, its own row (LLP 1077 D8).
+    // A third length is `translate`'s z, its own row (LLP 1078 D8).
     if parts
         .next()
         .is_some_and(|z| parse_pixel_length(z).is_none())
@@ -669,7 +669,7 @@ impl ColorValue {
 
     /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
     /// label, fill and separator colours by WebKit's name, which is such a
-    /// pair (LLP 1077 D13). Whitespace is free; anything that is not two
+    /// pair (LLP 1078 D13). Whitespace is free; anything that is not two
     /// parseable colours is not this function, and falls through to the
     /// plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
@@ -816,17 +816,17 @@ pub enum RowValue<'a> {
     Filter(&'a crate::svg::filter::FilterList),
     /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
-    /// CSS `box-shadow`: `none` or a list (LLP 1077 D4).
+    /// CSS `box-shadow`: `none` or a list (LLP 1078 D4).
     BoxShadow(&'a BoxShadows),
-    /// CSS `text-shadow` (LLP 1077 D3).
+    /// CSS `text-shadow` (LLP 1078 D3).
     TextShadow(&'a TextShadow),
-    /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
+    /// CSS `mask-image`: `none` or one gradient (LLP 1078 D2).
     MaskImage(&'a crate::gradient::BackgroundImage),
-    /// CSS `corner-shape` (LLP 1077 D1).
+    /// CSS `corner-shape` (LLP 1078 D1).
     CornerShape(&'a crate::corner::CornerShape),
-    /// CSS `rotate`'s axis (LLP 1077 D8).
+    /// CSS `rotate`'s axis (LLP 1078 D8).
     RotateAxis(&'a space::RotateAxis),
-    /// A symbol's palette (LLP 1077 D10).
+    /// A symbol's palette (LLP 1078 D10).
     SymbolPalette(&'a symbols::SymbolPalette),
     /// A dimension.
     Dimension(Dimension),
@@ -1122,13 +1122,13 @@ impl StyleProps {
     pub fn to_taffy(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
         // A segment length the environment does not define is invalid at
         // computed-value time (CSS-ENV-1 §2.3): the row takes its initial
-        // value, which is the table's default (LLP 1077 D3).
+        // value, which is the table's default (LLP 1078 D3).
         self.env_resolved(env).lower(node_type, env)
     }
 
     /// This style with every segment length `env` does not define replaced
     /// by its row's initial value (CSS-ENV-1 §2.3: invalid at computed-value
-    /// time; LLP 1077 D3) — borrowed when there is none to replace, a copy
+    /// time; LLP 1078 D3) — borrowed when there is none to replace, a copy
     /// otherwise. Every reader of a style's dimensions goes through this
     /// before resolving them, so no reader sees the `Auto` stand-in on a row
     /// that does not admit it.

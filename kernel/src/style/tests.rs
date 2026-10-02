@@ -361,7 +361,7 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
     );
 }
 
-/// LLP 1077 D3, D10: the viewport segment variables parse by CSS-ENV-1's
+/// LLP 1078 D3, D10: the viewport segment variables parse by CSS-ENV-1's
 /// grammar, refuse by name, resolve against the grid, and travel the wire.
 #[test]
 fn segment_lengths_parse_resolve_and_refuse_by_name() {

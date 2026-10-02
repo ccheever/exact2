@@ -1,4 +1,4 @@
-//! Duo Lab on the web (LLP 1077 D8): the browser's own `navigator.devicePosture`
+//! Duo Lab on the web (LLP 1078 D8): the browser's own `navigator.devicePosture`
 //! and viewport segments feed the same fields and `env()` lengths.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

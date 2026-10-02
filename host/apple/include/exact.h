@@ -111,7 +111,7 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
-/* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
+/* LLP 1078 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
  * (NaN is -apple-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
@@ -425,7 +425,7 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
-/* @ref LLP 1077 D4: the device's posture (0 continuous, 1 folded) and the
+/* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;
  * none for 1 × 1). Sets the kernel's env(viewport-segment-*) grid and

@@ -533,7 +533,7 @@ export function environment() {
   };
 }
 
-// @ref LLP 1077 D6, D7 — the fold as the browser reports it: the Device
+// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device
 // Posture API's `navigator.devicePosture.type` and the viewport segments
 // `window.viewport.segments` (two or more means a divider splits the
 // viewport; the columns are the distinct lefts, the rows the distinct tops).
@@ -560,7 +560,7 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1077 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
 export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);

@@ -157,7 +157,7 @@ impl<'a> Reader<'a> {
     /// width/height/top/left/bottom/right) then `f32` (the points added to
     /// an inset or a segment length); a `calc()` carries its percent first
     /// and a second `f32`; a segment length carries its two index bytes,
-    /// `x` then `y`, after the `f32` (LLP 1077 D3).
+    /// `x` then `y`, after the `f32` (LLP 1078 D3).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -176,7 +176,7 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
-            // Linked by use (LLP 1077 D3): unknown to an artifact whose plan names no segment.
+            // Linked by use (LLP 1078 D3): unknown to an artifact whose plan names no segment.
             8..=13 => {
                 let (x, y) = (self.u8()?, self.u8()?);
                 crate::style::env::decode(kind, value, x, y)

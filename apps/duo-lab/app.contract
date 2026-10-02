@@ -1,4 +1,4 @@
-// Duo Lab (LLP 1077 D8): the first consumer of `device-posture` and the
+// Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
 // viewport segments, and the iPhone Duo's stress fixture — what
 // `bun scripts/smoke.mjs duo` drives through open, book, half and closed.
 //
@@ -18,7 +18,7 @@ routes nav
   tab combos "/combos"
     note "/combos/note"
 
-// The web's vocabulary, exactly (LLP 1077 D1, D2): two postures, two counts.
+// The web's vocabulary, exactly (LLP 1078 D1, D2): two postures, two counts.
 shape Viewport
   width: number
   height: number
@@ -143,7 +143,7 @@ component DuoLab
             // Two segments across: the list on the first, the detail on the
             // second, each inset by the safe areas on its own side; two down
             // (the Duo's inner panel upright): the list on the upper, the
-            // detail on the lower. The band belongs to neither (LLP 1077 D1,
+            // detail on the lower. The band belongs to neither (LLP 1078 D1,
             // D3); one segment stacks the panes.
             when twoAcross
               column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"

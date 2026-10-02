@@ -1252,7 +1252,7 @@
       "id": 218,
       "name": "symbolEffectValue",
       "kind": "str",
-      "_comment": "@ref LLP 1077 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
+      "_comment": "@ref LLP 1078 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1840,7 +1840,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1077 D3) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -2237,7 +2237,7 @@
       "bit": 57,
       "field": "box_shadow",
       "codec": "box-shadow",
-      "_comment": "@ref LLP 1077 D4: CSS `box-shadow`, `none` or a list (at most 8) of shadows, each `inset? <length>{2,4} <color>` in any order, painted as CSS paints outer and inset shadows; it replaced LLP 1064's four shadow rows. A missing colour is refused (LLP 1064 D1)."
+      "_comment": "@ref LLP 1078 D4: CSS `box-shadow`, `none` or a list (at most 8) of shadows, each `inset? <length>{2,4} <color>` in any order, painted as CSS paints outer and inset shadows; it replaced LLP 1064's four shadow rows. A missing colour is refused (LLP 1064 D1)."
     },
     {
       "bit": 58,
@@ -2855,19 +2855,19 @@
       "field": "text_shadow",
       "codec": "text-shadow",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D3: CSS `text-shadow`, `none` or one shadow (no list, no spread), under the glyphs and decorations; a missing colour is currentcolor. Inherited, as in CSS."
+      "_comment": "@ref LLP 1078 D3: CSS `text-shadow`, `none` or one shadow (no list, no spread), under the glyphs and decorations; a missing colour is currentcolor. Inherited, as in CSS."
     },
     {
       "bit": 152,
       "field": "mask_image",
       "codec": "mask-image",
-      "_comment": "@ref LLP 1077 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
+      "_comment": "@ref LLP 1078 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
     },
     {
       "bit": 153,
       "field": "corner_shape",
       "codec": "corner-shape",
-      "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
+      "_comment": "@ref LLP 1078 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     },
     {
       "bit": 154,
@@ -2875,7 +2875,7 @@
       "codec": "f32",
       "default": 0,
       "inherited": true,
-      "_comment": "@ref LLP 1077 D7: the Compat Standard's `-webkit-text-stroke-width`, a width in px centred on the glyphs' outlines and painted over their fill; 0 is none. Inherited, as in Compat."
+      "_comment": "@ref LLP 1078 D7: the Compat Standard's `-webkit-text-stroke-width`, a width in px centred on the glyphs' outlines and painted over their fill; 0 is none. Inherited, as in Compat."
     },
     {
       "bit": 155,
@@ -2883,102 +2883,102 @@
       "codec": "current-color",
       "default": "currentcolor",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D7: `-webkit-text-stroke-color`, initial currentcolor. Inherited."
+      "_comment": "@ref LLP 1078 D7: `-webkit-text-stroke-color`, initial currentcolor. Inherited."
     },
     {
       "bit": 156,
       "field": "background_clip",
       "codec": "enum:BackgroundClip",
-      "_comment": "@ref LLP 1077 D6: CSS `background-clip`: the background colour and image painted within the border box (initial), the padding box, the content box, or the glyphs of the node's own text. Not inherited."
+      "_comment": "@ref LLP 1078 D6: CSS `background-clip`: the background colour and image painted within the border box (initial), the padding box, the content box, or the glyphs of the node's own text. Not inherited."
     },
     {
       "bit": 157,
       "field": "rotate_axis",
       "codec": "rotate-axis",
-      "_comment": "@ref LLP 1077 D8: the axis of CSS `rotate` (`x`, `y`, `z` or three numbers), set with `rotate`'s angle by the one `rotate` attribute; initial z. The angle is `rotate` (bit 62), which the engine animates."
+      "_comment": "@ref LLP 1078 D8: the axis of CSS `rotate` (`x`, `y`, `z` or three numbers), set with `rotate`'s angle by the one `rotate` attribute; initial z. The angle is `rotate` (bit 62), which the engine animates."
     },
     {
       "bit": 158,
       "field": "translate_z",
       "codec": "f32",
       "default": 0,
-      "_comment": "@ref LLP 1077 D8: CSS `translate`'s third length, px, set with x and y by the one `translate` attribute."
+      "_comment": "@ref LLP 1078 D8: CSS `translate`'s third length, px, set with x and y by the one `translate` attribute."
     },
     {
       "bit": 159,
       "field": "perspective",
       "codec": "f32",
       "default": 0,
-      "_comment": "@ref LLP 1077 D8: CSS `perspective`, px; 0 is `none`. On the parent: it projects its children's 3D transforms."
+      "_comment": "@ref LLP 1078 D8: CSS `perspective`, px; 0 is `none`. On the parent: it projects its children's 3D transforms."
     },
     {
       "bit": 160,
       "field": "perspective_origin",
       "codec": "transform-origin",
-      "_comment": "@ref LLP 1077 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
+      "_comment": "@ref LLP 1078 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
     },
     {
       "bit": 161,
       "field": "backface_visibility",
       "codec": "enum:BackfaceVisibility",
-      "_comment": "@ref LLP 1077 D8: CSS `backface-visibility`: a hidden box turned away from the viewer paints nothing."
+      "_comment": "@ref LLP 1078 D8: CSS `backface-visibility`: a hidden box turned away from the viewer paints nothing."
     },
     {
       "bit": 162,
       "field": "symbol_rendering",
       "codec": "enum:SymbolRendering",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
+      "_comment": "@ref LLP 1078 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
     },
     {
       "bit": 163,
       "field": "symbol_palette",
       "codec": "symbol-palette",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D10: not CSS. A symbol's palette, one to three colours, under `symbol-rendering: palette`. Inherited."
+      "_comment": "@ref LLP 1078 D10: not CSS. A symbol's palette, one to three colours, under `symbol-rendering: palette`. Inherited."
     },
     {
       "bit": 164,
       "field": "symbol_value",
       "codec": "f32",
       "default": -1,
-      "_comment": "@ref LLP 1077 D11: not CSS. A variable symbol's value, 0 to 1 (Wi-Fi bars, volume); `none` (-1) draws it whole."
+      "_comment": "@ref LLP 1078 D11: not CSS. A variable symbol's value, 0 to 1 (Wi-Fi bars, volume); `none` (-1) draws it whole."
     },
     {
       "bit": 165,
       "field": "symbol_effect",
       "codec": "enum:SymbolEffect",
-      "_comment": "@ref LLP 1077 D12: not CSS. An SF Symbol effect: a continuing one (pulse, breathe, rotate, variable-color, scale) plays while set; a discrete one (bounce, wiggle) plays each time `symbolEffectValue` changes; replace plays when the source changes."
+      "_comment": "@ref LLP 1078 D12: not CSS. An SF Symbol effect: a continuing one (pulse, breathe, rotate, variable-color, scale) plays while set; a discrete one (bounce, wiggle) plays each time `symbolEffectValue` changes; replace plays when the source changes."
     },
     {
       "bit": 166,
       "field": "press_haptic",
       "codec": "enum:PressHaptic",
-      "_comment": "@ref LLP 1077 D14: not CSS. Host-owned feedback when a pointer presses the node, as `press-scale` is (no runner round trip): a selection tick or an impact."
+      "_comment": "@ref LLP 1078 D14: not CSS. Host-owned feedback when a pointer presses the node, as `press-scale` is (no runner round trip): a selection tick or an impact."
     },
     {
       "bit": 167,
       "field": "content_transition",
       "codec": "enum:ContentTransition",
-      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown)."
+      "_comment": "@ref LLP 1078 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown)."
     },
     {
       "bit": 168,
       "field": "scroll_edge_effect",
       "codec": "enum:ScrollEdgeEffect",
-      "_comment": "@ref LLP 1077 D16: not CSS. A scroll container's edge effect where content meets a bar (iOS 26): automatic, soft, hard or none."
+      "_comment": "@ref LLP 1078 D16: not CSS. A scroll container's edge effect where content meets a bar (iOS 26): automatic, soft, hard or none."
     },
     {
       "bit": 169,
       "field": "hover_effect",
       "codec": "enum:HoverEffect",
-      "_comment": "@ref LLP 1077 D17: not CSS. The iPad pointer's effect over the node: highlight, lift or hover; auto is the platform's."
+      "_comment": "@ref LLP 1078 D17: not CSS. The iPad pointer's effect over the node: highlight, lift or hover; auto is the platform's."
     },
     {
       "bit": 170,
       "field": "smart_invert",
       "codec": "enum:SmartInvert",
-      "_comment": "@ref LLP 1077 D18: not CSS. Whether Smart Invert leaves the node's pixels alone: auto ignores images, video and canvases; ignore leaves any node's."
+      "_comment": "@ref LLP 1078 D18: not CSS. Whether Smart Invert leaves the node's pixels alone: auto ignores images, video and canvases; ignore leaves any node's."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

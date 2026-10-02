@@ -78,14 +78,14 @@ final class Presenter {
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
     var insets = UIEdgeInsets.zero
-    /// The posture and the viewport segments last told (LLP 1077 D5), for `layout.env`.
+    /// The posture and the viewport segments last told (LLP 1078 D5), for `layout.env`.
     var fold = ViewportFold.flat
     /// Whether the device has a fold — UIKit 27.1 reported a division region
     /// or a hinge — in which case `prefer posture`/`segments` is refused:
-    /// the device decides (LLP 1077 D7).
+    /// the device decides (LLP 1078 D7).
     var hasFold = false
     /// Whether `UIHingeInteraction` has reported once (a hinge or none):
-    /// before that, a 27.1 device's fold is unknown (LLP 1077 D7).
+    /// before that, a 27.1 device's fold is unknown (LLP 1078 D7).
     var hingeReported = false
     /// The keyboard's inset on the viewport: the points of the screen's
     /// viewport a software keyboard covers. By default the web's visual

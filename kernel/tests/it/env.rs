@@ -199,7 +199,7 @@ fn env_lengths_travel_the_wire() {
     );
 }
 
-/// LLP 1077 D3: a root with two panes sized by the segment variables — the
+/// LLP 1078 D3: a root with two panes sized by the segment variables — the
 /// detail pane positioned at the second segment's left — and the host's
 /// `set_segments`, `set_env`'s twin.
 fn segmented_tree() -> Kernel {

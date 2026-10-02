@@ -1,7 +1,7 @@
 //! Layout viewport facts in CSS pixels (points on Apple), and the user's
 //! display preferences — what CSS's `@media` answers an app about the
 //! screen it is on.
-//! @ref LLP 1039 D1–D4; LLP 1061 D4; LLP 1069.000 D1; LLP 1077 D2
+//! @ref LLP 1039 D1–D4; LLP 1061 D4; LLP 1069.000 D1; LLP 1078 D2
 
 use exact_plan::Value;
 
@@ -31,13 +31,13 @@ pub struct Viewport {
     /// `no-preference`, as a browser does.
     pub preferences: Preferences,
     /// The device's posture and the segments a fold makes of the viewport
-    /// (LLP 1077 D2); a host without a fold says `continuous`, 1 × 1.
+    /// (LLP 1078 D2); a host without a fold says `continuous`, 1 × 1.
     pub fold: Fold,
 }
 
 /// The Device Posture API's postures: `folded` while the device forms an
 /// angle short of flat (a hinge partially open), `continuous` otherwise —
-/// flat, closed on one panel, or a device with no fold (LLP 1077 D1).
+/// flat, closed on one panel, or a device with no fold (LLP 1078 D1).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Posture {
     /// `continuous`.
@@ -77,7 +77,7 @@ impl Posture {
 
 /// `device-posture` and the viewport segment counts (Media Queries 5's
 /// `horizontal-viewport-segments` and `vertical-viewport-segments`), as
-/// `exactViewport()` answers them (LLP 1077 D1, D2). The segments' rects are
+/// `exactViewport()` answers them (LLP 1078 D1, D2). The segments' rects are
 /// the kernel's (`Kernel::set_segments`), not the app's: an app reads them
 /// as `env()` lengths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +117,7 @@ impl Fold {
 }
 
 /// The segments a host without a fold makes for the agent's `prefer
-/// segments <cols>x<rows> [gap <points>]` (LLP 1077 D7): the viewport split
+/// segments <cols>x<rows> [gap <points>]` (LLP 1078 D7): the viewport split
 /// evenly, the gap centred on each divider, as `[x, y, w, h]` row-major —
 /// none for 1 × 1. Refused by name: a zero count, a negative or non-finite
 /// gap, a gap wider than the viewport (the dividers leave no room).
@@ -330,7 +330,7 @@ mod tests {
         assert!(even_segments(100.0, 100.0, 2, 1, f64::NAN).is_err());
     }
 
-    /// LLP 1077 D2: the three fold fields fill by name; the bake answers
+    /// LLP 1078 D2: the three fold fields fill by name; the bake answers
     /// `continuous`, 1, 1.
     #[test]
     fn fold_fields_fill_by_name_and_default_flat() {

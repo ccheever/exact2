@@ -1,4 +1,4 @@
-// Accept fixture (LLP 1077 D1–D3, D9): a cover page whose two panes sit on
+// Accept fixture (LLP 1078 D1–D3, D9): a cover page whose two panes sit on
 // the viewport segments through `env(viewport-segment-*)` lengths — all six
 // variables, two indices each — and whose text prints the three facts
 // `exactViewport` carries for a fold: `devicePosture`,
@@ -8,7 +8,7 @@
 // region at a book or half angle) the list pane covers segment (0, 0) and the
 // detail pane segment (1, 0), the band between them empty. `-right` and
 // `-bottom` are a segment's edges from the viewport's left and top, as a
-// DOMRect's and Chromium's (LLP 1077 §As built): the marker sits on segment
+// DOMRect's and Chromium's (LLP 1078 §As built): the marker sits on segment
 // (0, 0)'s bottom-right corner through the `calc()` form.
 shape Viewport
   width: number

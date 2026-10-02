@@ -1,4 +1,4 @@
-# LLP 1077 D9: the fold's parity. `prefer segments` goes through Chromium's own display-feature override on the wasm page and the JS target
+# LLP 1078 D9: the fold's parity. `prefer segments` goes through Chromium's own display-feature override on the wasm page and the JS target
 # (`window.viewport.segments` and CSS's `env(viewport-segment-*)` are the browser's) and through the kernel's `set_segments` on Linux;
 # the two panes of contract/corpus/segments.contract (pane-list, pane-detail) must land on the same boxes on all three.
 prefer segments 2x1 gap 40

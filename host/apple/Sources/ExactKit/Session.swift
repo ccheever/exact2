@@ -944,7 +944,7 @@ public final class ExactSession {
                     continue
                 }
                 if name == "haptic" {
-                    // @ref LLP 1077 D14 — feedback from app logic.
+                    // @ref LLP 1078 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
                     continue
                 }
@@ -1117,7 +1117,7 @@ public final class ExactSession {
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
-    /// The device's posture and the viewport segments a fold makes (LLP 1077 D4, D5): the view's reading,
+    /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
     /// Returns the batch's error, when the runtime refused the grid; the fold is kept only when it took it.
     @discardableResult func segments(_ fold: ViewportFold) -> String? {

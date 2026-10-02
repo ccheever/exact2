@@ -1,4 +1,4 @@
-# LLP 1077: Foldables follow the web — `device-posture` and viewport segments
+# LLP 1078: Foldables follow the web — `device-posture` and viewport segments
 
 **Type:** RFC
 **Status:** Accepted by Charlie, 2026-10-02 (Q1 "for now", Q2 "ok", Q3 "ok rec for now", Q4 "rec prob is fine", Q5 "follow UIKit"), to land once the integrated lane passes the checks, the smokes and the Duo run that day; more testing "once the phone is actually released"
@@ -88,7 +88,7 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 - **Q3** — gap default 0; the smoke passes 40.
 - **Q4** — the web's: a missing segment takes the row's initial value. The alternatives named (the whole viewport as segment (0, 0); zero) were considered; a page guards its segment lengths with a `when` on the count anyway, and the web is the parity oracle.
 - **Q5** — follow UIKit: the division's whole frame, margins included, belongs to no segment.
-- **Working set** — LLP 1077 stays out of `llp/current/` (the set is at its cap of 15); it may leave for good once today's tests have run and the kinks they find are worked out. Rotation and Split View wait for a released phone.
+- **Working set** — LLP 1078 stays out of `llp/current/` (the set is at its cap of 15); it may leave for good once today's tests have run and the kinks they find are worked out. Rotation and Split View wait for a released phone.
 
 ## Open questions (for Charlie)
 

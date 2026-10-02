@@ -347,7 +347,7 @@ async function drive(t, report, fail, dir, ws, js) {
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
     // up; a pan or a swipe), `pinch <target> <scale>` (two fingers), `down
     // <target>` and `up` (a held contact: press feedback), `prefer <fact>
-    // <value> …` (the device facts: media, page, the fold — LLP 1077 D9's
+    // <value> …` (the device facts: media, page, the fold — LLP 1078 D9's
     // parity, Chromium's own segments on both pages and the kernel's on
     // Linux) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
@@ -628,7 +628,7 @@ const sdir = resolve(here, 'conformance');
 // A named target that is a fixture here — `conformance/<name>.contract`, or a
 // directory holding `app.contract` — is a synthetic plan, not an app:
 // `conform.mjs segments --linux` drives contract/corpus/segments.contract
-// (its link) on the data app's wasm root (LLP 1077 D9).
+// (its link) on the data app's wasm root (LLP 1078 D9).
 const fixtureFile = n => existsSync(resolve(sdir, n, 'app.contract')) ? `${n}/app.contract` : lstatSync(resolve(sdir, `${n}.contract`), { throwIfNoEntry: false }) ? `${n}.contract` : null;
 const fixtures = urls >= 0 ? [] : named.filter(n => fixtureFile(n));
 const apps = urls >= 0 || only ? [] : named.length ? named.filter(n => !fixtureFile(n)) : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));

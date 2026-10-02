@@ -1,11 +1,11 @@
-//! The viewport segments a fold makes (LLP 1077 D4): what `exact_segments`
+//! The viewport segments a fold makes (LLP 1078 D4): what `exact_segments`
 //! tells the host, and what the host sends back.
 
 use crate::host::{boot, count, frame_of, view, NoData};
 use exact_apple::Host;
 use exact_kernel::MonospaceMeasurer;
 
-/// LLP 1077 D4: `exact_segments` sets the kernel's segment grid and the
+/// LLP 1078 D4: `exact_segments` sets the kernel's segment grid and the
 /// runner's fold in one batch — the styles that read a segment re-sent and
 /// laid out again, nothing for the same grid, a malformed one refused.
 #[test]

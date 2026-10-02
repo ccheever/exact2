@@ -263,7 +263,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 /// names, grouped as LLP 1069.007 D2 groups them — `media`, the display
 /// preferences `exactViewport()` answers (the scheme is also the system
 /// appearance `setScheme("system")` follows); `page`, what `exactPage()`
-/// answers and the root font size; `fold` (LLP 1077 D7), the posture and
+/// answers and the root font size; `fold` (LLP 1078 D7), the posture and
 /// the segment grid this host, having no fold, makes by splitting its
 /// viewport evenly with the gap centred on each divider. A fact not named
 /// stays as it is; nothing applies unless all are known.
@@ -372,7 +372,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 
 /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and `rows`
 /// (each at least 1), `gap` (points, 0 by default); the rects are the even
-/// split of the viewport. Each refusal names its fact (LLP 1077 D10).
+/// split of the viewport. Each refusal names its fact (LLP 1078 D10).
 fn prefer_fold<D: DataSource>(
     p: &mut Presenter<D>,
     fold: &serde_json::Map<String, serde_json::Value>,

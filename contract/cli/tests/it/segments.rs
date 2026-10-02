@@ -1,4 +1,4 @@
-//! Viewport segments in Contract (LLP 1077 D1–D3, D9): the three fold facts
+//! Viewport segments in Contract (LLP 1078 D1–D3, D9): the three fold facts
 //! are `exactViewport` fields the bake answers (`continuous`, 1, 1) and a host
 //! re-answers through `Runner::set_fold`; `env(viewport-segment-<var> <x> <y>)`
 //! lengths in style attributes reach the kernel as segment rows the arena's

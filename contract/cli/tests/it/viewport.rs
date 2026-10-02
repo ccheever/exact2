@@ -178,7 +178,7 @@ component App
     assert!(agent::logs(&r, 0).contains("viewport (2 asked again)"));
 }
 
-/// LLP 1077 D2: the fold's three fields ride `exactViewport` — the bake
+/// LLP 1078 D2: the fold's three fields ride `exactViewport` — the bake
 /// answers `continuous`, 1, 1; a host's `set_fold` re-answers every reader
 /// in one commit; an unknown or mistyped field is refused at the bake.
 #[test]

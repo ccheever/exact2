@@ -1,4 +1,4 @@
-//! Duo Lab on Apple (LLP 1077 D8): the first consumer of `device-posture` and
+//! Duo Lab on Apple (LLP 1078 D8): the first consumer of `device-posture` and
 //! the viewport segments, and the iPhone Duo's stress fixture.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

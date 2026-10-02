@@ -1,5 +1,5 @@
 // The viewport segments a fold makes, as a pure function of the viewport
-// and UIKit's division frames (LLP 1077 D5), and the even split a host
+// and UIKit's division frames (LLP 1078 D5), and the even split a host
 // without a fold makes for `prefer segments` (D7, D10): no window, no
 // simulator, no 27.1 — the numbers the Duo reports, held as assertions.
 import CoreGraphics

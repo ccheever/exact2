@@ -1,4 +1,4 @@
-//! The page's environment as the host sets it (LLP 1001 §2; LLP 1077 D4):
+//! The page's environment as the host sets it (LLP 1001 §2; LLP 1078 D4):
 //! the safe-area insets and the viewport segments a fold makes, each a call
 //! that re-sends the dictionaries of the nodes whose style reads the
 //! environment and lays out again.
@@ -35,7 +35,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The device's posture and the viewport segments a fold makes (LLP
-    /// 1077 D4): the kernel's grid and `exactViewport`'s three fields in one
+    /// 1078 D4): the kernel's grid and `exactViewport`'s three fields in one
     /// batch — the nodes whose style reads the environment get their
     /// dictionaries re-sent and are laid out again, as for the insets, and
     /// every reader of the fields recommits. Empty when nothing changed. A

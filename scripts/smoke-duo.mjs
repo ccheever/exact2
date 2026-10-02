@@ -1,4 +1,4 @@
-// The iPhone Duo suite (LLP 1077 D9): `bun scripts/smoke.mjs duo`. Drives
+// The iPhone Duo suite (LLP 1078 D9): `bun scripts/smoke.mjs duo`. Drives
 // `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures on the
 // Duo simulator through open 180°, book 130°, half 90° and closed 0°, the
 // hinge set from inside the simulator by `scripts/duo/hinge_helper.c`
@@ -157,7 +157,7 @@ export async function duoSmoke({ open, check: record }) {
   const lab = resolveApp('duo-lab');
   const labBundle = appleArtifacts(lab, { destination: 'ios-simulator' }).bundle;
   if (!check(existsSync(labBundle), 'duo: build the simulator bundle first: bun host/apple/build.mjs --ios duo-lab')) return;
-  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1077 §As built, Apple): the fold needs the beta's SDK.
+  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1078 §As built, Apple): the fold needs the beta's SDK.
   const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
   const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;

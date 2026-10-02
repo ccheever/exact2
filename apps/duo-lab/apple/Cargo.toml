@@ -1,4 +1,4 @@
-# Duo Lab on Apple platforms (LLP 1077 D8): the host's C exports over its
+# Duo Lab on Apple platforms (LLP 1078 D8): the host's C exports over its
 # TypeScript data module and baked plan.
 [package]
 name = "duo-lab-apple"

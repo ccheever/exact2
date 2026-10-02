@@ -1,5 +1,5 @@
 // `prefer`, the ninth operation's facts (LLP 1061 D5; LLP 1069.000 D6; LLP
-// 1069.007 D2; LLP 1077 D7): the device facts by their web names, grouped
+// 1069.007 D2; LLP 1078 D7): the device facts by their web names, grouped
 // on the wire as `media`, `page` and `fold`; and the web carrier's own path
 // for them — the browser's emulation through CDP where it has one, the
 // glue's substitute where it does not. agent.mjs re-exports the tables.
@@ -8,7 +8,7 @@
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
 export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
 export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2)
-export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1077 D7): a host without a fold splits its viewport evenly; one with a fold refuses
+export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected. */
 export function preferGroups(facts) {
@@ -44,7 +44,7 @@ export function displayFeatures(width, height, cols, rows, gap) {
 
 /** The web carrier's `prefer`. The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
  * The page group is the glue's own value, told the runner as the page's observer tells it (LLP 1069.000 D6; LLP 1069.007 D5: not CDP).
- * The fold group (LLP 1077 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
+ * The fold group (LLP 1078 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
  * and CSS's `env(viewport-segment-*)` all change — the parity oracle; a browser whose CDP lacks them gets the glue's substitute (the facts and
  * `layout.env`, not CSS). `emulated` is the carrier's media list, replaced in place. */
 export async function preferWeb({ media, page, fold = {}, emulated, call, evaluate, frame, ask }) {
