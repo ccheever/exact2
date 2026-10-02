@@ -780,7 +780,7 @@ component MessageBubble
   action replyTo(id: string)
     replying = id
   view
-    view id="owner" width=400 height=500 overflow-x="hidden" overflow-y="hidden"
+    view id="owner" position="relative" width=400 height=500 overflow-x="hidden" overflow-y="hidden"
       scroll id="content" width=400 height=500
         column
           text "one complete paragraph"
