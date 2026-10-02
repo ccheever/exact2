@@ -1205,31 +1205,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         layoutSymbol()
     }
 
-    /// CSS reduces overlapping corner radii by one common factor: top left,
-    /// top right, bottom right, bottom left.
+    /// The reduced radii; the layer fast path additionally requires circles.
+    func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
+        BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
+    }
     func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
-        let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
-        let r = names.map { max(0, number("border_radius_" + $0) - inset) }
-        let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
-        let edges = [rect.width, rect.width, rect.height, rect.height]
-        var factor: CGFloat = 1
-        for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
-        return r.map { $0 * factor }
+        cornerSizes(in: rect, inset: inset).map { $0.width }
     }
     func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
-        let r = cornerRadii(in: rect, inset: inset)
-        let p = UIBezierPath()
-        p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX - r[1], y: rect.minY))
-        p.addArc(withCenter: CGPoint(x: rect.maxX-r[1], y: rect.minY+r[1]), radius: r[1], startAngle: -.pi/2, endAngle: 0, clockwise: true)
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY-r[2]))
-        p.addArc(withCenter: CGPoint(x: rect.maxX-r[2], y: rect.maxY-r[2]), radius: r[2], startAngle: 0, endAngle: .pi/2, clockwise: true)
-        p.addLine(to: CGPoint(x: rect.minX+r[3], y: rect.maxY))
-        p.addArc(withCenter: CGPoint(x: rect.minX+r[3], y: rect.maxY-r[3]), radius: r[3], startAngle: .pi/2, endAngle: .pi, clockwise: true)
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY+r[0]))
-        p.addArc(withCenter: CGPoint(x: rect.minX+r[0], y: rect.minY+r[0]), radius: r[0], startAngle: .pi, endAngle: 3 * .pi/2, clockwise: true)
-        p.close()
-        return p
+        UIBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset)))
     }
 
     override func draw(_ rect: CGRect) {
@@ -1263,7 +1247,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+            let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {

@@ -66,6 +66,13 @@ default left grid auto columns at content width (`auto auto` in 400px: 0
 wide, Chrome 200 each). `kernel/tests/it/browser_cases.rs` holds the
 literal-Chrome cases. `align-self` keeps `auto` and has no `normal`.
 
+**Corner percentages (2026-10-02):** the four `border_radius_*` rows store
+lengths or percentages. A single `border-radius="50%"` sets each corner;
+percentages resolve independently against the border box's width and height,
+then CSS's common overlap reduction applies. Web keeps the authored percentage;
+Apple and Linux paint elliptical corners, including after a resize. Negative
+literal lengths and percentages and `auto` are refused.
+
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
 (bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.

@@ -1229,31 +1229,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layoutSymbol()
     }
 
-    /// CSS reduces overlapping corner radii by one common factor: top left,
-    /// top right, bottom right, bottom left.
-    func cornerRadii(in rect: NSRect, inset: CGFloat = 0) -> [CGFloat] {
-        let r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { max(0, number("border_radius_" + $0, number("border_radius")) - inset) }
-        let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
-        let edges = [rect.width, rect.width, rect.height, rect.height]
-        var factor: CGFloat = 1
-        for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
-        return r.map { max(0, $0 * factor) }
+    /// The reduced radii; the layer fast path additionally requires circles.
+    func cornerSizes(in rect: NSRect, inset: CGFloat = 0) -> [CGSize] {
+        BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
     }
-
-    /// Each corner's own radius, all reduced by one factor where two would
-    /// overlap an edge (CSS), as iOS and Linux draw them; `inset` is a
-    /// centered stroke's. Tangent arcs keep the corners where the flipped
-    /// view puts them.
+    func cornerRadii(in rect: NSRect, inset: CGFloat = 0) -> [CGFloat] {
+        cornerSizes(in: rect, inset: inset).map { $0.width }
+    }
     func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
-        let r = cornerRadii(in: rect, inset: inset)
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
-        p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r[1])
-        p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r[2])
-        p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r[3])
-        p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: r[0])
-        p.closeSubpath()
-        return NSBezierPath(cgPath: p)
+        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset)))
     }
 
     override func draw(_ rect: NSRect) {
@@ -1288,7 +1272,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let layerPaint = layerBoxEligible && !Capture.capturing
         if layerPaint { applyLayerPaint() }
         let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw)
-        let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
+        let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
         let bg = paintsBox ? color("background_color", .clear) : .clear
@@ -1305,7 +1289,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+            let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {

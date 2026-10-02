@@ -531,11 +531,11 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                         for (index, clip) in [
                             Shape {
                                 rect: (4.5, 5.25, 77.0, 65.5),
-                                radii: [radius; 4],
+                                radii: [(radius, radius); 4],
                             },
                             Shape {
                                 rect: (14.0 + offset, 9.0 + offset, 47.5, 46.25),
-                                radii: [radius / 2.0; 4],
+                                radii: [(radius / 2.0, radius / 2.0); 4],
                             },
                         ]
                         .into_iter()
@@ -570,7 +570,7 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                         ] {
                             let shape = Shape {
                                 rect,
-                                radii: [radius; 4],
+                                radii: [(radius, radius); 4],
                             };
                             raster.fill(&shape, color, transform);
                             let mut paint = Paint::default();
@@ -763,7 +763,7 @@ fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
                         }
                         let clip = Shape {
                             rect: (16.0, 12.0, 48.0, 40.0),
-                            radii: [7.0; 4],
+                            radii: [(7.0, 7.0); 4],
                         };
                         let mut nested = root.clone();
                         nested.intersect_path(
@@ -804,7 +804,7 @@ fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
 
                             let shape = Shape {
                                 rect,
-                                radii: [radius; 4],
+                                radii: [(radius, radius); 4],
                             };
                             let color = [31 + stage * 23, 117, 193, alpha];
                             raster.fill(&shape, color, ts);
@@ -887,7 +887,7 @@ fn rounded_interiors_match_full_masked_paths_at_edges_and_in_layers() {
                             }
                             let shape = Shape {
                                 rect: (3.25, 4.5, 88.25, 70.25),
-                                radii,
+                                radii: radii.map(|r| (r, r)),
                             };
                             if layer {
                                 raster.push_opacity(0.37);
@@ -963,7 +963,7 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
                         raster.push_clip(
                             &Shape {
                                 rect: (2.0, 3.0, 40.0, 32.0),
-                                radii: [4.0; 4],
+                                radii: [(4.0, 4.0); 4],
                             },
                             Transform::identity(),
                         );
@@ -1049,4 +1049,24 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":3"#));
     p.key(Some('\n'), false, 2000.0);
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":4"#));
+}
+
+#[test]
+fn percentage_radius_paints_an_ellipse_in_a_nonsquare_box() {
+    let source = r##"component Rounded
+  view
+    view width=200 height=150 background-color="#ffffff"
+      view width=160 height=80 border-radius="50%" background-color="#2468ac"
+"##;
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let frame = p.frame();
+        assert_eq!(px(&frame, 80.0, 40.0), (36, 104, 172));
+        assert_eq!(
+            px(&frame, 20.0, 5.0),
+            (255, 255, 255),
+            "ellipse, not a pill: {choice:?}"
+        );
+        assert_eq!(px(&frame, 80.0, 5.0), (36, 104, 172));
+    }
 }

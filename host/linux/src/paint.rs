@@ -65,17 +65,21 @@ pub struct Shape {
     /// The box.
     pub rect: Rect4,
     /// The radii.
-    pub radii: [f32; 4],
+    pub radii: [(f32, f32); 4],
 }
 
 impl Shape {
     /// A box with radii, reduced as CSS reduces them: every corner by the
     /// one factor that fits the tightest edge.
     pub fn new(rect: Rect4, radii: [f32; 4]) -> Shape {
-        let circles = radii.map(|r| (r.max(0.0), r.max(0.0)));
+        Self::elliptical(rect, radii.map(|r| (r.max(0.0), r.max(0.0))))
+    }
+
+    /// A box with independent horizontal and vertical corner radii.
+    pub fn elliptical(rect: Rect4, radii: [(f32, f32); 4]) -> Shape {
         Shape {
             rect,
-            radii: border::reduced(circles, rect.2, rect.3).map(|(r, _)| r),
+            radii: border::reduced(radii, rect.2, rect.3),
         }
     }
 
@@ -83,25 +87,26 @@ impl Shape {
     pub fn rect(rect: Rect4) -> Shape {
         Shape {
             rect,
-            radii: [0.0; 4],
+            radii: [(0.0, 0.0); 4],
         }
     }
 
     /// Whether any corner is rounded.
     pub fn rounded(&self) -> bool {
-        self.radii.iter().any(|r| *r > 0.0)
+        self.radii.iter().any(|r| r.0 > 0.0 && r.1 > 0.0)
     }
 
     /// The same box inset on every side (radii shrink with it).
     pub fn inset(&self, by: f32) -> Shape {
-        Shape::new(
+        Shape::elliptical(
             (
                 self.rect.0 + by,
                 self.rect.1 + by,
                 (self.rect.2 - 2.0 * by).max(0.0),
                 (self.rect.3 - 2.0 * by).max(0.0),
             ),
-            self.radii.map(|r| (r - by).max(0.0)),
+            self.radii
+                .map(|(x, y)| ((x - by).max(0.0), (y - by).max(0.0))),
         )
     }
 }
@@ -109,7 +114,7 @@ impl Shape {
 // Frozen numeric/style operands. Capture resolves environment and appearance
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
-    radii: [f32; 4],
+    radii: [Dimension; 4],
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
@@ -163,7 +168,8 @@ impl BoxPaint {
                 s.border_radius_top_right,
                 s.border_radius_bottom_right,
                 s.border_radius_bottom_left,
-            ],
+            ]
+            .map(|d| d.resolve(&env)),
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
@@ -195,7 +201,18 @@ impl BoxPaint {
         let pad = self.padding;
         BoxGeometry {
             inset: (pad[3] + widths[3], pad[0] + widths[0]),
-            outer: Shape::new(rect, self.radii),
+            outer: Shape::elliptical(
+                rect,
+                self.radii.map(|d| {
+                    let resolve = |basis| match d {
+                        Dimension::Points(x) => x,
+                        Dimension::Percent(p) => basis * p / 100.0,
+                        Dimension::Calc(p, x) => basis * p / 100.0 + x,
+                        _ => 0.0,
+                    };
+                    (resolve(w).max(0.0), resolve(h).max(0.0))
+                }),
+            ),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -234,7 +251,12 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(geometry.outer.rect, self.radii, self.widths, self.colors)
+        border::border_fills(
+            geometry.outer.rect,
+            geometry.outer.radii,
+            self.widths,
+            self.colors,
+        )
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);

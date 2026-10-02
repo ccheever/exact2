@@ -2054,25 +2054,25 @@
     {
       "bit": 49,
       "field": "border_radius_top_left",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {
       "bit": 50,
       "field": "border_radius_top_right",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {
       "bit": 51,
       "field": "border_radius_bottom_right",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {
       "bit": 52,
       "field": "border_radius_bottom_left",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {

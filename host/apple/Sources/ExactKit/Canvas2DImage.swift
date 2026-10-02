@@ -202,7 +202,7 @@ final class Canvas2DHost: Canvas2DEnv {
         // A rounded canvas clips its bitmap to the content edge's curve, as
         // the web clips replaced content.
         let radii = (payload["radii"] as? [Any])?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } ?? []
-        if radii.count == 4, radii.contains(where: { $0 > 0 }) {
+        if radii.count == 8, radii.contains(where: { $0 > 0 }) {
             let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
             mask.path = Canvas2DHost.rounded(CGRect(origin: .zero, size: layer.bounds.size), radii)
             layer.mask = mask
@@ -367,20 +367,8 @@ final class Canvas2DHost: Canvas2DEnv {
     /// A rectangle with four corner radii (top-left, top-right, bottom-right,
     /// bottom-left), in a y-down layer.
     static func rounded(_ r: CGRect, _ radii: [CGFloat]) -> CGPath {
-        let p = CGMutablePath(), (x0, y0, x1, y1) = (r.minX, r.minY, r.maxX, r.maxY)
-        let f = min(1, r.width / max(radii[0] + radii[1], radii[2] + radii[3], 1e-9), r.height / max(radii[0] + radii[3], radii[1] + radii[2], 1e-9))
-        let (tl, tr, br, bl) = (radii[0] * f, radii[1] * f, radii[2] * f, radii[3] * f)
-        p.move(to: CGPoint(x: x0 + tl, y: y0))
-        p.addLine(to: CGPoint(x: x1 - tr, y: y0))
-        p.addArc(tangent1End: CGPoint(x: x1, y: y0), tangent2End: CGPoint(x: x1, y: y0 + tr), radius: tr)
-        p.addLine(to: CGPoint(x: x1, y: y1 - br))
-        p.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x1 - br, y: y1), radius: br)
-        p.addLine(to: CGPoint(x: x0 + bl, y: y1))
-        p.addArc(tangent1End: CGPoint(x: x0, y: y1), tangent2End: CGPoint(x: x0, y: y1 - bl), radius: bl)
-        p.addLine(to: CGPoint(x: x0, y: y0 + tl))
-        p.addArc(tangent1End: CGPoint(x: x0, y: y0), tangent2End: CGPoint(x: x0 + tl, y: y0), radius: tl)
-        p.closeSubpath()
-        return p
+        let sizes = stride(from: 0, to: 8, by: 2).map { CGSize(width: radii[$0], height: radii[$0 + 1]) }
+        return BorderPaint.roundedRect(r, BorderPaint.reduced(sizes, in: r))
     }
 
     /// An agent's picture waits for the replays already dispatched to show.

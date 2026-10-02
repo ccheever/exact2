@@ -14,6 +14,19 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    assert.ok(existsSync(resolve(dir, 'app.test.contract')));
+    // Execute the generated dispatcher against fake SDK entry points: cwd may
+    // be anywhere, but the source and test file must still name this app.
+    const sdk = resolve(parent, 'sdk');
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs']) {
+      mkdirSync(resolve(sdk, file, '..'), { recursive: true });
+      writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
+    }
+    for (const [verb, args] of [['web-build', ['field-log']], ['test', ['web', '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')]]]) {
+      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
+    }
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');

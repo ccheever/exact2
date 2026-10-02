@@ -23,7 +23,7 @@ transforms or transitions on `left`/`top`. No font or image binaries are require
 export EXACT_UPDATE_TRUST=development
 
 # Web (open the URL printed by the dev server)
-EXACT_APP=textflow bun host/web/dev.mjs
+bun host/web/dev.mjs --app textflow
 
 # macOS; append --ios for the simulator
 bun host/apple/build.mjs --app textflow --run

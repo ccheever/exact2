@@ -398,7 +398,7 @@ impl Gpu {
 /// the CPU painter's cubic arcs.
 fn shape(s: &Shape) -> BezPath {
     let mut ops = Vec::new();
-    crate::paint::border::rounded_rect(&mut ops, s.rect, s.radii.map(|r| (r, r)));
+    crate::paint::border::rounded_rect(&mut ops, s.rect, s.radii);
     bez(&ops)
 }
 

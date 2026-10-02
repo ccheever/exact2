@@ -375,11 +375,11 @@ fn raster_nested_scroll_clip_bounds_work_and_pop_restores_parent() {
     let p = engine.layout(&spec(&"nested scrollport line\n".repeat(160)), Some(230.0));
     let parent = Shape {
         rect: (10.125, 7.25, 275.5, 110.5),
-        radii: [5.5; 4],
+        radii: [(5.5, 5.5); 4],
     };
     let child = Shape {
         rect: (18.375, 49.25, 210.5, 9.25),
-        radii: [2.5; 4],
+        radii: [(2.5, 2.5); 4],
     };
     let ts = Transform::from_rotate(2.0);
     let view = View::at(-377.625, 1.0);
@@ -486,7 +486,7 @@ mod clip_masks {
     fn root() -> Shape {
         Shape {
             rect: (10.125, 7.25, 275.5, 110.5),
-            radii: [5.5, 4.25, 3.5, 2.75],
+            radii: [5.5, 4.25, 3.5, 2.75].map(|r| (r, r)),
         }
     }
 
@@ -592,11 +592,14 @@ mod clip_masks {
         let mut moved = base;
         moved.rect.0 += 0.125;
         let mut rounded = base;
-        rounded.radii[3] += 0.25;
+        rounded.radii[3].0 += 0.25;
+        let mut vertical = base;
+        vertical.radii[3].1 += 0.25;
         let cases = [
             ((320.0, 128.0), 1.0, base, Transform::identity()),
             ((320.0, 128.0), 1.0, moved, Transform::identity()),
             ((320.0, 128.0), 1.0, rounded, Transform::identity()),
+            ((320.0, 128.0), 1.0, vertical, Transform::identity()),
             (
                 (320.0, 128.0),
                 1.0,
