@@ -560,6 +560,8 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     const media = await session.prefer({'prefers-reduced-motion':'reduce'});
     expect(media.media['prefers-color-scheme']).toBe('dark');
     expect(media.media['prefers-reduced-motion']).toBe('reduce');
+    await expect(session.prefer({'prefers-contrast':'less'})).rejects.toThrow('firefox prefer cannot emulate prefers-contrast less through Playwright');
+    await expect(session.prefer({'prefers-contrast':'custom'})).rejects.toThrow('firefox prefer cannot emulate prefers-contrast custom through Playwright');
     const button = (await session.layout()).nodes.find(node => node.testId === 'press');
     await session.carrier.evaluate(`(() => { const e=document.createElement('div'); e.id='cover'; Object.assign(e.style,{position:'fixed',zIndex:'9999',left:'${button.x}px',top:'${button.y}px',width:'${button.w}px',height:'${button.h}px'}); document.body.append(e); })()`);
     await expect(session.tap('press')).rejects.toThrow('covers its middle');

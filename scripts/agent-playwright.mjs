@@ -218,7 +218,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       },
       ask,
       async prefer(media, pageFacts) {
-        const unsupported = Object.entries(media).find(([key, value]) => key === 'prefers-reduced-transparency' && value !== 'no-preference');
+        const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
         Object.assign(emulated, media);
         const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };

@@ -331,15 +331,10 @@ async function drive(t, report, fail, dir, ws, js) {
       const [op, target, ...rest] = line.split(/\s+/);
       const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
-      // Ask that carrier first so its named refusal is exercised while the
-      // Chrome oracle remains untouched; the following step starts equal.
+      // Skip before resolving a target or touching either page; the carrier's
+      // named, side-effect-free refusals are exercised by agent.test.mjs.
       if (crossBrowser && ['drag', 'down', 'up', 'pinch'].includes(op)) {
-        try { await run(J); fail(line, `${other}: accepted ${op}, which must refuse without trusted phased touches`); }
-        catch (e) {
-          const message = e.message.split('\n')[0];
-          if (!message.includes(`${other} ${op === 'drag' ? 'down' : op} unsupported:`)) fail(line, `${other}: ${message}`);
-          else report.steps.push({ target: t.name, step: line, skipped: `${other}: ${message}` });
-        }
+        report.steps.push({ target: t.name, step: line, skipped: `${other}: ${op} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input` });
         continue;
       }
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; }
