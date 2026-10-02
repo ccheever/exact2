@@ -241,10 +241,12 @@ export function install(exact) {
             await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
             if (exact.inflight.n > holds().length) continue;
-            // Animations (and springs, `settleAt`) that end later move the clock there.
-            const to = anim.settle();
-            if (!(to > exact.clock.now)) break;
-            exact.advance(to); seek();
+            // Animations (and springs, `settleAt`) that end later move the clock there; an
+            // armed `then` runs now, and what it starts is settled in the next round.
+            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle(), refused = exact.advance(to);
+            if (typeof refused === 'string') { retime(); seek(); return { error: `clock: ${refused}`, clock: exact.clock.now }; }
+            if (!(to > at) && exact.clock.epoch === epoch) break;
+            seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
           retime();
@@ -259,8 +261,10 @@ export function install(exact) {
         // A jump that fires timers which send nothing is one advance (one
         // journal line), as the runner's is.
         for (const end = performance.now() + 20000; ;) {
-          const before = exact.inflight.n;
-          if (!exact.advance(req.to, false, () => exact.inflight.n > before)) break;
+          const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
+          // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
+          if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).

@@ -421,8 +421,9 @@ blocking check.
 - the roster's outputs over its fixtures;
 - the canonical document of every route (LLP 1048 D1's digest, ids excluded);
 - the router's locations and URLs;
-- the order of events, action effects and timer firings under the seekable
-  clock.
+- the order of events, action effects, timer firings and armed `then`s
+  (LLP 1016.001) under the seekable clock, and where a refusal stops an
+  advance: a `clock` step the wasm runner refuses, the others refuse too.
 
 **Spec-equivalent** (held to a written rule, compared by effect):
 - CSS: classes and inline styles instead of per-node declarations, compared
@@ -540,7 +541,7 @@ edge runtimes and TypeScript-heavy deployments.
 - `host/web-js/rt.js`: signals, commits with rollback on refusal, a
   settlement pass, typed writes, resources with tickets and LLP
   1054.000.000's kept requests, mutations (`send`, `pending`, declared
-  refreshes, `then`), the durable store, row slots, `when`/`match`/keyed
+  refreshes, `then` on the timer path), the durable store, row slots, `when`/`match`/keyed
   `each`, timers on the driver's clock, placeholders, the router
   (`route/src` ported; the web host's `navigation.js` reused for history),
   adoption from a checkpoint, capture and replay, Markdown as a loaded

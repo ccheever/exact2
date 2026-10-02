@@ -226,8 +226,12 @@ assigned (`session = none`), which forgets a reply in flight. `mutation name
 as shape T refreshes a, b` (LLP 1054.000.000 D1) names the root's resources a
 send changes: each is re-requested, forced, in the commit that sends and in
 the one where the reply lands (`type-refreshes-not-resource`,
-`type-refreshes-duplicate`). A resource's `else` is a source call over values
-(LLP 1048.003 D6) or `empty(field=value, …)`, its type's zero with named fields
+`type-refreshes-duplicate`). `… then action` (LLP 1016.001) names a
+parameterless action that runs once after the answers that land before the
+host next advances, as its own commit, reading the answer from the slot; one
+that can send its own mutation is `analyze-then-self-send`. A resource's
+`else` is a source call over values (LLP 1048.003 D6) or
+`empty(field=value, …)`, its type's zero with named fields
 replaced by constants (LLP 1054.000.002); without `else`, the zero shows while
 it is pending. `failed(resource)` (LLP 1054.000.002, ruled 2026-09-27) reads
 whether the latest request for the current arguments failed without an

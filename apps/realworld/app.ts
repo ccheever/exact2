@@ -16,9 +16,8 @@ type Article = Result<'article'>;
 type Profile = Result<'profile'>;
 type Author = Profile;
 
-// Every mutation's answer carries a fresh stamp, so the app notices each
-// reply; what a mutation changes is refetched by its `refreshes` declaration.
-let stamp = 0;
+// A mutation's answer runs its `then` (app.contract); what it changes is
+// refetched by its `refreshes` declaration.
 
 // Favorites and follows: `favs` and `follows` are the one store of what the
 // reader pressed, by article and by author, and every view reads its state
@@ -183,13 +182,13 @@ async function signIn(store: Store, path: string, body: Json, method = 'POST'): 
     const u = (await api(store, path, method, { user: body })).user;
     if (u?.token) store.set('realworld.jwt', String(u.token));
     forget();
-    return { stamp: ++stamp, ok: true, errors: [] };
-  } catch (e) { return { stamp: ++stamp, ok: false, errors: failed(e) }; }
+    return { ok: true, errors: [] };
+  } catch (e) { return { ok: false, errors: failed(e) }; }
 }
 type Change = Result<'favorite'>;
 async function change(kind: string, work: () => Promise<string>): Promise<Change> {
-  try { return { stamp: ++stamp, kind, ok: true, slug: await work(), errors: [] }; } catch (e) {
-    return { stamp: ++stamp, kind, ok: false, slug: '', errors: failed(e) };
+  try { return { kind, ok: true, slug: await work(), errors: [] }; } catch (e) {
+    return { kind, ok: false, slug: '', errors: failed(e) };
   }
 }
 const slugPath = (slug: string) => `/articles/${encodeURIComponent(slug)}`;
@@ -208,7 +207,7 @@ const sources: Sources = {
   register: ([username, email, password], store) => signIn(store, '/users', { username, email, password }),
   saveSettings: ([image, username, bio, email, password], store) =>
     signIn(store, '/user', { image, username, bio, email, ...(password ? { password } : {}) }, 'PUT'),
-  logout: (_, store) => { store.forget('realworld.jwt'); forget(); return { stamp: ++stamp, ok: true, errors: [] }; },
+  logout: (_, store) => { store.forget('realworld.jwt'); forget(); return { ok: true, errors: [] }; },
   favorites: () => [...favs.values()],
   followings: () => [...follows.values()],
   favorite: ([slug, on, count], store) => flip(favs, slug, { slug, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) }, async () => {
