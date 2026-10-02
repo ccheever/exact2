@@ -1,5 +1,5 @@
 //! Source preservation is independent of AST equivalence: the AST discards
-//! comments and opaque contract bodies, and numbers lose their spelling.
+//! comments, and numbers lose their spelling.
 use contract_syntax::{fmt::format, Lexer, TokenKind};
 
 fn trivia(src: &str) -> Vec<String> {
@@ -94,7 +94,7 @@ component A
 }
 
 #[test]
-fn raw_literals_and_opaque_contract_bodies_survive() {
+fn raw_literals_survive() {
     let huge = "9".repeat(400); // lexer accepts an overflowing decimal
     let src = format!(
         r#"
@@ -109,9 +109,6 @@ component A
     derive sub = n - n
     derive property = 1 . field
     derive message = `unchanged ${{n+2}} ${{`nested ${{"}}"}}`}}`
-    contract
-        has   text "a\t\n\`\$"  // opaque spacing stays
-        opaque   words
     view
         text "a\t\n\`\$" font-size=12
 "#
@@ -120,9 +117,7 @@ component A
     assert!(after.contains("0001.00"));
     assert!(after.contains(&huge));
     assert!(after.contains("1 .field"));
-    assert!(after.contains(
-        "      has   text \"a\\t\\n\\`\\$\"  // opaque spacing stays\n      opaque   words\n"
-    ));
+    assert!(after.contains(r#"text "a\t\n\`\$" font-size=12"#));
     assert!(after.contains("`unchanged ${n+2} ${`nested ${\"}\"}`}`"));
 }
 

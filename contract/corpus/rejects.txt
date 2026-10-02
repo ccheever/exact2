@@ -518,12 +518,11 @@ component A
   view
     children
 ---
-== syntax-duplicate-declaration
+== syntax-contract-block
+# Assertions belong in `test` blocks beside the app (LLP 1017 P7, 1035.005.000 D8).
 component A
   contract
     has text "first"
-  contract
-    has text "second"
   view
     text "a"
 ---

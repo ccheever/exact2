@@ -25,10 +25,6 @@ component App
   task ticker mount
     every(1000, tick)
 
-  contract
-    has text "Caltrain"
-    when query == "" then has button "x"
-
   view
     column gap=16 testId="main"
       text `${count} trains` font-size=24 font-weight=700

@@ -36,8 +36,11 @@ file is under the 1,500-line cap.
 
 **Declarations.** `shape Name` with typed fields (`number string bool`, a
 shape name, `option<T>`, `list<T>`); `component Name` with sections `props`,
-`state`, `derive`, `resource`, `action`, `task`, `contract` (parsed, not
-compiled), `view`. The first component is the root; only the root holds
+`state`, `derive`, `resource`, `action`, `task`, `view`. A `contract`
+section is `syntax-contract-block`, whose message points at `test` blocks in
+`app.test.contract` (LLP 1017 P7; LLP 1035.005.000 D8, 2026-10-02: it was
+parsed and compiled to nothing, so assertion text promised what nothing
+enforced). The first component is the root; only the root holds
 `resource`/`mutation`/`task` (`type-child-resource`); a child component is a
 view over its `props` that may own `state`, `derive`, and `action` of its own
 (LLP 1017 P4c, 2026-08-30 — see **Instances** below), and a prop of type
@@ -325,7 +328,7 @@ The source-preserving formatter uses the existing lexer's exact byte ranges
 and the parser's attribute/argument boundaries. It normalizes structural
 indentation to two spaces and token spacing, breaking long headers at
 100 columns. Existing line breaks, blank groups, comment attachment, literal
-spellings and opaque `contract` bodies survive; template interiors are kept
+spellings survive; template interiors are kept
 verbatim. Long indivisible literals, comments and non-header expressions can
 exceed the preferred width; a prefix containing interleaved positional arguments
 also stays on the element's head. Re-lexing verifies unchanged ordinary tokens;
@@ -620,10 +623,11 @@ values against their kernel rows~~ and ~~handler arity through a bare
 `action` prop~~ — both landed 2026-08-30 under LLP 1017 P1 (§3 Lower), with
 the root-region and the two layout refusals, and bake's layout lint (§3
 Driver); a total inlining budget beyond the
-depth guard; `@keyframes`, the `contract` block as
-executable assertions, `cursor`, per-instance state, LSP (the formatter is implemented above), `linear()`
+depth guard; `@keyframes`, `cursor`, per-instance state, LSP (the formatter is implemented above), `linear()`
 and transition rows from Contract (the kernel has the row; the tag table does
 not yet expose `transition`). Each is a fixture away, never a speculation.
+Executable `contract` assertions are not deferred but refused (§2): assertions
+are `test` blocks beside the app.
 
 ## 9. Checks that hold this
 

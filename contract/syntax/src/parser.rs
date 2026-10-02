@@ -628,10 +628,7 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(
-                        w.as_str(),
-                        "props" | "inject" | "slot" | "view" | "contract"
-                    ) {
+                    if matches!(w.as_str(), "props" | "inject" | "slot" | "view") {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -690,11 +687,15 @@ impl Parser {
                             self.newline()?;
                             c.view = self.block(|p| p.node())?;
                         }
+                        // @ref LLP 1035.005.000 D8 — accepted assertion text
+                        // that compiled to nothing promised more than a comment.
                         "contract" => {
-                            self.next();
-                            self.newline()?;
-                            // Contract blocks are agent assertions; not compiled in v1.
-                            self.block(|p| p.skip_line())?;
+                            return self.err(
+                                "syntax-contract-block",
+                                "a component's `contract` section is not part of Contract: \
+                                 write the assertions as `test` blocks in `app.test.contract` \
+                                 (LLP 1017 P7)",
+                            )
                         }
                         other => {
                             return self.err(
@@ -713,19 +714,6 @@ impl Parser {
             }
         }
         Ok(c)
-    }
-
-    fn skip_line(&mut self) -> R<()> {
-        while !matches!(
-            self.peek_kind(),
-            TokenKind::Newline | TokenKind::Eof | TokenKind::Dedent | TokenKind::Indent
-        ) {
-            self.next();
-        }
-        if matches!(self.peek_kind(), TokenKind::Indent) {
-            self.block(|p| p.skip_line())?;
-        }
-        self.newline()
     }
 
     fn resource(&mut self) -> R<ResourceDecl> {
