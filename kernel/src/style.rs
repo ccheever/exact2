@@ -1349,9 +1349,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         .to_taffy(arena.node_type(slot), arena.env());
     // Exact resets a `<button>` to an authored flex container, but HTML's
     // form-control block sizing still makes its automatic inline size
-    // shrink-to-fit. Links are Pressables too and remain ordinary blocks.
+    // shrink-to-fit. The element remains a button when an author gives it
+    // another ARIA role; only a Pressable with href projects as an `<a>`.
     if arena.node_type(slot) == NodeType::Pressable
-        && arena.props(slot).str(crate::PropId::AccessibilityRole) == Some("button")
+        && arena.props(slot).str(crate::PropId::Href).is_none()
     {
         s.item_is_table = true;
     }

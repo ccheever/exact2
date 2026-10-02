@@ -775,7 +775,11 @@ mod name_tests {
     }
 
     #[test]
-    fn controls_leave_native_web_sizing_to_the_browser() {
+    fn page_reset_and_lowered_css_leave_native_control_sizing_to_chrome() {
+        let page = include_str!("../index.html");
+        assert!(page.contains("select { display: block; }"));
+        assert!(page.contains("input[type=\"checkbox\"] { box-sizing: border-box; }"));
+        assert!(page.contains("input[type=\"file\"]"));
         for (tag, ty) in [("input", "checkbox"), ("select", "select")] {
             let style = StyleProps::default();
             let mut props = PropList::default();

@@ -153,6 +153,16 @@ fn the_compiler_names_what_a_control_takes() {
         "input type=\"checkbox\" role=\"switch\" checked=on change=set appearance=\"none\""
     ))
     .is_ok());
+    // Known non-text HTML controls never silently become TextInput nodes.
+    // The button element is Exact's supported action spelling; radio-group
+    // semantics have not been admitted.
+    for kind in ["radio", "button", "submit", "reset", "image"] {
+        let e = refused(&app(&format!("input type=\"{kind}\"")));
+        assert!(
+            e.contains("lower-input-type") && e.contains("non-text control"),
+            "{kind}: {e}"
+        );
+    }
 }
 
 #[test]

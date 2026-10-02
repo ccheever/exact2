@@ -18,6 +18,7 @@ struct Kind {
     ty: &'static str,
     role: Option<&'static str>,
     intrinsic: (f32, f32),
+    default: (f32, f32),
     expected: &'static [[(f32, f32); 10]; 6],
 }
 
@@ -27,6 +28,7 @@ const KINDS: &[Kind] = &[
         ty: "checkbox",
         role: None,
         intrinsic: (13.0, 13.0),
+        default: (13.0, 13.0),
         expected: &CHECKBOX,
     },
     // Chromium does not implement HTML's `switch` attribute, so its oracle
@@ -37,6 +39,7 @@ const KINDS: &[Kind] = &[
         ty: "checkbox",
         role: Some("switch"),
         intrinsic: (13.0, 13.0),
+        default: (13.0, 13.0),
         expected: &SWITCH,
     },
     Kind {
@@ -44,6 +47,7 @@ const KINDS: &[Kind] = &[
         ty: "file",
         role: None,
         intrinsic: (347.0, 25.0),
+        default: (347.0, 25.0),
         expected: &FILE,
     },
     Kind {
@@ -51,6 +55,7 @@ const KINDS: &[Kind] = &[
         ty: "range",
         role: None,
         intrinsic: (129.0, 16.0),
+        default: (129.0, 16.0),
         expected: &RANGE,
     },
     Kind {
@@ -58,6 +63,7 @@ const KINDS: &[Kind] = &[
         ty: "date",
         role: None,
         intrinsic: (150.0, 21.0),
+        default: (150.0, 21.0),
         expected: &DATE,
     },
     Kind {
@@ -65,6 +71,7 @@ const KINDS: &[Kind] = &[
         ty: "time",
         role: None,
         intrinsic: (111.796_875, 22.796_875),
+        default: (111.796_875, 22.796_875),
         expected: &TIME,
     },
     Kind {
@@ -72,6 +79,7 @@ const KINDS: &[Kind] = &[
         ty: "datetime-local",
         role: None,
         intrinsic: (240.0, 21.0),
+        default: (240.0, 21.0),
         expected: &DATETIME_LOCAL,
     },
     // `Long choice` was the widest option in the recorder.
@@ -80,6 +88,8 @@ const KINDS: &[Kind] = &[
         ty: "select",
         role: None,
         intrinsic: (102.0, 19.0),
+        // A select with no options; a host reports the chosen option's box.
+        default: (22.0, 19.0),
         expected: &SELECT,
     },
 ];
@@ -197,7 +207,7 @@ impl Variant {
     }
 }
 
-fn laid_out(kind: Kind, context: Context, variant: Variant) -> Kernel {
+fn laid_out(kind: Kind, context: Context, variant: Variant, report_intrinsic: bool) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
     let item = rows(&context.item(variant.css()));
@@ -240,7 +250,9 @@ fn laid_out(kind: Kind, context: Context, variant: Variant) -> Kernel {
     ]);
     let mut kernel = Kernel::with_monospace();
     kernel.apply(0, 1, &ops).unwrap();
-    kernel.set_intrinsic_size(2, Some(kind.intrinsic)).unwrap();
+    if report_intrinsic {
+        kernel.set_intrinsic_size(2, Some(kind.intrinsic)).unwrap();
+    }
     kernel
         .compute_layout(1, Offer::definite(800.0, 600.0))
         .unwrap();
@@ -253,7 +265,7 @@ fn every_control_kind_uses_chromes_box_in_every_placement() {
     for &kind in KINDS {
         for context in Context::ALL {
             for variant in Variant::ALL {
-                let kernel = laid_out(kind, context, variant);
+                let kernel = laid_out(kind, context, variant, true);
                 let (width, height) = kind.expected[context as usize][variant as usize];
                 failures.extend(mismatches(
                     &format!("{} {} {}", kind.name, context.name(), variant.name()),
@@ -269,6 +281,20 @@ fn every_control_kind_uses_chromes_box_in_every_placement() {
         failures.join("\n"),
         failures.len()
     );
+}
+
+#[test]
+fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
+    let mut failures = Vec::new();
+    for &kind in KINDS {
+        let kernel = laid_out(kind, Context::Block, Variant::Auto, false);
+        failures.extend(mismatches(
+            kind.name,
+            &kernel,
+            &[(2, [0.0, 0.0, kind.default.0, kind.default.1])],
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 struct ChromeFieldMeasurer;
@@ -294,6 +320,7 @@ struct OtherKind {
     name: &'static str,
     node_type: NodeType,
     semantic: Option<&'static str>,
+    role: Option<&'static str>,
     expected: &'static [[(f32, f32); 10]; 6],
 }
 
@@ -302,48 +329,63 @@ const OTHER_KINDS: &[OtherKind] = &[
         name: "text",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "password",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "email",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "url",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "tel",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "search",
         node_type: NodeType::TextInput,
         semantic: None,
+        role: None,
         expected: &TEXT,
     },
     OtherKind {
         name: "textarea",
         node_type: NodeType::TextInput,
         semantic: Some("textarea"),
+        role: None,
         expected: &TEXTAREA,
     },
     OtherKind {
         name: "button",
         node_type: NodeType::Pressable,
         semantic: None,
+        role: Some("button"),
+        expected: &BUTTON,
+    },
+    OtherKind {
+        name: "button role=tab",
+        node_type: NodeType::Pressable,
+        semantic: None,
+        role: Some("tab"),
         expected: &BUTTON,
     },
 ];
@@ -378,7 +420,7 @@ fn other_laid_out(kind: OtherKind, context: Context, variant: Variant) -> Kernel
             Op::SetProp {
                 id: 2,
                 prop: PropId::AccessibilityRole,
-                value: PropValue::Str("button".into()),
+                value: PropValue::Str(kind.role.expect("button role").into()),
             },
             Op::CreateView {
                 id: 3,
@@ -419,7 +461,7 @@ fn other_laid_out(kind: OtherKind, context: Context, variant: Variant) -> Kernel
     if kind.node_type == NodeType::Pressable {
         assert_eq!(
             kernel.node(2).unwrap().props.str(PropId::AccessibilityRole),
-            Some("button")
+            kind.role
         );
     }
     kernel
@@ -450,6 +492,59 @@ fn text_fields_textareas_and_buttons_use_chromes_form_control_block_sizing() {
         failures.join("\n"),
         failures.len()
     );
+}
+
+#[test]
+fn a_block_button_clamps_its_preferred_width_to_the_available_line() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows("width:400px"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Pressable,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&rows("display:flex;flex-direction:column"))),
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::AccessibilityRole,
+            value: PropValue::Str("button".into()),
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::Text,
+        },
+        Op::SetProp {
+            id: 3,
+            prop: PropId::Text,
+            value: PropValue::Str(
+                "word word word word word word word word word word word word".into(),
+            ),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 400.0);
 }
 
 // Literal getBoundingClientRect recordings, context × variant in the order above.

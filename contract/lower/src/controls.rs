@@ -51,6 +51,20 @@ pub(crate) fn control(
                 a.span,
             );
         }
+        if let Expr::Str(kind, _) = &a.value {
+            if matches!(
+                kind.as_str(),
+                "radio" | "button" | "submit" | "reset" | "image"
+            ) {
+                return err(
+                    "lower-input-type",
+                    format!(
+                        "`input type=\"{kind}\"` is a non-text control Exact does not support; use `button` for an action"
+                    ),
+                    a.span,
+                );
+            }
+        }
     }
     let control = contract_syntax::input_control(tag, attrs);
     if control != Some("checkbox") {
