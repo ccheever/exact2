@@ -2,6 +2,11 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { fixture } from './surface.mjs';
 
+test('a connected registered publisher is duplicate even before the GPU gives it an id', async () => {
+  const f = await fixture({ duplicateDuringLoad: true });
+  assert.equal(f.diagnostics.filter(line => line.includes('duplicate live publisher')).length, 1);
+});
+
 test('player restore flushes its public record before reporting success', async () => {
   const f=await fixture();f.create(1);
   f.gpu.gpu_restore=id=>{f.publish(id,{restored:true});return true;};
@@ -68,6 +73,17 @@ test('first live canvas alone publishes and clears, with one named duplicate dia
   assert.equal(f.records.at(-1), 'world', 'an ignored instance does not silently take ownership');
   f.destroy(3); f.create(4);
   assert.equal(f.records.at(-1), 'world\0{"value":4}');
+});
+
+test('a replacement created before its disconnected publisher is destroyed takes ownership', async () => {
+  const f = await fixture();
+  const old = f.create(1);
+  old.canvas.isConnected = false;
+  f.create(2);
+  assert.deepEqual(f.records, ['world\0{"value":1}', 'world\0{"value":2}']);
+  assert.deepEqual(f.diagnostics, []);
+  f.destroy(1);
+  assert.equal(f.records.at(-1), 'world\0{"value":2}', 'late destruction cleared the replacement');
 });
 
 for (const failure of ['createFail', 'bindFail']) test(`swap ${failure} keeps the live module and canvas`, async () => {

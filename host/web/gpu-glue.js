@@ -779,7 +779,10 @@ const api = {
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
       planCarries.delete(name);
-      if (!publishers.has(name)) publishers.set(name, entry);
+      const publisher = publishers.get(name);
+      const publisherRegistered = publisher && surfaces.get(publisher.view) === publisher
+        && exact.views.get(publisher.view) === publisher.host;
+      if (!publisher || !publisherRegistered || !publisher.el.isConnected) publishers.set(name, entry);
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
       ensure(entry); return; }
     entry.values = values;

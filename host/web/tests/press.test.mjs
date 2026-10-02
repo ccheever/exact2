@@ -4,15 +4,17 @@
 // inside its box, including under reduced motion.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const check = existsSync(chrome) ? test : test.skip;
+const { executable: chrome, unavailable } = chromium();
+if (unavailable) console.warn(`SKIP: ${unavailable}`);
+const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
 
 // The shell's own stylesheet, with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and

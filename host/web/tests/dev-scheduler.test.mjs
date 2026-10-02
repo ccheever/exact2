@@ -240,9 +240,9 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     let identity=true;
     const start=source.indexOf('async function currentWebBuild()');
     const end=source.indexOf('\nif (!await currentWebBuild())',start);
-    const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
+    const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs','producersOnly',
       source.slice(start,end)+';return currentWebBuild;')
-      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs);
+      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs,false);
     assert.equal(await current(),true);
     writeFileSync(join(dir,'notes.txt'),'unrelated edit');
     assert.equal(await current(),true);

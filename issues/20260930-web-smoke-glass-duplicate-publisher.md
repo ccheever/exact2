@@ -1,6 +1,6 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Open
+**Status:** Open — not reproduced in review round 2
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -44,3 +44,21 @@ failing run took 228.7 s at a load average near 100; the three that passed
 took 47 s each, minutes later, load near 40. So it is still there and shows
 under load; it had been closed as no longer reproducing after 13 passing
 runs at ad57fdc0. The probe above was not applied.
+
+## Review round 2 (2026-10-02)
+
+The earlier explanation was disproved: `emit_receipts` emits all destroys
+before any surface publication, so that batch cannot create before destroy.
+Also, the attempted `live()` check used a GPU object id; an id is still zero
+while the GPU module loads, so two genuinely connected publishers could be
+silently accepted during precisely the slow-load window implicated here.
+
+The duplicate check was instrumented with old/new view, connection,
+`surfaces` registration, host view registration, generation, id, and stack.
+Three sequential `bun scripts/smoke.mjs web` runs did not reach it. They
+failed only on the builder's existing DBus/WebGPU/screenshot and scroll-limit
+failures. The permanent predicate now replaces an old publisher only when its
+surface or host view is no longer registered, or its element is disconnected;
+it never uses the GPU id. A regression test queues two connected, registered
+publishers before GPU load and requires the duplicate diagnostic. The original
+intermittent cause remains unknown, so this issue is open.

@@ -2,9 +2,15 @@ import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
+const swift=process.platform==='darwin' ? spawnSync('xcrun',['swift','--version'],{encoding:'utf8',env:process.env}) : null;
+const unavailable=process.platform!=='darwin' ? 'the extracted Swift placement harness requires macOS and xcrun'
+  : swift.status===0 ? null : `xcrun swift does not work${process.env.DEVELOPER_DIR ? ` with DEVELOPER_DIR=${process.env.DEVELOPER_DIR}` : ''}: ${(swift.stderr||swift.error?.message||`exit ${swift.status}`).trim()}`;
+if(unavailable) console.warn(`SKIP: ${unavailable}`);
+const check=unavailable ? test.skip : test;
+
 // Execute each production capture loop's empty-child branch with Swift values.
 // The remainder of the loop is a stand-in for a successful bitmap upload.
-for (const host of ['Mac','IOS']) test(`${host} clears zero-sized and display-none captures`,()=>{
+for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-none captures${unavailable ? ` — ${unavailable}` : ''}`,()=>{
   const file=`host/apple/Sources/ExactKit/${host}/Gpu${host}.swift`;
   const source=readFileSync(process.env.R7_APPLE_SOURCE ?? file,'utf8');
   const start=source.indexOf('        for (i, child) in children.enumerated() {');
@@ -33,16 +39,16 @@ ${branch}
 }
 precondition(capture()); precondition(m.cleared == [1,2]); precondition(captured == 1)
 `;
-  const env={...process.env,DEVELOPER_DIR:'/Applications/Xcode.app/Contents/Developer'};delete env.SDKROOT;
+  const env={...process.env};delete env.SDKROOT;
   const r=spawnSync('xcrun',['swift','-'],{input:swift,encoding:'utf8',env,timeout:60000});
   expect(r.status, r.stderr).toBe(0);
 },65000);
 
-for(const host of ['Mac','IOS']) test(`${host} hidden placement box is zero, not the kernel frame`,()=>{
+for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, not the kernel frame${unavailable ? ` — ${unavailable}` : ''}`,()=>{
   const source=readFileSync(process.env.R7_APPLE_AGENT ?? `host/apple/Sources/ExactKit/${host}/Agent${host}.swift`,'utf8');
-  const start=source.indexOf('    func box('), body=source.indexOf('\n',start);
-  const end=source.indexOf(host==='Mac'?'        let clip =':'        let vp =',body);
-  const guard=source.slice(body,end);
+  const start=source.indexOf('        if (v as? NodeView)?.placedAncestor?.placementHidden == true');
+  expect(start).toBeGreaterThan(-1);
+  const guard=source.slice(start,source.indexOf('\n',start));
   const swift=`struct Rect: Equatable {var width:Int;static let zero=Rect(width:0)}
 class View {}
 class NodeView: View {var placedAncestor:NodeView?;var placementHidden=false}
@@ -51,7 +57,7 @@ let parent=NodeView(), child=NodeView();child.placedAncestor=parent
 precondition(box(child).width==100);parent.placementHidden=true
 precondition(box(child)==Rect.zero)
 `;
-  const env={...process.env,DEVELOPER_DIR:'/Applications/Xcode.app/Contents/Developer'};delete env.SDKROOT;
+  const env={...process.env};delete env.SDKROOT;
   const r=spawnSync('xcrun',['swift','-'],{input:swift,encoding:'utf8',env,timeout:60000});
   expect(r.status,r.stderr).toBe(0);
 },65000);
