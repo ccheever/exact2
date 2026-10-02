@@ -148,6 +148,8 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) svg_depth: u32,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    /// Where a native button may not be, from the nearest ancestor that says.
+    pub(crate) button_context: Option<&'static str>,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -246,6 +248,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         parent_positioned: true,
+        button_context: None,
         host_transforms: Default::default(),
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
@@ -262,10 +265,11 @@ fn lower_with_sites(
         for a in &s.attrs {
             match tags::attr(&a.name) {
                 Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
+                Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
                     id: "lower-style-attr",
                     message: format!(
-                        "`{}` cannot be in `style {}`: a style holds style rows only — no `testId`, no handlers, no props",
+                        "`{}` cannot be in `style {}`: a style holds style rows (and `buttonStyle`) only — no `testId`, no handlers, no other props",
                         a.name, s.name
                     ),
                     span: a.span,
@@ -695,6 +699,9 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                if control == Some("button") {
+                    self.check_native_button(expanded, children, *span)?;
+                }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 let numeric = controls::range_attrs(control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
@@ -750,27 +757,7 @@ impl<'a> Lowerer<'a> {
                         *span,
                     );
                 }
-                if matches!(tag.as_str(), "button" | "link")
-                    && children.is_empty()
-                    && !has(&[
-                        "width",
-                        "height",
-                        "flex",
-                        "padding",
-                        "padding-top",
-                        "padding-right",
-                        "padding-bottom",
-                        "padding-left",
-                        "min-width",
-                        "min-height",
-                    ])
-                {
-                    return err(
-                        "lower-zero-size",
-                        format!("`{tag}` has no children and no size, so it has zero area and nothing to press: give it children or a size"),
-                        *span,
-                    );
-                }
+                controls::check_zero_size(tag, expanded, children, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()
@@ -1027,7 +1014,11 @@ impl<'a> Lowerer<'a> {
                     || t.fixed_styles
                         .iter()
                         .any(|(id, v)| *id == StyleId::PositionType && *v != "static");
+                let button_context = self.button_context;
+                self.button_context =
+                    controls::button_context(tag, expanded, control).or(button_context);
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.button_context = button_context;
                 self.parent_positioned = parent_positioned;
                 self.svg_depth -= enters as u32;
                 lowered

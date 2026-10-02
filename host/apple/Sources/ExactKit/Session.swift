@@ -681,6 +681,7 @@ public final class ExactSession {
             if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
+        presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }

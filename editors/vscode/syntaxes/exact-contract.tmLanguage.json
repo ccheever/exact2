@@ -1,0 +1,384 @@
+{
+  "name": "Exact Contract",
+  "scopeName": "source.exact-contract",
+  "fileTypes": [
+    "contract"
+  ],
+  "comment": "Hand-maintained against contract/syntax/src/{lexer,parser}.rs and contract/{lower/src/tags,analyze/src/lib}.rs. CSS attribute names are matched structurally; the compiler validates them.",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#view-tags"
+    },
+    {
+      "include": "#attributes"
+    },
+    {
+      "include": "#expression"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "match": "//.*$",
+          "name": "comment.line.double-slash.exact-contract"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.exact-contract",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [
+            {
+              "include": "#escapes"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.template.exact-contract",
+          "begin": "`",
+          "end": "`|$",
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "include": "#template-interpolation"
+            }
+          ]
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "match": "\\\\[nt\"\\\\`$]",
+          "name": "constant.character.escape.exact-contract"
+        },
+        {
+          "match": "\\\\.",
+          "name": "invalid.illegal.escape.exact-contract"
+        }
+      ]
+    },
+    "template-interpolation": {
+      "name": "meta.template-expression.exact-contract",
+      "begin": "\\$\\{",
+      "end": "\\}|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.exact-contract"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.exact-contract"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "braces": {
+      "begin": "\\{",
+      "end": "\\}|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.begin.exact-contract"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.end.exact-contract"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "^(component|shape|style|keyframes)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.type.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^(fn)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.function.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^(routes)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "variable.other.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^(use)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)(\\s+from)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.type.exact-contract"
+            },
+            "3": {
+              "name": "keyword.control.import.from.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^(font|test)(?=\\s+\")",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(state|derive|resource|mutation|let)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "variable.other.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(action|task)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.function.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(props|inject|provide|slot|view)\\s*(?://.*)?$",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(send|refresh)(?=\\s+[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(tap|type|clock|screenshot|expect)(?=\\s)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.test.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(tab)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.route.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.section.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(notfound)(?=\\s|$)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.route.exact-contract"
+            }
+          }
+        }
+      ]
+    },
+    "view-tags": {
+      "patterns": [
+        {
+          "match": "^\\s*(view|box|column|row|dialog|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|head)(?=\\s|$)(?!\\s*[=:])",
+          "captures": {
+            "1": {
+              "name": "support.type.view.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*([a-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)+)(?=\\s|$)(?!\\s*[=:])",
+          "captures": {
+            "1": {
+              "name": "support.type.view.native.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^\\s*([A-Z](?:[A-Za-z0-9_]|-[A-Za-z])*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.component.exact-contract"
+            }
+          }
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|select|hover|focus|blur|key|submit|load|message|contextmenu|dblclick|swiperight|refresh|scroll|pan|panrelease|loadedmetadata|durationchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|navigate|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
+          "name": "support.function.event.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*(?=\\s*=(?!=))",
+          "name": "entity.other.attribute-name.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*(?=\\s*:(?!:))",
+          "name": "variable.other.property.exact-contract"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:and|or|not)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "keyword.operator.logical.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:true|false|none)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "constant.language.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:when|if|else|each|in|key|match|case|as|shape|mount|from|to|then|refreshes|children)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "keyword.control.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:number|string|bool|action)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "storage.type.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])(?:some)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "support.function.exact-contract"
+        },
+        {
+          "match": "\\b(every)(\\s*\\(\\s*)(frame)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.exact-contract"
+            },
+            "3": {
+              "name": "constant.language.frame.exact-contract"
+            }
+          }
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_])\\d+(?:\\.\\d+)?(?![A-Za-z0-9_])",
+          "name": "constant.numeric.exact-contract"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_\\-])[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*(?=\\s*\\()",
+          "name": "entity.name.function.exact-contract"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_\\-])[A-Z](?:[A-Za-z0-9_]|-[A-Za-z])*(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "entity.name.type.exact-contract"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_\\-])[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*(?![A-Za-z0-9_]|-[A-Za-z])",
+          "name": "variable.other.exact-contract"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "==|!=|<=|>=|&&|\\|\\||=>|[=:+*/%!?<>.\\-]",
+          "name": "keyword.operator.exact-contract"
+        },
+        {
+          "match": "[(),\\[\\]{}]",
+          "name": "punctuation.separator.exact-contract"
+        }
+      ]
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#braces"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#calls"
+        },
+        {
+          "include": "#identifiers"
+        },
+        {
+          "include": "#operators"
+        }
+      ]
+    }
+  }
+}

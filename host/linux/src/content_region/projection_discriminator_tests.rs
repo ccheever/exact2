@@ -34,7 +34,11 @@ impl ObservedRaster {
         let (x, y, w, h) = s.rect;
         let mut bits = point((x, y), ts).to_vec();
         bits.extend(point((x + w, y + h), ts));
-        bits.extend(s.radii.map(f32::to_bits));
+        bits.extend(
+            s.radii
+                .into_iter()
+                .flat_map(|(x, y)| [x.to_bits(), y.to_bits()]),
+        );
         bits.extend(rect_bits(s.rect));
         bits.extend(transform_bits(ts));
         bits.extend_from_slice(extra);

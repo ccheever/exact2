@@ -30,6 +30,9 @@ pub enum ControlKind {
     Time,
     /// `input type="datetime-local"`: a date, `T`, a time; no zone.
     DateTimeLocal,
+    /// `button appearance="auto"`: the platform's button (LLP 1069.011),
+    /// its title and image its children.
+    Button,
 }
 
 impl ControlKind {
@@ -39,6 +42,7 @@ impl ControlKind {
             return None;
         }
         Some(match props.str(PropId::Type) {
+            Some("button") => ControlKind::Button,
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
             Some("range") => ControlKind::Range,
@@ -64,6 +68,9 @@ impl ControlKind {
             ControlKind::Date => (150.0, 21.0),
             ControlKind::Time => (111.796_875, 22.796_875),
             ControlKind::DateTimeLocal => (240.0, 21.0),
+            // UIKit's medium button, rounded (LLP 1069.011 §2: 63.33 × 34.33
+            // for a short title): frame one until the host reports.
+            ControlKind::Button => (64.0, 34.0),
         }
     }
 
@@ -207,6 +214,18 @@ pub struct Choice {
     pub disabled: bool,
 }
 
+/// A native button's face (LLP 1069.011 D5): its title and image, read from
+/// its children as a select's options are.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ButtonFace {
+    /// Its `text` child's text, white space collapsed.
+    pub title: Option<String>,
+    /// Its `image` child's symbol role (`send`, not `symbol:send`).
+    pub symbol: Option<String>,
+    /// Whether the image comes before the title (the inline start).
+    pub leading: bool,
+}
+
 /// Whether `node` is an `option`: a text node the `option` tag made.
 pub fn is_option(node: &NodeRef<'_>) -> bool {
     is_option_node(node.node_type, node.props)
@@ -247,6 +266,38 @@ impl Kernel {
                 }
             })
             .collect()
+    }
+
+    /// A native button's title and image from its children, live (a `when`
+    /// between them is read as it now stands); empty for any other node.
+    pub fn button_face(&self, view: ViewId) -> ButtonFace {
+        let mut face = ButtonFace::default();
+        let Some(button) = self.node(view) else {
+            return face;
+        };
+        if ControlKind::of(button.node_type, button.props) != Some(ControlKind::Button) {
+            return face;
+        }
+        for child in button.children().into_iter().filter_map(|id| self.node(id)) {
+            match child.node_type {
+                NodeType::Text if face.title.is_none() => {
+                    let text: String = child.text_runs().iter().map(|r| &*r.text).collect();
+                    let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    // A blank title shows nothing: it is no title.
+                    face.title = (!title.is_empty()).then_some(title);
+                }
+                NodeType::Image if face.symbol.is_none() => {
+                    face.symbol = child
+                        .props
+                        .str(PropId::ImageSource)
+                        .and_then(|s| s.strip_prefix("symbol:"))
+                        .map(str::to_owned);
+                    face.leading = face.title.is_none();
+                }
+                _ => {}
+            }
+        }
+        face
     }
 
     /// The option a select shows: the one whose value its `value` names;

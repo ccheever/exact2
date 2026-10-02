@@ -9,6 +9,8 @@ import UIKit
 extension NodeView {
     var accessibleText: String {
         if let text = props["text"] { return text }
+        // A native button's children are its face, not views (LLP 1069.011 D5).
+        if isNativeButton { return nativeTitle ?? "" }
         if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
         let children = container.subviews.compactMap { $0 as? NodeView }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
@@ -68,7 +70,8 @@ extension Presenter {
             nodes = views.values.sorted(by: { $0.id < $1.id })
         }
         for node in nodes {
-            if node.kind == "button" || node.props["accessibilityRole"] == "button" {
+            // A native button's control is its accessibility element (LLP 1069.011 D4).
+            if (node.kind == "button" || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
                 #if os(macOS)
                 node.setAccessibilityLabel(node.accessibleName)
                 #else

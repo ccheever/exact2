@@ -1130,6 +1130,12 @@ impl Em<'_> {
                 BindingKind::Prop => {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;
+                    // The plan stores editable; HTML exposes the inverse, readonly.
+                    let f = if prop == PropId::Editable {
+                        format!("()=>!({f})()")
+                    } else {
+                        f.clone()
+                    };
                     let p = self.uses.rt("P");
                     let _ = write!(
                         self.out,

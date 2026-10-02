@@ -3,6 +3,12 @@
 component Styles
   state on = false
   state width = 120
+  state title = ""
+  state body = ""
+  action titleInput(value: string)
+    title = value
+  action bodyInput(value: string)
+    body = value
   action flip
     on = not on
   action widen
@@ -13,8 +19,13 @@ component Styles
         text on ? "on" : "off"
       button press=widen testId="widen"
         text "widen"
-      view testId="box" width=width height=(on ? "40%" : 60) background-color=(on ? "#2a9d8f" : "#e76f51") opacity=(on ? 0.5 : 1) border-radius=(on ? 20 : 4)
+      view testId="box" width=width height=(on ? "40%" : 60) background-color=(on ? "#2a9d8f" : "#e76f51") opacity=(on ? 0.5 : 1) border-radius=(on ? "50%" : "4px")
       row testId="row" justify-content=(on ? "flex-end" : "flex-start") gap=(on ? 12 : 4)
         text "left" color=(on ? "#264653" : "#000000") font-size=(on ? 20 : 14)
         text "right" font-weight=(on ? 700 : 400)
       view testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
+      view testId="ellipse" width=160 height=80 background-color="#2468ac" border-radius="50%"
+      input testId="title" value=title readonly=on input=titleInput
+      textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput
+      input testId="locked" value="locked" readonly=true
+      input testId="unlocked" readonly=false

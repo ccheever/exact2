@@ -12,6 +12,20 @@ final class BoxLayerMacTests: XCTestCase {
     private let white: BatchValue = [255, 255, 255, 255]
     private let blue: BatchValue = [0, 136, 255, 255]
 
+    func testPercentageRadiusUsesBothAxesAndFollowsResize() {
+        var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node(style, size: CGSize(width: 160, height: 80))
+        XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 80, height: 40), count: 4))
+        XCTAssertFalse(n.roundedPath(in: n.bounds).cgPath.contains(CGPoint(x: 20, y: 5)))
+        XCTAssertTrue(n.roundedPath(in: n.bounds).cgPath.contains(CGPoint(x: 80, y: 5)))
+        n.frame.size = CGSize(width: 80, height: 160)
+        XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 40, height: 80), count: 4))
+        XCTAssertNil(FlatPaint(style), "percentage geometry cannot use a fixed-radius flat leaf")
+    }
+
     private func node(_ style: NodeStyle, kind: String = "view", size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {
         _ = NSApplication.shared
         let p = Presenter()

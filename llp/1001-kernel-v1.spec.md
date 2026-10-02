@@ -69,6 +69,13 @@ default left grid auto columns at content width (`auto auto` in 400px: 0
 wide, Chrome 200 each). `kernel/tests/it/browser_cases.rs` holds the
 literal-Chrome cases. `align-self` keeps `auto` and has no `normal`.
 
+**Corner percentages (2026-10-02):** the four `border_radius_*` rows store
+lengths or percentages. A single `border-radius="50%"` sets each corner;
+percentages resolve independently against the border box's width and height,
+then CSS's common overlap reduction applies. Web keeps the authored percentage;
+Apple and Linux paint elliptical corners, including after a resize. Negative
+literal lengths and percentages and `auto` are refused.
+
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
 (bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.
@@ -885,6 +892,26 @@ host policy stays the Apple-policy spelling beside CSS `backdrop-filter` (LLP
 1053.000 D3): it is not sugar for a blur, and where a node has both the material
 wins on every host (the web's material rule is `!important` over the inline
 blur).
+
+### Native buttons
+
+Exact's `button` is the author's box: its UA sheet is `appearance: none`
+(a fixed row, which `layout` reports), where a browser's is `auto`. An
+`appearance` that is the literal `auto` after class merging makes it the
+platform's own button (LLP 1069.011): a `Control` of type `button`, UIKit's
+`UIButton` with the `UIButton.Configuration` its `buttonStyle` names,
+AppKit's `NSButton`, the browser's own `<button>`, a painted button on Linux.
+Its `text` and symbol `image` children are its title and image, read from the
+kernel, never laid out. Declared: its box is `border-box` on every host with
+the platform's chrome inside it; its box refuses `padding`, `border`,
+`background`, `box-shadow`, `filter`, `overflow`, colour and typography,
+which LLP 1069.001 D6 lets other controls' boxes take, because a browser
+drops a native button's look under them; it refuses `direction` and
+`pointer-events` too (its face's order is its children's, and the platform
+hit-tests its own control); `accent-color` colours what the platform colours
+with its tint, as iOS does on the web and Linux; inherited typography is
+reset on the web's native face; Linux draws no symbol. Its size is the
+platform's, as any control's is.
 
 ### Window toolbars
 
