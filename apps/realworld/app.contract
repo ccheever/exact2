@@ -123,26 +123,18 @@ component RealWorld
   derive listKind = (current.name == "home" ? (following ? (me.signedIn ? "feed": ""): "global"): current.name == "tag" ? "tag": current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
   state page = 1
   state loginNext = false
-  state seenAuth = 0
-  state seenChange = 0
   state editorSession = 0
   state tagInput = ""
   state commentDraft = ""
-  mutation auth as shape Auth refreshes me, favs, follows
+  mutation auth as shape Auth refreshes me, favs, follows then signedIn
   // A mutation per kind of write, each refreshing what that write changes
   // (LLP 1058 P5): a favorite or a follow its presses, a comment the
   // thread, a publish or a delete the lists and the article.
-  mutation change as shape Change refreshes feed, post
+  mutation change as shape Change refreshes feed, post then changed
   mutation faved as shape Change refreshes favs
   mutation followed as shape Change refreshes follows
   mutation commented as shape Change refreshes thread
   mutation tagEdit as shape Tags
-  derive authStamp = match auth { case some(a) => a.stamp, case none => 0 }
-  derive authOk = match auth { case some(a) => a.ok, case none => false }
-  derive changeStamp = match change { case some(c) => c.stamp, case none => 0 }
-  derive changeOk = match change { case some(c) => c.ok, case none => false }
-  derive changeKind = match change { case some(c) => c.kind, case none => "" }
-  derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
   resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
@@ -205,20 +197,31 @@ component RealWorld
     send commented = deleteComment(target, id)
   action removeTag(tag: string) writes tagEdit
     send tagEdit = removeTag(editorSession, editorTags, tag)
-  // A mutation's answer arrives after the action that sent it, and nothing
-  // runs when it lands, so a tick looks for an unseen answer and redirects
-  // the way the spec asks (signed in → home; published → the article;
-  // deleted → home). LLP 1038 §7: "an action checks … and applies replace".
+  // An answer runs its mutation's `then` once it lands (LLP 1016.001), which
+  // redirects the way the spec asks: signed in → home; published → the
+  // article; deleted → home. LLP 1038 §7: "an action checks … and applies
+  // replace".
+  action signedIn writes nav
+    match auth
+      case some(a)
+        if a.ok and (current.name == "login" or current.name == "register" or current.name == "settings")
+          nav = open(nav, "/")
+      case none
+  action changed writes nav
+    match change
+      case some(c)
+        if c.ok and c.kind == "publish"
+          nav = open(nav, path("article", c.slug))
+        if c.ok and c.kind == "delete"
+          nav = open(nav, "/")
+      case none
   // Your Feed is the signed-in reader's; a signed-out visit goes to sign in,
   // in place of its entry, as React's <Navigate to="/login" replace />. A
   // tab's first entry can only be its root, so a first visit's entry gives
   // up its query, and /login follows on the next tick: Back is the global
-  // feed, never Your Feed again.
-  action settle writes nav, seenAuth, seenChange, loginNext
-    if authStamp != seenAuth
-      seenAuth = authStamp
-      if authOk and (current.name == "login" or current.name == "register" or current.name == "settings")
-        nav = open(nav, "/")
+  // feed, never Your Feed again. A tick looks, since `me` answering runs
+  // nothing.
+  action settle writes nav, loginNext
     if loginNext
       loginNext = false
       if current.name == "home" and not me.signedIn
@@ -229,12 +232,6 @@ component RealWorld
       else
         loginNext = true
         nav = replace(nav, "/")
-    if changeStamp != seenChange
-      seenChange = changeStamp
-      if changeOk and changeKind == "publish"
-        nav = open(nav, path("article", changeSlug))
-      if changeOk and changeKind == "delete"
-        nav = open(nav, "/")
   task settling mount
     every(100, settle)
 
