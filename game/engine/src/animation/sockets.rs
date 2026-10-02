@@ -133,7 +133,7 @@ pub(crate) fn socket_matrix_with(
 }
 /// Whether an animated socket needs this tick's animation step. Setup's bind pose is valid.
 pub fn socket_stale(w: &World, e: Entity) -> bool {
-    if !(w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e)) {
+    if !(w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e) || w.has::<Layers>(e)) {
         return false;
     }
     let stepped = w.get::<Pose>(e).and_then(|p| p.stepped);

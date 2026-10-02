@@ -176,3 +176,142 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
         );
     }
 }
+
+#[test]
+fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
+    use exact_game::asset::{Clip, MaterialData, Track, TrackPath};
+    use exact_game_render::{
+        exact_gpu::{fixture, wgpu, Frame, Surface},
+        WorldSurface,
+    };
+    struct Rigid;
+    impl Game for Rigid {
+        const ID: &'static str = "rigid-glow";
+        const ASSETS: &'static [&'static str] = &["rig.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let b = w.model("rig.model").unwrap().bounds;
+            let center = (Vec3::from_slice(&b[..3]) + Vec3::from_slice(&b[3..])) * 0.5;
+            w.spawn_named(
+                "rig",
+                (
+                    Transform {
+                        position: -center,
+                        ..Default::default()
+                    },
+                    Mesh::asset("rig.model"),
+                    Animation::play("shift").once(),
+                    Glow(Tween::new(1.)),
+                ),
+            );
+            w.spawn((
+                Transform::at(0., 0., 8.).looking_at(Vec3::ZERO, Vec3::Y),
+                Camera::default(),
+            ));
+            w.insert_resource(Environment {
+                fog: None,
+                background: Some([0.; 3]),
+                ..Default::default()
+            });
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            animation::step(w);
+            if w.tick() == 29 {
+                w.require_mut::<Glow>("rig").0 = Tween::new(0.);
+            }
+            if w.tick() == 59 {
+                w.remove::<Glow>(w.named("rig").unwrap());
+            }
+        }
+    }
+    let Some(gpu) = test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut model = skin_fixture::skinned_model();
+    model.skins.clear();
+    model.textures.clear();
+    model.materials = vec![MaterialData {
+        base_color: [0., 0., 0., 1.],
+        emissive: [1., 0., 0.],
+        ..Default::default()
+    }];
+    for mesh in &mut model.meshes {
+        mesh.joints.clear();
+        mesh.weights.clear();
+        mesh.material = 0;
+    }
+    for node in &mut model.nodes {
+        node.skin = None;
+    }
+    let node = model.nodes.iter().position(|n| n.mesh.is_some()).unwrap() as u32;
+    let bind = animation::bind_pose(&model);
+    let start = Vec3::from_slice(&bind[node as usize * 10..]);
+    model.clips = vec![Clip {
+        name: "shift".into(),
+        tracks: vec![Track {
+            node,
+            path: TrackPath::Translation,
+            times: vec![0., 1.],
+            values: [start.to_array(), (start + Vec3::X * 2.).to_array()].concat(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let mut surface = WorldSurface::<Rigid, exact_game_render::ModelPresentation, true>::default();
+    surface.device_ready(wgpu::Features::empty());
+    surface.bind(&[], None).unwrap();
+    assert_eq!(surface.assets().requests, ["rig.model"]);
+    surface.asset("rig.model", Ok(&bin::to_vec(&model)));
+    surface.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut frame = Frame {
+        width: 320.,
+        height: 240.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let render = |surface: &mut WorldSurface<Rigid, exact_game_render::ModelPresentation, true>,
+                  frame: &Frame| {
+        let (image, _) = fixture::render(&gpu, surface, frame).unwrap();
+        assert!(surface.error().is_none(), "{:?}", surface.error());
+        image
+    };
+    let red = |p: [u8; 4]| p[0] > 80 && p[0] > p[1] * 2 && p[0] > p[2] * 2;
+    let center = |image: &fixture::Pixels| {
+        let mut sum = 0.;
+        let mut count = 0;
+        for y in 0..image.height {
+            for x in 0..image.width {
+                if red(image.at(x, y)) {
+                    sum += x as f32;
+                    count += 1;
+                }
+            }
+        }
+        assert!(count > 100, "the emissive mesh must be visible");
+        sum / count as f32
+    };
+    let initial = render(&mut surface, &frame);
+    frame.now_ms = 250.;
+    let moving = render(&mut surface, &frame);
+    assert!(
+        center(&moving) > center(&initial) + 8.,
+        "an unskinned node must move its actual pixels"
+    );
+    frame.now_ms = 500.;
+    let dimmed = render(&mut surface, &frame);
+    assert_eq!(
+        dimmed.count(red),
+        0,
+        "Glow(0) must extinguish baked model emission"
+    );
+    frame.now_ms = 1000.;
+    let restored = render(&mut surface, &frame);
+    assert!(
+        center(&restored) > center(&moving) + 8.,
+        "removing Glow restores baked emission at the animated pose"
+    );
+}

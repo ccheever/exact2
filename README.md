@@ -203,17 +203,21 @@ Linux host.
 - **Hermes**, only for TypeScript apps on native hosts. Clone
   [expo/ibex](https://github.com/expo/ibex) beside this repository and build it once:
   `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
-- **A pinned nightly**, only for the wasm artifacts (games, delivery bakes, a native
-  client following a dev URL):
-  `rustup toolchain install nightly-2026-08-21 --profile minimal --component rust-src`.
-  The build prints this command when it needs it.
+
+To install the pinned Bun beside any existing installation:
+`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
+Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
+`bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
+toolchains, their components/targets, matching wasm-bindgen, pinned Binaryen and
+Bun dependencies. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
+automatically. `setup --check` checks the installed tools without installing them.
 
 ### 2. Run Caltrain in the browser
 
 ```sh
 git clone https://github.com/ccheever/exact2.git
 cd exact2
-bun install --frozen-lockfile
+bun scripts/exact.mjs setup
 bun host/web/dev.mjs            # Caltrain, at http://127.0.0.1:8765/
 ```
 

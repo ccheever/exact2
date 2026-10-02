@@ -444,12 +444,13 @@ function openingLinks(app, platform, development) {
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 
-/** The entitlements a device build signs with (LLP 1030 D1's host-metadata row): the identity the profile grants, and what the manifest's `host.ios` claims — associated domains for the app's origin when it says so. Generated, never committed. */
-export const entitlements = (app, team, debuggable = true, reach = null) => {
+/** Device identity comes from the profile. Simulators need an app identity too:
+ * Keychain's default access group is the application-identifier. */
+export const entitlements = (app, team = null, debuggable = true, reach = null) => {
   const ios = app.manifest.host?.ios ?? {};
   const dict = {
-    'application-identifier': `${team}.${app.id}`,
-    'com.apple.developer.team-identifier': team,
+    'application-identifier': team ? `${team}.${app.id}` : app.id,
+    ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
@@ -1060,7 +1061,17 @@ function main(args) {
   if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
   for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
   for (const p of products) {
-    runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
+    const productArgs = [...swiftArgs];
+    if (ios && !device) {
+      // Simulator Security reads entitlements from the Mach-O text section.
+      // Device-style entitlements in its ad-hoc signature can prevent launch.
+      const ent = resolve(swiftBuildRoot, `${p}-entitlements.plist`);
+      mkdirSync(swiftBuildRoot, {recursive: true});
+      writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
+      productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+        '-Xlinker', '__entitlements', '-Xlinker', ent);
+    }
+    runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
     copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
@@ -1342,14 +1353,14 @@ function main(args) {
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (device) {
       copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team, signingProfile.dev, bakedCompat.reach));
     }
+    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? true, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
-      entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null, development: host ? null : development }));
+      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development }));
     if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });

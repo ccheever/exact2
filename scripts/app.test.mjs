@@ -168,13 +168,13 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
-    const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
+    const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
@@ -457,6 +457,40 @@ test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermedia
 });
 
 
+test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build directory %s requires unique compiler evidence', async split => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-wasm-dep-'));
+  try {
+    const metadata = {target_directory:resolve(root, 'output'), build_directory:resolve(root, split ?? 'output'),
+      packages:[{id:'game-id', name:'game-gpu'}]};
+    const dir = resolve(metadata.target_directory, 'wasm32-unknown-unknown/web'), src = resolve(root, 'gpu/src/lib.rs');
+    mkdirSync(dir, {recursive:true});
+    const artifact = resolve(dir, 'game_gpu.wasm');
+    writeFileSync(artifact, 'selected wasm');
+    const message = {package_id:'game-id', filenames:[artifact], target:{name:'game_gpu', src_path:src}};
+    const unit = (hash, bytes, source = src) => {
+      const out = resolve(metadata.build_directory, 'wasm32-unknown-unknown/web/build/game-gpu', hash, 'out');
+      mkdirSync(out, {recursive:true});
+      writeFileSync(resolve(out, 'game_gpu.wasm'), bytes);
+      const dep = resolve(out, 'game_gpu.d');
+      writeFileSync(dep, `${dep}: ${source}\n# env-dep:EXACT_GAME_PARANOID=0\n`);
+      return dep;
+    };
+    unit('deadbeef', 'another wasm');
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    const expected = unit('a11ce', 'selected wasm', resolve(root, 'old/lib.rs'));
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    unit('a11ce', 'selected wasm');
+    writeFileSync(expected, `${artifact}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    unit('a11ce', 'selected wasm');
+    assert.equal(unitDepInfo(message, root, metadata), expected);
+    assert.match(readFileSync(expected, 'utf8'), /env-dep:EXACT_GAME_PARANOID=0/);
+    unit('aabbcc', 'selected wasm');
+    assert.throws(() => unitDepInfo(message, root, metadata), /ambiguous rustc unit/);
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');
@@ -547,11 +581,15 @@ opt-level=3
 test('game bakes resolve one fresh Cargo graph for the actual target and environment', () => fixture(({app, dir, root, run, write, pkg, update}) => {
   write('game/Cargo.toml', readFileSync(resolve(root,'game/Cargo.toml'),'utf8') + '\n[profile.gpu-dev]\ninherits="dev"\n');
   write('game/deps/exact-game/src/lib.rs', `
-    pub enum Value { Number(f64), Bool(bool), Str(Box<str>), Other }
+    pub enum Value { Number(f64), Bool(bool), Text(Box<str>), Other }
+    impl Value {
+      pub fn is_str(&self) -> bool { matches!(self, Self::Text(_)) }
+      pub fn text(&self) -> &str { if let Self::Text(s) = self { s } else { "" } }
+    }
     pub trait Args: Default { const FIELDS: &'static [(&'static str, ())]; fn values(&self) -> Vec<Value>; }
     impl Args for () {
       const FIELDS: &'static [(&'static str, ())] = &[("seed", ()), ("paused", ()), ("label", ())];
-      fn values(&self) -> Vec<Value> { vec![Value::Number(7.0), Value::Bool(false), Value::Str("say \\"hi\\"\\n雪".into())] }
+      fn values(&self) -> Vec<Value> { vec![Value::Number(7.0), Value::Bool(false), Value::Text("say \\"hi\\"\\n雪".into())] }
     }
     pub trait Game { const NAME: &'static str; type Args: Args; }
   `);
@@ -584,7 +622,7 @@ test('game bakes resolve one fresh Cargo graph for the actual target and environ
     assert.ok(calls[0].includes(`--filter-platform ${target}`));
     assert.ok(calls[0].endsWith(`|${info.target}`));
     assert.equal(graph.target_directory, info.target);
-    assert.equal(graph.build_directory, resolve(root,'game/target'));
+    assert.equal(graph.build_directory, info.target);
     assert.ok(!graph.resolve.nodes.some(node => graph.packages.find(p=>p.id===node.id)?.name === 'wasm-only'));
     assert.ok(result.products.some(path=>/\.(so|dylib)$/.test(path)));
     assert.ok(result.products.every(path=>!path.endsWith('.rlib')));
@@ -1048,4 +1086,36 @@ test('an Apple app records the SDK it is built with unless its manifest keeps th
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Design', app: { id: 'com.example.design', name: 'Design' }, host: { macos: { designRequiresCompatibility: 'yes' } } }));
     assert.throws(() => readManifest(dir, 'design'), /designRequiresCompatibility/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('web remapping preserves game floating-point determinism on both web toolchains', async () => {
+  const {wasmRemapFlags, WEB_TOOLCHAIN} = await import('./app.mjs');
+  const workspace = new URL('../game/', import.meta.url).pathname;
+  for (const toolchain of [null, WEB_TOOLCHAIN]) {
+    const flags = manifest => JSON.parse(wasmRemapFlags({workspace,target:workspace+'target',manifest},toolchain)[1].replace(/^[^=]*=/,''));
+    const game = flags({game:{}});
+    assert.equal(game.filter(flag=>flag==='llvm-args=-fp-contract=off').length,1);
+    assert.equal(game[game.indexOf('llvm-args=-fp-contract=off')-1],'-C');
+    assert.ok(!flags({}).includes('llvm-args=-fp-contract=off'));
+  }
+});
+
+test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
+  const {entitlements} = await import('../host/apple/build.mjs');
+  const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
+  const sim = entitlements(app), host = entitlements({...app,id:app.id+'.host'});
+  assert.match(sim, /<key>application-identifier<\/key><string>com.exact.test<\/string>/);
+  assert.match(host, /<key>application-identifier<\/key><string>com.exact.test.host<\/string>/);
+  assert.doesNotMatch(sim, /com.apple.developer.team-identifier/);
+  const device = entitlements(app, 'TEAM', false);
+  assert.match(device, /TEAM.com.exact.test/);
+  assert.match(device, /<key>get-task-allow<\/key><false\/>/);
+});
+
+test('setup accepts both official Binaryen release tags and package-manager version output', async () => {
+  const {binaryenVersion} = await import('./exact.mjs');
+  assert.equal(binaryenVersion('wasm-opt version 132 (version_132)\n'), 'version 132');
+  assert.equal(binaryenVersion('wasm-opt version 132\n'), 'version 132');
+  assert.notEqual(binaryenVersion('wasm-opt version 1320 (version_1320)'), 'version 132');
+  assert.notEqual(binaryenVersion('missing'), 'version 132');
 });

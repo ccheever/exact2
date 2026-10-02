@@ -169,9 +169,6 @@ fn level_declaration_validates_names_and_counts_against_the_surface_limit() {
     let names = full.take_assets();
     assert_eq!(names.len(), 256);
     assert!(names.iter().any(|name| name == "island.level.json"));
-    let error = Sim::<Bounded<256>>::new(()).err().unwrap();
-    assert!(
-        error.contains("island.level.json") && error.contains("256"),
-        "{error}"
-    );
+    let mut larger = Sim::<Bounded<256>>::new(()).unwrap();
+    assert_eq!(larger.take_assets().len(), 257);
 }

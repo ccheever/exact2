@@ -93,6 +93,11 @@ fn bake_source<D: contract::DataSource>(
     );
     fs::write(out.join("compat.json"), compat.to_json()).unwrap();
     let entry = contract::rust_entry(data_type, constructor, "off").unwrap();
+    let linked = if platform == "web" {
+        contract::web_linked(&baked, &compat.inputs)
+    } else {
+        String::new()
+    };
     let host = match platform {
         "web" => "exact_web::host!(AppData, PLAN, COMPAT, app_data);",
         "macos" | "ios" => {
@@ -111,6 +116,7 @@ fn bake_source<D: contract::DataSource>(
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 {entry}
+{linked}
 {host}
 "#
         ),

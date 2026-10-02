@@ -361,8 +361,8 @@ impl Model {
             }
         }
         self.offsets()?;
-        if !self.skins.is_empty() && self.nodes.len() > 256 {
-            return fail("skinned models support at most 256 imported nodes");
+        if (!self.skins.is_empty() || !self.clips.is_empty()) && self.nodes.len() > 256 {
+            return fail("animated models support at most 256 imported nodes");
         }
         for s in &self.skins {
             if s.joints.is_empty()
@@ -509,7 +509,6 @@ pub(crate) struct Assets {
     pub redelivery: BTreeSet<String>,
     pub dependencies: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
-    pub refusal: Option<(String, String)>,
 }
 
 // The delivery owner is installed by the first asset mutation. Primitive worlds
@@ -543,7 +542,6 @@ impl std::ops::Deref for AssetStore {
             redelivery: BTreeSet::new(),
             dependencies: map::AssetMap::EMPTY,
             retired: Vec::new(),
-            refusal: None,
         };
         self.owner.as_ref().map_or(&EMPTY, |owner| owner.as_ref())
     }
@@ -581,14 +579,7 @@ impl Assets {
             .iter()
             .all(|n| self.states.get(n).is_none_or(|s| *s == AssetState::Loaded))
     }
-    pub fn request(&mut self, name: &str) -> bool {
-        if !self.states.contains_key(name) && self.states.len() >= 256 {
-            self.refusal = Some((
-                name.into(),
-                format!("asset `{name}`: surface limit is 256 names"),
-            ));
-            return false;
-        }
+    pub fn request(&mut self, name: &str) {
         if !self.states.contains_key(name) {
             let state = if asset_name(name) {
                 AssetState::Pending
@@ -597,7 +588,6 @@ impl Assets {
             };
             self.states.insert(name.into(), state);
         }
-        true
     }
     pub fn retire(&mut self, roots: &BTreeSet<String>) {
         let mut live = roots.clone();
@@ -616,7 +606,6 @@ impl Assets {
         for name in removed {
             self.retire_name(name);
         }
-        self.refusal = None;
     }
     pub(super) fn retire_name(&mut self, name: String) {
         self.states.remove(&name);
@@ -630,7 +619,7 @@ impl Assets {
         self.retired.push(name);
     }
     pub fn state_json(&self) -> String {
-        let mut rows: Vec<_> = self
+        let rows: Vec<_> = self
             .states
             .iter()
             .map(|(name, state)| {
@@ -653,13 +642,6 @@ impl Assets {
                 )
             })
             .collect();
-        if let Some((name, reason)) = &self.refusal {
-            rows.push(format!(
-                "{{\"name\":{},\"state\":\"Failed\",\"reason\":{}}}",
-                crate::values::quote(name),
-                crate::values::quote(reason)
-            ));
-        }
         format!("[{}]", rows.join(","))
     }
 }

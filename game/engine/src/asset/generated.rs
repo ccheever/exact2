@@ -119,9 +119,7 @@ impl World {
             }
             return Ok(Mesh::asset(name));
         }
-        if !self.assets.request(name) {
-            return Err(format!("generated `{name}`: asset name limit"));
-        }
+        self.assets.request(name);
         self.assets.identify(name, digest);
         self.assets.declared.insert(name.into());
         self.assets.models.insert(name.into(), model.into());

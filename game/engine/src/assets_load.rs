@@ -30,7 +30,6 @@ impl<G: Game> Sim<G> {
         }
         if self.is_loading()
             || !failures.is_empty()
-            || self.world.assets.refusal.is_some()
             || self
                 .world
                 .assets
