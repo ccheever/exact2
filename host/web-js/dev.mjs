@@ -5,8 +5,9 @@
 // --render none`, into a stage renamed over dist/, so a request sees the old
 // build or the new one; what did not change is not rebuilt: module.mjs
 // `fresh`) and every open page reloads: the plan is compiled ahead of time,
-// so a new plan is a new program. Slot values are not carried across the
-// reload (LLP 1071 §7, "dev reload and state carry"). A build that fails
+// so a new plan is a new program. The old page checkpoints the wasm loop's
+// carried set into sessionStorage immediately before that reload; the new
+// development build consumes it once. A build that fails
 // shows its errors in the page and the page keeps the last good build.
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
@@ -31,7 +32,7 @@ function build(app, dist) {
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
-    const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none'],
+    const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none', '--dev-reload'],
       { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
@@ -62,17 +63,18 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   console.log('plan ready');
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
-  let seq = 1, saved = 0, again = false, timer = null, since = t0;
+  let seq = 1, saved = 0, again = false, timer = null, since = t0, logicChanged = false;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     if (building) { again = true; return; }
-    const at = saved, t = since = Date.now();
+    const at = saved, t = since = Date.now(), changedLogic = logicChanged;
+    logicChanged = false;
     error = await build(app, dist);
-    if (error) { console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
+    if (error) { logicChanged ||= changedLogic; console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
     else {
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
-      push({ reload: seq });
+      push({ reload: seq, logic: changedLogic });
     }
     if (again) { again = false; rebuild(); }
   };
@@ -80,6 +82,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   // a path not modified since the last build started is no edit.
   const changed = (base) => (_, name) => {
     if (name && skipped.test(String(name))) return;
+    const relative = String(name ?? '');
+    if (base === app.dir && (/(^|\/)(?:data|logic|modules)(\/|$)/.test(relative) || /(?:^|\/)(?:app\.ts|build\.rs|Cargo\.toml)$/.test(relative))) logicChanged = true;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
@@ -92,10 +96,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // The page's side: reload on a new build, the errors of a failed one in an
   // overlay, and a beacon when the reloaded page's runtime is up.
-  const client = (n) => `<script>(()=>{const seq=${n},es=new EventSource('/__dev/page');let o;
+  const client = (n) => `<script>(()=>{const seq=${n},key='exactDevReload',es=new EventSource('/__dev/page');let o;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;location.reload()}};
-const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload;const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);fetch('/__dev/reloaded?seq='+r+'&boot='+b+'&at='+Date.now(),{method:'POST'})}},2)}})()</script>`;
+const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
+const children=e=>[...e.children].filter(x=>x.hasAttribute('data-carry-type'));
+const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!r.ticket&&!r.waiting&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
+let r;try{r=JSON.parse(sessionStorage.getItem(key))}catch{}
+const q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=r?.agent??(q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null);
+if(r){sessionStorage.removeItem(key);if(admission){for(const [k,v]of admission)if(!q.has(k))q.set(k,v);history.replaceState(history.state,'',location.pathname+'?'+q+location.hash)}if(r.checkpoint){const s=document.createElement('script');s.type='application/vnd.exact.dev-checkpoint';s.textContent=JSON.stringify(r.checkpoint);document.head.appendChild(s);console.info('exact dev reload: restored',r.seq)}const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',r.seq);fetch('/__dev/reloaded?seq='+r.seq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
+const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq)ready().then(()=>{const checkpoint=capture(m.logic);console.info('exact dev reload: checkpoint',m.reload);try{sessionStorage.setItem(key,JSON.stringify({seq:m.reload,agent:admission,checkpoint}))}catch(e){console.warn('exact dev reload: checkpoint could not be stored; reloading fresh',e)}location.reload()})}})()</script>`;
   const server = createServer((req, res) => {
     if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);

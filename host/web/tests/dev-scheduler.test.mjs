@@ -7,8 +7,59 @@ import {open} from '../../../scripts/agent.mjs';
 import {compilerPaths, gpuModules, pendingBuildInputs} from '../../../scripts/app.mjs';
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
 const source = readFileSync(process.env.E2B_DEV_SOURCE || new URL('../dev.mjs', import.meta.url), 'utf8');
+
+test('the JS dev loop carries compatible state and resets changed or removed slots', async () => {
+  // RealWorld has routes and text fields but no GPU surface. Keep this proof
+  // independent of an optional renderer: a failure then identifies the dev
+  // server, page reload, or CDP navigation instead of a wedged GPU adapter.
+  const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
+  const withProbe=text=>text
+    .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = "fresh"\n')
+    .replace('  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft\n','  action setReloadProbe(value) writes reloadProbe\n    reloadProbe = value\n  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft\n')
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n');
+  const withNumberProbe=text=>text
+    .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
+  const edited=text=>text.replace('          text "conduit"\n','          text "conduit carried"\n');
+  const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
+  let dev,drive,lines='',ready;
+  const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`dev reload did not become observable: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
+  try {
+    writeFileSync(contract,withProbe(original));
+    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:process.env,stdio:['ignore','pipe','pipe']});
+    ready=new Promise((ok,fail)=>{const take=d=>{lines+=d;for(const line of lines.split('\n'))if(line==='plan ready')return ok()};dev.stdout.on('data',take);dev.stderr.on('data',take);dev.once('error',fail);dev.once('exit',code=>fail(new Error(`dev loop exited ${code}: ${lines.slice(-2000)}`)))});
+    await Promise.race([ready,new Promise((_,fail)=>setTimeout(()=>fail(new Error(`dev loop did not start: ${lines.slice(-2000)}`)),120000))]);
+    drive=await open({host:'web',app:'realworld',url:`http://127.0.0.1:${port}/`});
+    await drive.type('reload-probe','changed');
+    await drive.tap('nav-register');
+    assert.ok((await drive.tree()).nodes.some(n=>n.props?.testId==='page-register'),'the route changed before the reload');
+    await drive.type('reload-probe','changed again');
+    await drive.clock('+123');
+    writeFileSync(contract,edited(withProbe(original)));
+    await waitFor(()=>Promise.resolve(lines),text=>text.includes('edit → plan ready'));
+    let carried;try{carried=await waitFor(()=>drive.tree(),t=>t.nodes.some(n=>n.props?.text==='conduit carried'))}catch(error){error.message+=`\npage: ${JSON.stringify(drive.carrier.hostLines)}`;throw error}
+    const state=await drive.state(),probe=carried.nodes.find(n=>n.props?.testId==='reload-probe');
+    assert.equal(state.slots.reloadProbe,'changed again');
+    assert.equal(state.clock,123);
+    assert.ok(carried.nodes.some(n=>n.props?.testId==='page-register'),'the route stack survives the reload');
+    assert.equal(state.focus.logical,probe.id);
+    writeFileSync(contract,edited(withNumberProbe(original)));
+    await waitFor(()=>drive.state(),s=>s.slots.reloadProbe===7);
+    writeFileSync(contract,edited(original));
+    await waitFor(()=>drive.state(),s=>!('reloadProbe' in s.slots));
+    writeFileSync(contract,edited(withProbe(original)));
+    const fresh=await waitFor(()=>drive.state(),s=>s.slots.reloadProbe==='fresh');
+    assert.equal(fresh.slots.reloadProbe,'fresh','a slot absent from the intervening plan is not resurrected');
+  } finally {
+    writeFileSync(contract,original);
+    await drive?.close();
+    if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
+  }
+},180_000);
 test('static watcher follows immediate creation, in-place edits, and directory replacement', async () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-static-edits-'));
   const assets=join(dir,'assets'),outside=join(dir,'outside'),changes=[];

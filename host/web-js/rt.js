@@ -1406,6 +1406,8 @@ function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
 const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
 const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
 export const launch = location => x_open(["", [], 0], location);
+/** A reload's router carry: keep only a stack the new table still describes; otherwise launch its old top. */
+export function carryRouter(old, location) { const tabs = roots().map(i => Routes[i].name), stacks = old?.[1], valid = Array.isArray(stacks) && stacks.length === tabs.length && stacks.every((t, i) => t?.[0] === tabs[i] && Array.isArray(t[1]) && t[1].every(e => { const m = matchRoute(e?.[2] ?? ""); return m && Routes[m[0]].name === e[1]; })); if (!valid) return launch(stacks?.find(t => t?.[0] === old?.[0])?.[1]?.at(-1)?.[2] ?? location); const out = copy(old); for (const t of out[1]) for (const e of t[1]) e[4] = matchRoute(e[2])[1]; return out; }
 export function x_open(r, location) {
   const c = chain(location);
   if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
