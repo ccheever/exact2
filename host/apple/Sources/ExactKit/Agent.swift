@@ -376,8 +376,7 @@ public final class Agent {
         if grid {
             do { next.rects = try Segments.even(viewport: presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
         }
-        session.segments(next)
-        return nil
+        return session.segments(next).map { "prefer: \($0)" }
     }
 
     /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a
