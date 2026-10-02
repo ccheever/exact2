@@ -23,6 +23,7 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
 use grid::grid_line;
+pub use grid::link as link_grid;
 pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,

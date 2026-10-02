@@ -22,6 +22,7 @@ pub mod effects;
 pub mod format;
 pub mod geometry;
 pub mod gradients;
+pub mod grid;
 pub mod inspection;
 pub mod markdown;
 pub mod materials;
@@ -67,5 +68,6 @@ pub const ALL: exact_web::Linked = linked!(
     effects,
     animations,
     gradients,
+    grid,
     geometry
 );

@@ -12,8 +12,9 @@
 //   (the JS builds go to <out>/dist/<target>)
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
-//   --build makes each named app's wasm dist there first (and Caltrain's,
-//   for --synthetic);
+//   --build makes each named app's wasm dist there first (and an
+//   EXACT_WEB_LINK=all data-app dist for --synthetic, whose swapped plans
+//   can use any capability);
 //   --synthetic adds host/web-js/conformance/*.contract (and */app.contract), run on
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module. A
@@ -618,7 +619,16 @@ if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, .
   if (direct) mkdirSync(resolve(wasmRoot, a), { recursive: true });
   const b = direct
     ? spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(root, 'apps', a, 'app.contract'), '-o', resolve(wasmRoot, a, 'app.plan')], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
-    : spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
+    : spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 64 << 20,
+      env: {
+        ...process.env,
+        ...(synthetic.some(s => s.data === a) ? { EXACT_WEB_LINK: 'all' } : {}),
+        EXACT_WEB_DIST: resolve(wasmRoot, a),
+      },
+    });
   if (b.status !== 0) report.failures.push({ target: a, step: direct ? 'plan-build' : 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
 }
 if (linuxRef && argv.includes('--build') && engineReady) {

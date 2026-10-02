@@ -19,6 +19,31 @@ use taffy::style::{
 
 use super::MAX_GRID_TRACKS;
 
+/// The grid grammars, once linked ([`link`]). Only a wasm artifact reads
+/// this table; native hosts and the compiler call the parsers directly.
+#[cfg(target_arch = "wasm32")]
+struct Parsers {
+    tracks: fn(&str) -> Option<GridTracks>,
+    placement: fn(&str) -> Option<GridPlacement>,
+    idents: fn(&str) -> Option<Vec<String>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<Parsers> = std::sync::OnceLock::new();
+
+/// Link CSS grid's grammars (LLP 1047 D2, linked by use). A web artifact
+/// links them when its plan binds any grid row, and admission refuses such a
+/// plan before boot when they are absent (D6). Native artifacts and the
+/// compiler parse directly.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(Parsers {
+        tracks: GridTracks::check,
+        placement: GridPlacement::check,
+        idents: parse_css_idents,
+    });
+}
+
 /// A minimum breadth in `minmax()` (CSS does not admit a flexible minimum).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridTrackMin {
@@ -151,7 +176,14 @@ impl GridTracks {
     /// Parse the CSS grammar Taffy can lay out. `subgrid`, non-pixel CSS
     /// lengths and calculated lengths are valid CSS but have no Taffy value.
     pub fn parse(text: &str) -> Option<Self> {
-        if css_idents(text)
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|parsers| (parsers.tracks)(text));
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::check(text)
+    }
+
+    fn check(text: &str) -> Option<Self> {
+        if parse_css_idents(text)
             .is_some_and(|words| words.len() == 1 && words[0].eq_ignore_ascii_case("none"))
         {
             return Some(Self::default());
@@ -636,6 +668,13 @@ pub struct GridPlacement {
 impl GridPlacement {
     /// Parse `<grid-line> [ / <grid-line> ]?`, including named lines.
     pub fn parse(text: &str) -> Option<Self> {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|parsers| (parsers.placement)(text));
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::check(text)
+    }
+
+    fn check(text: &str) -> Option<Self> {
         let (start, end) = placement_tokens(text)?;
         let end = match end {
             Some(value) => value,
@@ -782,6 +821,13 @@ impl PlacementPart {
 }
 
 pub(super) fn css_idents(text: &str) -> Option<Vec<String>> {
+    #[cfg(target_arch = "wasm32")]
+    return LINKED.get().and_then(|parsers| (parsers.idents)(text));
+    #[cfg(not(target_arch = "wasm32"))]
+    parse_css_idents(text)
+}
+
+fn parse_css_idents(text: &str) -> Option<Vec<String>> {
     let mut input = ParserInput::new(text);
     let mut parser = Parser::new(&mut input);
     let mut words = Vec::new();

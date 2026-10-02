@@ -68,6 +68,9 @@ pub enum Capability {
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.
     Gradients,
+    /// CSS grid's track, placement and keyword grammars, for a plan that
+    /// binds any of the six grid rows.
+    Grid,
     /// `frame` and `measure` (LLP 1051.000): a plan whose actions read
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
@@ -76,7 +79,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 18] = [
+    pub const ALL: [Capability; 19] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -94,6 +97,7 @@ impl Capability {
         Capability::Effects,
         Capability::Animations,
         Capability::Gradients,
+        Capability::Grid,
         Capability::Geometry,
     ];
 
@@ -117,6 +121,7 @@ impl Capability {
             Capability::Effects => "effects",
             Capability::Animations => "animations",
             Capability::Gradients => "gradients",
+            Capability::Grid => "grid",
             Capability::Geometry => "geometry",
         }
     }
@@ -245,6 +250,19 @@ pub fn uses(plan: &Plan) -> Uses {
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackgroundImage) {
                     uses = uses.with(Capability::Gradients);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::GridTemplateColumns
+                            | StyleId::GridTemplateRows
+                            | StyleId::GridColumn
+                            | StyleId::GridRow
+                            | StyleId::GridAutoFlow
+                            | StyleId::JustifyItems
+                    )
+                ) {
+                    uses = uses.with(Capability::Grid);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))
