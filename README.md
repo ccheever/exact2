@@ -329,7 +329,7 @@ test "hiding finished items"
 | `derive` | A value computed from others, recomputed when they change. |
 | `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
 | `mutation` / `send` | A write to a source, with `pending(x)` and `failed(x)` to show progress. |
-| `action … writes …` | The only place state changes. The `writes` list is required and checked. |
+| `action` | The only place state changes. What it writes is inferred from its body, and `let` binds a local inside it. |
 | `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
 | `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |
 | `style` / `class=` | A named set of CSS properties. The node's own attributes win, and there is no cascade. |
@@ -345,9 +345,10 @@ test "hiding finished items"
   happen only in actions, as assignments, `send`, `refresh`, or commands like
   `focus(…)` and `share(…)`. Data crosses one seam: a source answers, and the runner
   checks the answer.
-- **No loops, no `let`, no `await`.** A list is an `each`, a computation is a
-  `derive` or a `fn`, and anything slower lives in a source. That's what lets the plan
-  be baked, diffed, inspected, and executed the same way on four hosts.
+- **No loops, no `await`.** A list is an `each`, a computation is a `derive` or a
+  `fn` (an action may name a value with `let`), and anything slower lives in a
+  source. That's what lets the plan be baked, diffed, inspected, and executed the
+  same way on four hosts.
 - **No escape hatch.** Where an app needs a platform widget, it uses a *native
   module*: a hyphenated tag like `native-map`, backed by Swift or Rust, laid out by the
   kernel like any other box.
@@ -360,8 +361,8 @@ the same thing on every host.
 
 ```sh
 $ cargo run -q -p contract -- build app.contract
-app.contract:4:5 [analyze-write-not-declared] `increment` writes `count` but does not declare it: add `writes count`
-app.contract:7:30 [lower-unknown-attr] `text` has no attribute `size`; `size` is spelled `font-size` here, the web's name (LLP 1017 §8.1)
+app.contract:4:5 [type-assign] `count` is `number`, cannot assign `string`
+app.contract:7:23 [lower-unknown-attr] `text` has no attribute `size`; `size` is spelled `font-size` here, the web's name (LLP 1017 §8.1)
 ```
 
 One run reports up to twenty independent errors, not just the first. Other subcommands:
