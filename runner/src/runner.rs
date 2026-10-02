@@ -927,6 +927,12 @@ impl<D: DataSource> Runner<D> {
         if !note.is_empty() {
             runner.log(note);
         }
+        // Grants that do not parse grant nothing: said once here, and in
+        // each refusal (the store's, the host's).
+        if let Some(why) = runner.store.unparsed() {
+            let line = format!("{why}; nothing is granted");
+            runner.log(line);
+        }
         Ok(runner)
     }
 

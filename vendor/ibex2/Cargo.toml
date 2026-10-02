@@ -24,6 +24,7 @@ name = "graph"
 required-features = ["loader"]
 
 [dependencies]
+exact-grants = { path = "../../grants" }
 libc = "0.2"
 # LLP 0059.000 §3.4: a partial URL parser is a security bug rather than a
 # missing feature, so URL is a well-tested crate and not hand-written.

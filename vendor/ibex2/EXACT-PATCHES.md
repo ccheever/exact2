@@ -92,3 +92,17 @@ macOS too.
   connect waits in `poll(2)` for the socket to be writable instead of
   sleeping 10 ms between checks.
 - Not for upstream: it exists for one embedder's server role.
+
+## Patch 4: one grant grammar shared with the web runner — Exact only
+
+2026-10-02, LLP 1016 D6 / LLP 1018 D3: `src/grant.rs` reexports
+`exact-grants` (`../../grants`), the previous parser and authority types moved
+unchanged into a pure crate. URL normalization remains the `url` crate's,
+including IDNA and address normalization. Secret/scope name validation is
+shared too. Native filesystem realization stays here: the executor maps
+filesystem prefixes through its resolver; the shared crate performs no I/O.
+
+The runner, Rust-only bakes, and wasm host now use the same parser as native
+bindings. One invalid I/O line grants nothing. The current JS target holds
+the same grammar against `host/web/tests/fixtures/grants.json` using browser
+URLs, and scopes module fetch and secret access to the parsed set.

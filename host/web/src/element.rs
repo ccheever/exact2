@@ -903,16 +903,6 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     out
 }
 
-#[cfg(test)]
-mod name_tests {
-    #[test]
-    fn prop_names_are_ascii() {
-        for prop in exact_kernel::PropId::ALL {
-            assert!(prop.name().is_ascii(), "{}", prop.name());
-        }
-    }
-}
-
 impl<D: exact_runner::DataSource> super::Host<D> {
     /// A view's CSS as the page has it: the rows, the host's additions, a
     /// folded text's (LLP 1007.001) and its paint isolation.
@@ -954,6 +944,16 @@ impl<D: exact_runner::DataSource> super::Host<D> {
                 batch.style(child, &css);
                 m.css = css;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    #[test]
+    fn prop_names_are_ascii() {
+        for prop in exact_kernel::PropId::ALL {
+            assert!(prop.name().is_ascii(), "{}", prop.name());
         }
     }
 }

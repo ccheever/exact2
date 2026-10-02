@@ -468,7 +468,7 @@ impl<D: DataSource> Session<D> {
                 let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
                     return Err("arguments must be a list".into());
                 };
-                let mut store = Store::new(self.data.grants(), read_pairs(&mut r)?);
+                let mut store = Store::module_mirror(self.data.grants(), read_pairs(&mut r)?);
                 let outcome = if op == 4 {
                     Some(read_outcome(&mut r)?)
                 } else {

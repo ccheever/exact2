@@ -140,7 +140,7 @@ pub fn admit(
     destination: Option<&Path>,
 ) -> Result<(), HostError> {
     admit_as(grants, op, path, destination)?;
-    let realized = grants.realized_fs();
+    let realized = crate::grant::realized_fs(grants);
     let real_path = realize(path);
     let real_destination = destination.map(realize);
     admit_as(&realized, op, &real_path, real_destination.as_deref())
