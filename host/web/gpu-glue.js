@@ -699,11 +699,19 @@ const api = {
     // The node's element hosts its surface <canvas> (glue.js, LLP 1014 D2).
     const host = exact.views.get(view);
     const el = host?.matches("canvas") ? host : host?.querySelector(":scope > canvas[data-surface]");
-    if (!el) return;
+    if (!el?.isConnected) return; // a queued surface can leave before its lazy module arrives
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
-    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+    if (!entry) {
+      // A replacement can register before the old owner's destroy reaches us.
+      // Only a current, connected canvas holds the publication name.
+      const old = publishers.get(name);
+      if (old && (!old.el.isConnected || exact.views.get(old.view) !== old.host || surfaces.get(old.view) !== old)) {
+        if (surfaces.get(old.view) === old) this.destroy(old.view);
+        else { publishers.delete(name); surfaceRecord(name, null); }
+      }
+      entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
       planCarries.delete(name);

@@ -53,6 +53,32 @@ test('destroy/create publications wait for the outermost apply and drain before 
   assert.equal(f.hud(), 'world\0{"value":2}');
 });
 
+test('a detached queued canvas never claims its surface name when the module arrives', async () => {
+  const f = await fixture(), old = new f.Element('host');
+  old.canvas = new f.Element(); old.canvas.isConnected = false;
+  f.exact.views.set(1, old);
+  f.exact.gpu.surface(1, 'glass', []);
+  assert.deepEqual(f.records, []);
+  f.create(2, 'glass');
+  assert.deepEqual(f.records, ['glass\0{"value":1}']);
+  assert.deepEqual(f.diagnostics, []);
+});
+
+for (const stale of ['detached', 'unregistered']) test(`a ${stale} publisher yields to its replacement before late destroy`, async () => {
+  const f = await fixture(), old = f.create(1, 'glass');
+  if (stale === 'detached') old.canvas.isConnected = false;
+  else f.exact.views.delete(1);
+  f.create(2, 'glass');
+  assert.deepEqual(f.records, ['glass\0{"value":1}', 'glass', 'glass\0{"value":2}']);
+  assert.deepEqual(f.diagnostics, []);
+  assert.ok(f.order.includes('old destroy'));
+  f.destroy(1);
+  assert.equal(f.records.at(-1), 'glass\0{"value":2}');
+  f.exact.gpu.surface(2, 'glass', []);
+  assert.equal(f.records.length, 4, 'the replacement still publishes after late destroy');
+  assert.equal(f.records.at(-1), 'glass\0{"value":2}');
+});
+
 test('first live canvas alone publishes and clears, with one named duplicate diagnostic', async () => {
   const f = await fixture();
   f.create(1); f.create(2);

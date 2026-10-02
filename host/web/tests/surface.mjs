@@ -38,11 +38,11 @@ export async function fixture(options = {}) {
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
     const listSelection = null, syncLists = () => {}, collections = {commit() {}}, motion = {style(id, text) { const el = views.get(id); if (el) el.style.cssText = text; }, destroy() {}}, arrange={destroy() {}}, presence = {live: null};
     const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false;
-    const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {}, focusAutofocus = () => {}, positionContexts = () => {};
+    const markScrollDocument = () => {}, prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {}, focusAutofocus = () => {}, positionContexts = () => {};
     const viewFor = (_, id) => views.get(id);
     ${operationSource}; return apply;
   `)(exact, views, {exact});
-  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false, textflow = null, page = null, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}}, arrange = {commit() {}}, flowBatch = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
+  const applyBatch = new Function('globalThis', 'apply', `let timelinesMoved = false; const agentMode = false, textflow = null, page = null, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}}, arrange = {commit() {}}, flowBatch = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },

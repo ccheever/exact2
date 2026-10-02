@@ -1,6 +1,7 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed delayed GPU-load race: detached queued canvases no longer claim surface names, and stale publishers yield to live replacements; actual Caltrain reproduction, 66 surface tests and rebuilt web smoke pass.
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -44,3 +45,24 @@ failing run took 228.7 s at a load average near 100; the three that passed
 took 47 s each, minutes later, load near 40. So it is still there and shows
 under load; it had been closed as no longer reproducing after 13 passing
 runs at ad57fdc0. The probe above was not applied.
+
+## Reproduced and fixed (2026-10-02)
+
+The delayed-module path retains queued surfaces after their canvases leave.
+Holding only `gpu-glue.js` in the real Caltrain page, clicking Sky off and on
+with browser mouse events, then releasing the response deterministically
+reproduced the error: the queue held old `glass` view 1 with
+`isConnected=false` and replacement view 4 with `isConnected=true`. The
+detached entry claimed the publisher name before the live entry arrived.
+
+`surface()` now ignores disconnected targets and retires a named publisher
+whose canvas or view registration is stale before admitting its replacement.
+Two genuinely live canvases still produce the duplicate diagnostic. A late
+destroy of the retired view cannot clear the replacement's publication.
+
+The same delayed-load Caltrain drive now reports zero console errors and one
+live sky. The existing surface-record suite passes all 66 tests, including
+new detached-queue and replacement/late-destroy cases and the retained real
+duplicate test. Rebuilt Caltrain web smoke (`--app-only`) passes with its
+three Contract tests. Existing fixture mocks were brought up to date with
+the host's timeline and document-scroll bookkeeping.
