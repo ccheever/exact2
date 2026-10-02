@@ -73,7 +73,10 @@ fn transform_drag_requires_both_handlers_and_names_the_missing_one() {
             .unwrap_err()
             .to_string();
         assert!(error.contains("lower-transform-drag-handlers"), "{error}");
-        assert!(error.contains(missing), "{error}");
+        assert!(
+            error.contains(&format!("also needs `{missing}`")),
+            "expected {missing} to be named as missing: {error}"
+        );
     }
 }
 
