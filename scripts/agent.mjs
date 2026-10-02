@@ -747,7 +747,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         showSimulator(dev);
         for (let i = 0; i < 10 && (await p.ask({ op: 'window', title: dev.name })).named !== true; i++) await sleep(150);
         const found = await p.ask({ op: 'window', title: dev.name });
-        if (found.windows?.some(w => w.bundle === 'com.apple.dt.Devices') && !trusted.capture) return unsupported('Device Hub calibration needs Screen Recording permission for this terminal');
+        if (!trusted.capture && found.windows?.some(w => w.bundle === 'com.apple.dt.Devices') && !found.windows.some(w => w.bundle === 'com.apple.iphonesimulator')) return unsupported('Device Hub calibration needs Screen Recording permission for this terminal');
         const w = found.windows?.find(w => w.title === dev.name && w.bundle === 'com.apple.dt.Devices');
         if (w) {
           const raised = await p.ask({ op: 'raise', id: w.id });
