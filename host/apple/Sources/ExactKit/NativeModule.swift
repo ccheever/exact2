@@ -668,6 +668,7 @@ final class NativeViews {
             return ["error": "native view is unavailable, hidden, inert, disabled or replaced"]
         }
         guard let input = table.agentInput else { return ["error": "native view does not support agent input"] }
+        let nonce = entry.nonce
         var payload: [String: String] = [:]
         if let key = request["key"] as? String {
             payload["key"] = key
@@ -685,6 +686,15 @@ final class NativeViews {
             guard ownsFocus(owner) else { return ["error": "native view no longer owns focus"] }
         } else {
             guard focus(owner) else { return ["error": "native view refused focus"] }
+        }
+        // AppKit resigns the previous responder synchronously. Its blur handler
+        // can render new restrictions or replace this instance before we return.
+        guard available(owner) === entry, entry.nonce == nonce, entry.handle == handle else {
+            return ["error": "native view is unavailable, hidden, inert, disabled or replaced"]
+        }
+        guard ownsFocus(owner) else { return ["error": "native view no longer owns focus"] }
+        if payload["text"] != nil, owner.props["editable"] == "false" {
+            return ["error": "native view is readonly"]
         }
         let bytes = Array((try! JSONSerialization.data(withJSONObject: payload)))
         var error = [UInt8](repeating: 0, count: 512)

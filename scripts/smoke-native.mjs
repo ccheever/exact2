@@ -173,6 +173,21 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         check(Boolean(refused.error) && await focus() !== input && (await s.state()).slots.inputValue === 'a', `macos native: ${reason} refuses focus and agent input`);
         await s.tap(button); await settle(s);
       }
+      for (const [source, reset, slot] of [['disable-on-blur', 'block-input', 'blocked'], ['inert-on-blur', 'inert-input', 'inputInert']]) {
+        await s.tap(source); await settle(s);
+        const refused = await s.carrier.ask({ op: 'type', id: input, text: 'forbidden' });
+        await settle(s);
+        const state = await s.state();
+        check(Boolean(refused.error) && state.slots[slot] === true && state.slots.inputValue === 'a', `macos native: ${slot} applied by the previous responder's blur refuses input`);
+        await s.tap(reset); await settle(s);
+      }
+      const wrapper = byTestId(await s.tree(), 'box').id;
+      await s.tap('box'); await settle(s);
+      check(await focus() === wrapper, 'macos native: clicking a passive module focuses its wrapper');
+      const beforeWrapper = (await s.state()).slots.events.split('blur;').length;
+      await s.tap('blur-wrapper'); await settle(s);
+      const afterWrapper = await s.state();
+      check(afterWrapper.focus.logical !== wrapper && afterWrapper.slots.events.split('blur;').length === beforeWrapper + 1, `macos native: targeted blur resigns the wrapper: ${JSON.stringify(afterWrapper.focus)}`);
       await s.tap('focus-input'); await settle(s);
       const held = await s.carrier.input(input, 'key', { key: 'ArrowLeft', phase: 'down', ownedRelease: true });
       await s.tap('toggle'); await settle(s);

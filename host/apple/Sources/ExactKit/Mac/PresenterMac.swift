@@ -618,7 +618,7 @@ final class Presenter {
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
             if target.kind == "native" {
-                guard session?.natives.ownsFocus(target) == true else { return }
+                guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
                 window.makeFirstResponder(nil)
                 return
             }

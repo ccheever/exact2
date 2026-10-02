@@ -12,6 +12,19 @@ component NativeFixture
   state blocked = false
   state inputHidden = false
   state inputInert = false
+  state blockOnBlur = ""
+  action blurWrapper
+    blur("box")
+  action armDisabled
+    blockOnBlur = "disabled"
+  action armInert
+    blockOnBlur = "inert"
+  action restrictInput
+    if blockOnBlur == "disabled"
+      blocked = true
+    if blockOnBlur == "inert"
+      inputInert = true
+    blockOnBlur = ""
   action focusInput
     focus("native-input")
   action blurInput
@@ -99,7 +112,7 @@ component NativeFixture
           text "Toggle intrinsic size"
       text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
       when shown
-        exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+        exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
       exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
       exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
       row gap=4 flex-wrap="wrap"
@@ -115,6 +128,12 @@ component NativeFixture
           text "Hide input"
         button testId="inert-input" press=inertInput
           text "Inert input"
+        button testId="disable-on-blur" press=armDisabled blur=restrictInput
+          text "Disable on blur"
+        button testId="inert-on-blur" press=armInert blur=restrictInput
+          text "Inert on blur"
+        button testId="blur-wrapper" press=blurWrapper retainFocus=true
+          text "Blur wrapper"
       when shown
         column inert=inputInert display=(inputHidden ? "none" : "block")
           exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
