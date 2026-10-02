@@ -82,7 +82,7 @@ extension NodeView {
         // and Core Animation's own limit (half the shorter side) not reached.
         let radii = cornerRadii(in: bounds)
         p.radius = radii.max() ?? 0
-        p.oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
+        p.oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
             && p.radius <= min(bounds.width, bounds.height) / 2 + 0.01
         p.corners = cornerMask(radii)
         let gradient = style["background_image"] != nil
@@ -227,7 +227,7 @@ extension NodeView {
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)
         let radius = radii.max() ?? 0
-        let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
+        let oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let fits = radius == 0 || (oneRadius && content == bounds && shown == content)
         guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else { return nil }

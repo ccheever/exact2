@@ -273,6 +273,10 @@ EXACT_APP_DIR=../hello bun scripts/agent.mjs web --app hello tree "screenshot he
 
 ## Contract
 
+Read the complete [guide for humans](docs/contract-for-humans.md),
+[guide for agents](docs/contract-for-agents.md), or
+[grammar and vocabulary reference](docs/contract-grammar.md).
+
 Contract describes what an app shows and how its state changes. It doesn't fetch, read
 files, or run arbitrary code. That's what data sources are for. Here is a complete todo
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,

@@ -249,3 +249,123 @@ pub(super) fn paint(
         backend.fill(&square.inset(1.0), dim(fill), ts);
     }
 }
+
+/// A native button's look on Linux and its metrics (LLP 1069.011 D2, D6): the
+/// `buttonStyles` row's web/Linux look, as the web's stylesheet draws it.
+/// `ua` is Chrome's own button; the others a pill padded 7/12. Both set the
+/// title in Chrome's 13.33 px button font, without inherited typography.
+pub(crate) fn button_look(node: &NodeRef<'_>) -> &'static str {
+    let name = node.props.str(PropId::ButtonStyle).unwrap_or("bordered");
+    exact_kernel::generated::button_style(name)
+        .or_else(|| exact_kernel::generated::button_style("bordered"))
+        .map_or("ua", |s| s.look)
+}
+
+/// A native button's title as the look sets it: Chrome's button font, no
+/// inherited typography.
+pub(crate) fn button_text_style() -> exact_kernel::StyleProps {
+    exact_kernel::StyleProps {
+        font_size: 13.333,
+        // One line, as the web's face (`white-space: nowrap`) and the
+        // platforms' titles are; its end is ellipsized where it is too wide.
+        white_space: exact_kernel::WhiteSpace::Nowrap,
+        ..Default::default()
+    }
+}
+
+/// A look's padding around its title: (horizontal, vertical), each side.
+pub(crate) fn button_padding(look: &str) -> (f32, f32) {
+    if look == "ua" {
+        (7.0, 2.0)
+    } else {
+        (12.0, 7.0)
+    }
+}
+
+impl super::Painter {
+    /// A native button (LLP 1069.011): its look's fill and its title in
+    /// the look's ink. Linux draws no symbols (LLP 1035.004 D4).
+    pub(super) fn button_control(
+        &mut self,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        ts: Transform,
+        title: &str,
+    ) {
+        let dark = self.dark;
+        let disabled = node.props.bool(PropId::Disabled) == Some(true);
+        let dim = |mut c: [u8; 4]| {
+            if disabled {
+                c[3] = (c[3] as f32 * 0.45) as u8;
+            }
+            c
+        };
+        let accent = accent(node, dark).unwrap_or(ACCENT);
+        let soft = |a: u8| [accent[0], accent[1], accent[2], a];
+        let white = [0xff, 0xff, 0xff, 0xff];
+        let label = if dark { white } else { [0, 0, 0, 0xff] };
+        let look = button_look(node);
+        let (_, _, _, h) = content;
+        let pill = Shape::new(content, [h / 2.0; 4]);
+        let ink = match look {
+            "text" => accent,
+            "soft" => {
+                self.backend.fill(&pill, dim(soft(0x26)), ts);
+                accent
+            }
+            "fill" => {
+                self.backend.fill(&pill, dim(accent), ts);
+                white
+            }
+            "glass" => {
+                let tint = if dark {
+                    [0x26, 0x26, 0x29, 0xb3]
+                } else {
+                    [0xff, 0xff, 0xff, 0xb3]
+                };
+                self.backend.fill(&pill, dim(tint), ts);
+                label
+            }
+            "glass-fill" => {
+                self.backend.fill(&pill, dim(soft(0xd9)), ts);
+                white
+            }
+            _ => {
+                // Chrome's own button: a 1 px border round a grey fill.
+                let frame = Shape::new(content, [4.0; 4]);
+                let (line, fill) = if dark {
+                    ([0x85, 0x85, 0x85, 0xff], [0x6b, 0x6b, 0x6b, 0xff])
+                } else {
+                    ([0x76, 0x76, 0x76, 0xff], [0xef, 0xef, 0xef, 0xff])
+                };
+                self.backend.fill(&frame, dim(line), ts);
+                self.backend.fill(&frame.inset(1.0), dim(fill), ts);
+                label
+            }
+        };
+        if title.is_empty() {
+            return;
+        }
+        // One line, ending in "…" where the look's padding leaves too little
+        // room, and clipped to the button, as the platforms draw a title.
+        let spec = super::text_spec(&button_text_style(), title);
+        let full = self.text.borrow_mut().paragraph(&spec, None);
+        let (x, y, w, h) = content;
+        let room = (w - 2.0 * button_padding(look).0).max(0.0);
+        let paragraph = full.ellipsized(room).unwrap_or(full);
+        let origin = (
+            x + ((w - paragraph.width) / 2.0).max(0.0),
+            y + ((h - paragraph.height) / 2.0).max(0.0),
+        );
+        let palette = [crate::text::RunPaint {
+            color: dim(ink),
+            source: node.id,
+        }];
+        self.backend.push_clip(&Shape::rect(content), ts);
+        let mut engine = self.text.borrow_mut();
+        self.backend
+            .text(&mut engine, &paragraph, &palette, origin, ts);
+        drop(engine);
+        self.backend.pop_clip();
+    }
+}

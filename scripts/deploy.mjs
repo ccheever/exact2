@@ -48,7 +48,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes, verify } from 'node:crypto';
 import { Refusal, refuse, canonicalBytes, canonicalJson, publicKeyFromRaw, loadSigner, keygen, validateRawIntegers } from './deploy-signing.mjs';
 export { canonicalBytes, publicKeyFromRaw, loadSigner } from './deploy-signing.mjs';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -257,9 +257,15 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
       'could not inventory committed source').split('\0').filter((path) => path && allowed(path));
     const ordinary = gitText(source.repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...pathspec],
       'could not inventory tracked and untracked source').split('\0').filter((path) => path && allowed(path));
-    // The temporary index starts empty, so a tracked file beneath a newly
-    // ignored parent looks ignored to `git add`; force only this inventoried set.
-    addCapturedPaths(source.repo, env, [...committed, ...ordinary], true, 'could not capture tracked and untracked source');
+    // Keep committed deletions so git add removes them from the private index.
+    // A staged addition absent from disk is in neither HEAD nor this capture.
+    // lstat preserves dangling symlinks; other filesystem errors still fail.
+    const present = ordinary.filter(path => {
+      try { lstatSync(resolve(source.repo, path)); return true; }
+      catch (error) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false; throw error; }
+    });
+    // Force inventoried paths beneath newly ignored parents.
+    addCapturedPaths(source.repo, env, [...committed, ...present], true, 'could not capture tracked and untracked source');
     // Gitignore is not a source/output declaration: build.rs or another
     // committed tool can read beneath an ignored directory. Capture every
     // ignored file except the precise generated roots in sourcePathspec.

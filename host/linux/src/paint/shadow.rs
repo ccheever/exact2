@@ -77,7 +77,7 @@ impl ShadowPaint {
             (x - reach, y - reach, w + 2.0 * reach, h + 2.0 * reach),
             [(0.0, 0.0); 4],
         );
-        rounded_rect(&mut outside, outer.rect, outer.radii.map(|r| (r, r)));
+        rounded_rect(&mut outside, outer.rect, outer.radii);
         let a = self.color[3] as f32 / 255.0;
         let bands = if sigma > 0.0 {
             (6.0 * sigma / STEP).ceil().clamp(2.0, BANDS) as usize
@@ -104,8 +104,10 @@ impl ShadowPaint {
                 continue;
             }
             let mut clip: Vec<PathOp> = Vec::new();
-            let radii = outer.radii.map(|r| (r + edge).max(0.0));
-            rounded_rect(&mut clip, rect, radii.map(|r| (r, r)));
+            let radii = outer
+                .radii
+                .map(|(x, y)| ((x + edge).max(0.0), (y + edge).max(0.0)));
+            rounded_rect(&mut clip, rect, radii);
             out.push(BorderFill {
                 region: outside.clone(),
                 clip: Some(clip),

@@ -415,6 +415,8 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
         NodeType::Control if node.props.str(PropId::Type) == Some("select") => "select",
+        // @ref LLP 1069.011 D8 — a native button is the browser's own.
+        NodeType::Control if node.props.str(PropId::Type) == Some("button") => "button",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -828,6 +830,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::LightX => "x",
             PropId::LightY => "y",
             PropId::LightZ => "z",
+            PropId::ButtonStyle => "data-button-style",
             other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
                 other.name()
             }
@@ -861,6 +864,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());
+    }
+    // A native button's look, its default named too (LLP 1069.011 D8).
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        out.get_or_insert_with("data-button-style".into(), || "bordered".into());
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node

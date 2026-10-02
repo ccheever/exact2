@@ -744,6 +744,36 @@ function launchScreen(app, catalog) {
   return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
 }
 
+/** The SDK an Apple app records when its manifest asks for the design before
+ * iOS 26 and macOS 26 (`host.<platform>.designRequiresCompatibility`): the
+ * last before it. iOS 27 and macOS 27 ignore UIDesignRequiresCompatibility
+ * (probed 2026-10-02: the key is read, the new design drawn); both draw the
+ * design the recorded SDK had. */
+export const COMPATIBLE_SDK = { ios: '18.0', macos: '15.0' };
+
+/** Whether an app draws UIKit's or AppKit's design before 26 on `platform`;
+ * refused for an app whose `minimumOS` there is 26 or later, which has no
+ * earlier design to keep. */
+export function designCompatible(app, platform) {
+  if (!app.manifest.host?.[platform]?.designRequiresCompatibility) return false;
+  const minimum = deploymentTargets(app)[platform];
+  if (Number(minimum.split('.')[0]) >= 26) throw new Error(`host/apple: ${app.id}: host.${platform}.designRequiresCompatibility with minimumOS ${minimum} — an app that needs ${platform === 'ios' ? 'iOS' : 'macOS'} 26 has no earlier design to keep; remove one of them`);
+  return true;
+}
+
+/** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the
+ * one asked for: AppKit draws its design by that number, so a link that
+ * records another (as SwiftPM's did, LLP 1069.011 §7) changes every app's
+ * look without a word. Compared to major.minor. */
+function assertLinkedSdk(executable, expected) {
+  const loads = read('otool', ['-l', executable]).stdout ?? '';
+  const recorded = /cmd LC_BUILD_VERSION[\s\S]*?\n\s*sdk (\S+)/.exec(loads)?.[1];
+  const majorMinor = (v) => String(v).split('.').slice(0, 2).map(Number).join('.');
+  if (!recorded || majorMinor(recorded) !== majorMinor(expected)) {
+    throw new Error(`host/apple: ${basename(executable)} records SDK ${recorded ?? '(none)'}, not ${expected}: AppKit would draw it in another design`);
+  }
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
   ...icon,
@@ -1007,6 +1037,20 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
+    // `designRequiresCompatibility`: the link records the iOS 18 SDK (macOS's
+    // case below says why); this later `-platform_version` wins.
+    if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', device ? 'ios' : 'ios-simulator', '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
+  } else {
+    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
+    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
+    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
+    // as on macOS 14. `-isysroot` records the SDK the app is built with.
+    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
+    // `designRequiresCompatibility`: the earlier design, by the one lever macOS
+    // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
+    // the macOS 15 SDK, the last before the new design; this later
+    // `-platform_version` wins over the driver's.
+    if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
   }
   // SwiftPM owns its output layout. Swift Build and the native build system
   // use different directories; ask with the same destination arguments.
@@ -1020,6 +1064,8 @@ function main(args) {
     const executable = resolve(binDir, p);
     copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
+    const platform = ios ? 'ios' : 'macos';
+    assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift

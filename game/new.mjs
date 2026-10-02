@@ -111,6 +111,10 @@ component ${title.replaceAll(' ', '')}
     main testId="root" width="100%" height="100%" padding=24 background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
+    'app.test.contract': `test "the greeting loads"
+  expect tree has "root"
+  expect text "greeting" == "Hello from ${title}."
+`,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.example.${name}';
@@ -219,6 +223,7 @@ exact_web::host!(
   const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
   return `Created ${dir}
   ${run} web          the web dev loop
+  ${run} test         run app.test.contract on the web
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac`;
 }
@@ -236,7 +241,8 @@ import { resolve } from 'node:path';
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
-  'web-build': ['host/web/build.mjs', '${name}-web', '--wasm'],
+  'web-build': ['host/web/build.mjs', '${name}'],
+  test: ['scripts/agent.mjs', 'web', '--app', '${name}', '--test', resolve(import.meta.dir, 'app.test.contract')],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],

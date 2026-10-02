@@ -79,26 +79,37 @@ impl<D: DataSource> Host<D> {
         self.runner.draw_canvases(&|v| !held.contains(&v));
         let lists = self.runner.take_canvas_lists();
         for c in &lists {
-            let (content, radii) =
-                self.runner
-                    .kernel()
-                    .node(c.view)
-                    .map_or(((0.0, 0.0, 0.0, 0.0), [0.0; 4]), |n| {
-                        let b = exact_kernel::svg::scene::content_box(&n);
-                        let s = n.style;
-                        // The content edge's curve: each radius less the inset
-                        // (CSS Backgrounds 3 §5.2), clipping the bitmap as the
-                        // web clips replaced content.
-                        let inset = b.0.max(b.1);
-                        let radii = [
-                            s.border_radius_top_left,
-                            s.border_radius_top_right,
-                            s.border_radius_bottom_right,
-                            s.border_radius_bottom_left,
-                        ]
-                        .map(|r| (r - inset).max(0.0));
-                        (b, radii)
+            let (content, radii) = self.runner.kernel().node(c.view).map_or(
+                ((0.0, 0.0, 0.0, 0.0), [(0.0, 0.0); 4]),
+                |n| {
+                    let b = exact_kernel::svg::scene::content_box(&n);
+                    let s = n.style;
+                    // The content edge's curve: each radius less the inset
+                    // (CSS Backgrounds 3 §5.2), clipping the bitmap as the
+                    // web clips replaced content.
+                    let inset = b.0.max(b.1);
+                    let radii = [
+                        s.border_radius_top_left,
+                        s.border_radius_top_right,
+                        s.border_radius_bottom_right,
+                        s.border_radius_bottom_left,
+                    ]
+                    .map(|r| {
+                        let length = |basis| match r {
+                            exact_kernel::Dimension::Points(x) => x,
+                            exact_kernel::Dimension::Percent(p) => basis * p / 100.0,
+                            exact_kernel::Dimension::Calc(p, x) => basis * p / 100.0 + x,
+                            _ => 0.0,
+                        };
+                        let f = n.frame;
+                        (
+                            (length(f.width) - inset).max(0.0),
+                            (length(f.height) - inset).max(0.0),
+                        )
                     });
+                    (b, radii)
+                },
+            );
             batch.canvas2d(c, content, radii);
         }
         if !lists.is_empty() {

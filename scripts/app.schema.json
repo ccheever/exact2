@@ -216,6 +216,10 @@
             "minimumOS": {
               "type": "string"
             },
+            "designRequiresCompatibility": {
+              "type": "boolean",
+              "description": "Draw UIKit in its design before iOS 26 (no Liquid Glass), as Apple's UIDesignRequiresCompatibility key did; iOS 27 ignores that key, so the link records the iOS 18 SDK, the last before the new design, and every UIKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
+            },
         "link": {
           "type": "array",
           "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
@@ -268,6 +272,10 @@
           "properties": {
             "minimumOS": {
               "type": "string"
+            },
+            "designRequiresCompatibility": {
+              "type": "boolean",
+              "description": "Draw AppKit in its design before macOS 26 (no Liquid Glass bezels or control metrics), as Apple's UIDesignRequiresCompatibility key did; macOS 27 ignores that key, so the link records the macOS 15 SDK, the last before the new design, and every AppKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
             },
         "link": {
           "type": "array",

@@ -31,14 +31,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { developmentGate, developmentInstallPage, installBrowserOrigins, installNetworkPage, localInstallURL, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
+import { developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
-import { developmentLinks, phones, simulators } from '../apple/build.mjs';
+import { developmentLinks } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
+import { localInstaller } from './local-install.mjs';
 import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
@@ -218,74 +219,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
-const localInstallToken = randomBytes(32).toString('hex');
-let localInstallChild = null;
-let localInstallTargets = [], localInstallTargetsAt = 0, localInstallTargetError = null;
-let localInstallState = { state: 'idle', message: 'Looking for an iOS Simulator or paired device…', log: '' };
-const publicTarget = target => ({ id: target.id, kind: target.kind, name: target.name, model: target.model, os: target.os, state: target.state });
-const simulatorOS = runtime => (/(?:^|\.)iOS-(\d+)-(\d+)(?:-(\d+))?$/.exec(runtime)?.slice(1).filter(Boolean).join('.') ?? runtime);
-function refreshLocalInstallTargets(force = false) {
-  if (process.platform !== 'darwin') {
-    localInstallTargets = []; localInstallTargetError = 'Local iOS builds require a Mac running this development server.';
-    return;
-  }
-  if (!force && Date.now() - localInstallTargetsAt < 3000) return;
-  localInstallTargetsAt = Date.now();
-  const found = [], errors = [];
-  try { found.push(...phones().filter(device => device.reachable && device.paired).map(device => ({
-    id: `device:${device.id}`, value: device.id, kind: 'device', name: device.name, model: device.model, os: device.os,
-  }))); } catch (error) { errors.push(error.message); }
-  try { found.push(...simulators().filter(device => /SimRuntime\.iOS/.test(device.runtime) && /^(iPhone|iPad)/.test(device.name)).map(device => ({
-    id: `simulator:${device.udid}`, value: device.udid, kind: 'simulator', name: device.name,
-    model: 'Simulator', os: simulatorOS(device.runtime), state: device.state,
-  }))); } catch (error) { errors.push(error.message); }
-  localInstallTargets = found.sort((a, b) => Number(b.state === 'Booted') - Number(a.state === 'Booted') || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  localInstallTargetError = found.length ? null : errors.join(' ');
-}
-function localInstallStatus(forceTargets = false) {
-  if (localInstallState.state !== 'building') refreshLocalInstallTargets(forceTargets);
-  let message = localInstallState.message;
-  if (localInstallState.state === 'idle') {
-    if (localInstallTargetError) message = localInstallTargetError;
-    else if (!localInstallTargets.length) message = 'No available iOS Simulator or reachable paired device was found. Add a Simulator in Xcode, or unlock and pair a physical device.';
-    else message = 'Ready to build locally. The first build can take a few minutes.';
-  }
-  return { ...localInstallState, message, available: process.platform === 'darwin' && !localInstallTargetError,
-    targets: localInstallTargets.map(publicTarget) };
-}
-function appendLocalInstallLog(chunk) {
-  localInstallState.log = (localInstallState.log + String(chunk)).replace(/\r/g, '').slice(-16000);
-}
-function startLocalInstall(targetId) {
-  if (localInstallChild) { const error = new Error('A local iOS build is already running.'); error.status = 409; throw error; }
-  refreshLocalInstallTargets(true);
-  if (localInstallTargetError) { const error = new Error(localInstallTargetError); error.status = 503; throw error; }
-  const target = localInstallTargets.find(candidate => candidate.id === targetId);
-  if (!target) { const error = new Error('That Simulator or device is no longer available. Refresh the target list.'); error.status = 400; throw error; }
-  const appURL = new URL(localInstallURL(target.kind, origins, port));
-  localInstallState = { state: 'building', message: `Building ${app.displayName} for ${target.name}. This can take a few minutes…`, log: '', target: publicTarget(target), startedAt: new Date().toISOString() };
-  const destination = target.kind === 'simulator' ? ['--ios', app.crate('apple'), '--sim', target.value] : ['--device', app.crate('apple'), '--phone', target.value];
-  const child = localInstallChild = spawn(process.execPath, [resolve(root, 'host/apple/build.mjs'), ...destination, '--run', '--url', appURL.href], {
-    cwd: root, env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_UPDATE_TRUST: 'development' }, stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stdout.on('data', appendLocalInstallLog);
-  child.stderr.on('data', appendLocalInstallLog);
-  child.on('error', error => {
-    if (localInstallChild !== child) return;
-    localInstallChild = null;
-    localInstallState = { ...localInstallState, state: 'failed', message: `The local build could not start: ${error.message}`, completedAt: new Date().toISOString() };
-  });
-  child.on('exit', (code, signal) => {
-    if (localInstallChild !== child) return;
-    localInstallChild = null;
-    const failed = code !== 0;
-    const detail = localInstallState.log.trim().split('\n').filter(Boolean).at(-1);
-    localInstallState = { ...localInstallState, state: failed ? 'failed' : 'installed',
-      message: failed ? `The local build failed${detail ? `: ${detail}` : ` (${signal ?? `exit ${code}`})`}` : `${app.displayName} was installed and opened on ${target.name}.`,
-      completedAt: new Date().toISOString() };
-  });
-  return localInstallStatus();
-}
+const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
@@ -698,10 +632,10 @@ const killCompiler = () => {
 };
 startCompiler();
 const stop = async () => {
-  const children = [dev, rustChild, gpuBuildChild, localInstallChild, hostBuildChild].filter(Boolean);
+  const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   killCompiler();
-  localInstallChild?.kill('SIGTERM');
+  installer.child?.kill('SIGTERM');
   // A rebuild in flight would otherwise swap dist under the next dev server.
   hostBuildChild?.kill('SIGTERM');
   await Promise.all(exits); process.exit(0);
@@ -1053,32 +987,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});
     res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(directory,url.pathname.slice(1)))); return;
   }
-  if (localInstall) {
-    const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body) + '\n'); };
-    if (!access.local || req.headers['x-exact-install-token'] !== localInstallToken) { json(404, { message: 'Not found.' }); return; }
-    if (req.method === 'GET' || req.method === 'HEAD') {
-      const body = localInstallStatus(url.searchParams.get('refresh') === '1');
-      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body) + '\n');
-      return;
-    }
-    try {
-      if (!gate.loopbackOrigins.includes(req.headers.origin)) { const error = new Error('The install request must come from this development server.'); error.status = 403; throw error; }
-      if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) { const error = new Error('The install request must be JSON.'); error.status = 415; throw error; }
-      let size = 0, encoded = '';
-      for await (const chunk of req) {
-        size += chunk.length;
-        if (size > 1024) { const error = new Error('The install request is too large.'); error.status = 413; throw error; }
-        encoded += chunk;
-      }
-      const body = JSON.parse(encoded || '{}');
-      if (typeof body.target !== 'string' || body.target.length > 128) { const error = new Error('Choose an available iOS Simulator or paired device.'); error.status = 400; throw error; }
-      json(202, startLocalInstall(body.target));
-    } catch (error) {
-      json(error.status ?? 400, { message: error instanceof SyntaxError ? 'The install request must be JSON.' : error.message });
-    }
-    return;
-  }
+  if (await installer.handle(req, res, url, access)) return;
   if (url.pathname === '/__dev/open') {
     // The page's own address (the gate admitted its Host) and the opening
     // links this Mac's development clients admit for it (LLP 1030.000 §7).
@@ -1162,10 +1071,7 @@ const server = createServer(async (req, res) => {
     // dev.js to fetch (LLP 1007 §6), never app.wasm's older baked plan.
     const first = current ? `<meta name="exact-dev-generation" content="${JSON.stringify(announcement()).replace(/[&"<>]/g, c => `&#${c.charCodeAt(0)};`)}">\n` : '';
     if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', `${first}<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>`);
-    if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin' && access.local
-      ? developmentInstallPage(body.toString(), localInstallToken)
-      : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
-    if (INSTALL_FILES.includes(found.route)) body = installNetworkPage(body.toString(), {host,port});
+    body = installer.page(found.route, body, access);
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });

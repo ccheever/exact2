@@ -717,6 +717,7 @@ final class Presenter {
     func controlValue(_ id: UInt32, _ value: String, input: Bool, change: Bool) { onControlValue?(id, value, input, change) }
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
+    var buttonFace: ((UInt32) -> ButtonFace)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the

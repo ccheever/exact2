@@ -41,7 +41,10 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let card = style_of("card");
     assert_eq!(card.padding_top, Dimension::Points(16.0));
     assert_eq!(card.padding_left, Dimension::Points(16.0));
-    assert_eq!(card.border_radius_top_left, 16.0);
+    assert_eq!(
+        card.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
@@ -51,7 +54,10 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
     assert_eq!(tight.padding_bottom, Dimension::Points(4.0));
-    assert_eq!(tight.border_radius_top_left, 16.0);
+    assert_eq!(
+        tight.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(
         tight.background_color,
         Color::parse_hex("#000000").unwrap().into()
@@ -916,4 +922,46 @@ fn context_source_can_scroll_in_the_authored_root() {
         box contextTarget="bubble" width=50 height=30
 "#,
     );
+}
+
+#[test]
+fn percentage_corner_radii_survive_boot_and_dynamic_updates() {
+    let plan = contract::compile(
+        r#"
+component Corners
+  state round = false
+  action flip
+    round = not round
+  view
+    button press=flip testId="box" width=160 height=80 border-radius=(round ? "50%" : "4px")
+      view testId="static" border-radius="25%"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let style = |r: &Runner<NoData>, name: &str| {
+        let k = r.kernel();
+        let n = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        (n.id, n.style.border_radius_top_left)
+    };
+    let (id, initial) = style(&r, "box");
+    assert_eq!(initial, Dimension::Points(4.0));
+    assert_eq!(style(&r, "static").1, Dimension::Percent(25.0));
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    assert_eq!(style(&r, "box").1, Dimension::Percent(50.0));
+}
+
+#[test]
+fn corner_radii_refuse_negative_lengths_percentages_and_auto() {
+    for value in ["-1px", "-1%", "auto"] {
+        let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
+        assert!(contract::compile(&source).is_err(), "{value}");
+    }
 }

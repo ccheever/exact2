@@ -13,7 +13,7 @@ import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { developmentGate, developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
+import { developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
 import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
 import { request as httpRequest } from 'node:http';
@@ -133,6 +133,29 @@ test('unavailable methods are not invented, text is escaped, terminal content ca
   assert.match(page,/navigator.clipboard.writeText\(node.textContent\)/);
 });
 
+test('the install data is what the page renders, for a client that draws its own', () => {
+  const configured = {...manifest,install:{macos:{recommended:'terminal',methods:[
+    {kind:'download',url:'https://example.com/app.dmg',version:'1.0 · Build 42'},
+    {kind:'terminal',url:'https://example.com/help',command:'brew install example'},
+  ]}}};
+  const data = installData(configured,{id:'f'.repeat(64),source:'abc1234567',dirty:true,mode:'Development build',reach:[{grant:'net.fetch https://example.com',enforced:'the runner'}]});
+  assert.equal(data.exactInstall,1);
+  assert.deepEqual(Object.keys(data.platforms),['web','ios','macos']);
+  assert.deepEqual(data.platforms.web.methods,[{kind:'browser',url:'/',recommended:false,label:'Open in browser'}]);
+  assert.deepEqual(data.platforms.ios.methods,[]);
+  assert.deepEqual(data.platforms.macos.methods.map(m=>[m.kind,m.recommended,m.label]),[['terminal',true,'Install from Terminal'],['download',false,'Download for Mac']]);
+  assert.equal(data.platforms.macos.methods[0].command,'brew install example');
+  assert.equal(data.platforms.macos.methods[1].description,'Install this app on your device.');
+  assert.deepEqual(data.build,{id:'f'.repeat(64),source:'abc1234567',dirty:true,builtAt:null,mode:'Development build'});
+  assert.equal(data.reach.length,1);
+  assert.throws(()=>installData({...manifest,install:{linux:{methods:[]}}}),/unsupported platform/);
+  assert.throws(()=>installData({...manifest,start_url:'javascript:alert(1)'}),/invalid browser URL/);
+  // Unknown is null, never an empty claim; brand assets resolve from the origin's root, not /.exact/.
+  const bare = installData({...manifest,brand:{logo:'assets/logo.png',wordmark:{text:'I',font:'assets/f.woff2'}}});
+  assert.equal(bare.reach,null);assert.equal(bare.build.dirty,null);assert.equal(bare.build.source,null);
+  assert.deepEqual(bare.brand,{logo:'/assets/logo.png',wordmark:{text:'I',font:'/assets/f.woff2'}});
+});
+
 test('only a Mac development response adds local Simulator and signed-device actions', () => {
   const page = installPage(manifest);
   assert.match(page,/<!-- exact-local-ios -->/);
@@ -158,6 +181,7 @@ test('install HTTP routes participate in atomic publication and preserve old pag
   try {
     writeInstallPages(web,{...manifest,install:{ios:{methods:[{kind:'testflight',url:'https://testflight.apple.com/join/example'}]}}});
     assert.equal(listPublicFiles(web).filter(p=>p.startsWith('.exact/install/')).length,4);
+    assert.ok(listPublicFiles(web).includes('.exact/install.json'));
     assert.ok(readStaticFile(web,'/.exact/install'));
     const first = await publishRoot({origin,web,row:{}});
     const stream='install/'+'a'.repeat(64)+'/exact.json';
@@ -172,6 +196,9 @@ test('install HTTP routes participate in atomic publication and preserve old pag
       assert.match(await response.text(),/Hosted release/);
       assert.match(response.headers.get('content-type'),/text\/html/);assert.equal(response.headers.get('cache-control'),'no-cache');
     }
+    const data=await fetch(base+'/.exact/install.json');assert.equal(data.status,200);
+    assert.match(data.headers.get('content-type'),/application\/json/);assert.equal(data.headers.get('cache-control'),'no-cache');
+    assert.equal((await data.json()).platforms.ios.methods[0].kind,'testflight');
     const head=await fetch(base+'/.exact/install/ios/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
     assert.equal((await fetch(base+'/.exact/install/index.html',{headers:{accept:'application/vnd.exact.envelope+json'}})).status,200);
     for(const path of ['/.exact/install/linux/','/install','/.exact/install/private.pem']) assert.equal((await fetch(base+path)).status,404);

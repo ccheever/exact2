@@ -1,5 +1,6 @@
 import {test,expect} from 'bun:test';
 import {focusController} from '../navigation.js';
+import {createInputHandlers} from '../input-glue.js';
 
 // Production focus transaction, including autofocus during the dispatched commit.
 test('E11 only enclosing canvases receive pointer focus; new autofocus wins',()=>{
@@ -82,5 +83,62 @@ test('a carried restart keeps focus at its place and autofocuses nothing',()=>{
     // A node mounted after the restart still autofocuses.
     const later=new El(true);elements.push(later);focus.autofocus();
     expect(document.activeElement).toBe(later);
+  } finally {Object.assign(globalThis,previous);}
+});
+
+test('declared shortcuts support named keys and leave text input and composition with editors',()=>{
+  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle};
+  const handlers=new Map();
+  let chord='',presses=0,editing=false,inert=false,modal=null;
+  const button={isConnected:true,disabled:false,getClientRects:()=>[{}],getAttribute:()=>chord,click:()=>presses++};
+  const root={addEventListener(){},querySelectorAll:()=>[button]};
+  const target={matches:()=>editing,closest:()=>modal};
+  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,handler),activeElement:target};
+  globalThis.getComputedStyle=()=>({visibility:'visible'});
+  const key=(key,mods={},extra={})=>{
+    const event={key,metaKey:false,ctrlKey:false,altKey:false,shiftKey:false,...mods,...extra,
+      composedPath:()=>[target],preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;}};
+    handlers.get('keydown')(event);return event;
+  };
+  try {
+    createInputHandlers({root,views:new Map(),retiredViews:new Set(),ready:()=>true,inertAncestor:()=>inert,dispatch(){}});
+    const cases=[
+      ['Meta+Shift+Enter','Enter',{metaKey:true,shiftKey:true}],
+      ['Meta+Shift+ArrowUp','ArrowUp',{metaKey:true,shiftKey:true}],
+      ['Control+ArrowDown','ArrowDown',{ctrlKey:true}],
+      ['Meta+Shift+Plus','+',{metaKey:true,shiftKey:true}],
+      ['Meta+Shift++','+',{metaKey:true,shiftKey:true}],
+      ['c','c',{}],['Space',' ',{}],['Escape','Escape',{}],['PageDown','PageDown',{}],['F12','F12',{}],
+    ];
+    for(const [declaration,name,mods] of cases){
+      chord=declaration;
+      const before=presses;
+      expect(key(name,mods).prevented).toBe(true);expect(presses).toBe(before+1);
+      expect(key(name,{...mods,altKey:true}).prevented).toBeUndefined();expect(presses).toBe(before+1);
+    }
+    chord='Alt+c';expect(key('ç',{altKey:true}).prevented).toBeUndefined();
+    chord='Alt+e';expect(key('Dead',{altKey:true}).prevented).toBeUndefined();
+    chord='Alt+ç';expect(key('ç',{altKey:true}).prevented).toBe(true);
+    editing=true;
+    expect(key('ç',{altKey:true}).prevented).toBeUndefined();
+    for(const [declaration,name,mods] of [['c','c',{}],['ArrowUp','ArrowUp',{}],['Space',' ',{}],['Alt+c','c',{altKey:true}]]) {
+      chord=declaration;expect(key(name,mods).prevented).toBeUndefined();
+    }
+    chord='Meta+Shift+Enter';
+    expect(key('Enter',{metaKey:true,shiftKey:true}).prevented).toBe(true);
+    const before=presses;
+    expect(key('Enter',{metaKey:true,shiftKey:true},{isComposing:true}).prevented).toBeUndefined();
+    chord='Escape';expect(key('Escape',{}, {isComposing:true}).prevented).toBeUndefined();expect(presses).toBe(before);
+    expect(key('Escape').prevented).toBe(true);
+    editing=false;chord='c';
+    const remaining=presses;
+    expect(key('c',{}, {repeat:true}).prevented).toBe(true);expect(presses).toBe(remaining);
+    button.disabled=true;expect(key('c').prevented).toBe(true);expect(presses).toBe(remaining);button.disabled=false;
+    inert=true;expect(key('c').prevented).toBeUndefined();inert=false;
+    modal={contains:()=>false};expect(key('c').prevented).toBeUndefined();modal=null;
+    for(const invalid of ['Meta+','Meta+++','Meta+Unknown','Cmd+c','F0','F36','Enter+c']) {
+      chord=invalid;expect(key('c',{metaKey:true}).prevented).toBeUndefined();
+    }
+    expect(presses).toBe(remaining);
   } finally {Object.assign(globalThis,previous);}
 });

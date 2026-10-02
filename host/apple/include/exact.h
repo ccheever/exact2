@@ -439,6 +439,9 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
+/* A native button's face (LLP 1069.011 D5), JSON in the output buffer, not a
+ * batch: {"title":string|null,"symbol":apple-name|null,"leading":bool}. */
+uint32_t exact_button_face(ExactRuntime rt, uint32_t view);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

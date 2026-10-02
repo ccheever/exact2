@@ -171,7 +171,7 @@ extension NodeView {
             }
             native["glassGroup"] = group
         }
-        guard Materials.glass(props["backgroundMaterial"]), let group = nearestGlassGroup() else { return }
+        guard Materials.glass(props["backgroundMaterial"]) || nativeGlassBody != nil, let group = nearestGlassGroup() else { return }
         native["glassGroupOf"] = "#\(group.id)"
         let (_, reasons) = glassPath()
         if !reasons.isEmpty { native["isolated"] = reasons }
@@ -253,15 +253,20 @@ extension NodeView {
         presenter?.flats.containerChanged(id)
     }
 
-    /// A glass material is registered for the pass; its slot goes when it
-    /// stops being glass, a material that is not glass back on the node.
+    /// The glass the pass isolates: a glass material, or a native glass
+    /// button's control (LLP 1069.011 D9).
+    var glassBody: UIView? { (Materials.glass(materialKind) ? materialView : nil) ?? nativeGlassBody }
+
+    /// A glass body is registered for the pass; its slot goes when it stops
+    /// being glass, what the slot held (a material, a control) back on the
+    /// node in the same batch.
     func syncGlassSlot() {
-        let glass = Materials.glass(materialKind) && materialView != nil
+        let glass = glassBody != nil
         if glass { presenter?.glassGroups.glass.add(self) } else { presenter?.glassGroups.glass.remove(self) }
         guard !glass, let slot = glassSlot else { return }
         glassSlot = nil
         GlassGroups.moving(in: self) {
-            if let material = materialView { insertSubview(material, at: 0) }
+            for held in slot.contentView.subviews.reversed() { insertSubview(held, at: 0) }
             slot.removeFromSuperview()
         }
     }
@@ -270,7 +275,7 @@ extension NodeView {
     /// made when the glass is first found in a group, normally in the batch
     /// that mounts it, and then only its effect changes.
     @discardableResult func reconcileGlass() -> Bool {
-        guard Materials.glass(materialKind), let material = materialView, #available(iOS 26.0, *) else { return false }
+        guard let material = glassBody, #available(iOS 26.0, *) else { return false }
         let (container, reasons) = glassPath()
         guard container != nil else {
             guard let slot = glassSlot, slot.effect != nil else { return false }
@@ -389,19 +394,23 @@ extension NodeView {
     /// A glass material is registered for the pass; an isolation goes when
     /// it stops being glass.
     func syncGlassSlot() {
-        let glass = Materials.glass(props["backgroundMaterial"]) && materialView != nil
+        let glass = glassBody != nil
         if glass { presenter?.glassGroups.glass.add(self) } else { presenter?.glassGroups.glass.remove(self) }
         if !glass { releaseGlassIsolation() }
     }
 
-    /// The glass back on the node from its isolation container, if it is in one.
+    /// The glass the pass isolates: a glass material, or a native glass
+    /// button's control (LLP 1069.011 D9).
+    var glassBody: NSView? { (Materials.glass(props["backgroundMaterial"]) ? materialView : nil) ?? nativeGlassBody }
+
+    /// What the isolation container held (a material, a control) back on
+    /// the node, if it is in one.
     func releaseGlassIsolation() {
         guard let isolation = glassIsolation else { return }
         glassIsolation = nil
+        let content = isolation.subviews.first { $0 is GlassContent } ?? isolation
         GlassGroups.moving(in: self) {
-            if let material = materialView, material.superview !== self {
-                addSubview(material, positioned: .below, relativeTo: subviews.first)
-            }
+            for held in content.subviews { addSubview(held, positioned: .below, relativeTo: subviews.first) }
             isolation.removeFromSuperview()
         }
     }
@@ -409,7 +418,7 @@ extension NodeView {
     /// Joined to its group or isolated from it by its path (D4): AppKit has
     /// no effect-less container, so the glass moves into one and back.
     @discardableResult func reconcileGlass() -> Bool {
-        guard Materials.glass(props["backgroundMaterial"]), let material = materialView, #available(macOS 26.0, *) else { return false }
+        guard let material = glassBody, #available(macOS 26.0, *) else { return false }
         let (container, reasons) = glassPath()
         let isolated = container != nil && !reasons.isEmpty
         guard isolated != (glassIsolation != nil) else { return false }

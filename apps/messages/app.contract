@@ -247,8 +247,8 @@ component Messages
               row height=48 padding-left=20 padding-right=16 justify-content="space-between" align-items="center" flex-shrink=0
                 button press=editInbox testId="edit-inbox" padding=4
                   text (inboxEditing ? "Done" : "Edit") font-size=17
-                button press=choose(true) testId="compose" aria-label="New message" class=GlassButton backgroundMaterial="glass"
-                  image "symbol:compose" font-size=20 tint-color="light-dark(#000000, #ffffff)"
+                button press=choose(true) testId="compose" aria-label="New message" class=NativeGlass
+                  image "symbol:compose"
               text "Messages" font-size=34 font-weight=700 letter-spacing=-0.7 margin-left=20 margin-bottom=12 margin-top=4
               row margin-left=16 margin-right=16 margin-bottom=12 border-radius=12 height=36 background-color="light-dark(#efeff0, #1c1c1e)" align-items="center" gap=7 padding-left=10 padding-right=10 flex-shrink=0
                 image "symbol:search" font-size=16 tint-color="#8e8e93"
@@ -293,8 +293,8 @@ component Messages
           when entry.name == "thread"
             column testId="conversation" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" flex-shrink=0 z-index=3
-                button press=back testId="back" aria-label="Back to Messages" class=GlassButton backgroundMaterial="glass"
-                  image "symbol:back" font-size=20 font-weight=600 tint-color="light-dark(#000000, #ffffff)"
+                button press=back testId="back" aria-label="Back to Messages" class=NativeGlass
+                  image "symbol:back"
                 button press=choose(false) disabled=(thread == "demo" or data.busy) testId="model-button" max-width="70%" display="flex" flex-direction="row" align-items="center" justify-content="center" gap=5
                   text data.name font-size=17 font-weight=600 line-clamp=1
                   when thread != "demo"

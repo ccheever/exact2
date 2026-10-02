@@ -492,6 +492,7 @@ let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
+  if (attrs?.["aria-keyshortcuts"] != null) input();
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
@@ -510,7 +511,6 @@ export function cv(e) {
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
   if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
-
 // ---------------------------------------------------------------- adoption (LLP 1048.000 D6)
 // A page rendered ahead (by the Rust render host or by this runtime under
 // Bun) is adopted, not rebuilt: construction walks the document with a
@@ -549,13 +549,13 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-
 const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
 export function P(e, name, f) {
+  if (name === "aria-keyshortcuts") input();
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();

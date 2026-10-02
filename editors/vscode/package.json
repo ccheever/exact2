@@ -1,0 +1,41 @@
+{
+  "name": "exact-contract",
+  "displayName": "Exact Contract",
+  "description": "Syntax highlighting for current Exact Contract files.",
+  "version": "0.2.0",
+  "private": true,
+  "publisher": "exact",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "exact-contract",
+        "aliases": [
+          "Exact Contract",
+          "Contract"
+        ],
+        "extensions": [
+          ".contract"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "exact-contract",
+        "scopeName": "source.exact-contract",
+        "path": "./syntaxes/exact-contract.tmLanguage.json"
+      }
+    ]
+  },
+  "files": [
+    "README.md",
+    "language-configuration.json",
+    "syntaxes/*.json"
+  ]
+}

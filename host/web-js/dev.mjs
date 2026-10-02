@@ -16,6 +16,7 @@ import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFil
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { localInstaller } from '../web/local-install.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
@@ -96,10 +97,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;globalThis.exactDevCarry?.();location.reload()}};
 const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload;const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);fetch('/__dev/reloaded?seq='+r+'&boot='+b+'&at='+Date.now(),{method:'POST'})}},2)}})()</script>`;
-  const server = createServer((req, res) => {
-    if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
+  // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
+  // the local iOS build (D6b): this server's, since only it sees the real
+  // peer (a forwarded request's is loopback).
+  const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
+  const server = createServer(async (req, res) => {
+    const access = gate.check(req);
+    if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    if (await installer.handle(req, res, url, access)) return;
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify(error ? { error, reload: seq } : { reload: seq })}\n\n`);
@@ -128,7 +135,7 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    let body = readFileSync(found.path);
+    let body = installer.page(found.route, readFileSync(found.path), access);
     if (found.route.endsWith('.html')) body = body.toString() + client(seq);
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
   });
@@ -159,7 +166,13 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
     out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(out);
   }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
-  const stop = () => { for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close(); process.exit(0); };
+  const stop = async () => {
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    // A local iOS build in flight is stopped and waited for, as the resident loop does.
+    const install = installer.child;
+    if (install && install.exitCode === null && install.signalCode === null) { const exit = new Promise((ok) => install.once('exit', ok)); install.kill('SIGTERM'); await exit; }
+    process.exit(0);
+  };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })

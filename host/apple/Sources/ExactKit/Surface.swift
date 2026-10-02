@@ -99,11 +99,12 @@ extension NodeView {
         let widths = sides.map { number("border_width_" + $0, uniform) }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
-        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+        let sizes = BorderPaint.radii(style, in: box)
+        let radii = sizes.map { $0.width }
         let fill = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
         let gradient = Gradient(style["background_image"])
         let radius = radii.max() ?? 0
-        let said = gradient == nil
+        let said = gradient == nil && sizes.allSatisfy { $0.width == $0.height }
             && widths.allSatisfy { $0 == widths[0] } && (widths[0] == 0 || colors.allSatisfy { $0 == colors[0] })
             && radii.allSatisfy { $0 == 0 || $0 == radius } && radius <= min(box.width, box.height) / 2
         if said {
@@ -124,7 +125,7 @@ extension NodeView {
                 let path = self.roundedPath(in: rect).cgPath
                 if let fill { ctx.addPath(path); ctx.setFillColor(fill); ctx.fillPath() }
                 gradient?.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
-                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: radii)
+                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes)
             }
             s.setNeedsDisplay()
         }
