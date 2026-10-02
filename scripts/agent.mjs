@@ -297,23 +297,17 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         if (Object.keys(media).length) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame(); }
         let foldRequest = null;
         if (Object.keys(fold).length) {
-          const v = await evaluate('({ w: innerWidth, h: innerHeight })');
+          const v = await evaluate('({ w: innerWidth, h: innerHeight })'), grid = fold.cols != null || fold.rows != null || fold.gap != null;
           const cols = fold.cols ?? 1, rows = fold.rows ?? 1, gap = fold.gap ?? 0;
-          if (fold.cols != null || fold.rows != null || fold.gap != null) {
-            if (!(cols >= 1 && rows >= 1)) throw new Error(`prefer: segments ${cols}x${rows}: each count is at least 1`);
-            if ((cols - 1) * gap >= v.w || (rows - 1) * gap >= v.h) throw new Error(`prefer: segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${v.w} × ${v.h})`);
-          }
+          if (grid && !(cols >= 1 && rows >= 1)) throw new Error(`prefer: segments ${cols}x${rows}: each count is at least 1`);
+          if (grid && ((cols - 1) * gap >= v.w || (rows - 1) * gap >= v.h)) throw new Error(`prefer: segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${v.w} × ${v.h})`);
           try {
             if (fold.posture) await call(fold.posture === 'continuous' ? 'Emulation.clearDevicePostureOverride' : 'Emulation.setDevicePostureOverride', fold.posture === 'continuous' ? {} : { posture: { type: fold.posture } });
-            if (fold.cols != null || fold.rows != null || fold.gap != null) {
-              // Chrome 154: a display feature takes effect only inside a device-metrics override (the carrier's own
-              // viewport, 1:1), carried on it when there is one divider; the list form joins it for a grid.
+            if (grid) { // Chrome 154: a display feature takes effect only inside a device-metrics override (the carrier's own viewport, 1:1), carried on it when there is one divider; the list form joins it for a grid.
               const features = displayFeatures(v.w, v.h, cols, rows, gap);
               await call('Emulation.setDeviceMetricsOverride', { width: v.w, height: v.h, deviceScaleFactor: 1, mobile: false, ...(features.length === 1 ? { displayFeature: features[0] } : {}) });
-              await call(features.length > 1 ? 'Emulation.setDisplayFeaturesOverride' : 'Emulation.clearDisplayFeaturesOverride', features.length > 1 ? { features } : {});
-              await frame();
-              const reported = await evaluate(`(globalThis.viewport?.segments?.length ?? 1)`);
-              if (reported !== cols * rows && cols * rows > 1) throw new Error(`the browser reports ${reported} segments for ${cols}x${rows}`);
+              await call(features.length > 1 ? 'Emulation.setDisplayFeaturesOverride' : 'Emulation.clearDisplayFeaturesOverride', features.length > 1 ? { features } : {}); await frame();
+              const reported = await evaluate(`(globalThis.viewport?.segments?.length ?? 1)`); if (reported !== cols * rows && cols * rows > 1) throw new Error(`the browser reports ${reported} segments for ${cols}x${rows}`);
             }
             foldRequest = {}; // the browser's own readings, re-read
           } catch (error) {
