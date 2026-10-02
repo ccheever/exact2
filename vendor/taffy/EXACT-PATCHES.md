@@ -41,6 +41,22 @@ passes 520/528; the remaining eight are the negative-margin cases for patch 14.
 This excludes ratio cases from the claimed coverage. No duplicate PRs or
 comments were sent to the authors of existing work.
 
+A second, explicitly authorized three-attempt ratio pass fixed the initial four
+text-height regressions. Its green block/leaf/container/root checkpoint is
+`1dd031567648743b58e0da0a27bf2a76e26eb619` (6,600 passing tests, four ignored;
+148 new variants also rechecked against live Chrome). It overlaps #1184 and was
+not submitted as a competing partial fix. The broader final integration,
+unpublished `beddc94a86220e0264121c15d0a1bf07a0f3cf31`, includes #1210's cache fix
+as a prerequisite and passes 1,244 of 1,252 additional ratio probes, but still
+regresses four existing grid variants. Its three remaining shapes are vertical-
+writing grid text (40×20 expected, 40×100), an absolute ratio box's automatic
+inline minimum (100×50 expected, 50×50), and #1081's column container width
+(34 expected, 30; child size correct). All four box-sizing/direction variants
+fail for each shape: 7,842 pass, 12 fail, four ignored in the complete audit.
+The renewed fix limit is reached; patch 12 remains open with exact recovery
+instructions in `issues/20260930-taffy-patches-not-sent-upstream.md`. No vendored
+functionality changed during either submission pass.
+
 ## Patch 1: used cross sizes and intrinsic cache entries — upstream
 
 `src/compute/flexbox.rs::determine_flex_base_size` clamps
