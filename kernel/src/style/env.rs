@@ -269,6 +269,9 @@ pub enum EnvRefusal {
     IndexRange,
     /// Not one of the kernel's variables.
     UnknownVariable,
+    /// `viewport-segment-*` is linked by use (LLP 1047 D2): this artifact's
+    /// plan never names a segment, so its grammar was not linked.
+    Unlinked,
 }
 
 impl EnvRefusal {
@@ -280,11 +283,118 @@ impl EnvRefusal {
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
             EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left or viewport-segment-width/height/top/left/bottom/right x y",
+            EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1076 D3; linked by use, LLP 1047 D2)",
         }
     }
 }
 
 /// The variable an `env(...)` term names, with its points added (zero).
+/// The segment half of the grammar, linked by use (LLP 1047 D2): the
+/// `viewport-segment-*` term, a segment length's resolution, its CSS text
+/// and its wire decode. Until a host links it (`link`), a text naming a
+/// segment is refused as unlinked, a kind 8–13 on the wire is unknown, and
+/// a segment length resolves to `auto`; the linker drops what only these
+/// reach. The compiler and the native hosts link at start; a web artifact
+/// links it when its plan names a segment (`Capability::Segments`).
+struct Hooks {
+    term: fn(&str, &[&str]) -> Result<Dimension, EnvRefusal>,
+    resolve: fn(SegmentVar, u8, u8, f32, &Env) -> Dimension,
+    css: fn(SegmentVar, u8, u8, f32, &mut String),
+    decode: fn(u8, f32, u8, u8) -> Option<Dimension>,
+}
+
+static LINKED: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();
+
+/// Link the viewport segment grammar, its resolution, CSS text and wire
+/// decode (LLP 1076 D3).
+pub fn link() {
+    let _ = LINKED.set(Hooks {
+        term: segment_term,
+        resolve: resolve_segment,
+        css: segment_css,
+        decode: decode_segment,
+    });
+}
+
+/// Whether the segment grammar is linked.
+pub fn linked() -> bool {
+    LINKED.get().is_some()
+}
+
+/// A segment length's points under `env`, or `Auto` when its segment is
+/// undefined — or when the grammar is not linked (the row then takes its
+/// initial value, as it would for an undefined segment).
+pub(crate) fn resolve(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
+    LINKED
+        .get()
+        .map_or(Dimension::Auto, |h| (h.resolve)(var, x, y, plus, env))
+}
+
+/// A segment length as CSS-ENV-1's text, for a host whose browser resolves
+/// it (LLP 1076 D6); nothing when the grammar is not linked.
+pub fn css(var: SegmentVar, x: u8, y: u8, plus: f32, out: &mut String) {
+    if let Some(h) = LINKED.get() {
+        (h.css)(var, x, y, plus, out);
+    }
+}
+
+/// A wire kind 8–13 as a segment length; `None` when the grammar is not
+/// linked (the kind is then unknown to this artifact).
+pub(crate) fn decode(kind: u8, plus: f32, x: u8, y: u8) -> Option<Dimension> {
+    LINKED.get().and_then(|h| (h.decode)(kind, plus, x, y))
+}
+
+fn resolve_segment(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
+    match env.segment(x, y) {
+        Some(rect) => Dimension::Points(var.of(rect) + plus),
+        None => Dimension::Auto,
+    }
+}
+
+fn segment_css(var: SegmentVar, x: u8, y: u8, plus: f32, out: &mut String) {
+    use std::fmt::Write as _;
+    out.push_str(if plus == 0.0 { "env(" } else { "calc(env(" });
+    out.push_str("viewport-segment-");
+    out.push_str(var.name());
+    let _ = write!(out, " {x} {y})");
+    if plus != 0.0 {
+        out.push_str(if plus < 0.0 { " - " } else { " + " });
+        let _ = write!(out, "{}px)", exact_num::Shortest(f64::from(plus.abs())));
+    }
+}
+
+fn decode_segment(kind: u8, plus: f32, x: u8, y: u8) -> Option<Dimension> {
+    let var = SegmentVar::from_index(kind.checked_sub(8)?)?;
+    if x > SegmentVar::MAX_INDEX || y > SegmentVar::MAX_INDEX {
+        return None;
+    }
+    Some(Dimension::Segment(var, x, y, plus))
+}
+
+/// `viewport-segment-<var> <x> <y>`: the variable's tail and its indices.
+fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
+    let var = SegmentVar::from_name(tail).ok_or(EnvRefusal::UnknownVariable)?;
+    if indices.len() != 2 {
+        return Err(EnvRefusal::IndexCount);
+    }
+    let index = |s: &str| -> Result<u8, EnvRefusal> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(EnvRefusal::IndexForm);
+        }
+        let n: u32 = s.parse().map_err(|_| EnvRefusal::IndexRange)?;
+        if n > u32::from(SegmentVar::MAX_INDEX) {
+            return Err(EnvRefusal::IndexRange);
+        }
+        Ok(n as u8)
+    };
+    Ok(Dimension::Segment(
+        var,
+        index(indices[0])?,
+        index(indices[1])?,
+        0.0,
+    ))
+}
+
 fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
     let body = inner
@@ -305,30 +415,12 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
             Ok(Dimension::Env(edge, 0.0))
         };
     }
-    let var = name
+    let tail = name
         .strip_prefix("viewport-segment-")
-        .and_then(SegmentVar::from_name)
         .ok_or(EnvRefusal::UnknownVariable)?;
+    let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
     let indices: Vec<&str> = words.collect();
-    if indices.len() != 2 {
-        return Err(EnvRefusal::IndexCount);
-    }
-    let index = |s: &str| -> Result<u8, EnvRefusal> {
-        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(EnvRefusal::IndexForm);
-        }
-        let n: u32 = s.parse().map_err(|_| EnvRefusal::IndexRange)?;
-        if n > u32::from(SegmentVar::MAX_INDEX) {
-            return Err(EnvRefusal::IndexRange);
-        }
-        Ok(n as u8)
-    };
-    Ok(Dimension::Segment(
-        var,
-        index(indices[0])?,
-        index(indices[1])?,
-        0.0,
-    ))
+    (hooks.term)(tail, &indices)
 }
 
 /// An `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,

@@ -76,6 +76,8 @@ pub struct Linked {
     /// CSS grid's grammar, validation and serialization: linked at [`link`]
     /// when any grid row is bound.
     pub grid: Option<fn()>,
+    /// `env(viewport-segment-*)`'s grammar (LLP 1076 D3): linked at [`link`].
+    pub segments: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
     pub geometry: exact_runner::GeometryLink,
@@ -130,6 +132,7 @@ impl Linked {
         gradients: None,
         grid: None,
         geometry: None,
+        segments: None,
     };
 
     /// The capabilities registered here.
@@ -192,6 +195,9 @@ impl Linked {
         if self.geometry.is_some() {
             uses = uses.with(Capability::Geometry);
         }
+        if self.segments.is_some() {
+            uses = uses.with(Capability::Segments);
+        }
         uses
     }
 }
@@ -226,6 +232,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.grid {
+        link();
+    }
+    if let Some(link) = linked.segments {
         link();
     }
     LINKED.with(|cell| cell.set(linked));
@@ -294,6 +303,19 @@ mod tests {
         );
         let plain = contract::compile("component A\n  view\n    text \"b\"\n").unwrap();
         assert!(Host::boot(&plain.encode(), (), Default::default(), "/").is_ok());
+        // LLP 1076 D3: a segment length is linked by use; the fold's fields are the core's.
+        let segments = contract::compile(
+            "component A\n  view\n    column width=\"env(viewport-segment-width 0 0)\"\n",
+        )
+        .unwrap()
+        .encode();
+        let refused = Host::boot(&segments, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "segments"),
+            "{refused:?}"
+        );
+        let fields = contract::compile("shape F\n  devicePosture: string\ncomponent A\n  resource m = exactViewport() as shape F\n  view\n    text m.devicePosture\n").unwrap();
+        assert!(Host::boot(&fields.encode(), (), Default::default(), "/").is_ok());
         let drag = contract::compile(
             "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
         )

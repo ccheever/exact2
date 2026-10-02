@@ -700,17 +700,7 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         }
         // The browser resolves the segment itself too (LLP 1077 D6): the
         // text is CSS-ENV-1's, untouched.
-        Dimension::Segment(var, x, y, plus) => {
-            out.push_str(if plus == 0.0 { "env(" } else { "calc(env(" });
-            out.push_str("viewport-segment-");
-            out.push_str(var.name());
-            let _ = write!(out, " {x} {y})");
-            if plus != 0.0 {
-                out.push_str(if plus < 0.0 { " - " } else { " + " });
-                num_into(out, plus.abs());
-                out.push_str("px)");
-            }
-        }
+        Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
     }
 }
 

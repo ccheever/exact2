@@ -39,7 +39,6 @@ mod height_drag;
 pub use height_drag::HeightDragBinding;
 #[path = "flow_host.rs"]
 mod flow_host;
-mod fold;
 #[path = "layers.rs"]
 pub mod layers;
 #[path = "reorder_drag.rs"]
@@ -734,8 +733,8 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// The size and the display preferences, in one batch.
-    /// @ref LLP 1039 D2; LLP 1061 D4
+    /// The size, the display preferences and the fold, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4; LLP 1076 D6
     pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
@@ -744,6 +743,7 @@ impl<D: DataSource> Host<D> {
         let answers = [
             self.runner.set_viewport(viewport.width, viewport.height),
             self.runner.set_preferences(viewport.preferences),
+            self.runner.set_fold(viewport.fold), // the fold rides the same report (LLP 1076 D6)
         ];
         for answer in answers {
             match answer {

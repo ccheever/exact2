@@ -146,6 +146,7 @@ impl<D: DataSource> Host<D> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
+        exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let mut runner = Runner::boot_with_delivery(

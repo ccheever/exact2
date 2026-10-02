@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { fold, foldEnv, grantOrigins, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, onFold, preferFold } from "./navigation.js";
+import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, foldBits, foldEnv, onFold, preferFold, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, fold, grantOrigins } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -350,7 +350,7 @@ function positionContexts() {
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
 const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && root.childElementCount) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged); // @ref LLP 1069.000 D2, D3
-const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = () => { if (wasm?.exact_segments && root.childElementCount) { const f = fold(); applyBatch(JSON.parse(readOut(wasm.exact_segments(f.posture === "folded" ? 1 : 0, f.cols, f.rows)))); } }; onFold(foldChanged); // @ref LLP 1077 D6 — the posture and the segment counts, beside the resize; the browser resolves the `env(viewport-segment-*)` lengths itself
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1076 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -1314,11 +1314,11 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     ptr = wasm.exact_in(bytes.length + launch.length);
     const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
     payload.set(bytes); payload.set(launch, bytes.length);
-    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences());
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
   } else {
     if (page?.checkpoint) wasm.exact_checkpoint(writeIn(agentMode ? page.checkpoint.replace("\n", " driven\n") : page.checkpoint)); ptr = wasm.exact_in(launch.length); // a drive's clock starts at zero (page.rs)
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
-    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences());
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
@@ -1356,7 +1356,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(now())))));
-  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace()))))); foldChanged(); // @ref LLP 1077 D6 — the fold once at boot, so the facts are never the bake's
+  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace())))));
   if (wasm.exact_set_page) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits()))));
   if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize()))));
   globalThis.exact?.gpu?.finishRestart();

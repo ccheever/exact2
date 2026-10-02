@@ -203,6 +203,7 @@ fn env_lengths_travel_the_wire() {
 /// detail pane positioned at the second segment's left — and the host's
 /// `set_segments`, `set_env`'s twin.
 fn segmented_tree() -> Kernel {
+    exact_kernel::link_segments();
     let mut kernel = Kernel::with_monospace();
     let mut root = StyleProps::default();
     root.set_dynamic(StyleId::Height, &StyleValue::Percent(100.0))
@@ -391,6 +392,7 @@ fn a_malformed_grid_is_refused_and_the_segments_survive_a_reset() {
 #[test]
 fn segment_lengths_travel_the_wire() {
     use exact_kernel::wire;
+    exact_kernel::link_segments();
     let mut root = StyleProps::default();
     root.set_dynamic(
         StyleId::MarginLeft,

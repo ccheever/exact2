@@ -8,7 +8,7 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, SegmentVar, Transitions, Vec2,
+    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, Transitions, Vec2,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -176,13 +176,11 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
+            // Linked by use (LLP 1076 D3): unknown to an artifact whose plan names no segment.
             8..=13 => {
-                let var = SegmentVar::from_index(kind - 8).expect("8..=13 is a segment var");
                 let (x, y) = (self.u8()?, self.u8()?);
-                if x > SegmentVar::MAX_INDEX || y > SegmentVar::MAX_INDEX {
-                    return Err(DecodeError::UnknownDimensionKind(kind));
-                }
-                Dimension::Segment(var, x, y, value)
+                crate::style::env::decode(kind, value, x, y)
+                    .ok_or(DecodeError::UnknownDimensionKind(kind))?
             }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };

@@ -305,11 +305,40 @@ conformance viewport is the carriers' 420 × 900, so there the panes are
 landing branch, where both lanes meet. The Linux pinned test, the CLI's fold
 test and the smoke's env check cover the one-segment branch today.
 
+**The segment grammar links by use (2026-10-02, after review; LLP 1047
+D2).** `Capability::Segments` joins `exact_runner::uses`: a plan any of
+whose strings names `viewport-segment-` (a literal or a template's piece —
+the never-smaller rule for a value that is not a row) uses it; the
+generated web entry links `exact_web_capabilities::segments`, which calls
+`exact_kernel::link_segments`. Behind that one link, in
+`kernel/src/style/env.rs`, sit the `viewport-segment-*` term of the
+grammar, a segment length's resolution (`env::resolve`), its CSS text
+(`env::css`, which `host/web/src/css.rs` now calls) and the wire decode of
+kinds 8–13 (`env::decode`); unlinked, a text naming a segment is refused as
+`EnvRefusal::Unlinked` ("not linked into this artifact"), a kind 8–13 is
+`UnknownDimensionKind`, and a segment length resolves to the row's initial
+value. A web artifact that boots a plan using it unlinked is refused by
+name, `segments`, as every other capability is (`link.rs`'s test). The
+compiler and the native hosts link it at start beside `backdrop-filter`'s
+grammar. The fold's `exactViewport` fields and `layout.env` stay in the
+core — facts, cheap, the agent's — and on the web the posture and counts
+now ride `exact_resize`'s facts word beside the preference bits (bit 8
+`folded`, bits 9–16 columns, 17–24 rows; `navigation.js`'s `foldBits`,
+told at boot too), so the wasm core has no `exact_segments` export at all.
+Measured (brotli-11 `app.wasm`, `metrics.mjs`'s method): before this lane
+299.2 / 242.6 / 305.1 KiB (realworld / video-player / caltrain), with the
+grammar in every core 300.3 / 243.6 / 306.3, linked by use 300.0 / 243.6 /
+306.0 — the grammar itself was ~0.3 KiB; the ~0.8 KiB that remains is the
+facts (`Fold`, `Posture`, three field answers, `state.device`, `Env`'s
+grid), always-on by decision. `duo-lab`, which authors the lengths, is not
+in this tree (the app lane's); the link was proven instead by the refusal
+test and the conformance target over a plan that names a segment.
+
 **Open after this lane.** Rotation on the Duo (the beta's simulator
-decides); `apps/duo-lab`, `contract/corpus/segments.contract` and `smoke
-duo` (the sibling lane); linking the segment grammar by use.
-duo` (the sibling lane); the conformance run over the real segments fixture
-(above); linking the segment grammar by use.
+decides); `apps/duo-lab` and `smoke duo` (the sibling lane); a `bun
+host/web/build.mjs duo-lab` whose entry names `segments`
+and whose page moves its panes on `prefer segments 2x1` (the app lane's
+tree).
 
 ## As built (app half, 2026-10-02)
 

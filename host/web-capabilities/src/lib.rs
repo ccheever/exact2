@@ -29,6 +29,7 @@ pub mod materials;
 pub mod motion;
 pub mod picker;
 pub mod router;
+pub mod segments;
 pub mod share;
 pub mod surfaces;
 pub mod text_transform;
@@ -69,5 +70,6 @@ pub const ALL: exact_web::Linked = linked!(
     animations,
     gradients,
     grid,
-    geometry
+    geometry,
+    segments
 );

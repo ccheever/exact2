@@ -366,6 +366,7 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
 #[test]
 fn segment_lengths_parse_resolve_and_refuse_by_name() {
     use env::EnvRefusal;
+    env::link();
     let seg = |v, x, y, plus| Dimension::Segment(v, x, y, plus);
     assert_eq!(
         Dimension::parse_env("env(viewport-segment-width 0 0)"),
@@ -505,6 +506,7 @@ fn segment_lengths_parse_resolve_and_refuse_by_name() {
 /// padding (the table's defaults), not `auto` everywhere.
 #[test]
 fn an_undefined_segment_length_takes_the_rows_initial_value() {
+    env::link();
     let mut s = StyleProps::default();
     for (row, text) in [
         (StyleId::Width, "env(viewport-segment-width 0 0)"),
@@ -548,6 +550,7 @@ fn an_undefined_segment_length_takes_the_rows_initial_value() {
 #[test]
 fn segment_lengths_round_trip_the_wire() {
     use crate::wire::codec::{Reader, Writer};
+    env::link();
     for var in SegmentVar::ALL {
         for d in [
             Dimension::Segment(var, 0, 0, 0.0),

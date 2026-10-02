@@ -28,6 +28,7 @@ pub use grid::{
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
 };
 pub mod env;
+pub use env::link as link_segments;
 pub use env::{Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub mod relative;
 mod shadow;
@@ -155,10 +156,7 @@ impl Dimension {
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
-            Dimension::Segment(var, x, y, plus) => match env.segment(x, y) {
-                Some(rect) => Dimension::Points(var.of(rect) + plus),
-                None => Dimension::Auto,
-            },
+            Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
             other => other,
         }
     }
