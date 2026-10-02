@@ -4,8 +4,10 @@
 //!
 //! The table says which screen a location names and what sits beneath it on
 //! a deep link. The value says where the user has been. An entry's id belongs
-//! to that visit, not to the screen: pushing the same URL twice makes two
-//! entries, and popping never lends an old id to a new visit.
+//! to that visit, not to the screen: pushing a URL already lower in the stack
+//! makes a new entry with an id of its own, pushing the one on top makes none
+//! (as HTML replaces the entry for a same-URL navigation), and popping never
+//! lends an old id to a new visit.
 //!
 //! Nothing here runs an action or talks to a host. A refused verb returns
 //! the input value and a message for its caller to journal. Serde carries
