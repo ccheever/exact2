@@ -5,23 +5,43 @@
 // source, a surface's pixel size, focus — is left out of both sides.
 import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
+import { refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
-import { serveStatic } from '../serve.mjs';
+import { jsTargetBuild, serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
-let unavailable;
-try { await assertWebDistApp(dist, resolveApp('caltrain')); } catch (error) {
-  if (!error.message.startsWith('web dist is not a complete build')) throw error;
+const app = resolveApp('caltrain');
+const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browserUnavailable = existsSync(chrome) ? null : `Chromium is missing at ${chrome}`;
+const linuxHermes = resolve(process.env.HERMES_LIB_DIR ?? resolve(ROOT, '../ibex/linux-vanilla/lib'));
+const linuxHermesHeaders = resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(ROOT, '../ibex/linux-vanilla/hermes-headers'));
+const missingHermes = process.platform === 'linux'
+  ? [linuxHermesHeaders, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map((name) => resolve(linuxHermes, name))].filter((path) => !existsSync(path))
+  : [];
+const weatherlightUnavailable = browserUnavailable ?? (missingHermes.length ? `the Weatherlight wasm build needs provisioned Linux Hermes; missing ${missingHermes.join(', ')}` : null);
+let unavailable = browserUnavailable;
+try {
+  if (!unavailable) {
+    await assertWebDistApp(dist, app);
+    if (jsTargetBuild(dist)) throw new Error(`web dist is a JS-target build; document adoption needs app.wasm; run bun host/web/build.mjs ${app.crate('web')} --wasm`);
+    refuseStale('web', resolve(dist, '.exact-build.json'), webChanges(dist, app).app,
+      `bun host/web/build.mjs ${app.crate('web')} --wasm`);
+  }
+} catch (error) {
+  if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web dist is a JS-target build') && !error.message.startsWith('web build is stale')) throw error;
   unavailable = error.message;
-  console.warn(`SKIP: ${unavailable}`);
 }
+if (unavailable) console.warn(`SKIP: ${unavailable}`);
+if (weatherlightUnavailable && weatherlightUnavailable !== unavailable) console.warn(`SKIP: ${weatherlightUnavailable}`);
 const check = unavailable ? test.skip : test;
+const browserCheck = browserUnavailable ? test.skip : test;
+const weatherlightCheck = weatherlightUnavailable ? test.skip : test;
 const [width, height] = [390, 844]; // the page viewport documents render at
 
 /** The rendered page: the shell with the renderer's head, the document in
@@ -125,7 +145,6 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
     `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
     '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
@@ -353,7 +372,7 @@ check(`the render server's page is the document, and the runtime adopts it${unav
 // document renders at build and per request with no network. The runtime
 // adopts it, and the module's realm runs under the server's CSP: its two
 // inline scripts are admitted by hash, nothing else is.
-test('a TypeScript app\'s served document is adopted, with its module running under the CSP', async () => {
+weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP${weatherlightUnavailable ? ` — ${weatherlightUnavailable}` : ''}`, async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
   try {
     const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight', '--wasm'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
@@ -392,7 +411,7 @@ test('a TypeScript app\'s served document is adopted, with its module running un
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.
-test('interaction documents stay readable, then replay edits and actions once', async () => {
+browserCheck(`interaction documents stay readable, then replay edits and actions once${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="navigate">
       <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>
