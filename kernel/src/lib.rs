@@ -30,6 +30,7 @@
 pub mod arena;
 pub mod clip;
 pub mod control;
+pub mod corner;
 pub mod error;
 pub mod export;
 mod flow;

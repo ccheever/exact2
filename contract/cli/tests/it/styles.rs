@@ -484,13 +484,13 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "repeating-linear-gradient() is not implemented",
         ),
         (
-            "conic-gradient(#000, #fff)",
-            "conic gradients are not implemented",
+            "repeating-conic-gradient(#000, #fff)",
+            "repeating-conic-gradient() is not implemented",
         ),
         ("url(a.png)", "an image as a background is not implemented"),
         (
-            "linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
-            "several background layers",
+            "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
+            "at most four background layers",
         ),
         ("linear-gradient(red, blue)", "a stop's colour is"),
         (
@@ -502,7 +502,8 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
         assert!(e.message.contains(says), "{value}: {e}");
     }
-    let e = refused("background-image=(true ? \"none\" : \"conic-gradient(#000, #fff)\")");
+    let e =
+        refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
 }
 

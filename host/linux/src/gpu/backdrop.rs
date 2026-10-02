@@ -20,6 +20,8 @@ use vello::peniko::{Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mi
 pub(super) enum Layer {
     Clip(Fill, Affine, BezPath),
     Opacity(f32),
+    /// An isolated group clipped to a path: a mask's (LLP 1077 D2).
+    Group(Affine, BezPath),
 }
 
 struct Pixels(Arc<Pixmap>);
@@ -49,6 +51,10 @@ impl Gpu {
     fn push_layer(&mut self, layer: &Layer) {
         match layer {
             Layer::Clip(fill, a, path) => self.scene.push_clip_layer(*fill, *a, path),
+            Layer::Group(a, path) => {
+                self.scene
+                    .push_layer(Fill::NonZero, Mix::Normal, 1.0, *a, path)
+            }
             Layer::Opacity(alpha) => {
                 let whole = Rect::new(
                     0.0,

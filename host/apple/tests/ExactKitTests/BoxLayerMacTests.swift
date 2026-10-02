@@ -112,9 +112,7 @@ final class BoxLayerMacTests: XCTestCase {
                 style["border_radius_" + corner] = ["pct": 50]
             }
             if shadow {
-                style["shadow_color"] = [0, 0, 0, 128]
-                style["shadow_radius"] = 4
-                style["shadow_opacity"] = 1
+                style["box_shadow"] = [["o": [0, 0], "b": 4, "s": 0, "c": [0, 0, 0, 128]]]
             }
             let n = node(style, size: CGSize(width: 160, height: 80))
             n.applyBoxLayer()

@@ -1,0 +1,30 @@
+// LLP 1077's parity page: `corner-shape` and `mask-image`, the browser the
+// oracle. 100×70 boxes on a 125×95 grid: corner shapes over a fill, a
+// border and a clip; gradient masks over a fill, over children and with a
+// radius (`text-shadow` is text-shadow.contract). `dark` switches the scheme. Chrome's pictures (the web host
+// at 1×) are visual.web.png as booted and visual.web-dark.png after `dark`.
+// `apple` (Apple's continuous curve) is no Chrome case: the web draws a
+// declared approximation, and the hosts hold it to UIKit's own pixels.
+component Visual
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="visual" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="squircle" position="absolute" left=20 top=20 width=100 height=70 border-radius=30 corner-shape="squircle" background-color="#1e88e5"
+      box testId="bevel" position="absolute" left=145 top=20 width=100 height=70 border-radius=20 corner-shape="bevel" background-color="#e53935"
+      box testId="scoop" position="absolute" left=270 top=20 width=100 height=70 border-radius=24 corner-shape="scoop notch superellipse(4) square" background-color="#43a047"
+      box testId="bordered" position="absolute" left=20 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=6 border-color="#000000" border-radius=28 corner-shape="squircle" background-color="#fdd835"
+      box testId="sides" position="absolute" left=145 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=8 border-color="#e53935 #1e88e5 #43a047 #fdd835" border-radius=26 corner-shape="squircle"
+      box testId="clips" position="absolute" left=270 top=115 width=100 height=70 border-radius=32 corner-shape="squircle" overflow="hidden" background-color="#e0e0e0"
+        box position="absolute" left=0 top=0 width=50 height=70 background-color="#e53935"
+        box position="absolute" left=50 top=0 width=50 height=35 background-color="#1e88e5"
+      box testId="fade" position="absolute" left=20 top=210 width=100 height=70 background-color="#1e88e5" mask-image="linear-gradient(to right, #000000, transparent)"
+      box testId="spot" position="absolute" left=145 top=210 width=100 height=70 background-color="#e53935" mask-image="radial-gradient(circle closest-side, #000000 60%, transparent)"
+      box testId="children" position="absolute" left=270 top=210 width=100 height=70 background-color="#fdd835" mask-image="linear-gradient(transparent, #000000 50%)"
+        box position="absolute" left=10 top=10 width=80 height=50 background-color="#43a047"
+      box testId="masked-round" position="absolute" left=20 top=305 width=100 height=70 border-radius=20 background-color="#43a047" mask-image="linear-gradient(135deg, #000000 40%, #00000033)"
+      box testId="apple" position="absolute" left=145 top=305 width=100 height=70 border-radius=22 corner-shape="-apple-continuous" background-color="#1e88e5"
+      box testId="apple-border" position="absolute" left=270 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=4 border-color="#000000" border-radius=22 corner-shape="-apple-continuous" background-color="#ffffff"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

@@ -1,5 +1,6 @@
-//! CSS `background-image`: `none`, or one `linear-gradient()` or
-//! `radial-gradient()` (CSS Images 3 §3). @ref LLP 1066
+//! CSS `background-image`: `none`, or up to four layers of
+//! `linear-gradient()`, `radial-gradient()` and `conic-gradient()` (CSS
+//! Images 3 §3, Images 4 §3.3). @ref LLP 1066, LLP 1077 D5
 //!
 //! Stops are resolved to percentages when parsed (CSS's fix-up), so the row
 //! holds what every host paints and `css()` is canonical. Geometry depends on
@@ -13,9 +14,13 @@ use std::fmt::Write as _;
 /// Most stops one gradient takes: a bound on what crosses to a native host.
 pub const MAX_STOPS: usize = 64;
 
-/// The row: `none` (the initial value) or one gradient.
+/// The row: `none` (the initial value, no layers) or gradient layers, the
+/// first painted on top, as CSS paints them.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct BackgroundImage(Option<Gradient>);
+pub struct BackgroundImage(Vec<Gradient>);
+
+/// Most layers one `background-image` takes (LLP 1077 D5).
+pub const MAX_LAYERS: usize = 4;
 
 /// One gradient.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +46,15 @@ pub enum GradientKind {
     /// `linear-gradient()`: CSS degrees (0 is up, clockwise), or the magic
     /// corner of `to <corner>`, whose angle depends on the box.
     Linear(Direction),
+    /// `conic-gradient()` (LLP 1077 D5): stops around a centre, from an
+    /// angle (CSS degrees: 0 is up, clockwise); stop positions are
+    /// fractions of the turn.
+    Conic {
+        /// `from <angle>`, degrees.
+        from: f32,
+        /// `at <position>`: horizontal, vertical.
+        at: [Length; 2],
+    },
     /// `radial-gradient()`: a circle or an ellipse sized by an extent
     /// keyword, centred at a position in the box.
     Radial {
@@ -108,6 +122,14 @@ pub enum Geometry {
         /// The 100% point.
         end: (f32, f32),
     },
+    /// Stops around `center`, stop 0% at `from` degrees (CSS's: 0 is up,
+    /// clockwise), 100% a full turn on.
+    Conic {
+        /// The centre.
+        center: (f32, f32),
+        /// Where the turn starts, degrees.
+        from: f32,
+    },
     /// Stop 0% at `center`, 100% on the ellipse of `radii`; the last colour
     /// fills beyond it.
     Radial {
@@ -148,51 +170,103 @@ impl BackgroundImage {
     pub fn check(css: &str) -> Result<Self, &'static str> {
         let css = css.trim();
         if css.eq_ignore_ascii_case("none") {
-            return Ok(Self(None));
+            return Ok(Self(Vec::new()));
         }
-        let lower = css.to_ascii_lowercase();
-        for (prefix, why) in REFUSED {
-            if lower.starts_with(prefix) {
-                return Err(why);
+        let layers = split_top(css, ',');
+        // A comma inside a gradient is the gradient's: re-join the pieces
+        // into whole calls.
+        let mut calls: Vec<String> = Vec::new();
+        for piece in layers {
+            match calls.last_mut() {
+                Some(open) if open.matches('(').count() > open.matches(')').count() => {
+                    open.push(',');
+                    open.push_str(piece);
+                }
+                _ => calls.push(piece.to_string()),
             }
         }
-        let open = css.find('(').ok_or(EXPECTED)?;
-        let close = matching(css, open).ok_or(EXPECTED)?;
-        if !css[close + 1..].trim().is_empty() {
-            return Err(if css[close + 1..].trim_start().starts_with(',') {
-                "one gradient per box: several background layers are not implemented"
-            } else {
-                EXPECTED
-            });
+        if calls.len() > MAX_LAYERS {
+            return Err("at most four background layers");
         }
-        let args = split_top(&css[open + 1..close], ',');
-        let radial = match lower[..open].trim_end() {
-            "linear-gradient" => false,
-            "radial-gradient" => true,
-            _ => return Err(EXPECTED),
-        };
-        let (kind, first) = if radial {
-            radial_prelude(args[0])?
-        } else {
-            linear_prelude(args[0])?
-        };
-        let stops = stops(&args[usize::from(first)..])?;
-        Ok(Self(Some(Gradient { kind, stops })))
+        calls
+            .iter()
+            .map(|c| one_gradient(c))
+            .collect::<Result<_, _>>()
+            .map(Self)
     }
 
-    /// The gradient, or `None` for `none`.
+    /// The parse for `mask-image` (LLP 1077 D2): one layer only.
+    pub fn check_mask(css: &str) -> Result<Self, &'static str> {
+        let image = Self::check(css)?;
+        if image.0.len() > 1 {
+            return Err("one gradient as a mask: several mask layers are not implemented");
+        }
+        Ok(image)
+    }
+
+    /// The first (topmost) layer, or `None` for `none`.
     pub fn gradient(&self) -> Option<&Gradient> {
-        self.0.as_ref()
+        self.0.first()
+    }
+
+    /// Every layer, the first on top.
+    pub fn layers(&self) -> &[Gradient] {
+        &self.0
     }
 
     /// Canonical CSS, also the wire form: stop positions explicit, colours
-    /// as `#rrggbbaa` or `light-dark()` of two.
+    /// as `#rrggbbaa` or `light-dark()` of two, layers by commas.
     pub fn css(&self) -> String {
-        let Some(g) = &self.0 else {
+        if self.0.is_empty() {
             return "none".into();
-        };
+        }
+        self.0
+            .iter()
+            .map(Gradient::css)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// One `*-gradient()` call.
+fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
+    let css = css.trim();
+    let lower = css.to_ascii_lowercase();
+    for (prefix, why) in REFUSED {
+        if lower.starts_with(prefix) {
+            return Err(why);
+        }
+    }
+    let open = css.find('(').ok_or(EXPECTED)?;
+    let close = matching(css, open).ok_or(EXPECTED)?;
+    if !css[close + 1..].trim().is_empty() {
+        return Err(EXPECTED);
+    }
+    let args = split_top(&css[open + 1..close], ',');
+    let (kind, first) = match lower[..open].trim_end() {
+        "linear-gradient" => linear_prelude(args[0])?,
+        "radial-gradient" => radial_prelude(args[0])?,
+        "conic-gradient" => conic_prelude(args[0])?,
+        _ => return Err(EXPECTED),
+    };
+    let conic = matches!(kind, GradientKind::Conic { .. });
+    let stops = stops(&args[usize::from(first)..], conic)?;
+    Ok(Gradient { kind, stops })
+}
+
+impl Gradient {
+    /// Canonical CSS of the one gradient.
+    pub fn css(&self) -> String {
         let mut out = String::new();
-        match g.kind {
+        let position = |out: &mut String, at: [Length; 2]| {
+            for length in at {
+                let _ = match length {
+                    Length::Px(n) => write!(out, " {}px", exact_num::Shortest32(n)),
+                    Length::Percent(n) => write!(out, " {}%", exact_num::Shortest32(n)),
+                };
+            }
+        };
+        match self.kind {
             GradientKind::Linear(Direction::Angle(deg)) => {
                 let _ = write!(out, "linear-gradient({}deg", exact_num::Shortest32(deg));
             }
@@ -211,34 +285,26 @@ impl BackgroundImage {
                     if circle { "circle" } else { "ellipse" },
                     EXTENTS[extent as usize].0
                 );
-                for length in at {
-                    let _ = match length {
-                        Length::Px(n) => write!(out, " {}px", exact_num::Shortest32(n)),
-                        Length::Percent(n) => write!(out, " {}%", exact_num::Shortest32(n)),
-                    };
-                }
+                position(&mut out, at);
+            }
+            GradientKind::Conic { from, at } => {
+                let _ = write!(
+                    out,
+                    "conic-gradient(from {}deg at",
+                    exact_num::Shortest32(from)
+                );
+                position(&mut out, at);
             }
         }
-        for stop in &g.stops {
+        for stop in &self.stops {
             out.push_str(", ");
-            match stop.color {
-                ColorValue::Fixed(c) => hex(&mut out, c),
-                ColorValue::LightDark(light, dark) => {
-                    out.push_str("light-dark(");
-                    hex(&mut out, light);
-                    out.push_str(", ");
-                    hex(&mut out, dark);
-                    out.push(')');
-                }
-            }
+            color_css(&mut out, stop.color);
             let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
         }
         out.push(')');
         out
     }
-}
 
-impl Gradient {
     /// Whether any stop is a `light-dark()` pair: what says an appearance
     /// change must repaint it.
     pub fn is_scheme_aware(&self) -> bool {
@@ -293,6 +359,10 @@ impl Gradient {
                     end: (cx + sin * half, cy - cos * half),
                 }
             }
+            GradientKind::Conic { from, at } => Geometry::Conic {
+                center: (at[0].resolve(w), at[1].resolve(h)),
+                from,
+            },
             GradientKind::Radial { circle, extent, at } => {
                 let (cx, cy) = (at[0].resolve(w), at[1].resolve(h));
                 let (dx, dy) = ((cx.abs(), (w - cx).abs()), (cy.abs(), (h - cy).abs()));
@@ -368,9 +438,9 @@ pub fn premultiplied_ramp(stops: &[(f32, Color)]) -> Vec<(f32, Color)> {
 }
 
 const EXPECTED: &str =
-    "expected none, linear-gradient(…) or radial-gradient(…) with at least two colour stops";
+    "expected none, or linear-gradient(…), radial-gradient(…) or conic-gradient(…) with at least two colour stops";
 
-const REFUSED: [(&str, &str); 7] = [
+const REFUSED: [(&str, &str); 6] = [
     (
         "repeating-linear-gradient(",
         "repeating-linear-gradient() is not implemented; a gradient paints once",
@@ -381,11 +451,7 @@ const REFUSED: [(&str, &str); 7] = [
     ),
     (
         "repeating-conic-gradient(",
-        "conic gradients are not implemented; use linear-gradient() or radial-gradient()",
-    ),
-    (
-        "conic-gradient(",
-        "conic gradients are not implemented; use linear-gradient() or radial-gradient()",
+        "repeating-conic-gradient() is not implemented; a gradient paints once",
     ),
     (
         "url(",
@@ -428,6 +494,20 @@ fn corner(dx: &(f32, f32), dy: &(f32, f32), pick: fn(f32, f32) -> f32) -> f32 {
 
 fn hex(out: &mut String, c: Color) {
     let _ = write!(out, "#{:08x}", c.0);
+}
+
+/// A colour row's canonical CSS: `#rrggbbaa`, or `light-dark()` of two.
+pub(crate) fn color_css(out: &mut String, color: ColorValue) {
+    match color {
+        ColorValue::Fixed(c) => hex(out, c),
+        ColorValue::LightDark(light, dark) => {
+            out.push_str("light-dark(");
+            hex(out, light);
+            out.push_str(", ");
+            hex(out, dark);
+            out.push(')');
+        }
+    }
 }
 
 /// The byte index of the `)` closing the `(` at `open`.
@@ -524,6 +604,34 @@ fn linear_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
     }
 }
 
+/// A conic gradient's start angle and centre, and whether the first
+/// argument was them.
+fn conic_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
+    let words = split_top(first, ' ');
+    let (mut from, mut at) = (0.0, [Length::Percent(50.0); 2]);
+    let starts = words
+        .first()
+        .is_some_and(|w| w.eq_ignore_ascii_case("from") || w.eq_ignore_ascii_case("at"));
+    if !starts {
+        return Ok((GradientKind::Conic { from, at }, false));
+    }
+    let mut i = 0;
+    if words[0].eq_ignore_ascii_case("from") {
+        from = words
+            .get(1)
+            .and_then(|w| angle(w))
+            .ok_or("`from` takes an angle, as `from 90deg`")?;
+        i = 2;
+    }
+    if i < words.len() {
+        if !words[i].eq_ignore_ascii_case("at") {
+            return Err("a conic gradient starts with `from <angle>` and `at <position>`");
+        }
+        at = position(&words[i + 1..])?;
+    }
+    Ok((GradientKind::Conic { from, at }, true))
+}
+
 /// A radial gradient's shape, extent and centre, and whether the first
 /// argument was them.
 fn radial_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
@@ -617,12 +725,22 @@ fn position(words: &[&str]) -> Result<[Length; 2], &'static str> {
 /// Stops with CSS's fix-up (CSS Images 3 §3.5.3): the first defaults to
 /// 0%, the last to 100%, a position before an earlier one moves up to it,
 /// and the rest share their gaps evenly.
-fn stops(args: &[&str]) -> Result<Vec<Stop>, &'static str> {
+fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
+    // A conic stop's position may be an angle: its share of the turn.
+    let percent = |w: &str| -> Option<f32> {
+        if let Some(p) = w.strip_suffix('%') {
+            return exact_num::parse_f32(p).ok();
+        }
+        conic.then(|| angle(w)).flatten().map(|deg| deg / 3.6)
+    };
     let mut authored: Vec<(ColorValue, Option<f32>)> = Vec::new();
     for arg in args {
         let words = split_top(arg, ' ');
         let mut split = words.len();
-        while split > 0 && words.len() - split < 2 && is_position(words[split - 1]) {
+        while split > 0
+            && words.len() - split < 2
+            && (is_position(words[split - 1]) || (conic && angle(words[split - 1]).is_some()))
+        {
             split -= 1;
         }
         if split == 0 {
@@ -636,10 +754,11 @@ fn stops(args: &[&str]) -> Result<Vec<Stop>, &'static str> {
             authored.push((color, None));
         }
         for w in &words[split..] {
-            let n = w
-                .strip_suffix('%')
-                .and_then(|p| exact_num::parse_f32(p).ok())
-                .ok_or("a stop's position is a percentage; lengths are not implemented")?;
+            let n = percent(w).ok_or(if conic {
+                "a conic stop's position is a percentage or an angle"
+            } else {
+                "a stop's position is a percentage; lengths are not implemented"
+            })?;
             if !(0.0..=100.0).contains(&n) {
                 return Err("a stop's position is from 0% to 100%; positions past the ends are not implemented");
             }

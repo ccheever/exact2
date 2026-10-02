@@ -95,12 +95,13 @@ fn what_is_not_drawn_is_refused_by_name() {
             "repeating-radial-gradient(#000, #fff 10%)",
             "repeating-radial-gradient",
         ),
-        ("conic-gradient(#000, #fff)", "conic"),
         ("url(a.png)", "image as a background"),
         (
-            "linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
-            "several background layers",
+            "linear-gradient(#000, #fff), linear-gradient(#fff, #000), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff)",
+            "at most four",
         ),
+        ("conic-gradient(from up, #000, #fff)", "`from` takes an angle"),
+        ("conic-gradient(#000 10px, #fff)", "percentage or an angle"),
         ("linear-gradient(#000, 30%, #fff)", "colour hints"),
         ("linear-gradient(#000 10px, #fff)", "percentage"),
         ("linear-gradient(#000 -10%, #fff 120%)", "0% to 100%"),
@@ -253,9 +254,57 @@ fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
     assert!(!StyleId::BackgroundImage.affects_layout());
     let mut bad = Writer::new();
     bad.style_mask(StyleMask::of(StyleId::BackgroundImage));
-    bad.string("conic-gradient(#000, #fff)");
+    bad.string("repeating-conic-gradient(#000, #fff)");
     assert_eq!(
         StyleProps::decode_patch(&mut Reader::new(bad.as_slice())),
         Err(DecodeError::BadBackgroundImage)
     );
+}
+
+/// LLP 1077 D5: `conic-gradient()` from an angle at a position, stops in
+/// percentages or angles; and up to four layers, the first on top.
+#[test]
+fn conic_gradients_and_layers_parse_and_round_trip() {
+    let image = BackgroundImage::check(
+        "conic-gradient(from 90deg at 25% 10px, #f00, #00f 90deg, #0f0 0.5turn), linear-gradient(#000, #fff)",
+    )
+    .unwrap();
+    assert_eq!(image.layers().len(), 2);
+    let conic = &image.layers()[0];
+    assert_eq!(
+        conic.kind,
+        GradientKind::Conic {
+            from: 90.0,
+            at: [Length::Percent(25.0), Length::Px(10.0)]
+        }
+    );
+    assert_eq!(
+        conic.stops.iter().map(|s| s.at).collect::<Vec<_>>(),
+        [0.0, 25.0, 50.0]
+    );
+    assert_eq!(
+        image.css(),
+        "conic-gradient(from 90deg at 25% 10px, #ff0000ff 0%, #0000ffff 25%, #00ff00ff 50%), linear-gradient(180deg, #000000ff 0%, #ffffffff 100%)"
+    );
+    assert_eq!(BackgroundImage::check(&image.css()).unwrap(), image);
+    assert_eq!(
+        conic.geometry(200.0, 100.0),
+        Geometry::Conic {
+            center: (50.0, 10.0),
+            from: 90.0
+        }
+    );
+    let plain = BackgroundImage::check("conic-gradient(#000, #fff)").unwrap();
+    assert_eq!(
+        plain.gradient().unwrap().kind,
+        GradientKind::Conic {
+            from: 0.0,
+            at: [Length::Percent(50.0); 2]
+        }
+    );
+    assert!(BackgroundImage::check_mask(
+        "linear-gradient(#000, #fff), linear-gradient(#fff, #000)"
+    )
+    .is_err());
+    assert!(BackgroundImage::check_mask("conic-gradient(#000, #fff)").is_ok());
 }

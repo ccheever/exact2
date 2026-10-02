@@ -5,6 +5,7 @@
 //! @ref LLP 1015 §2
 
 mod backdrop;
+mod mask;
 
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
@@ -373,7 +374,7 @@ pub fn rounded_rect(shape: &Shape) -> Option<Path> {
         return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
     }
     let mut ops = Vec::new();
-    crate::paint::border::rounded_rect(&mut ops, shape.rect, shape.radii);
+    crate::paint::border::shape_path(&mut ops, shape);
     tiny_path(&ops)
 }
 
@@ -769,6 +770,17 @@ impl Backend for Raster {
                 SpreadMode::Pad,
                 Transform::from_row(radii.0, 0.0, 0.0, radii.1, center.0, center.1),
             ),
+            // A whole turn from +x, clockwise, turned so it starts where
+            // CSS's `from` does (0 is up): turned rather than started
+            // there, so the turn never wraps mid-sweep (LLP 1077 D5).
+            Geometry::Conic { center, from } => tiny_skia::SweepGradient::new(
+                Point::from_xy(center.0, center.1),
+                0.0,
+                360.0,
+                stops,
+                SpreadMode::Pad,
+                Transform::from_rotate_at(from - 90.0, center.0, center.1),
+            ),
         };
         let Some(shader) = shader else {
             return;
@@ -1111,6 +1123,14 @@ impl Backend for Raster {
         }
     }
 
+    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
+        self.push_opacity(1.0);
+    }
+
+    fn pop_mask(&mut self, shape: &Shape, mask: &Result<GradientPaint, [u8; 4]>, ts: Transform) {
+        self.pop_masked(shape, mask, ts);
+    }
+
     fn pop_opacity(&mut self) {
         let Some((mut below, alpha)) = self.layers.pop() else {
             return;
@@ -1195,6 +1215,7 @@ fn rounded_damage_proof_rejects_invalid_radii() {
     let mut shape = Shape {
         rect: (0.0, 0.0, 96.0, 80.0),
         radii: [(4.0, 4.0); 4],
+        corners: None,
     };
     assert!(raster
         .covered_damage(&shape, Transform::identity())

@@ -588,12 +588,7 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     );
     assert!(op(&first, view(&host, "field")).contains("\"value\":\"typed\""));
     let root = op(&first, view(&host, "root"));
-    for row in [
-        "\"shadow_color\":[0,0,0,51]",
-        "\"shadow_offset\":[0,2]",
-        "\"shadow_radius\":12",
-        "\"shadow_opacity\":1",
-    ] {
+    for row in ["\"box_shadow\":[{\"o\":[0,2],\"b\":12,\"s\":0,\"c\":[0,0,0,51]}]"] {
         assert!(root.contains(row), "{row} in {root}");
     }
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);

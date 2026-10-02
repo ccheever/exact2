@@ -91,6 +91,13 @@ fn parse_codec(s: &str) -> Codec {
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         // @ref LLP 1066 D1
         "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
+        // @ref LLP 1077 D1–D4
+        "symbol-palette" => Codec::CssValue { path: "crate::style::symbols::SymbolPalette", variant: "SymbolPalette", error: "BadSymbolPalette" },
+        "rotate-axis" => Codec::CssValue { path: "crate::style::space::RotateAxis", variant: "RotateAxis", error: "BadRotateAxis" },
+        "box-shadow" => Codec::CssValue { path: "crate::style::BoxShadows", variant: "BoxShadow", error: "BadBoxShadow" },
+        "text-shadow" => Codec::CssValue { path: "crate::style::TextShadow", variant: "TextShadow", error: "BadTextShadow" },
+        "mask-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "MaskImage", error: "BadMaskImage" },
+        "corner-shape" => Codec::CssValue { path: "crate::corner::CornerShape", variant: "CornerShape", error: "BadCornerShape" },
         // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-timeline's shape.
         "drag-timeline" => Codec::CssValue { path: "crate::timeline::DragTimeline", variant: "DragTimeline", error: "BadDragTimeline" },
         "animation-timeline" => Codec::CssValue { path: "crate::timeline::AnimationTimeline", variant: "AnimationTimeline", error: "BadAnimationTimeline" },

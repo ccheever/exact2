@@ -49,6 +49,18 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
+    /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
+    BadBoxShadow,
+    /// Invalid CSS `rotate` axis (LLP 1077 D8).
+    BadRotateAxis,
+    /// Invalid `symbol-palette` (LLP 1077 D10).
+    BadSymbolPalette,
+    /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
+    BadTextShadow,
+    /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
+    BadMaskImage,
+    /// Invalid CSS `corner-shape` (LLP 1077 D1).
+    BadCornerShape,
     /// Invalid `drag-timeline` (LLP 1057.003).
     BadDragTimeline,
     /// Invalid `animation-timeline` (LLP 1057.003).
@@ -460,6 +472,18 @@ pub enum StyleValueError {
     BadBackgroundImage {
         style: StyleId,
     },
+    /// Not `none` or one text shadow (LLP 1077 D3).
+    BadTextShadow {
+        style: StyleId,
+    },
+    /// Not `none` or one gradient mask (LLP 1077 D2).
+    BadMaskImage {
+        style: StyleId,
+    },
+    /// Not one to four corner shapes (LLP 1077 D1).
+    BadCornerShape {
+        style: StyleId,
+    },
     /// Not `none` or a `<dashed-ident>` with an optional axis.
     BadDragTimeline {
         style: StyleId,
@@ -476,10 +500,23 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
-    /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
-    BadBoxShadow {
+    /// Not a CSS `rotate` (LLP 1077 D8).
+    BadRotateAxis {
+        style: StyleId,
+    },
+    /// Not `none` or one to three colours (LLP 1077 D10).
+    BadSymbolPalette {
+        style: StyleId,
+    },
+    /// Not `-webkit-text-stroke` (LLP 1077 D7); `reason` names what.
+    BadTextStroke {
         style: StyleId,
         reason: &'static str,
+    },
+    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1077 D4);
+    /// the compiler names the reason (`BoxShadows::check`).
+    BadBoxShadow {
+        style: StyleId,
     },
     /// Not CSS `backdrop-filter` as exact2 builds it; `reason` names what.
     BadBackdropFilter {

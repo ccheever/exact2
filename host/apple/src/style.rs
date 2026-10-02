@@ -170,12 +170,125 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 );
                 true
             }
-            RowValue::BackgroundImage(g) => match g.gradient() {
+            // @ref LLP 1077 D2 — a mask is a gradient, as the background's.
+            RowValue::MaskImage(g) => match g.gradient() {
                 Some(g) => {
                     out.push_str(&gradient_json(g));
                     true
                 }
-                None => false, // `none`: nothing to paint
+                None => false,
+            },
+            // @ref LLP 1077 D4 — `[{"o":[x,y],"b":blur,"s":spread,"i":1,"c":colour}]`,
+            // the first painted on top; `i` only on an inset one.
+            RowValue::BoxShadow(list) if list.0.is_empty() => false,
+            RowValue::BoxShadow(list) => {
+                out.push('[');
+                for (i, s) in list.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str("{\"o\":[");
+                    push_num(&mut out, s.offset.x);
+                    out.push(',');
+                    push_num(&mut out, s.offset.y);
+                    out.push_str("],\"b\":");
+                    push_num(&mut out, s.blur);
+                    out.push_str(",\"s\":");
+                    push_num(&mut out, s.spread);
+                    if s.inset {
+                        out.push_str(",\"i\":1");
+                    }
+                    out.push_str(",\"c\":");
+                    push_color_value(&mut out, s.color);
+                    out.push('}');
+                }
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
+            // is currentcolor, the text's own.
+            RowValue::TextShadow(t) => match t.shadow() {
+                Some(s) => {
+                    out.push_str("{\"o\":[");
+                    push_num(&mut out, s.offset.x);
+                    out.push(',');
+                    push_num(&mut out, s.offset.y);
+                    out.push_str("],\"b\":");
+                    push_num(&mut out, s.blur);
+                    if let Some(c) = s.color {
+                        out.push_str(",\"c\":");
+                        push_color_value(&mut out, c);
+                    }
+                    out.push('}');
+                    true
+                }
+                None => false,
+            },
+            // @ref LLP 1077 D10 — the palette's colours, each four channels
+            // or a light/dark pair of them.
+            RowValue::SymbolPalette(p) if p.0.is_empty() => false,
+            RowValue::SymbolPalette(p) => {
+                out.push('[');
+                for (i, c) in p.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    push_color_value(&mut out, *c);
+                }
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D8 — `[x, y, z]`; the z axis (CSS's initial) is
+            // no row.
+            RowValue::RotateAxis(a) if a.0 == [0.0, 0.0, 1.0] => false,
+            RowValue::RotateAxis(a) => {
+                out.push('[');
+                push_num(&mut out, a.0[0]);
+                out.push(',');
+                push_num(&mut out, a.0[1]);
+                out.push(',');
+                push_num(&mut out, a.0[2]);
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D1 — four corners: K, "inf", "-inf" or "apple".
+            // All `round` is no row: the hosts' arcs.
+            RowValue::CornerShape(c) if c.is_round() => false,
+            RowValue::CornerShape(c) => {
+                out.push('[');
+                for (i, corner) in c.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    match *corner {
+                        exact_kernel::corner::Corner::AppleContinuous => out.push_str("\"apple\""),
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::INFINITY => {
+                            out.push_str("\"inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::NEG_INFINITY => {
+                            out.push_str("\"-inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) => push_num(&mut out, k),
+                    }
+                }
+                out.push(']');
+                true
+            }
+            // One layer is its object; several (LLP 1077 D5) an array of
+            // them, the first on top.
+            RowValue::BackgroundImage(g) => match g.layers() {
+                [] => false, // `none`: nothing to paint
+                [one] => {
+                    out.push_str(&gradient_json(one));
+                    true
+                }
+                layers => {
+                    let parts: Vec<String> = layers.iter().map(gradient_json).collect();
+                    out.push('[');
+                    out.push_str(&parts.join(","));
+                    out.push(']');
+                    true
+                }
             },
             RowValue::Enum(e) => {
                 out.push('"');
@@ -283,6 +396,21 @@ fn push_dimension(out: &mut String, d: Dimension) {
 }
 
 /// `[r,g,b,a]`, the channels as integers.
+/// A colour row's value as the presenters read it: four channels, or a
+/// `light-dark()` pair of them (LLP 1034 D1).
+fn push_color_value(out: &mut String, c: ColorValue) {
+    match c {
+        ColorValue::Fixed(c) => push_rgba(out, [c.r(), c.g(), c.b(), c.a()]),
+        ColorValue::LightDark(l, d) => {
+            out.push('[');
+            push_rgba(out, [l.r(), l.g(), l.b(), l.a()]);
+            out.push(',');
+            push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
+            out.push(']');
+        }
+    }
+}
+
 fn push_rgba(out: &mut String, channels: [u8; 4]) {
     out.push('[');
     for (i, c) in channels.into_iter().enumerate() {
@@ -412,21 +540,35 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.tint_color = fixed(c);
         computed.mask.set(StyleId::TintColor);
     }
-    // A shadow's opacity is folded into its presented colour's alpha.
-    if let Some(g) = shown.get(Property::BoxShadow) {
-        computed.shadow_offset = exact_kernel::Vec2 {
-            x: g.x as f32,
-            y: g.y as f32,
-        };
-        computed.shadow_radius = g.z as f32;
-        computed.mask.set(StyleId::ShadowOffset);
-        computed.mask.set(StyleId::ShadowRadius);
-    }
-    if let Some(c) = shown.get(Property::ShadowColor) {
-        computed.shadow_color = fixed(c);
-        computed.shadow_opacity = 1.0;
-        computed.mask.set(StyleId::ShadowColor);
-        computed.mask.set(StyleId::ShadowOpacity);
+    // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
+    // from `none` is CSS's transparent, zero-length one).
+    let (geometry, color) = (
+        shown.get(Property::BoxShadow),
+        shown.get(Property::ShadowColor),
+    );
+    if geometry.is_some() || color.is_some() {
+        let mut list = computed.box_shadow.0.clone();
+        if list.is_empty() {
+            list.push(exact_kernel::BoxShadow {
+                color: ColorValue::Fixed(exact_kernel::Color::TRANSPARENT),
+                offset: exact_kernel::Vec2 { x: 0.0, y: 0.0 },
+                blur: 0.0,
+                spread: 0.0,
+                inset: false,
+            });
+        }
+        if let Some(g) = geometry {
+            list[0].offset = exact_kernel::Vec2 {
+                x: g.x as f32,
+                y: g.y as f32,
+            };
+            list[0].blur = g.z as f32;
+        }
+        if let Some(c) = color {
+            list[0].color = fixed(c);
+        }
+        computed.box_shadow = exact_kernel::style::BoxShadows(list);
+        computed.mask.set(StyleId::BoxShadow);
     }
 }
 
@@ -651,6 +793,14 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
         GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
         GradientKind::Linear(Direction::Corner { right, bottom }) => {
             format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
+        }
+        // @ref LLP 1077 D5 — `[from, x%, xpx, y%, ypx]`.
+        GradientKind::Conic { from, at } => {
+            let axis = |l: Length| match l {
+                Length::Percent(p) => format!("{},0", num(p)),
+                Length::Px(px) => format!("0,{}", num(px)),
+            };
+            format!("\"conic\":[{},{},{}]", num(from), axis(at[0]), axis(at[1]))
         }
         GradientKind::Radial { circle, extent, at } => {
             let axis = |l: Length| match l {

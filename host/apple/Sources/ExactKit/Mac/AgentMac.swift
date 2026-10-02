@@ -743,9 +743,11 @@ extension Agent {
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
+        let fills = Capture.hideBoxFills(in: v)
         Capture.capturing = true
         v.cacheDisplay(in: v.bounds, to: rep)
         Capture.capturing = false
+        Capture.restore(fills)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
         // The display's profile can be P3. Agent pixel comparisons and films

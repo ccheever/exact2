@@ -209,7 +209,7 @@ export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
-  copyText: t => navigator.clipboard?.writeText(t),
+  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
 function command(name, args) {
   const f = Hosts[name];

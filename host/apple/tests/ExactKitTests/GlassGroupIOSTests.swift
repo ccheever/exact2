@@ -96,7 +96,7 @@ final class GlassGroupIOSTests: XCTestCase {
         let group = try XCTUnwrap(p.views[1]), view = try XCTUnwrap(group.glassGroupView)
         // A shadow on a clipping box puts the children in a clip box.
         let shadowed: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "overflow_x": "hidden", "overflow_y": "hidden",
-                                       "shadow_color": [0, 0, 0, 255], "shadow_opacity": 0.5, "shadow_offset": [0.0, 2.0], "shadow_radius": 4.0]
+                                       "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "s": 0, "c": [0, 0, 0, 128]]]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": shadowed]]))
         let clip = try XCTUnwrap(group.clipBox)
         XCTAssertTrue(view.superview === clip, "innermost, inside the clip box")
@@ -193,7 +193,7 @@ final class GlassGroupIOSTests: XCTestCase {
         let group = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(p.views[2]?.field)
         XCTAssertTrue(field.becomeFirstResponder())
         let shadowed: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "overflow_x": "hidden", "overflow_y": "hidden",
-                                       "shadow_color": [0, 0, 0, 255], "shadow_opacity": 0.5, "shadow_offset": [0.0, 2.0], "shadow_radius": 4.0]
+                                       "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "s": 0, "c": [0, 0, 0, 128]]]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": shadowed]]))
         XCTAssertNotNil(group.clipBox)
         XCTAssertTrue(field.isFirstResponder, "into the clip box")

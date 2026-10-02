@@ -175,7 +175,7 @@ impl BoxPaint {
         let geometry = paint.0[PaintValues::slot(Property::BoxShadow)];
         let color = paint.color(Property::ShadowColor);
         if geometry.is_some() || color.is_some() {
-            self.shadow = ShadowPaint::over(self.shadow, geometry, color);
+            self.shadows = ShadowPaint::over(std::mem::take(&mut self.shadows), geometry, color);
         }
         self
     }
