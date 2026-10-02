@@ -1,5 +1,7 @@
 // Synthetic conformance plan: a repeating timer and derived countdowns on
 // the driver's clock.
+fn countdown(at: number, now: number): string = toString(max(0, -floor(-((at - now) / 60000))))
+
 component Timers
   state ticks = 0
   state running = true
@@ -12,7 +14,7 @@ component Timers
   view
     column testId="root" padding=10
       text `ticks ${ticks}` testId="ticks"
-      text formatCountdownMinutes(3600000, ticks * 1000) testId="countdown"
+      text countdown(3600000, ticks * 1000) testId="countdown"
       text formatTime(ticks * 60000, 0, "short") testId="time"
       button press=stop testId="stop"
         text running ? "stop" : "start"

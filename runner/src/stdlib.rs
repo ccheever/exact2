@@ -124,22 +124,6 @@ fn call_value(
         },
         // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
         Stdlib::FormatDate | Stdlib::FormatNumber => return format?(f, args),
-        Stdlib::FormatCountdownMinutes => {
-            let minutes = ((num(0)? - num(1)?) / 60_000.0).ceil().max(0.0);
-            Value::str(&format!("{}", minutes as i64))
-        }
-        Stdlib::FormatDistance => {
-            let miles = num(0)? / 1609.344;
-            Value::str(&if miles < 0.1 {
-                "nearby".to_string()
-            } else {
-                format!("{} mi", exact_num::Fixed((miles * 10.0).round() / 10.0, 1))
-            })
-        }
-        Stdlib::FormatWalk => {
-            let minutes = (num(0)? / 80.0).ceil().max(1.0);
-            Value::str(&format!("{} min walk", minutes as i64))
-        }
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.

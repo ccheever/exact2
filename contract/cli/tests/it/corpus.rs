@@ -503,6 +503,20 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     assert_eq!(ids(&r, "dep-").len(), 3);
     assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
     assert_eq!(r.slot("nowMs"), Some(&Value::Number(2_000.0)));
+    let k = r.kernel();
+    let countdowns: Vec<String> = ids(&r, "dep-")
+        .iter()
+        .map(|(_, id)| {
+            let child = k.node(*id).unwrap().children()[0];
+            k.node(child)
+                .unwrap()
+                .props
+                .str(PropId::Text)
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(countdowns, ["20", "5", "150"], "whole minutes, rounded up");
 
     r.act("setDark", vec![Value::str("dark")]).unwrap();
     assert_eq!(r.take_commands()[0].name, "setScheme");
