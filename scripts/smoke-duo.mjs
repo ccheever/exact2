@@ -16,7 +16,7 @@
 // exits 0, the convention for a missing carrier. Rotation is not driven: this
 // beta's simulator ignores CoreDevice orientation on the Duo (LLP 1008 §9).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appleArtifacts, simulator, simulators } from '../host/apple/build.mjs';
@@ -149,7 +149,12 @@ export async function duoSmoke({ open, check: record }) {
     if (check(c.status === 0, `the ${name} fixture did not compile: ${c.stderr}`)) plans[name] = plan;
   }
   const lab = resolveApp('duo-lab');
-  if (!check(existsSync(appleArtifacts(lab, { destination: 'ios-simulator' }).bundle), 'duo: build the simulator bundle first: bun host/apple/build.mjs --ios duo-lab')) return;
+  const labBundle = appleArtifacts(lab, { destination: 'ios-simulator' }).bundle;
+  if (!check(existsSync(labBundle), 'duo: build the simulator bundle first: bun host/apple/build.mjs --ios duo-lab')) return;
+  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1076 §As built, Apple): the fold needs the beta's SDK.
+  const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
+  const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
+  if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
   await hinge(180);
 
   // 1. The insets fixture: a cover root, the Duo's asymmetric insets, the
