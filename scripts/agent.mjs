@@ -85,7 +85,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
   }
   if (reuse) {
-    if (JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
+    if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
       try { await reuse.reset(); return reuse; }
       catch (error) { await reuse.close(); throw error; }
     }
@@ -247,7 +247,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     };
     return {
-      host: 'web', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -331,7 +331,10 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           if (kind === 'down') {
             if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
-            const t = Date.now() / 1000;
+            // CDP wants epoch seconds; performance.timeOrigin plus the
+            // runner's clock makes the DOM event's timeStamp that clock,
+            // independent of how long the carrier took between operations.
+            const t = (await evaluate('performance.timeOrigin') + (await ask({ op: 'tags' })).clock) / 1000;
             await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }], timestamp: t });
             contact = { x: px, y: py, t };
             await frame();

@@ -1,0 +1,1010 @@
+[
+  {
+    "app": "fieldnotes",
+    "step": "boot",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "boot",
+    "field": "layout.note-body.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "boot",
+    "field": "layout.note-title.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "boot",
+    "field": "layout.workspace.h",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "boot",
+    "field": "layout.workspace.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "clock +60000",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "clock +60000",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "clock +60000",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "clock +60000",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "clock +60000",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap backups",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap backups",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap backups",
+    "field": "layout.import-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap backups",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap backups",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap confirm-restore",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap confirm-restore",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap confirm-restore",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap confirm-restore",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap confirm-restore",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap find-notes",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap find-notes",
+    "field": "layout.note-body.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap find-notes",
+    "field": "layout.note-title.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap find-notes",
+    "field": "layout.workspace.h",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap find-notes",
+    "field": "layout.workspace.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap import-backup",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap import-backup",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap import-backup",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap import-backup",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap import-backup",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap new-note",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap new-note",
+    "field": "layout.note-body.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap new-note",
+    "field": "layout.note-title.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap new-note",
+    "field": "layout.workspace.h",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap new-note",
+    "field": "layout.workspace.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap read-backup",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap read-backup",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap read-backup",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap read-backup",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap read-backup",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap restore-backup",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap restore-backup",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap restore-backup",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap restore-backup",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap restore-backup",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap save-backup",
+    "field": "layout.backup-panel.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap save-backup",
+    "field": "layout.export-file.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap save-backup",
+    "field": "layout.import-text.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap save-backup",
+    "field": "layout.library-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "fieldnotes",
+    "step": "tap save-backup",
+    "field": "layout.status-message.y",
+    "reason": "CSS line-height: normal and native text-control metrics permit this content-derived block position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00001.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00002.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00003.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00004.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00005.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.open-photo-00006.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.photos-scroll.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "boot",
+    "field": "layout.photos-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.note-photo-00001.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.note-photo-00002.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "clock +60000",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "layout.reading-sheet.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "layout.sheet-scroll.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "drag sheet-handle 0 -150 300",
+    "field": "state.slots.sheetPx",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-100",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-100",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-100",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-100",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-100",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-1000",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-1000",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-1000",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-1000",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-1000",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-25000",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-25000",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-25000",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-25000",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap count-25000",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap insert",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap insert",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap insert",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap insert",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap insert",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00001.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00002.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00003.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00004.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00005.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.open-photo-00006.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.photos-scroll.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "layout.photos-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-photos",
+    "field": "state.slots.sheetPx",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "layout.motion-preference.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "layout.readiness.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "layout.reorder-scroll.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "layout.reorder-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-reorder",
+    "field": "state.slots.sheetPx",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.reading-sheet.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.sheet-scroll.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap mode-sheet",
+    "field": "state.slots.sheetPx",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.note-photo-00001.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.note-photo-00002.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-manual",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-windowed",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-windowed",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-windowed",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-windowed",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap render-windowed",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap reset",
+    "field": "layout.reading-sheet.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap reset",
+    "field": "layout.sheet-scroll.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap reset",
+    "field": "layout.sheet-stage.h",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap reset",
+    "field": "layout.sheet-stage.y",
+    "reason": "CSS line-height: normal permits engine text metrics to change this content-derived track position or size."
+  },
+  {
+    "app": "interaction-gallery",
+    "step": "tap reset",
+    "field": "state.slots.sheetFull",
+    "reason": "The sheet extent is derived from content whose CSS line-height: normal differs by engine."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.document-name.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.open-document.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.open-file.w",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.open-folder.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.scheme-dark.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.scheme-light.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "boot",
+    "field": "layout.scheme-system.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.document-name.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.open-document.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.open-file.w",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.open-folder.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.scheme-dark.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.scheme-light.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "clock +60000",
+    "field": "layout.scheme-system.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.document-name.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.open-document.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.open-file.w",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.open-folder.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.scheme-dark.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.scheme-light.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap folder-toggle",
+    "field": "layout.scheme-system.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.document-name.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.open-document.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.open-file.w",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.open-folder.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.scheme-dark.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.scheme-light.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-document",
+    "field": "layout.scheme-system.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.document-name.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.open-document.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.open-file.w",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.open-folder.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.scheme-dark.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.scheme-light.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  },
+  {
+    "app": "markdown",
+    "step": "tap open-folder",
+    "field": "layout.scheme-system.x",
+    "reason": "CSS leaves native file-control intrinsic width to the user agent; its flex-row width shifts following siblings."
+  }
+]

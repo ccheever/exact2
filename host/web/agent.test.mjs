@@ -1,6 +1,6 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -492,6 +492,86 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   expect(() => launchFacts({locale:'en_US'})).toThrow();
   expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
 });
+
+test('Firefox drives every web operation, keys, and held touch through the browser', async () => {
+  const { firefox } = await import('playwright-core');
+  if (!existsSync(firefox.executablePath())) {
+    console.log('skip: Firefox is not installed; bunx playwright@1.63.0 install firefox webkit');
+    return;
+  }
+  const html = `<!doctype html><meta charset=utf-8><style>
+    #exact-root{width:500px} #scroll{width:160px;height:60px;overflow:auto} #scroll>div{height:600px}
+    #touch{width:160px;height:80px;touch-action:none;background:#ccc}
+  </style><div id="exact-root" data-boot-ms="1">
+    <button data-testid="press">press</button><input data-testid="field"><div data-testid="touch" id="touch"></div>
+    <div data-testid="scroll" id="scroll"><div>long</div></div>
+  </div><script>
+    const root=document.getElementById('exact-root'), els=[...root.children], views=new Map(els.map((el,i)=>[i+1,el]));
+    const value={presses:0,text:'',keys:[],pointers:[],clock:0};
+    views.get(1).addEventListener('click',()=>value.presses++);
+    for(const el of [views.get(1),views.get(2)]) el.addEventListener('keydown',e=>value.keys.push(e.key+':down'));
+    views.get(2).addEventListener('input',e=>value.text=e.target.value);
+    for(const name of ['pointerdown','pointermove','pointerup','pointercancel']) views.get(3).addEventListener(name,e=>{value.pointers.push([name,e.pointerType,Math.round(e.timeStamp)]);if(name==='pointerdown')e.target.setPointerCapture(e.pointerId)});
+    const props=el=>({testId:el.dataset.testid,...(el===views.get(2)?{value:el.value}:{})});
+    const tree=()=>({roots:[1,2,3,4],nodes:els.map((el,i)=>({id:i+1,type:el.tagName==='INPUT'?'TextInput':el.tagName==='BUTTON'?'Pressable':'View',depth:0,props:props(el),children:[],handlers:el===views.get(1)?['press']:[],...(document.activeElement===el?{focused:true}:{})}))});
+    const tags=()=>({clock:value.clock,epoch:1,incarnation:1});
+    globalThis.exact={ready:Promise.resolve(),views,journal:[],gpu:{wantsInput:()=>false},agentSettled:async req=>{
+      if(req.op==='tags') return {...tags()};
+      if(req.op==='tree') { const t=tree(); if(req.target!=null)t.nodes=t.nodes.filter(n=>n.id===req.target||n.props.testId===req.target); return {...t,...tags()}; }
+      if(req.op==='layout') return {nodes:els.map((el,i)=>{const r=el.getBoundingClientRect();return {id:i+1,x:r.x,y:r.y,w:r.width,h:r.height,...(el.id==='scroll'?{sx:el.scrollLeft,sy:el.scrollTop}:{})}}),viewport:{w:innerWidth,h:innerHeight},...tags()};
+      if(req.op==='state') return {slots:value,derives:{},resources:{},...tags()};
+      if(req.op==='logs') return {lines:['fixture ready'],from:0,next:1,...tags()};
+      if(req.op==='clock') { if(req.to!=null)value.clock=req.to; return {clock:value.clock,settled:true,epoch:1,incarnation:1}; }
+      if(req.op==='focus') { const el=views.get(req.id); el.focus(); el.select?.(); return {ok:true}; }
+      if(req.op==='prefer') return {page:req.page??{},...tags()};
+      if(req.op==='tap'||req.op==='type') return {...tags()};
+      return {error:'unsupported '+req.op};
+    }};
+    console.debug('firefox operation fixture');
+  </script>`;
+  const server = createServer((_, response) => { response.writeHead(200, {'content-type':'text/html'}); response.end(html); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const dir = mkdtempSync(join(tmpdir(), 'exact-firefox-agent-')), png = join(dir, 'page.png');
+  let session, process;
+  try {
+    session = await open({ host:'web', browser:'firefox', url:`http://127.0.0.1:${server.address().port}/`, onProcess: child => { process = child; } });
+    expect(session.carrier.browser).toBe('firefox');
+    expect(process?.pid).toBeGreaterThan(0);
+    expect((await session.tree()).nodes.map(node => node.props.testId)).toEqual(['press','field','touch','scroll']);
+    expect((await session.layout()).nodes).toHaveLength(4);
+    expect((await session.state()).slots.presses).toBe(0);
+    const logs = await session.logs();
+    expect(logs.lines).toEqual(['fixture ready']);
+    expect(logs.host.some(line => line.includes('console.debug: firefox operation fixture'))).toBe(true);
+    await session.tap('press');
+    await session.type('field', 'hi');
+    await session.type('field', {key:'a'});
+    await session.type('press', {key:'Enter',phase:'down'});
+    await session.type('press', {key:'Enter',phase:'up'});
+    const down = await session.tap('touch', {down:true});
+    expect(down.delivery).toBe('recognized');
+    await session.pointer('move', {dx:20,dy:10,ms:32});
+    await session.pointer('up');
+    await session.tap('touch', {pinch:1.2});
+    await session.tap('scroll', {wheel:[0,120]});
+    const state = (await session.state()).slots;
+    expect(state.presses).toBeGreaterThan(0);
+    expect(state.text).toBe('hia');
+    expect(state.keys).toContain('a:down');
+    expect(state.keys).toContain('Enter:down');
+    expect(state.pointers.length).toBeGreaterThanOrEqual(6);
+    expect(state.pointers.every(event => event[1] === 'touch')).toBe(true);
+    expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
+    expect((await session.clock('+25')).clock).toBe(25);
+    expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');
+    expect((await session.screenshot(png)).w).toBeGreaterThan(0);
+    expect(statSync(png).size).toBeGreaterThan(0);
+  } finally {
+    await session?.close?.();
+    await new Promise(resolve => server.close(resolve));
+    rmSync(dir, {recursive:true,force:true});
+  }
+}, 60_000);
 
 test('page facts: the platform off the agent, the drive\'s values under it (LLP 1069.000 D2, D6)', () => {
   const listened = [];

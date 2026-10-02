@@ -68,8 +68,8 @@ function checks(sha) {
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
-    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
-    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
+    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
+    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
@@ -132,7 +132,7 @@ async function check(sha) {
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
   const env = { ...process.env };
-  delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR;
+  delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
