@@ -201,11 +201,12 @@ function markDocument() {
   for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
 }
+let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
     if (e.$jump) e.$jump(name, at);
-    else if (e[name] !== at) { if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+    else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
   Scrolls.clear();
 }
@@ -223,7 +224,6 @@ function command(name, args) {
   say(`command ${name}`);
   if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
-
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // `now()` is elapsed time: the driver's clock under the agent and in a
@@ -775,7 +775,7 @@ export function on(e, kind, f) {
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
     // The port's offsets, as the web host sends them (`glue.js` `attach`).
-    case "scroll": return l(kind, () => f(e.scrollLeft, e.scrollTop));
+    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
@@ -1226,7 +1226,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1236,7 +1236,7 @@ export function mount(f) {
     root.textContent = "";
     commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  if (!built) throw new Error("boot refused: " + journal.at(-1));
+  Booting = false; if (!built) throw new Error("boot refused: " + journal.at(-1));
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
