@@ -8,7 +8,7 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, Transitions, Vec2,
+    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, SegmentVar, Transitions, Vec2,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -153,8 +153,11 @@ impl<'a> Reader<'a> {
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
-    /// `calc()` of a percent and points) then `f32` (the points added to an
-    /// inset); a `calc()` carries its percent first and a second `f32`.
+    /// `calc()` of a percent and points, 8–13 a viewport segment's
+    /// width/height/top/left/bottom/right) then `f32` (the points added to
+    /// an inset or a segment length); a `calc()` carries its percent first
+    /// and a second `f32`; a segment length carries its two index bytes,
+    /// `x` then `y`, after the `f32` (LLP 1076 D3).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -173,6 +176,14 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
+            8..=13 => {
+                let var = SegmentVar::from_index(kind - 8).expect("8..=13 is a segment var");
+                let (x, y) = (self.u8()?, self.u8()?);
+                if x > SegmentVar::MAX_INDEX || y > SegmentVar::MAX_INDEX {
+                    return Err(DecodeError::UnknownDimensionKind(kind));
+                }
+                Dimension::Segment(var, x, y, value)
+            }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -475,6 +486,12 @@ impl Writer {
                 self.u8(3 + edge as u8);
                 self.f32(v);
             }
+            Dimension::Segment(var, x, y, v) => {
+                self.u8(8 + var as u8);
+                self.f32(v);
+                self.u8(x);
+                self.u8(y);
+            }
             Dimension::Percent(v) => {
                 self.u8(2);
                 self.f32(v);
@@ -677,10 +694,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[14u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(8))
+            Err(DecodeError::UnknownDimensionKind(14))
         );
     }
 

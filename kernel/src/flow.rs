@@ -77,7 +77,10 @@ pub(crate) fn is_exclusion(arena: &NodeArena, slot: u32) -> bool {
 
 // A length that resolves without the containing block's height.
 fn own_length(d: Dimension) -> bool {
-    matches!(d, Dimension::Points(_) | Dimension::Env(..))
+    matches!(
+        d,
+        Dimension::Points(_) | Dimension::Env(..) | Dimension::Segment(..)
+    )
 }
 
 // Taffy places an absolute child after the context's in-flow content, against

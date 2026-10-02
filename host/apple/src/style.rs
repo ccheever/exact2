@@ -391,7 +391,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) => unreachable!("resolved"),
+        Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved"),
     }
 }
 

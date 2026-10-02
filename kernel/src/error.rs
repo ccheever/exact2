@@ -321,6 +321,10 @@ pub enum LayoutError {
     InvalidIntrinsicSize(ViewId),
     /// An environment with a non-finite inset.
     InvalidEnv,
+    /// A segment grid with a count that is not `cols × rows` (or any
+    /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
+    /// (LLP 1076 D3).
+    InvalidSegments,
     /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
@@ -453,6 +457,12 @@ pub enum StyleValueError {
     /// Not a grid line placement in the kernel's closed CSS grammar.
     BadGridPlacement {
         style: StyleId,
+    },
+    /// An `env()` text that names one of the kernel's variables wrongly
+    /// (LLP 1076 D10): refused by name, never silently zero.
+    BadEnv {
+        style: StyleId,
+        refusal: crate::style::EnvRefusal,
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {

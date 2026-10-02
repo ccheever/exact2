@@ -111,7 +111,7 @@ impl Clone for NodeArena {
             roots: self.roots.clone(),
             by_local: self.by_local.clone(),
             live_count: self.live_count,
-            env: self.env,
+            env: self.env.clone(),
             document_language: self.document_language.clone(),
             document_style: self.document_style.clone(),
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],

@@ -580,6 +580,19 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::Dimension(Dimension::Segment(var, x, y, offset)) => {
+            let var = var.name();
+            let text = if offset == 0.0 {
+                format!("env(viewport-segment-{var} {x} {y})")
+            } else {
+                format!(
+                    "calc(env(viewport-segment-{var} {x} {y}) {} {}px)",
+                    if offset < 0.0 { "-" } else { "+" },
+                    num(offset.abs() as f64)
+                )
+            };
+            quote(&text, out)
+        }
         RowValue::LineHeight(v) => match v {
             exact_kernel::LineHeight::Number(n) => {
                 let _ = write!(out, "{}", num(n as f64));
