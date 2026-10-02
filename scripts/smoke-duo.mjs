@@ -134,9 +134,10 @@ export async function duoSmoke({ open, check: record }) {
     for (let i = 0; i < 40; i++) { l = await s.layout(); const kb = l.env['keyboard-inset-height']; if (want ? kb > 0 : kb === 0) break; await sleep(50); }
     return l;
   };
-  const eachPose = async (s, name, body) => {
+  const eachPose = async (s, name, body, dismiss) => {
     for (const [tag, deg] of POSES) {
       await pose(s, deg);
+      if (dismiss && (await s.layout()).env['keyboard-inset-height'] > 0) { await s.tap(dismiss); await keyboard(s, false); } // a keyboard the panel switch kept
       const f = await facts(s, `${name}-${tag}`);
       try { await body(f, `${name}-${tag}`, deg); } catch (e) { check(false, `${name}-${tag}: ${e.message}`); }
     }
@@ -219,7 +220,7 @@ export async function duoSmoke({ open, check: record }) {
         const l3 = await keyboard(s, false);
         check(l3.viewport.h === l.viewport.h && l3.env['safe-area-inset-bottom'] === bottom0 && box(l3, 'bar').y === bar0.y, `${tag}: after the keyboard went everything is back ${JSON.stringify(l3.viewport)} bar ${box(l3, 'bar')?.y} (was ${bar0.y})`);
         await s.tap('note'); await s.type('note', { key: 'Backspace' }); await s.type('note', { key: 'Backspace' }); await s.tap('dismiss'); await keyboard(s, false);
-      });
+      }, 'dismiss');
     } catch (e) { check(false, `keyboard-bar: ${e.message}`); } finally { await s.close(); }
   }
 
@@ -234,8 +235,17 @@ export async function duoSmoke({ open, check: record }) {
       const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
       check(typeof chosen === 'string' && chosen.length > 0, `item-2 selected a detail: ${chosen}`);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
-        const t = await s.tree(), text = (id) => byTestId(t, id)?.props.text;
+        let t = await s.tree();
         const two = folded(deg);
+        if ((l.env['device-posture'] === 'folded') !== two) {
+          // The hinge moved but the session did not hear it (UIHingeInteraction, D5): move it again, once, and say what happened.
+          await pose(s, deg === 180 ? 90 : 180); await pose(s, deg);
+          const again = await s.layout();
+          console.log(`  note ${tag}: the session reported ${l.env['device-posture']} ${JSON.stringify(l.env['viewport-segments'])} after the hinge moved to ${deg}°; after a second move it reports ${again.env['device-posture']} ${JSON.stringify(again.env['viewport-segments'])}`);
+          check(false, `${tag}: the live fold update after the hinge moved to ${deg}° was missed (${l.env['device-posture']}; a second move ${(again.env['device-posture'] === 'folded') === two ? 'recovered it' : 'did not recover it'})`);
+          l = again; t = await s.tree();
+        }
+        const text = (id) => byTestId(t, id)?.props.text;
         check(text('fact-posture') === (two ? 'folded' : 'continuous'), `${tag}: fact-posture is ${text('fact-posture')}, expected ${two ? 'folded' : 'continuous'}`);
         // The segments: the record's two side by side, or what the device reports (two
         // rects inside the viewport, one row or one column, the band between them empty).
