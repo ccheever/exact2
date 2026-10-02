@@ -273,6 +273,12 @@ fn routes_declare_their_render_and_activation_policies() {
     let interaction = interaction.unwrap();
     let decoded = exact_plan::Plan::decode(&interaction.encode()).unwrap();
     assert_eq!(decoded.routes[0].activate, ActivatePolicy::Interaction);
+    assert_eq!(decoded.routes[0].paint, exact_plan::PaintPolicy::Settled);
+    // @ref LLP 1048.005 — a route served per request may paint its boot
+    // document first.
+    let boot = contract::compile("routes nav\n  tab home \"/\" render=request paint=boot\ncomponent A\n  view\n    text \"a\"\n").unwrap();
+    let decoded = exact_plan::Plan::decode(&boot.encode()).unwrap();
+    assert_eq!(decoded.routes[0].paint, exact_plan::PaintPolicy::Boot);
     // The formatter keeps a field's spelling.
     let src = "routes nav\n  tab home \"/\" render=build activate=never\ncomponent A\n  view\n    text \"a\"\n";
     assert_eq!(contract_syntax::fmt::format(src).unwrap(), src);
@@ -296,6 +302,18 @@ fn routes_declare_their_render_and_activation_policies() {
         (
             "routes nav\n  tab home \"/\"\n    post \"/post/:post\" render=build\n",
             "route `post` has parameters",
+        ),
+        (
+            "routes nav\n  tab home \"/\" render=cached paint=early\n",
+            "`paint` is a word: settled or boot",
+        ),
+        (
+            "routes nav\n  tab home \"/\" render=build paint=boot\n",
+            "`paint=boot` goes with `render=cached` or `request`",
+        ),
+        (
+            "routes nav\n  tab home \"/\" paint=boot\n",
+            "route `home` is not rendered per request",
         ),
     ] {
         let src = format!("{src}component A\n  view\n    text \"a\"\n");

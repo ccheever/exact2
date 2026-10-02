@@ -1,6 +1,7 @@
 # A slow rejected connection blocks the render server's accept loop
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** a closing thread (`host/render/src/linger.rs`): the accept loop answers a full queue's 503 in one nonblocking write without reading the request, ends its half and hands the socket off, and a worker hands its answered connection off the same way; the thread reads and drops what each peer still sends, on `poll`, until the peer closes, 2 s pass, 64 KiB arrive or 256 are held. A request's head has 5 s in all, not 5 s a read, and a drain joins the thread. Verified by `host/render/tests/it/overload.rs` against the real `Server` (a peer dripping its request gets its 503 whole and holds neither the accept loop nor the freed worker — on the code before, no answer in 60 s; 100 connections turned away mid-request read a whole 503 and a clean end, where dropping the socket gave `ConnectionReset`), run 25 times and 40 more inside the whole suite under load, and by unit tests of the thread's bounds and the head's.
 **Systems:** Render server, HTTP
 **Severity:** P1
 **Author:** Codex for Charlie Cheever

@@ -225,10 +225,13 @@ export function simulator(pick = process.env.EXACT_SIM) {
 /** Bring Simulator.app up showing `dev`, so a person watching sees what is
  *  driven there; `background` (`open -g`) leaves keyboard focus where it was.
  *  Xcode 27 has no Simulator.app: its Device Hub (com.apple.dt.Devices) shows
- *  simulators instead. */
+ *  a simulator in a window of that device's own, opened and raised by the
+ *  URL Device Hub registers (`devices://device/open?id=<udid>`; launch
+ *  arguments never reach a Device Hub that is already running, and its main
+ *  window shows whichever device was last picked in its list). */
 export function showSimulator(dev, background = false) {
-  const g = background ? ['-g'] : [], args = ['--args', '-CurrentDeviceUDID', dev.udid];
-  if (spawnSync('open', [...g, '-a', 'Simulator', ...args], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, '-b', 'com.apple.dt.Devices', ...args], { stdio: 'ignore' });
+  const g = background ? ['-g'] : [];
+  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
 }
 
 /** Crash reports macOS wrote since `since` (ms) for an executable named

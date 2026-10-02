@@ -10,8 +10,9 @@ use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, BindingsRow, Value};
 
 /// The form control an element is (LLP 1069.001 D1), refusing a bound
-/// `type`: the node type is chosen when the view compiles, from the literal.
-/// A `select` is one; it takes no `type`.
+/// `type` that could name a control: the node type is chosen when the view
+/// compiles, from the literal. A choice between text fields' types stays a
+/// text field and is bound. A `select` is one; it takes no `type`.
 pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
@@ -43,10 +44,10 @@ pub(crate) fn control(
         return Ok(None);
     }
     if let Some(a) = attrs.iter().find(|a| a.name == "type") {
-        if !matches!(a.value, Expr::Str(..)) {
+        if !matches!(a.value, Expr::Str(..)) && !contract_syntax::text_input_type(&a.value) {
             return err(
                 "lower-input-type",
-                "`input`'s `type` is a literal (`type=\"text\"`, `\"password\"`, `\"checkbox\"`, …): it picks the kind of node when the view compiles",
+                "`input`'s `type` is a literal (`type=\"text\"`, `\"password\"`, `\"checkbox\"`, …), or a choice between text fields' (`type=shown ? \"text\" : \"password\"`): it picks the kind of node when the view compiles",
                 a.span,
             );
         }

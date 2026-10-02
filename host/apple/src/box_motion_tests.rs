@@ -242,3 +242,97 @@ fn macos_samples_them() {
         assert!(on.contains("\"motion\":true"));
     }
 }
+
+/// LLP 1053.000.000 D4: a glass group ignores the opacity Core Animation
+/// plays between it and its glass, so an opacity animation inside a group is
+/// sampled and reaches the host as values; outside one, it is lowered.
+#[test]
+fn opacity_inside_a_glass_group_is_sampled() {
+    let app = r##"keyframes dim
+  from opacity=1
+  to opacity=0.2
+component A
+  state on = false
+  action go writes on
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      row glassGroup=12
+        box testId="grouped" width=40 height=40 backgroundMaterial="glass" animation=(on ? "dim 1s linear infinite" : "none")
+      box testId="free" width=40 height=40 backgroundMaterial="glass" animation=(on ? "dim 1s linear infinite" : "none")
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    assert_eq!(keys(&on, id(&host, "free")), ["opacity"], "{on}");
+    assert!(keys(&on, id(&host, "grouped")).is_empty(), "{on}");
+    let sampled = |host: &Host<NoData>, t: &str| {
+        host.engine.node_sampled(exact_kernel::motion::motion_node(
+            host.runner.kernel().node(id(host, t)).unwrap().key,
+        ))
+    };
+    assert!(sampled(&host, "grouped"));
+    assert!(!sampled(&host, "free"));
+    let grouped = id(&host, "grouped");
+    let later = host.tick(600.0);
+    let v: serde_json::Value = serde_json::from_str(&later).unwrap();
+    assert!(
+        v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|op| op["op"] == "present"
+                && op["id"] == grouped
+                && op.to_string().contains("opacity")),
+        "{later}"
+    );
+}
+
+/// LLP 1053.000.000 D4: an opacity animation still lowered when a group is
+/// above it (a group set after it started) is switched to sampling by the
+/// pass over every running animation, and its Core Animation spec withdrawn.
+#[test]
+fn a_lowered_opacity_animation_under_a_group_is_switched_to_sampling() {
+    let app = r##"keyframes dim
+  from opacity=1
+  to opacity=0.2
+component A
+  state on = false
+  action go writes on
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      row glassGroup=12
+        box testId="grouped" width=40 height=40 backgroundMaterial="glass" animation=(on ? "dim 1s linear infinite" : "none")
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let view = id(&host, "grouped");
+    let node = exact_kernel::motion::motion_node(host.runner.kernel().node(view).unwrap().key);
+    host.engine.set_node_sampled(node, false);
+    assert_eq!(
+        svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine),
+        [view]
+    );
+    assert!(host.engine.node_sampled(node));
+    assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
+}

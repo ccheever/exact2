@@ -3,7 +3,7 @@
 //! node's own attributes, which win for the same name.
 
 use crate::{err, LowerError, Lowerer};
-use contract_syntax::{Attr, Expr};
+use contract_syntax::{Attr, Expr, Node};
 
 impl Lowerer<'_> {
     /// A node's class rows as attributes, with a label for the source map:
@@ -77,5 +77,46 @@ impl Lowerer<'_> {
                 c.span,
             ),
         }
+    }
+}
+
+impl Lowerer<'_> {
+    /// Whether an absolutely positioned box can be among `nodes` or under
+    /// them (LLP 1074 T1): a `position` that is not a literal `static` or
+    /// `relative`, its own or its class's; a component, a slot or a native
+    /// view, whose insides aren't seen here; a canvas; a row that exits or
+    /// moves in its layout (the web host takes a leaving row out of flow). A
+    /// box that clips or transforms with none of these under it is the
+    /// containing block of nothing, so it needs no `position: relative`.
+    pub(crate) fn may_hold_absolute(&self, nodes: &[Node]) -> bool {
+        nodes.iter().any(|n| match n {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                let class = self.class_rows(attrs).ok().flatten().map(|(_, rows)| rows);
+                let rows = attrs.iter().chain(class.iter().flatten());
+                let positioned = |a: &Attr| {
+                    a.name == "position"
+                        && !matches!(&a.value, Expr::Str(v, _) if v == "static" || v == "relative")
+                };
+                let moves =
+                    |a: &Attr| matches!(a.name.as_str(), "exit-animation" | "layout-transition");
+                rows.clone().any(|a| positioned(a) || moves(a))
+                    || crate::tags::tag(tag).is_none()
+                    || tag == "canvas"
+                    || self.may_hold_absolute(children)
+            }
+            Node::Use { .. } | Node::Children { .. } => true,
+            Node::Provide { body, .. } | Node::Each { body, .. } => self.may_hold_absolute(body),
+            Node::When {
+                then, otherwise, ..
+            } => self.may_hold_absolute(then) || self.may_hold_absolute(otherwise),
+            Node::Match { some, none, .. } => {
+                self.may_hold_absolute(&some.1) || self.may_hold_absolute(none)
+            }
+        })
     }
 }

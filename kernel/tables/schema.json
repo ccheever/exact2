@@ -1234,6 +1234,12 @@
       "name": "step",
       "kind": "str",
       "_comment": "@ref LLP 1069.001 D1: HTML's `step` on `input type=range` (a number, or `any`)."
+    },
+    {
+      "id": 216,
+      "name": "glassGroup",
+      "kind": "float",
+      "_comment": "@ref LLP 1053.000.000 D1: the element's subtree is one Liquid Glass group whose glass begins to merge this many points apart (UIGlassContainerEffect, NSGlassEffectContainerView). Layout-neutral; drawn only on Apple 26+."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

@@ -720,8 +720,12 @@ a second random stream, so its trees' seeds are unchanged: both differentials
 
 
 2026-09-30 ticket sweep: patch 18 measures shrink-to-fit between intrinsic widths
-after subtracting the static inline inset; patch 19 uses that solver for an
-absolute root in a definite offer. Chrome cases are in `browser_containing_block.tsv`.
+after subtracting the static inline inset (for a centred static position, the
+space is twice the distance from the centre to the nearer edge, as Chrome's);
+patch 19 uses that solver for an absolute root in a definite offer. Chrome cases
+are in `browser_containing_block.tsv` (20 shapes of shrink-to-fit from a static
+inset) and `browser_position.tsv` (the derived width's minimum in 25, the ratio's
+height as a percentage basis in 15, the logical alignment keywords in 148).
 Patch 12 also resolves percentages against the ratio height while allowing the
 content minimum to enlarge the used height, and measures the automatic inline
 minimum for height-derived widths (block, flex, grid, absolute boxes and roots).

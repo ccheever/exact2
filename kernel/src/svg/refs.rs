@@ -19,37 +19,55 @@ impl Kernel {
             [] => None,
             [one] => Some(self.arena().local_id(*one)),
             _ => {
-                let chain = |slot: u32| {
-                    let mut out = vec![slot];
-                    let mut cur = self.arena().parent(slot);
-                    while let Some(p) = cur {
-                        out.push(p);
-                        cur = self.arena().parent(p);
-                    }
-                    out.reverse();
-                    out
-                };
-                let from = chain(self.arena().slot_of(from)?);
-                let order = |c: &[u32]| -> Vec<usize> {
-                    c.windows(2)
-                        .map(|w| {
-                            self.arena()
-                                .children(w[0])
-                                .iter()
-                                .position(|s| *s == w[1])
-                                .unwrap_or(usize::MAX)
-                        })
-                        .collect()
-                };
-                live.iter()
-                    .map(|s| {
-                        let c = chain(*s);
-                        let shared = c.iter().zip(&from).take_while(|(a, b)| a == b).count();
-                        (std::cmp::Reverse(shared), order(&c), *s)
-                    })
-                    .min()
-                    .map(|(_, _, s)| self.arena().local_id(s))
+                let arena = self.arena();
+                nearest(
+                    &live,
+                    arena.slot_of(from)?,
+                    |slot| arena.parent(slot),
+                    |parent, child| {
+                        arena
+                            .children(parent)
+                            .iter()
+                            .position(|s| *s == child)
+                            .unwrap_or(usize::MAX)
+                    },
+                )
+                .map(|slot| arena.local_id(slot))
             }
         }
     }
+}
+
+/// Of several nodes an id names (`candidates`), the one sharing the deepest
+/// common ancestor with `from`, ties in tree order (each step's place among
+/// its parent's children), then by key: [`Kernel::resolve_id`]'s rule, over
+/// any tree that answers `parent` and `position` — the kernel's, or a
+/// document a render writes without one (LLP 1048.004).
+pub fn nearest<K: Copy + Ord>(
+    candidates: &[K],
+    from: K,
+    parent: impl Fn(K) -> Option<K>,
+    position: impl Fn(K, K) -> usize,
+) -> Option<K> {
+    let chain = |node: K| {
+        let mut out = vec![node];
+        let mut cur = parent(node);
+        while let Some(p) = cur {
+            out.push(p);
+            cur = parent(p);
+        }
+        out.reverse();
+        out
+    };
+    let from = chain(from);
+    let order = |c: &[K]| -> Vec<usize> { c.windows(2).map(|w| position(w[0], w[1])).collect() };
+    candidates
+        .iter()
+        .map(|node| {
+            let c = chain(*node);
+            let shared = c.iter().zip(&from).take_while(|(a, b)| a == b).count();
+            (std::cmp::Reverse(shared), order(&c), *node)
+        })
+        .min()
+        .map(|(_, _, node)| node)
 }

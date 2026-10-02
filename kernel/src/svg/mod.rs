@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 pub mod filter;
 pub mod length;
 mod path;
-mod refs;
+pub mod refs;
 pub mod scene;
 pub mod server;
 mod shape;

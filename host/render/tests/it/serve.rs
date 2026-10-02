@@ -111,7 +111,7 @@ impl DataSource for Posts {
 }
 
 /// A dist: the web host's shell, a script and an image.
-fn dist(name: &str) -> PathBuf {
+pub(super) fn dist(name: &str) -> PathBuf {
     let dir =
         std::env::temp_dir().join(format!("exact-render-serve-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -130,7 +130,7 @@ fn dist(name: &str) -> PathBuf {
     dir
 }
 
-fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> Served {
+pub(super) fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> Served {
     super::warm_transport();
     let serve = Serve {
         dist: dist(name),
@@ -150,8 +150,8 @@ fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> Served {
 /// A test's server, drained when the test ends: its workers and their
 /// executors end with it, so the tests' servers never reach the process's
 /// native-worker cap (a leak that turned renders elsewhere `Busy`).
-struct Served {
-    addr: SocketAddr,
+pub(super) struct Served {
+    pub(super) addr: SocketAddr,
     stopper: exact_render::Stopper,
     serving: Option<std::thread::JoinHandle<std::io::Result<()>>>,
 }
@@ -185,7 +185,7 @@ fn fetch(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, String
 
 /// How long a test waits on the server before it fails, naming the wait: a
 /// hang bound, not a deadline (a loaded Mac is slow, never this slow).
-const BOUND: Duration = Duration::from_secs(60);
+pub(super) const BOUND: Duration = Duration::from_secs(60);
 
 /// The same, the body as bytes.
 fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
@@ -231,14 +231,14 @@ fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, 
     (status, headers, body)
 }
 
-fn get(addr: SocketAddr, target: &str) -> (u16, Vec<(String, String)>, String) {
+pub(super) fn get(addr: SocketAddr, target: &str) -> (u16, Vec<(String, String)>, String) {
     fetch(
         addr,
         &format!("GET {target} HTTP/1.1\r\nHost: evil.test\r\n\r\n"),
     )
 }
 
-fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(super) fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(k, _)| k == name)
@@ -1148,7 +1148,7 @@ fn large_static_files_stream_with_lengths_validators_and_head() {
 }
 
 /// The JavaScript runtime's shell, as host/web-js/build.mjs writes it.
-const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+pub(super) const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
 
 /// A chunked body, its chunks joined.
 #[test]
@@ -1245,7 +1245,7 @@ fn a_connection_is_kept_for_the_next_request() {
     assert!(rest.is_empty());
 }
 
-fn unchunk(mut body: &[u8]) -> Vec<u8> {
+pub(super) fn unchunk(mut body: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
         let line = body.windows(2).position(|w| w == b"\r\n").unwrap();

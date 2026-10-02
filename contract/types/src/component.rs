@@ -391,12 +391,15 @@ fn refine_params_from_view(
                 let file = control == Some("file");
                 // A range's carry its number (LLP 1069.001 D4).
                 let range = control == Some("range");
-                // A bound `type` is lowering's refusal (`lower-input-type`),
-                // not a payload guessed here.
+                // A bound `type` that could name a control is lowering's
+                // refusal (`lower-input-type`), not a payload guessed here;
+                // a choice between text fields' types carries text.
                 let bound_type = tag == "input"
-                    && attrs
-                        .iter()
-                        .any(|a| a.name == "type" && !matches!(a.value, Expr::Str(..)));
+                    && attrs.iter().any(|a| {
+                        a.name == "type"
+                            && !matches!(a.value, Expr::Str(..))
+                            && !contract_syntax::text_input_type(&a.value)
+                    });
                 for a in attrs {
                     if matches!(
                         a.name.as_str(),
@@ -449,6 +452,26 @@ fn refine_params_from_view(
                                         ct.actions[ai][i] = u;
                                     }
                                 }
+                            }
+                            // A parameter left to this handler to type has
+                            // nothing to type it: said here, at the `type`,
+                            // not as a parameter nothing calls.
+                            if bound_type
+                                && matches!(a.name.as_str(), "change" | "input")
+                                && args.len() < ct.actions[ai].len()
+                                && ct.actions[ai].last().is_some_and(|t| !t.is_complete())
+                            {
+                                return err(
+                                    "type-cannot-infer",
+                                    format!(
+                                        "cannot infer what `{}=` carries to `{name}`: this `input`'s `type` is neither a literal nor a choice between text fields' (`shown ? \"text\" : \"password\"`)",
+                                        a.name
+                                    ),
+                                    attrs
+                                        .iter()
+                                        .find(|t| t.name == "type")
+                                        .map_or(a.span, |t| t.span),
+                                );
                             }
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is

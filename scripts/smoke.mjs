@@ -999,12 +999,12 @@ if (caltrainFixture) {
 if (deckFixture) {
   const d = await open({ host });
   try {
-    const beforeDeck = await d.layout(), toggle = box(beforeDeck, 'deck-toggle');
-    if (toggle.y + toggle.h / 2 >= beforeDeck.viewport.h)
-      await d.tap('station-name', { wheel: [0, toggle.y + toggle.h - beforeDeck.viewport.h + 20] });
+    const reveal = async (id, at) => { const l = await d.layout(), b = box(l, id), mid = b.y + b.h / 2; if (mid < 0 || mid >= l.viewport.h) await d.tap(at, { wheel: [0, mid - l.viewport.h / 2] }); }; // a tap outside the viewport is refused (on a phone: the toggle, the opened deck, then the material buttons above it): a wheel at `at` scrolls `id`'s middle to the viewport's
+    await reveal('deck-toggle', 'station-name');
     await d.tap('deck-toggle');
     let st = await d.state();
     check(st.slots.deck === true, `the deck did not open (${JSON.stringify(st.slots.deck)})`);
+    await reveal('deck', 'deck-toggle');
     let l = await d.layout();
     const cards = l.nodes.filter((n) => n.testId?.startsWith('card-'));
     check(cards.length >= 2, `the deck has ${cards.length} card(s)`);
@@ -1035,7 +1035,7 @@ if (deckFixture) {
       const moved = later.filter((c, i) => cards[i] && Math.abs(c.y - cards[i].y) > 1).length;
       check(moved > 0, 'a tenth of a second on, no card moved: the deck was not read back for the clock (placements refresh late)');
     }
-    await d.tap('material-crt');
+    await reveal('material-crt', 'deck'); await d.tap('material-crt');
     st = await d.state();
     check(st.slots.material === 'crt', `the material is ${JSON.stringify(st.slots.material)}`);
     console.log(`${host} deck: ${cards.length} cards, ${cards[0].testId} focused by a tap; material crt`);

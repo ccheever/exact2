@@ -170,7 +170,13 @@ fn function(
         }
         FilterFn::DropShadow(dx, dy, blur, color) => {
             let color = color.unwrap_or(text_color);
-            let s = blur / 2.0;
+            // The third length is the standard deviation itself (Filter
+            // Effects 1 §10.9: `feGaussianBlur stdDeviation="[radius]"`),
+            // not `box-shadow`'s blur radius of 2σ: halved, F3's shadow fell
+            // off at half CSS's distance and its region was cut at 1.5σ
+            // (the iPad frames: exact2 1680 px wide at a threshold of 6/255,
+            // Chrome and SwiftUI 1751).
+            let s = *blur;
             chain.push(
                 Op::DropShadow(s, s, *dx, *dy, rgba(color, 1.0)),
                 [src, Input::None],

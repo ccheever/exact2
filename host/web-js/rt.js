@@ -1,6 +1,7 @@
 import { renderMarkup, reportPlace } from "./navigation.js";
 import { conforms, eq } from "./shape.js";
-export { conforms, eq };
+import { paintList, paintFacts, paintFlush } from "./paint.js";
+export { conforms, eq }; export { paintOwn } from "./paint.js";
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -190,7 +191,7 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); for (const f of After) f(); }
+export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); paintFlush(); for (const f of After) f(); }
 /** `<html data-scrolldocument>` while an element is the page's scroller
  * (LLP 1048.003 D4), which the shell's rule reads, as the web host's glue. */
 const Docs = new Set();
@@ -490,7 +491,7 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
   if (text !== 0) e.textContent = text;
   p.append(e);
   return e;
@@ -528,7 +529,7 @@ function adopt(p, tag, cls, attrs) {
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-box"] !== undefined && attrs?.["data-exact-own-isolation"] === undefined && e.style.isolation === "isolate") e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
   return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
@@ -567,8 +568,8 @@ export function P(e, name, f) {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
-    else if (v == null) e.removeAttribute(name);
-    else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
+    else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
+    else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
@@ -989,11 +990,11 @@ function range(p) {
 // A view leaving with its exit animation stays where it was until it ends
 // (presence-glue.js removes it): never moved, since moving cancels a CSS animation.
 const exiting = n => n.nodeType === 1 && n.hasAttribute("data-exiting");
-function clear(a, b) { for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
+function clear(a, b) { paintList(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
 function build(b, f, own) {
   const frag = document.createDocumentFragment();
   const s = scope(() => f(frag), own);
-  b.before(frag);
+  b.before(frag); paintList(b.parentNode);
   return s;
 }
 /** A region's first arm while adopting: built in place, then its end anchor. */
@@ -1119,7 +1120,7 @@ export function each(p, list, key, row, pure) {
         }
         flush();
       }
-      rows = next;
+      rows = next; paintList(p);
       b ??= mark(p);
     });
   });

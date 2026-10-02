@@ -19,7 +19,12 @@ final class TransformGeometryHost {
     init(_ presenter: Presenter) { self.presenter = presenter }
     func reset() { observations.removeAll(); serial = 0; remainingPasses = delivering ? 2 : 0 }
     func retire(_ id: UInt32) { observations.removeValue(forKey: id) }
+    /// Moves on every native layout, scroll, window move and presentation
+    /// batch — what may have moved a view — so a reader can keep a geometric
+    /// answer until it does (a canvas's on-screen test, `Canvases.shown`).
+    private(set) var epoch = 0
     func changed() {
+        epoch &+= 1
         guard !delivering, presenter?.transformBindings.isEmpty == false else { return }
         remainingPasses = 2
         enqueue()

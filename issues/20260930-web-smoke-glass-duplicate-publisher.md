@@ -1,7 +1,6 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Closed
-**Resolution:** no longer reproduces at ad57fdc0 (13 passing runs, idle and loaded, after 6 of 7 failing at c1ea6eb3c); not root-caused, a probe recipe is in the body
+**Status:** Open
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -35,3 +34,13 @@ in `host/web/gpu-glue.js` `surface()`: the old publisher's `view`,
 and a stack. A stale old publisher (element gone, entry still registered)
 would mean a create-before-destroy ordering, fixable by replacing a
 disconnected publisher rather than ignoring the new one.
+
+## It returned (2026-09-30, evening)
+
+One run of four failed on the same single console error, at 50e47f888 plus
+three commits that touch nothing in the web host (the render server's close,
+the compiler's bound input `type`, the driver's simulator window). The
+failing run took 228.7 s at a load average near 100; the three that passed
+took 47 s each, minutes later, load near 40. So it is still there and shows
+under load; it had been closed as no longer reproducing after 13 passing
+runs at ad57fdc0. The probe above was not applied.

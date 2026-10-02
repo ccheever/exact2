@@ -139,36 +139,9 @@ impl Source for DocTree {
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]> {
         Cow::Borrowed(self.node(id).map_or(&[][..], |n| n.children.as_slice()))
     }
-    /// A tree with no `id` props references nothing: a render writes one
-    /// only for a plan that binds none ([`writes_without_a_kernel`]).
-    fn resolve(&self, _: ViewId, _: &str) -> Option<ViewId> {
-        None
+    fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId> {
+        self.resolve_id(from, id)
     }
-}
-
-/// Whether a render may write `plan`'s documents from its runner's
-/// instance tree, with no kernel (LLP 1048.004 D5): the plan virtualizes no
-/// list and binds no `id` (which SVG references and popovers resolve through
-/// the kernel's index). `Err` names what keeps it on the kernel.
-pub fn writes_without_a_kernel(plan: &exact_plan::Plan) -> Result<(), &'static str> {
-    use exact_plan::BindingKind;
-    for binding in &plan.bindings {
-        if binding.kind != BindingKind::Prop {
-            continue;
-        }
-        if binding.id == PropId::Id as u16 {
-            return Err("an `id` prop");
-        }
-        let never = [
-            exact_plan::Opcode::Bool as u8,
-            0,
-            exact_plan::Opcode::Return as u8,
-        ];
-        if binding.id == PropId::Virtualized as u16 && plan.code(binding.expr) != never {
-            return Err("a virtualized list");
-        }
-    }
-    Ok(())
 }
 
 /// How a document is written beyond its tree: in which form, and to whom

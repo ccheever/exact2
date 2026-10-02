@@ -687,14 +687,37 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
         .iter()
         .find(|a| a.name == "type")
         .and_then(|a| match &a.value {
-            Expr::Str(t, _) if t == "checkbox" => Some("checkbox"),
-            Expr::Str(t, _) if t == "file" => Some("file"),
-            Expr::Str(t, _) if t == "range" => Some("range"),
-            Expr::Str(t, _) if t == "date" => Some("date"),
-            Expr::Str(t, _) if t == "time" => Some("time"),
-            Expr::Str(t, _) if t == "datetime-local" => Some("datetime-local"),
+            Expr::Str(t, _) => control_type(t),
             _ => None,
         })
+}
+
+/// The control an `input`'s literal `type` names; `None` for a text field's
+/// (`text`, `password`, `email`, …).
+fn control_type(t: &str) -> Option<&'static str> {
+    match t {
+        "checkbox" => Some("checkbox"),
+        "file" => Some("file"),
+        "range" => Some("range"),
+        "date" => Some("date"),
+        "time" => Some("time"),
+        "datetime-local" => Some("datetime-local"),
+        _ => None,
+    }
+}
+
+/// Whether `value`, an `input`'s `type`, is a text field's whatever it
+/// evaluates to: a text field's literal, or a choice between such literals
+/// (`shown ? "text" : "password"`, a password's show and hide). The node is
+/// a text field either way, so the choice can be made as the app runs, as
+/// the attribute can be set on the web; any other expression could name a
+/// control the compiler has to know (LLP 1069.001 D1).
+pub fn text_input_type(value: &Expr) -> bool {
+    match value {
+        Expr::Str(t, _) => control_type(t).is_none(),
+        Expr::Ternary(_, a, b, _) => text_input_type(a) && text_input_type(b),
+        _ => false,
+    }
 }
 
 /// `name=expr`.

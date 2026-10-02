@@ -71,6 +71,9 @@ final class NodeExtras {
     var hiddenBeforePlacement = false
     var placementHidden = false
     var materialView: UIVisualEffectView?
+    /// `glassGroup`'s view and a grouped glass's slot (`GlassGroup.swift`).
+    var glassGroupView: GlassGroupView?
+    var glassSlot: GlassSlot?
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
@@ -137,6 +140,8 @@ extension NodeView {
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }
     var materialKind: String? { get { extras?.materialKind } set { if newValue != nil || extras != nil { more.materialKind = newValue } } }
+    var glassGroupView: GlassGroupView? { get { extras?.glassGroupView } set { if newValue != nil || extras != nil { more.glassGroupView = newValue } } }
+    var glassSlot: GlassSlot? { get { extras?.glassSlot } set { if newValue != nil || extras != nil { more.glassSlot = newValue } } }
     var materialInteractive: Bool { get { extras?.materialInteractive ?? false } set { if newValue || extras != nil { more.materialInteractive = newValue } } }
     var readingAnchors: [(node: NodeView, y: CGFloat)] {
         get { extras?.readingAnchors ?? [] }

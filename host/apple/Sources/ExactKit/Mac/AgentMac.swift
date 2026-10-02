@@ -300,6 +300,7 @@ extension Agent {
             native["effect"] = v.appliedMaterial
             if let m = v.props["backgroundMaterial"] { native["material"] = Materials.agentMaterial(m) }
         }
+        v.glassAgentFields(&native)
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
         reply["node"] = node

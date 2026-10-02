@@ -67,10 +67,15 @@ fn documents(kernel: &Rendered, direct: &Rendered) -> Option<String> {
     // View ids follow the order answers landed in, which two renders need
     // not share; nobody keeps them on these pages ([`Ids::Any`]).
     let (kr, dr) = (without_ids(&k.root), without_ids(&d.root));
+    // The clock the page read, which two renders read at different times.
+    let (kc, dc) = (
+        without_clock(&kernel.checkpoint),
+        without_clock(&direct.checkpoint),
+    );
     let fields: [(&str, &str, &str); 6] = [
         ("root", &kr, &dr),
         ("head", &kernel.head, &direct.head),
-        ("checkpoint", &kernel.checkpoint, &direct.checkpoint),
+        ("checkpoint", &kc, &dc),
         ("keyframes", &k.keyframes, &d.keyframes),
         ("lang", &k.lang, &d.lang),
         ("dir", &k.dir, &d.dir),
@@ -139,9 +144,27 @@ fn streamed<D: DataSource + 'static, F: Fn() -> D>(
         return Ok(Some("the streamed runs are not the page".into()));
     }
     let expected = body_js(shell, &js, kernel, late(kernel.activate), false);
-    let (a, b) = (without_digest(&expected), without_digest(&body));
+    let (a, b) = (
+        without_clock(&without_digest(&expected)),
+        without_clock(&without_digest(&body)),
+    );
     Ok(first_difference(&a, &b)
         .map(|at| format!("streamed page at byte {at}: {}", around(&a, &b, at))))
+}
+
+/// `text` with the checkpoint's clock (`"time":<ms>`) blanked.
+fn without_clock(text: &str) -> String {
+    const TIME: &str = "\"time\":";
+    match text.find(TIME) {
+        Some(at) => {
+            let from = at + TIME.len();
+            let to = text[from..]
+                .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == 'e'))
+                .map_or(text.len(), |end| from + end);
+            format!("{}{}", &text[..from], &text[to..])
+        }
+        None => text.to_string(),
+    }
 }
 
 /// `root` with its view ids blanked.

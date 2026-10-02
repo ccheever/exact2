@@ -120,10 +120,11 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
             Err(why) => skipped.push(format!("{what}: {why}")),
         }
     }
-    // Most plans are written without a kernel; the rest say why not.
+    // Every plan a kernel renders is written without one too (LLP
+    // 1048.004 stage 2: virtualized lists and `id` references included).
     assert!(
-        compared * 2 > files.len(),
-        "only {compared} of {} plans compared; skipped: {skipped:#?}",
+        skipped.iter().all(|why| why.ends_with("no kernel render")) && compared > 0,
+        "{compared} of {} plans compared; skipped: {skipped:#?}",
         files.len()
     );
 }

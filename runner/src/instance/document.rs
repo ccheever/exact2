@@ -11,6 +11,7 @@
 //! refused here too, and so is what the fold doesn't cover (a virtualized
 //! list, a relative length): the render then renders again with a kernel.
 
+use super::collection::views::ListChild;
 use super::*;
 use exact_kernel::id::IdMap;
 use exact_kernel::{NodeFacts, PropList, SortedMap, StyleId};
@@ -35,8 +36,9 @@ pub struct DocNode {
     pub props: PropList,
     /// Whether it is a root.
     pub is_root: bool,
-    /// The plan node it realizes.
-    pub site: NodesId,
+    /// The plan node it realizes; `None` for a virtualized list's spacer or
+    /// row wrapper, which the list makes.
+    pub site: Option<NodesId>,
 }
 
 /// A document's nodes, from the runner's instance tree ([`Tree::document`]).
@@ -45,6 +47,8 @@ pub struct DocTree {
     nodes: Vec<DocNode>,
     index: IdMap<ViewId, u32>,
     roots: Vec<ViewId>,
+    /// The nodes each `id` prop names, in tree order.
+    ids: std::collections::HashMap<String, Vec<ViewId>>,
 }
 
 /// Why a tree has no kernel-free document.
@@ -112,24 +116,36 @@ impl DocTree {
     pub fn handlers(&self, plan: &Plan) -> SortedMap<ViewId, Vec<EventKind>> {
         self.nodes
             .iter()
-            .filter(|n| plan.node(n.site).handlers.len > 0)
-            .map(|n| {
-                let handlers = plan.node(n.site).handlers;
-                (
-                    n.id,
-                    handlers.iter().map(|h| plan.handler(h).event).collect(),
-                )
-            })
+            .filter_map(|n| Some((n.id, plan.node(n.site?).handlers)))
+            .filter(|(_, handlers)| handlers.len > 0)
+            .map(|(id, handlers)| (id, handlers.iter().map(|h| plan.handler(h).event).collect()))
             .collect()
+    }
+
+    /// The node an SVG reference `#id` from `from` names, by the kernel's
+    /// rule (`Kernel::resolve_id`): the one node with that `id`, or of
+    /// several the nearest to `from`.
+    pub fn resolve_id(&self, from: ViewId, id: &str) -> Option<ViewId> {
+        match self.ids.get(id)?.as_slice() {
+            [] => None,
+            [one] => Some(*one),
+            several => exact_kernel::svg::refs::nearest(
+                several,
+                self.node(from)?.id,
+                |node| self.node(node).and_then(|n| n.parent),
+                |parent, child| {
+                    self.node(parent)
+                        .and_then(|p| p.children.iter().position(|c| *c == child))
+                        .unwrap_or(usize::MAX)
+                },
+            ),
+        }
     }
 }
 
 impl Tree {
     /// The document's nodes, from the values the tree's bindings last took.
     pub(crate) fn document(&self, plan: &Plan, sites: &SiteIndex) -> Result<DocTree, DocTreeError> {
-        if self.has_collections {
-            return Err(DocTreeError::Unsupported("a virtualized list"));
-        }
         let mut build = Build {
             plan,
             sites,
@@ -180,9 +196,6 @@ impl Build<'_> {
         parent: Option<(ViewId, NodeType)>,
         depth: u32,
     ) -> Result<(), DocTreeError> {
-        if n.collection.is_some() {
-            return Err(DocTreeError::Unsupported("a virtualized list"));
-        }
         let wire = self.plan.node(n.node).node_type;
         let node_type = NodeType::from_wire(wire)
             .ok_or_else(|| DocTreeError::Refused(format!("unknown node type {wire}")))?;
@@ -212,18 +225,84 @@ impl Build<'_> {
             )));
         }
         let (style, props) = self.fold(n)?;
-        self.doc.index.insert(n.view, self.doc.nodes.len() as u32);
-        self.doc.nodes.push(DocNode {
+        let list = match &n.collection {
+            Some(list) => Some(
+                list.document_children(self.plan)
+                    .map_err(|e| DocTreeError::Refused(format!("{e:?}")))?,
+            ),
+            None => None,
+        };
+        let children = match &list {
+            Some(list) => list
+                .iter()
+                .map(|child| match child {
+                    ListChild::Spacer(view, _) | ListChild::Row(view, ..) => *view,
+                })
+                .collect(),
+            None => roots_of(&n.children),
+        };
+        self.push(DocNode {
             id: n.view,
             node_type,
             parent: parent.map(|(view, _)| view),
-            children: roots_of(&n.children),
+            children,
             style,
             props,
             is_root: parent.is_none(),
-            site: n.node,
+            site: Some(n.node),
         });
-        self.children(&n.children, Some((n.view, node_type)), depth + 1)
+        let here = Some((n.view, node_type));
+        let Some(list) = list else {
+            return self.children(&n.children, here, depth + 1);
+        };
+        // A virtualized list: its spacers and its mounted rows' wrappers,
+        // which the list makes, around each row's root.
+        if depth + 1 > exact_kernel::MAX_DEPTH {
+            return Err(DocTreeError::Refused(format!(
+                "view {} is deeper than {}",
+                n.view,
+                exact_kernel::MAX_DEPTH
+            )));
+        }
+        for child in list {
+            let (view, style, props, roots) = match child {
+                ListChild::Spacer(view, style) => {
+                    let mut props = PropList::new();
+                    props.set(
+                        exact_kernel::PropId::AccessibilityElementsHidden,
+                        exact_kernel::PropValue::Bool(true),
+                    );
+                    (view, style, props, None)
+                }
+                ListChild::Row(view, style, props, roots) => (view, style, props, Some(roots)),
+            };
+            self.push(DocNode {
+                id: view,
+                node_type: NodeType::View,
+                parent: Some(n.view),
+                children: roots.map(roots_of).unwrap_or_default(),
+                style: Rc::new(style),
+                props,
+                is_root: false,
+                site: None,
+            });
+            if let Some(roots) = roots {
+                self.children(roots, Some((view, NodeType::View)), depth + 2)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, node: DocNode) {
+        if let Some(id) = node.props.str(exact_kernel::PropId::Id) {
+            self.doc
+                .ids
+                .entry(id.to_string())
+                .or_default()
+                .push(node.id);
+        }
+        self.doc.index.insert(node.id, self.doc.nodes.len() as u32);
+        self.doc.nodes.push(node);
     }
 
     /// The node's rows and props, as the kernel holds them after the ops its

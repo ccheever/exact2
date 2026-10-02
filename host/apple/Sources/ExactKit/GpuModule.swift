@@ -121,6 +121,9 @@ final class GpuModule {
     /// Whether a canvas's first frame has been handed to the compositor: a
     /// presenter that reuses a layer keeps it hidden until then.
     var seen: WantsFn?
+    /// Whether the drawable a starved canvas waits for has landed: until it
+    /// has, a render of that canvas draws nothing.
+    var landed: WantsFn?
     typealias AcquiredFn = @convention(c) () -> Void
     typealias OnAcquireFn = @convention(c) (AcquiredFn?) -> Void
     let canvases = NSHashTable<Canvases>.weakObjects()
@@ -271,6 +274,7 @@ final class GpuModule {
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         module.starved = sym("gpu_starved", WantsFn.self)
+        module.landed = sym("gpu_landed", WantsFn.self)
         if module.starved != nil { sym("gpu_on_acquire", OnAcquireFn.self)?(gpuAcquired) }
         module.seen = sym("gpu_seen", WantsFn.self)
         #if os(iOS)

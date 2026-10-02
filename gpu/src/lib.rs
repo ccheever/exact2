@@ -929,6 +929,14 @@ impl Module {
         self.instances.get(&id).is_some_and(|i| i.acquire.starved())
     }
 
+    /// Whether a render of the canvas has something to do (`acquire`): its
+    /// drawable in flight has landed, or none is in flight. A presenter
+    /// skips the render of a starved canvas while this is `false`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn landed(&self, id: u32) -> bool {
+        self.instances.get(&id).is_some_and(|i| i.acquire.landed())
+    }
+
     /// Every command submitted to the device so far, complete (LLP 1008 §9):
     /// a host that hands the module textures it renders itself waits here
     /// before drawing into one the module may still be reading — sampling

@@ -24,12 +24,14 @@ mod encode;
 mod executor;
 mod files;
 mod generations;
+mod linger;
 mod page;
 mod pages;
 mod serve;
 mod source;
 mod stream;
 
+pub use direct::boot_swap_js;
 pub use executor::Executor;
 pub use page::{capture, capture_js, page, scroll_document_js};
 pub use pages::pages;
@@ -187,10 +189,9 @@ pub fn render_as<D: DataSource + 'static>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Projection {
     /// From the runner's instance tree, with no kernel, where the page's
-    /// ids are nobody's ([`Ids::Any`]) and the plan allows it
-    /// ([`exact_web::document::writes_without_a_kernel`]); else from a
-    /// kernel's nodes. `EXACT_RENDER_DIRECT=off` keeps every render on a
-    /// kernel.
+    /// ids are nobody's ([`Ids::Any`]); else, or when the tree holds what
+    /// the fold doesn't cover, from a kernel's nodes.
+    /// `EXACT_RENDER_DIRECT=off` keeps every render on a kernel.
     Auto,
     /// From a kernel's nodes.
     Kernel,
@@ -215,8 +216,7 @@ pub(crate) fn direct_for(plan: &Plan, ids: Ids, projection: Projection) -> Resul
         if !projects_as_booted(plan) {
             return Err("a slot's initializer reads a resource".into());
         }
-        exact_web::document::writes_without_a_kernel(plan)
-            .map_err(|what| format!("the plan has {what}"))
+        Ok(())
     };
     match projection {
         Projection::Kernel => Ok(false),
@@ -265,7 +265,9 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
 ) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
-    let page = settle_at(plan, data, viewport, location, deadline, direct, now_ms)?;
+    let page = settle_at(
+        plan, data, viewport, location, deadline, direct, now_ms, None,
+    )?;
     let settled_tree = if direct {
         match page.runner.document_tree() {
             Ok(tree) => {
@@ -359,6 +361,10 @@ fn render_time() -> f64 {
         .as_millis() as f64
 }
 
+/// What sees a render's runner as it boots, before its first answer (a
+/// route's boot document, LLP 1048.005).
+pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&Runner<Anonymous<D>>);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     plan: &Plan,
@@ -368,6 +374,7 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     deadline: Duration,
     detached: bool,
     now_ms: f64,
+    on_boot: Option<OnBoot<'_, D>>,
 ) -> Result<Settling<D>, String> {
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
@@ -417,6 +424,11 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     };
     let mut runner = Runner::boot_at(plan.clone(), settling, kernel, viewport, location, now_ms)
         .map_err(|e| format!("boot: {e:?}"))?;
+    // The boot document, before any answer: a route's `paint=boot`
+    // (LLP 1048.005).
+    if let Some(on_boot) = on_boot {
+        on_boot(&runner);
+    }
     let settled = match activate(&mut runner, until)
         .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
     {

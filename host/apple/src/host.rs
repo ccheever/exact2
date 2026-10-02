@@ -465,6 +465,9 @@ impl<D: DataSource> Host<D> {
             host.svg.box_motion,
             &|v| !runner.handlers_of(v).is_empty(),
         );
+        for view in svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine) {
+            host.svg.element(host.runner.kernel(), view);
+        }
         host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
@@ -1250,6 +1253,9 @@ impl<D: DataSource> Host<D> {
                 self.svg.box_motion,
                 &|v| !runner.handlers_of(v).is_empty(),
             );
+            for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
+                self.svg.element(self.runner.kernel(), view);
+            }
             self.play_exits(&mut batch);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);

@@ -734,8 +734,10 @@ impl<'a> Lowerer<'a> {
                     in_svg,
                     *span,
                     self.host_transforms.contains(&(*span, *instance)),
+                    !self.may_hold_absolute(children),
                 )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
+                values::check_glass_group(&t, expanded)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));

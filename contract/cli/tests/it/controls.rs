@@ -155,6 +155,46 @@ fn the_compiler_names_what_a_control_takes() {
     .is_ok());
 }
 
+#[test]
+fn a_text_fields_type_is_a_choice_between_text_fields_types() {
+    // A password's show and hide: the node is a text field either way, its
+    // `type` a bound prop, and its `change` carries text to an action whose
+    // parameter is written without a type.
+    let field = |kind: &str| {
+        format!(
+            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle writes shown\n    shown = not shown\n  action keep(value) writes secret\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
+        )
+    };
+    let mut r = boot(&field("shown ? \"text\" : \"password\""));
+    let kind = |r: &Runner<NoData>| {
+        let node = r.kernel().node(view_of(r, "secret")).unwrap();
+        assert_eq!(node.node_type, NodeType::TextInput);
+        node.props.str(PropId::Type).map(str::to_string)
+    };
+    assert_eq!(kind(&r).as_deref(), Some("password"));
+    let toggle = view_of(&r, "toggle");
+    r.dispatch(toggle, Event::Press).unwrap();
+    assert_eq!(kind(&r).as_deref(), Some("text"));
+    let secret = view_of(&r, "secret");
+    r.dispatch(secret, Event::Change("hunter2".into())).unwrap();
+    let node = r.kernel().node(view_of(&r, "secret")).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("hunter2"));
+    // A choice that could name a control, or a value the compiler cannot
+    // list, is still refused: the kind of node is chosen when the view
+    // compiles. An untyped parameter's refusal is at the `type`, which is
+    // why nothing types it; a typed one's is lowering's.
+    for kind in ["shown ? \"checkbox\" : \"text\"", "secret"] {
+        let e = contract::compile(&field(kind)).unwrap_err().to_string();
+        assert!(
+            e.contains("type-cannot-infer") && e.contains("this `input`'s `type`"),
+            "{kind}: {e}"
+        );
+        let typed = field(kind).replace("keep(value)", "keep(value: string)");
+        let e = contract::compile(&typed).unwrap_err().to_string();
+        assert!(e.contains("lower-input-type"), "{kind}: {e}");
+    }
+}
+
 /// Themes from the data seam: `id`, `name`, in the shape's order.
 struct Themes;
 

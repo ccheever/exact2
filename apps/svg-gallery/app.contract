@@ -513,6 +513,13 @@ component StageNine
         rect x=0 y=0 width=70 height=80 fill="#0ea5e9"
         circle cx=35 cy=40 r=18 fill="#f59e0b"
       rect x=76 y=8 width=40 height=64 fill="#7c3aed" mask="url(#fademask)"
+    // CSS drop-shadow() on SVG elements, wide: its third length is the
+    // standard deviation (Filter Effects 1 §10.9), so the shadow reaches
+    // three times it past the shape; one under a blur.
+    svg testId="fx-drop-shadow-css" class=Tile viewBox="0 0 120 80"
+      rect x=14 y=10 width=40 height=30 rx=4 fill="#f59e0b" filter="drop-shadow(0 6px 8px rgba(0,0,0,0.6))"
+      circle cx=88 cy=30 r=16 fill="#0ea5e9" filter="blur(1.5px) drop-shadow(4px 4px 6px #1e3a8a)"
+      rect x=30 y=58 width=60 height=14 fill="#10b981" filter="drop-shadow(-6px -2px 3px rgba(190,24,93,0.9))"
     // A filter region and a mask region far larger than the svg (tens of
     // millions of pixels at device scale): drawn, never dropped.
     svg testId="fx-huge-region" class=Tile viewBox="0 0 120 80"

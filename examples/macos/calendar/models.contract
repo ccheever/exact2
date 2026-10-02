@@ -1,0 +1,144 @@
+// The calendar's shared vocabulary: the records the data module answers and the
+// input module posts (field order is the Rust record order), and the date,
+// palette and motion arithmetic every view file uses.
+shape Time
+  epochAtZero: number
+  utcOffset: number
+  seed: number
+shape Viewport
+  width: number
+  height: number
+  prefersReducedMotion: bool
+shape Clock
+  today: number
+  month: number
+  date: string
+  ready: bool
+shape Library
+  ready: bool
+  revision: number
+  message: string
+shape Month
+  id: string
+  month: number
+  label: string
+  weeks: list<Week>
+  firstDay: number
+  lastDay: number
+shape Week
+  id: string
+  cells: list<Cell>
+  bars: list<Bar>
+  lanes: number
+  footer: number
+shape Cell
+  id: string
+  day: number
+  date: string
+  number: number
+  inMonth: bool
+  stickerId: string
+shape Bar
+  id: string
+  eventId: string
+  title: string
+  color: string
+  startCol: number
+  span: number
+  lane: number
+  continuesBefore: bool
+  continuesAfter: bool
+  allDay: bool
+  timeLabel: string
+  kind: string
+  completed: bool
+shape Schedule
+  id: string
+  title: string
+  notes: string
+  color: string
+  allDay: bool
+  startDay: number
+  endDay: number
+  startDate: string
+  endDate: string
+  startTime: string
+  endTime: string
+  rangeLabel: string
+  kind: string
+  completed: bool
+shape Agenda
+  day: number
+  date: string
+  label: string
+  items: list<Schedule>
+  stickerId: string
+shape Event
+  found: bool
+  item: Schedule
+  message: string
+shape DragInput
+  valid: bool
+  phase: string
+  eventId: string
+  serial: number
+  sequence: number
+  x: number
+  y: number
+  reason: string
+  sourceX: number
+  sourceY: number
+  sourceWidth: number
+  sourceHeight: number
+shape DragTarget
+  day: number
+  cellX: number
+  cellY: number
+  cellWidth: number
+  cellHeight: number
+  maxScroll: number
+shape StickerDrag
+  valid: bool
+  stickerId: string
+  sourceDay: number
+shape Landing
+  valid: bool
+  id: string
+  kind: string
+  x: number
+  y: number
+  width: number
+  height: number
+  continuesBefore: bool
+  continuesAfter: bool
+  contentHeight: number
+shape Result
+  revision: number
+  success: bool
+  message: string
+  id: string
+  day: number
+
+fn monthIndex(month: number): number = month - floor(month / 12) * 12
+fn monthName(month: number): string = (monthIndex(month) == 0 ? "Jan" : (monthIndex(month) == 1 ? "Feb" : (monthIndex(month) == 2 ? "Mar" : (monthIndex(month) == 3 ? "Apr" : (monthIndex(month) == 4 ? "May" : (monthIndex(month) == 5 ? "Jun" : (monthIndex(month) == 6 ? "Jul" : (monthIndex(month) == 7 ? "Aug" : (monthIndex(month) == 8 ? "Sep" : (monthIndex(month) == 9 ? "Oct" : (monthIndex(month) == 10 ? "Nov" : "Dec")))))))))))
+fn monthLongName(month: number): string = (monthIndex(month) == 0 ? "January" : (monthIndex(month) == 1 ? "February" : (monthIndex(month) == 2 ? "March" : (monthIndex(month) == 3 ? "April" : (monthIndex(month) == 4 ? "May" : (monthIndex(month) == 5 ? "June" : (monthIndex(month) == 6 ? "July" : (monthIndex(month) == 7 ? "August" : (monthIndex(month) == 8 ? "September" : (monthIndex(month) == 9 ? "October" : (monthIndex(month) == 10 ? "November" : "December")))))))))))
+fn paletteColor(theme: number, color: string): string = (theme == 1 ? (color == "#FA7070" ? "#EBA6AA" : (color == "#747AFF" ? "#B7ADDC" : (color == "#70B8A2" ? "#A6C6B5" : (color == "#F39B65" ? "#E6B799" : (color == "#D4BEF1" ? "#D7B8DE" : (color == "#EE8192" ? "#DF9DB7" : color)))))) : (theme == 2 ? (color == "#FA7070" ? "#DDA8A5" : (color == "#747AFF" ? "#96B4D2" : (color == "#70B8A2" ? "#8FBEB8" : (color == "#F39B65" ? "#DCC29F" : (color == "#D4BEF1" ? "#BDB9DB" : (color == "#EE8192" ? "#CCA9C0" : color)))))) : (theme == 3 ? (color == "#FA7070" ? "#D7AA95" : (color == "#747AFF" ? "#A8B8C6" : (color == "#70B8A2" ? "#A6BE8F" : (color == "#F39B65" ? "#DDC28E" : (color == "#D4BEF1" ? "#C7BCD2" : (color == "#EE8192" ? "#D4B0AB" : color)))))) : (theme == 4 ? (color == "#FA7070" ? "#D2A5BC" : (color == "#747AFF" ? "#AAA6DB" : (color == "#70B8A2" ? "#A3BDCB" : (color == "#F39B65" ? "#D8B8A7" : (color == "#D4BEF1" ? "#C3AFE1" : (color == "#EE8192" ? "#CEA1C9" : color)))))) : (theme == 5 ? (color == "#FA7070" ? "#CEA48E" : (color == "#747AFF" ? "#A5B0BB" : (color == "#70B8A2" ? "#A8B39A" : (color == "#F39B65" ? "#D2B48A" : (color == "#D4BEF1" ? "#BDB0C6" : (color == "#EE8192" ? "#C5A2A5" : color)))))) : (theme == 6 ? (color == "#FA7070" ? "#E8968A" : (color == "#747AFF" ? "#9AAAD8" : (color == "#70B8A2" ? "#8FC0AE" : (color == "#F39B65" ? "#EBB27F" : (color == "#D4BEF1" ? "#C6B6E0" : (color == "#EE8192" ? "#E5A0AE" : color)))))) : color))))))
+fn unit(value: number): number = max(0, min(1, value))
+fn edgeSpeed(y: number, height: number): number = y < 56 ? -840 * unit((56 - y) / 56) * unit((56 - y) / 56) : (y > height - 56 ? 840 * unit((y - height + 56) / 56) * unit((y - height + 56) / 56) : 0)
+fn weekday(day: number): number = day + 4 - floor((day + 4) / 7) * 7
+fn inRange(day: number, first: number, span: number): bool = first != -1000000 and day >= first and day <= first + span
+fn scrollSlot(month: number): number = month - floor(month / 7) * 7
+fn savedScroll(month: number, m0: number, y0: number, m1: number, y1: number, m2: number, y2: number, m3: number, y3: number, m4: number, y4: number, m5: number, y5: number, m6: number, y6: number): number = (month == m0 ? y0 : (month == m1 ? y1 : (month == m2 ? y2 : (month == m3 ? y3 : (month == m4 ? y4 : (month == m5 ? y5 : (month == m6 ? y6 : 0)))))))
+fn magnitude(value: number): number = max(value, 0 - value)
+fn boundedMonth(value: number): number = max(22800, min(25211, value))
+fn keyStep(name: string): number = name == "ArrowLeft" ? -1 : (name == "ArrowRight" ? 1 : (name == "ArrowUp" ? -7 : (name == "ArrowDown" ? 7 : 0)))
+
+keyframes dialogIn
+  from opacity=0 scale=0.97
+  to opacity=1 scale=1
+keyframes monthIn
+  from opacity=0
+  to opacity=1
+keyframes dropIn
+  from opacity=0 translate="0px -6px"
+  to opacity=1 translate="0px 0px"

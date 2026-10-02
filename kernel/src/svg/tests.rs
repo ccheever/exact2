@@ -342,6 +342,15 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     )
     .unwrap();
     assert_eq!(chain.primitives.len(), 2);
+    assert!(
+        matches!(chain.primitives[0].op, Op::DropShadow(sx, sy, dx, dy, _) if sx == 12.0 && sy == 12.0 && dx == 0.0 && dy == 10.0),
+        "drop-shadow's third length is the standard deviation, as Filter Effects 1 §10.9 says and Chrome reads it"
+    );
+    assert_eq!(
+        chain.region,
+        (-36.0, -36.0, 72.0, 82.0),
+        "the offset and three standard deviations past the box"
+    );
     assert!(crate::svg::scene::box_filter(&FilterList::parse("url(#f)").unwrap(), black).is_none());
     assert!(crate::svg::scene::box_filter(&FilterList::parse("none").unwrap(), black).is_none());
 }

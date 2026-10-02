@@ -588,6 +588,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Destructive => "data-destructive",
             PropId::EmojiPicker => "emojiPicker",
             PropId::BackgroundMaterial => "backgroundMaterial",
+            // LLP 1053.000.000 D1: written, read by no rule, drawn nowhere.
+            PropId::GlassGroup => "glassGroup",
             PropId::RetainFocus => "retainFocus",
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,

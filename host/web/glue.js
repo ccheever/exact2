@@ -977,12 +977,12 @@ function surfaceGranted(op) {
 function fulfill(requestIncarnation, ticket, kind, status, headersText, body, elapsedMs) {
   // Boot reuses ticket IDs; an old incarnation's completion must not land.
   if (!wasm || requestIncarnation !== incarnation) return;
+  if (Number.isFinite(elapsedMs)) log(`reply ${ticket}: wall ${Math.max(0, Math.round(elapsedMs))} ms`); // first: its `writeIn` reuses the buffer the reply fills
   const h = encoder.encode(headersText);
   const ptr = wasm.exact_in(h.length + body.length);
   const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
   mem.set(h);
   mem.set(body, h.length);
-  if (Number.isFinite(elapsedMs)) log(`reply ${ticket}: wall ${Math.max(0, Math.round(elapsedMs))} ms`);
   send(wasm.exact_fulfill(ticket, kind, status, h.length, body.length, now()));
 }
 function safelyFulfill(...args) {
@@ -1316,7 +1316,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     payload.set(bytes); payload.set(launch, bytes.length);
     len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences());
   } else {
-    if (page?.checkpoint) wasm.exact_checkpoint(writeIn(page.checkpoint)); ptr = wasm.exact_in(launch.length);
+    if (page?.checkpoint) wasm.exact_checkpoint(writeIn(agentMode ? page.checkpoint.replace("\n", " driven\n") : page.checkpoint)); ptr = wasm.exact_in(launch.length); // a drive's clock starts at zero (page.rs)
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences());
   }
