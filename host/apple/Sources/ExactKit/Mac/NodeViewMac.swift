@@ -1291,11 +1291,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         lazy var path = roundedPath(in: bounds)
         let bg = paintsBox ? color("background_color", .clear) : .clear
         // A layout transition's size shows the surface on its own layer.
-        if paintsBox, bg.alphaComponent > 0, surface == nil {
-            bg.setFill()
-            if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
+        if paintsBox, backgroundClip != "border-box", let ctx = NSGraphicsContext.current?.cgContext {
+            // Within its `background-clip` (LLP 1076 D6).
+            if surface == nil { paintBackground(ctx, border: path.cgPath, color: true) }
+        } else {
+            if paintsBox, bg.alphaComponent > 0, surface == nil {
+                bg.setFill()
+                if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
+            }
+            if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         }
-        if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
@@ -1338,6 +1343,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
             } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
                 presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
+                paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: contentBox())
                 TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: textDirty)
             }
         }

@@ -169,3 +169,55 @@ fn every_layer_case_matches_chrome_light_then_dark() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// LLP 1076 D6–D7 (`text-paint.contract`): `background-clip` boxes held to
+/// Chrome; clipped and stroked text checked by where their colours land.
+#[test]
+fn background_clip_and_text_stroke_paint_where_css_paints_them() {
+    let boxes = ["padding", "content", "gradient-padding"];
+    let mut failures = Vec::new();
+    for choice in painters() {
+        let name = format!("{choice:?}");
+        let mut p = boot(choice, "text-paint.contract");
+        failures.extend(held_to_chrome(&mut p, "text-paint.web.png", &name, &boxes));
+        // Gradient text: red at its left, blue at its right, nothing white
+        // between glyphs that a box background would have filled.
+        let red = |[r, g, b]: [u8; 3]| r > 180 && g < 120 && b < 120;
+        let blue = |[r, g, b]: [u8; 3]| b > 180 && r < 120;
+        assert!(
+            count_where(&mut p, "gradient-text", 0.0, red) > 30,
+            "{name}: gradient text's red"
+        );
+        assert!(
+            count_where(&mut p, "gradient-text", 0.0, blue) > 30,
+            "{name}: gradient text's blue"
+        );
+        let green = |[r, g, b]: [u8; 3]| g > 120 && r < 120 && b < 120;
+        let filled = count_where(&mut p, "color-text", 0.0, green);
+        assert!(
+            filled > 100 && filled < 3000,
+            "{name}: colour text {filled} (the box is 7000)"
+        );
+        // A black stroke around yellow glyphs; a hollow stroke's inside is
+        // the page.
+        let black = |[r, g, b]: [u8; 3]| r < 60 && g < 60 && b < 60;
+        let yellow = |[r, g, b]: [u8; 3]| r > 200 && g > 180 && b < 120;
+        assert!(
+            count_where(&mut p, "stroke", 0.0, black) > 100,
+            "{name}: stroke"
+        );
+        assert!(
+            count_where(&mut p, "stroke", 0.0, yellow) > 100,
+            "{name}: fill"
+        );
+        assert!(
+            count_where(&mut p, "current", 0.0, red) > 60,
+            "{name}: a stroke colour of its own"
+        );
+        assert!(
+            count_where(&mut p, "hollow", 0.0, green) > 60,
+            "{name}: hollow stroke"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

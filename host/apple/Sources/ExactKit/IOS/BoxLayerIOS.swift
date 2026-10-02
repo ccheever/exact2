@@ -164,7 +164,7 @@ extension NodeView {
         let drawn = widths.indices.filter { widths[$0] > 0 }
         let sideColor = drawn.first.map { colors[$0] }
         let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws) && (fill != nil || gradient || widths.contains { $0 > 0 })
+        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]

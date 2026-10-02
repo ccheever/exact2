@@ -1238,15 +1238,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if presenter?.views[id] === self { firstDraw() }
         let path = roundedPath(in: bounds)
         let uniform = number("border_width")
-        // A box Core Animation can say is the layer's (`applyBoxLayer`).
-        if boxDrawn {
-            let bg = color("background_color", .clear)
-            if bg.cgColor.alpha > 0 {
-                bg.setFill()
-                path.fill()
-            }
-        }
-        paintGradient(ctx, clip: path.cgPath)
+        // A box Core Animation can say is the layer's (`applyBoxLayer`);
+        // the background within its `background-clip` (LLP 1076 D6).
+        paintBackground(ctx, border: path.cgPath, color: boxDrawn)
         if boxDrawn {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
@@ -1289,7 +1283,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 let post = Presenter.signposts.beginInterval("text-draw")
                 defer { Presenter.signposts.endInterval("text-draw", post) }
                 let spec = paragraphSpec()
-                if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect) }
+                if let paragraph = paragraphLayout() {
+                    paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: contentBox())
+                    TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect)
+                }
             }
         }
         if Capture.capturing, let picture = Capture.web[id] {

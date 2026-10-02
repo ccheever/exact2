@@ -1,0 +1,25 @@
+// LLP 1076 D6–D7's parity page: `background-clip` and `-webkit-text-stroke`,
+// the browser the oracle for the boxes. 100×70 boxes on a 125×95 grid: the
+// background within the padding box and the content box (a translucent
+// border shows the difference); gradient and colour text through
+// `background-clip: text`; strokes in a colour, in currentcolor and over a
+// transparent fill. Text is the pinned font natively and the system's in
+// Chrome, so its cases are checked by where their colours land. Chrome's
+// pictures (the web host at 1×) are text-paint.web.png as booted and
+// text-paint.web-dark.png after `dark`.
+component TextPaint
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="text-paint" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="padding" position="absolute" left=20 top=20 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=10 border-color="#0000004d" background-color="#fdd835" background-clip="padding-box"
+      box testId="content" position="absolute" left=145 top=20 width=100 height=70 box-sizing="border-box" padding=12 border-radius=16 background-color="#1e88e5" background-clip="content-box"
+      box testId="gradient-padding" position="absolute" left=270 top=20 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=8 border-color="#e5393566" border-radius=20 background-image="linear-gradient(to right, #43a047, #1e88e5)" background-clip="padding-box"
+      text "Grad" testId="gradient-text" position="absolute" left=20 top=115 width=110 height=70 font-size=40 font-weight=800 color="transparent" background-image="linear-gradient(to right, #e53935, #1e88e5)" background-clip="text"
+      text "Fill" testId="color-text" position="absolute" left=145 top=115 width=100 height=70 font-size=40 font-weight=800 color="transparent" background-color="#43a047" background-clip="text"
+      text "Ab" testId="stroke" position="absolute" left=270 top=115 width=100 height=70 font-size=40 font-weight=800 color="#fdd835" -webkit-text-stroke="2px #000000"
+      text "Ab" testId="current" position="absolute" left=20 top=210 width=100 height=70 font-size=40 font-weight=800 color="#1e88e5" -webkit-text-stroke-width=3 -webkit-text-stroke-color="light-dark(#e53935, #ffffff)"
+      text "Ab" testId="hollow" position="absolute" left=145 top=210 width=100 height=70 font-size=40 font-weight=800 color="transparent" -webkit-text-stroke="1.5px #43a047"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

@@ -76,10 +76,12 @@ impl Captured {
     }
 }
 
-/// Fill `shape` with the gradient through a backend's two primitives.
+/// Fill `clip` with the gradient, placed in `outer`'s padding box, through
+/// a backend's two primitives.
 pub(super) fn paint(
     captured: &Captured,
     outer: &Shape,
+    clip: &Shape,
     widths: [f32; 4],
     backend: &mut dyn super::Backend,
     ts: tiny_skia::Transform,
@@ -95,7 +97,7 @@ pub(super) fn paint(
         (h - widths[0] - widths[2]).max(0.0),
     );
     match captured.place(padding) {
-        Ok(gradient) => backend.fill_gradient(outer, &gradient, ts),
-        Err(color) => backend.fill(outer, color, ts),
+        Ok(gradient) => backend.fill_gradient(clip, &gradient, ts),
+        Err(color) => backend.fill(clip, color, ts),
     }
 }

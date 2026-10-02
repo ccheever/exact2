@@ -870,6 +870,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "mask-image" => styles(&[StyleId::MaskImage]),
         "text-shadow" => styles(&[StyleId::TextShadow]),
         "corner-shape" => styles(&[StyleId::CornerShape]),
+        "background-clip" => styles(&[StyleId::BackgroundClip]),
+        // @ref LLP 1076 D7 — the Compat Standard's names; the shorthand
+        // binds both rows, each taking its part.
+        "-webkit-text-stroke" => styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor]),
+        "-webkit-text-stroke-width" => styles(&[StyleId::TextStrokeWidth]),
+        "-webkit-text-stroke-color" => styles(&[StyleId::TextStrokeColor]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         // @ref LLP 1069.001 D6 — a form control's tint and whether the
         // platform draws it.

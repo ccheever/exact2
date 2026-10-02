@@ -120,6 +120,7 @@ extension NodeView {
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
         spec.shadow = textShadow(dark: night, text: spec.color)
+        spec.stroke = textStroke(dark: night)
         cachedTextSpec = spec
         return spec
     }
@@ -140,5 +141,15 @@ extension NodeView {
             else if let pair = c.array, pair.count == 2, let chosen = pair[dark ? 1 : 0].numbers, chosen.count == 4 { color = chosen }
         }
         return offset + [max(0, o["b"]?.number ?? 0)] + color
+    }
+}
+
+extension NodeView {
+    /// `-webkit-text-stroke` for an appearance (LLP 1076 D7): the width, and
+    /// the colour unless it is `currentcolor`.
+    func textStroke(dark: Bool) -> [Double]? {
+        let width = number("text_stroke_width")
+        guard width > 0 else { return nil }
+        return [width] + (channels("text_stroke_color", dark: dark) ?? [])
     }
 }

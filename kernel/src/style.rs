@@ -24,6 +24,7 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
+mod stroke;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest grid track list the closed grammar carries.
@@ -423,6 +424,19 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        // @ref LLP 1076 D7 — a width, or the shorthand's width part.
+        if style == StyleId::TextStrokeWidth {
+            return match self {
+                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
+                StyleValue::Text(t) => stroke::parse(t)
+                    .map(|(w, _)| w)
+                    .map_err(|reason| StyleValueError::BadTextStroke { style, reason }),
+                _ => Err(StyleValueError::WrongKind {
+                    style,
+                    expected: "a nonnegative width in px",
+                }),
+            };
+        }
         // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
         if style == StyleId::BackdropBlur {
             return match self {
@@ -571,6 +585,14 @@ impl StyleValue {
         match self {
             StyleValue::Auto if keyword == "auto" => Ok(None),
             StyleValue::Text(t) if t.eq_ignore_ascii_case(keyword) => Ok(None),
+            // @ref LLP 1076 D7 — a colour, else the shorthand's colour part.
+            StyleValue::Text(t) if style == StyleId::TextStrokeColor => {
+                self.color_value(style).map(Some).or_else(|_| {
+                    stroke::parse(t)
+                        .map(|(_, c)| c)
+                        .map_err(|reason| StyleValueError::BadTextStroke { style, reason })
+                })
+            }
             _ => self.color_value(style).map(Some),
         }
     }

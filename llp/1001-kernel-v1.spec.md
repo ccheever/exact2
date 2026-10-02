@@ -355,6 +355,11 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 - **`text-shadow`** ([LLP 1076 D3](1076-css-visual-properties-native-draws-cheaply.rfc.md))
   takes one shadow, not a list, and no spread (CSS has none). On Apple a
   paragraph drawn without a raster clips its shadow to the view's bounds.
+- **`-webkit-text-stroke`** ([LLP 1076 D7](1076-css-visual-properties-native-draws-cheaply.rfc.md))
+  on Linux is a band of the glyphs' coverage (dilated less eroded), not a
+  stroke of their outlines, so a glyph's overlapping contours show no inner
+  lines as Chrome's and Core Text's do. `background-clip: text` clips to the
+  node's own paragraph, not to text in its descendants.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

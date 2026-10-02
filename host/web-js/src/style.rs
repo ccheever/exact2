@@ -646,6 +646,8 @@ fn css_property(id: StyleId) -> String {
         StyleId::PositionType => return "position".into(),
         StyleId::BackdropBlur => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
+        StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
+        StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [

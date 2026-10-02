@@ -40,7 +40,9 @@ mod presented;
 mod region;
 mod shadow;
 mod svg;
+mod text_clip;
 mod text_shadow;
+mod text_stroke;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
@@ -127,6 +129,8 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    /// CSS `background-clip` (LLP 1076 D6).
+    clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
@@ -184,6 +188,7 @@ impl BoxPaint {
             ]
             .map(|d| d.resolve(&env)),
             corners: Some(s.corner_shape).filter(|c| !c.is_round()),
+            clip: s.background_clip,
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
@@ -245,9 +250,12 @@ impl BoxPaint {
             backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
-        // The last layer first, so the first is on top (LLP 1076 D5).
-        for g in self.gradients.iter().rev() {
-            gradient::paint(g, &geometry.outer, self.widths, backend, ts);
+        // The last layer first, so the first is on top (LLP 1076 D5), within
+        // the background's clip (D6).
+        if let Some(clip) = self.background_shape(geometry) {
+            for g in self.gradients.iter().rev() {
+                gradient::paint(g, &geometry.outer, &clip, self.widths, backend, ts);
+            }
         }
         for band in self.inset_shadow_fills(geometry) {
             backend.fill_border(&band, ts);
@@ -256,12 +264,45 @@ impl BoxPaint {
             backend.fill_border(&part, ts);
         }
     }
-    /// The background: the border box with its radii.
+    /// The background colour: within its `background-clip` (LLP 1076 D6).
     fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4])) {
-        let outer = geometry.outer;
-        if self.background[3] > 0 && outer.rect.2 > 0.0 && outer.rect.3 > 0.0 {
-            emit(outer, self.background);
+        let Some(shape) = self.background_shape(geometry) else {
+            return;
+        };
+        if self.background[3] > 0 && shape.rect.2 > 0.0 && shape.rect.3 > 0.0 {
+            emit(shape, self.background);
         }
+    }
+    /// Where the background paints: the border box, the padding box or the
+    /// content box, each with its radii less what it is inset by; `None` for
+    /// `text`, which the paragraph paints (`text_clip`).
+    fn background_shape(&self, geometry: &BoxGeometry) -> Option<Shape> {
+        use exact_kernel::BackgroundClip;
+        let outer = geometry.outer;
+        let inset = match self.clip {
+            BackgroundClip::BorderBox => return Some(outer),
+            BackgroundClip::Text => return None,
+            BackgroundClip::PaddingBox => self.widths,
+            BackgroundClip::ContentBox => {
+                let (w, p) = (self.widths, self.padding);
+                [w[0] + p[0], w[1] + p[1], w[2] + p[2], w[3] + p[3]]
+            }
+        };
+        let (x, y, w, h) = outer.rect;
+        let [t, r, b, l] = inset;
+        let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
+        Some(
+            Shape::elliptical(
+                (x + l, y + t, (w - l - r).max(0.0), (h - t - b).max(0.0)),
+                [
+                    less(outer.radii[0], l, t),
+                    less(outer.radii[1], r, t),
+                    less(outer.radii[2], r, b),
+                    less(outer.radii[3], l, b),
+                ],
+            )
+            .with_corners(outer.corners),
+        )
     }
     /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
     /// list's first on top (LLP 1076 D4).
@@ -1024,9 +1065,26 @@ impl Painter {
                         );
                     }
                     self.text_shadow(node, &shown, &palette, (content.0, content.1), ts);
-                    let mut engine = self.text.borrow_mut();
-                    self.backend
-                        .text(&mut engine, &shown, &palette, (content.0, content.1), ts);
+                    let kernel = walk.scene.kernel;
+                    self.text_clip(
+                        node,
+                        kernel,
+                        &shown,
+                        &palette,
+                        (content.0, content.1),
+                        rect,
+                        ts,
+                    );
+                    if !self.text_stroke(node, &shown, &palette, (content.0, content.1), ts) {
+                        let mut engine = self.text.borrow_mut();
+                        self.backend.text(
+                            &mut engine,
+                            &shown,
+                            &palette,
+                            (content.0, content.1),
+                            ts,
+                        );
+                    }
                 }
             }
             NodeType::TextInput => {

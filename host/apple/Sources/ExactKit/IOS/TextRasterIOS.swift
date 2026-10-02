@@ -227,7 +227,7 @@ extension NodeView {
         // does (LLP 1053 G5): a label stretched across a row rasters its text,
         // not a backing store of the row's width. A `line-clamp`'s last line
         // is made again from the range it broke at (`LineGeometry.clamped`).
-        guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
+        guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
         return canvasAbove == nil
     }

@@ -428,6 +428,9 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
+        // @ref LLP 1076 D7 — the Compat Standard's prefixed names.
+        StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
+        StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -989,6 +992,20 @@ mod declaration_tests {
     /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
+    #[test]
+    fn text_stroke_is_the_compat_standards_two_properties() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::TextStrokeWidth, t("2px #ff0000")),
+                (StyleId::TextStrokeColor, t("2px #ff0000")),
+            ],
+            &[],
+        );
+        assert!(text.contains("-webkit-text-stroke-width:2px;"), "{text}");
+        assert!(text.contains("-webkit-text-stroke-color:"), "{text}");
+    }
+
     #[test]
     fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
         let t = |s: &str| StyleValue::Text(s.into());

@@ -1,7 +1,7 @@
 # LLP 1076: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–2 built 2026-10-02 (§8); stages 3–4 and §5 being implemented.
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–3 built 2026-10-02 (§8); stage 4 and §5 being implemented.
 **Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
@@ -230,6 +230,25 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 - Keyframes naming a shadow list.
 - `mask-image` of more than one layer (refused at compile time).
 - Linux and iOS failures that origin/main has too, unchanged here: the content-region registration and transform-drag tests (`requires one attached independent clipped owner`, `lower-transform-drag-handlers`) fail on the base commit as well.
+
+### Stage 3 (2026-10-02): `background-clip`, `-webkit-text-stroke`
+
+- **Rows.** Row 156 `background_clip` (an enum) and rows 154–155 `text_stroke_width` and `text_stroke_color` (inherited). The shorthand binds both, each row taking its part (`style/stroke.rs`).
+- **Syntax.** Contract's lexer now reads a name starting `-webkit-` or `-apple-` as one identifier, as CSS does, so the Compat Standard's names can be written. Those two prefixes only, so `-name` is still a negation.
+- **Apple.** The stroke is Core Text's own: a negative `strokeWidth` (percent of each run's size) and a `strokeColor`, centred and over the fill as Chrome draws it. A non-border-box clip draws through `draw(_:)`. `text` keeps the paragraph off its raster and clips the background colour and gradients to the union of its glyph outlines (`TextEngine.glyphPath`, from the laid-out lines).
+- **Linux.** Glyphs are coverage, not outlines, so the stroke is a band island over the normal glyphs: the stroke-coloured paragraph dilated by half the width, less the same eroded by half, using a disc structuring element. `text` paints the background into an island, multiplies it by the paragraph's glyph coverage, and places it under the glyphs.
+- **Web.** CSS, with `-webkit-text-stroke-*` named as Chrome spells them.
+
+**Measured against Chrome** on `scripts/fixtures/text-paint.contract`:
+
+- **Linux, padding and content boxes:** ≤ 0.68/255 on both painters. Text is checked by where its colours land.
+- **macOS and the iOS simulator:** match Chrome by eye, light and dark, down to the stroke's internal contours, which Core Text strokes as Chrome does.
+- **Linux's stroke**, made from coverage, shows no internal contours.
+
+**Owed after stage 3:**
+
+- `background-clip: text` on a box whose text is in its descendants: only a paragraph's own glyphs clip today.
+- Motion on the three rows.
 
 ## 7. Open questions for Charlie
 

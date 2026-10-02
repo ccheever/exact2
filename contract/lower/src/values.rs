@@ -109,6 +109,7 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
         return None;
     };
     match e {
+        StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadBoxShadow { .. } => exact_kernel::style::BoxShadows::check(t).err(),
         StyleValueError::BadTextShadow { .. } => exact_kernel::style::TextShadow::check(t).err(),
         StyleValueError::BadCornerShape { .. } => exact_kernel::corner::CornerShape::check(t).err(),
@@ -151,6 +152,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
+        StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadBoxShadow { .. } => "expected none, or shadows separated by commas: `inset? <x> <y> [<blur> [<spread>]] <colour>`".into(),
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }

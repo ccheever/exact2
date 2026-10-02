@@ -482,6 +482,11 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
+    /// Not `-webkit-text-stroke` (LLP 1076 D7); `reason` names what.
+    BadTextStroke {
+        style: StyleId,
+        reason: &'static str,
+    },
     /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1076 D4);
     /// the compiler names the reason (`BoxShadows::check`).
     BadBoxShadow {
