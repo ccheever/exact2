@@ -21,6 +21,7 @@ exact-game-audio = { path = "audio" }
 exact-game-app = { path = "app" }
 exact-data-host = { path = "../data/host" }
 exact-web = { path = "../host/web" }
+exact-web-capabilities = { path = "../host/web-capabilities" }
 exact-linux = { path = "../host/linux" }
 exact-apple = { path = "../host/apple" }
 exact-runner = { path = "../runner" }
@@ -62,8 +63,19 @@ opt-level = 3
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
+# The Linux host uses Exact’s base-direction shaping entry point.
+cosmic-text = { path = "../vendor/cosmic-text" }
 # exact-gpu presents through the patched Metal backend (vendor/wgpu-hal/EXACT-PATCHES.md).
 wgpu-hal = { path = "../vendor/wgpu-hal" }
+
+# Apple development hosts use the core's non-LTO release profile.
+[profile.apple-dev]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+[profile.apple-dev.build-override]
+strip = false
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
 [profile.gpu-dev]

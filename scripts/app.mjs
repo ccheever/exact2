@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
+import { BINARYEN } from '../host/web/stages.mjs';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
@@ -216,7 +217,10 @@ export function wasmRemapFlags(app, toolchain = null) {
   pairs.push([ROOT, '']);
   if (app && resolve(app.workspace) !== ROOT) pairs.push([resolve(app.workspace), '']);
   if (app) pairs.push([resolve(app.target), 'target']);
-  const flags = [...pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`), ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])].map(f => JSON.stringify(f));
+  // Target rustflags replace [build].rustflags: retain the game's determinism promise.
+  const flags = [...pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`),
+    ...(app?.manifest?.game ? ['-C', 'llvm-args=-fp-contract=off'] : []),
+    ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])].map(f => JSON.stringify(f));
   return ['--config', `target.wasm32-unknown-unknown.rustflags=[${flags.join(',')}]`];
 }
 
@@ -270,6 +274,10 @@ if (process.versions.bun && PINNED_BUN) {
   const found = Bun.which('bun');
   if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ''}`;
 }
+
+// `exact setup` installs Binaryen privately; every build finds the same pin.
+const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');
+if (existsSync(resolve(binaryenBin, 'wasm-opt'))) process.env.PATH = `${binaryenBin}:${process.env.PATH ?? ''}`;
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
@@ -333,8 +341,7 @@ export function webHostFiles(...groups) {
  * on the web), then wasm-opt; `<stem>.js` + `<stem>_bg.wasm`, the primary as
  * `gpu`, a declared module as `gpu/<name>`. `cargo` builds the crates first,
  * as the wasm target's bake does (the JS target has no bake); the wasm target
- * passes false, having built them. Returns the build's note, or null when
- * wasm-bindgen is missing (the note says so). */
+ * passes false, having built them. Missing packaging tools refuse the build. */
 export function webGpuArtifacts(app, stage, { cargo = false, env = process.env } = {}) {
   const artifacts = [...(app.hasGpu ? [{ crate: app.crate('gpu'), stem: 'gpu' }] : []),
     ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
@@ -346,7 +353,7 @@ export function webGpuArtifacts(app, stage, { cargo = false, env = process.env }
     const wasm = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
     const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
     const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, wasm], { stdio: 'inherit' });
-    if (wb.error?.code === 'ENOENT') return { note: 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built', built: false };
+    if (wb.error?.code === 'ENOENT') throw new Error('wasm-bindgen not on PATH; run bun scripts/exact.mjs setup in the SDK checkout');
     if (wb.status !== 0) throw new Error(`wasm-bindgen ${crate} failed`);
     const bg = resolve(stage, `${stem}_bg.wasm`);
     const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
@@ -786,6 +793,28 @@ export function unitDepInfo(message, workspace, metadata) {
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
       // rustc leaves the single output path raw, but escapes dependency paths.
+      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+    }
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
+  }
+  // The pinned web Cargo puts cdylib units in build/<package>/<hash>/out,
+  // while reporting only the copied wasm. Keep the same byte/source identity
+  // requirement as native copied roots; a summary .d is not compiler evidence.
+  const pkg = metadata?.packages?.find(p => p.id === message.package_id);
+  for (const file of message.filenames.filter(path => path.endsWith('.wasm'))) {
+    if (!pkg) continue;
+    const directory = resolve(dirname(intermediate(file)), 'build', pkg.name);
+    if (!existsSync(directory)) continue;
+    const bytes = readFileSync(file), matches = [];
+    for (const hash of readdirSync(directory)) {
+      if (!/^[a-f0-9]+$/.test(hash)) continue;
+      const product = resolve(directory, hash, 'out', basename(file));
+      const candidate = product.replace(/\.wasm$/, '.d');
+      if (!existsSync(product) || !existsSync(candidate)
+          || statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
+      const dep = readFileSync(candidate, 'utf8'), output = dep.slice(0, dep.indexOf(': '));
       if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
           && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
     }

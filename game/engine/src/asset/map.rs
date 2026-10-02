@@ -1,4 +1,4 @@
-//! Small, bounded asset registries. Lexical iteration keeps diagnostics stable;
+//! Sorted asset registries. Lexical iteration keeps diagnostics stable;
 //! these delivery maps are not Data and never enter the simulation hash/save.
 #[derive(Clone)]
 pub(crate) struct AssetMap<V>(Vec<(String, V)>, u64);
@@ -20,9 +20,6 @@ impl<V> AssetMap<V> {
     }
     pub(crate) fn contains_key(&self, name: &str) -> bool {
         self.find(name).is_ok()
-    }
-    pub(crate) fn len(&self) -> usize {
-        self.0.len()
     }
     pub(crate) fn insert(&mut self, name: String, value: V) {
         self.1 = self.1.wrapping_add(1);

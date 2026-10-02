@@ -246,6 +246,10 @@ Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added.
+`Glow(Tween)` also multiplies the model's baked emissive factor and texture,
+including on entities without a `Material` component. Removing `Glow` restores
+authored emission. The model-only multiplier uses material slot 9 (primitive
+dimension X for primitive draws); it does not change authored model assets.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
 wins. Point-light selection is feed-only: up to sixteen with positive tick-end
@@ -390,6 +394,9 @@ clears them. The feel probe requests `perf: true`.
 
 Model-capable modules upload four joint indices/weights per vertex and a skin
 handle per draw record. Primitive modules create no skin buffers or pipeline.
+Animated unskinned mesh nodes use one hierarchy matrix per draw, with no vertex
+weights or authored skin. They share interpolation, culling and shadow transforms
+with skinned nodes.
 The feed copies the saved previous/current **local** TRS into retained buffers on
 completed ticks, even when the entity Transform did not move. Rendering allocates
 no new collections for these histories. Skin templates retain parent-first node

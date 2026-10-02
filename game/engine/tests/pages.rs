@@ -181,17 +181,36 @@ fn membership_union_is_ordered_and_does_not_require_both_columns() {
 fn sparse_owned_components_expose_only_initialized_runs() {
     use exact_game::Component;
     #[derive(Default, Component)]
-    struct Owned { label: String }
+    struct Owned {
+        label: String,
+    }
     let mut world = World::new(60, 0);
     let entities: Vec<_> = (0..PAGE + 3).map(|_| world.spawn(())).collect();
     for i in [1, 2, 63, 64, PAGE + 2] {
-        world.insert(entities[i], Owned { label: format!("value {i}") });
+        world.insert(
+            entities[i],
+            Owned {
+                label: format!("value {i}"),
+            },
+        );
     }
     world.remove::<Owned>(entities[63]);
     let pages = world.pages::<Owned>();
-    let values: Vec<_> = pages.iter().flat_map(|page| {
-        page.runs().flat_map(|(first, values)| values.iter().enumerate()
-            .map(move |(i, value)| (first + i as u32, value.label.clone()))).collect::<Vec<_>>()
-    }).collect();
-    assert_eq!(values, [1, 2, 64, PAGE + 2].map(|i| (i as u32, format!("value {i}"))));
+    let values: Vec<_> = pages
+        .iter()
+        .flat_map(|page| {
+            page.runs()
+                .flat_map(|(first, values)| {
+                    values
+                        .iter()
+                        .enumerate()
+                        .map(move |(i, value)| (first + i as u32, value.label.clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        values,
+        [1, 2, 64, PAGE + 2].map(|i| (i as u32, format!("value {i}")))
+    );
 }

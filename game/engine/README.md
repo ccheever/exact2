@@ -125,6 +125,17 @@ Animation order is explicit: `let motion = animation::step(w)`, apply root motio
 then query sockets. The result owns its markers so component writes can follow.
 Reverse one-shots start at their end; saved playback state keeps a completed
 controller from restarting after restore.
+
+Attach `animation::Layers(vec![animation::Layer::new(Animation::play("hit").once())
+.additive().weight(0.5).mask(["spine"])])` beside the base `Animation`, `Blend`
+or `Animator`. Layers run in order before IK; masks include the named nodes and
+their descendants. Override layers blend only the clip's authored channels;
+additive layers apply deltas from the imported bind pose. Each layer saves its
+own clock and marker state. Weight zero advances that clock without changing the
+pose or emitting markers. Root motion belongs to the base controller. Layers
+can also stand alone over the bind pose. Unskinned animated mesh nodes follow
+the same interpolated hierarchy as skinned nodes; adding an artificial skin is
+unnecessary.
 `SocketFollow::new("fox", "head").offset(t)` attaches to a joint while preserving
 the saved local transform. `animation::socket(w, target, joint)` reads the current
 world-space tick endpoint; displayed attachments use the interpolated local chain.

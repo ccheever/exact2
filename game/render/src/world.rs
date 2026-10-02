@@ -505,6 +505,21 @@ impl Feed {
             }
         }
         if material {
+            // Frame-time Glow writes bypass page fingerprints. Restore authored
+            // values when a tween disappears, including model emission. Retargeting
+            // an existing tween needs only its next frame-time write.
+            if next.glow != old.glow {
+                let live: std::collections::BTreeSet<_> = w
+                    .query::<&exact_game::Glow>()
+                    .iter()
+                    .map(|(entity, _)| entity.index())
+                    .collect();
+                for glow in &self.glows {
+                    if !live.contains(&glow.slot) {
+                        self.materials.invalidate(glow.slot as usize / PAGE);
+                    }
+                }
+            }
             let transforms = w.pages::<Transform>();
             let materials = w.pages::<Material>();
             let mut tp = transforms.iter().peekable();
@@ -591,8 +606,9 @@ impl Feed {
         );
         if material {
             self.glows.clear();
-            for (entity, (glow, material)) in w.query::<(&exact_game::Glow, &Material)>().iter() {
-                let mut values = material_floats(*material);
+            for (entity, glow) in w.query::<&exact_game::Glow>().iter() {
+                let mut values =
+                    material_floats(w.get::<Material>(entity).map(|m| *m).unwrap_or_default());
                 values[9..12].copy_from_slice(
                     self.dimensions
                         .get(entity.index() as usize)
@@ -603,6 +619,9 @@ impl Feed {
                     material: values,
                     tween: glow.0.clone(),
                     hz: w.hz(),
+                    model: w
+                        .get::<Mesh>(entity)
+                        .is_some_and(|m| matches!(*m, Mesh::Asset(_))),
                 });
             }
         }

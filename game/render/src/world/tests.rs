@@ -959,6 +959,7 @@ fn e11_glow_identity_preserves_authored_emission_and_shoulders_only_added_light(
         material: [0., 0., 0., 0., 0., 0., 3., 2., 1., 0., 0., 0.],
         tween: exact_game::Tween::new(1.),
         hz: 60,
+        model: false,
     };
     assert_eq!(&glow.material_at(0.)[6..9], &[3., 2., 1.]);
     let hot = crate::GlowInput {
@@ -993,4 +994,29 @@ fn e11_settle_immediately_presents_the_completed_glow() {
     feed.feed_to(sim.world(), &mut recording).unwrap();
     let frame = feed.frame(sim.world(), sim.alpha(), 1.);
     assert_eq!(&frame.glows[0].material_at(frame.seconds)[6..9], &[1.; 3]);
+}
+
+#[test]
+fn model_glow_scales_baked_emission_without_a_material_component() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn((
+        Transform::default(),
+        Mesh::asset("lamp.model"),
+        exact_game::Glow(exact_game::Tween::new(0.25)),
+    ));
+    let hash = w.hash();
+    let mut feed = Feed::default();
+    feed.feed_to(&w, &mut Recording::default()).unwrap();
+    let frame = feed.frame(&w, 1., 1.);
+    assert_eq!(frame.glows.len(), 1);
+    assert_eq!(frame.glows[0].material_at(0.)[9], 0.25);
+    assert_eq!(w.hash(), hash);
+    w.remove::<exact_game::Glow>(e);
+    let mut restored = Recording::default();
+    feed.feed_to(&w, &mut restored).unwrap();
+    assert!(restored
+        .calls
+        .iter()
+        .any(|c| matches!(c, Call::Material(..))));
+    assert!(feed.frame(&w, 1., 1.).glows.is_empty());
 }

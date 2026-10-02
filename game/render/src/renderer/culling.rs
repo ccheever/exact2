@@ -159,7 +159,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             for (record, &palette) in self.models.records.iter().zip(&skinning.offsets) {
                 if let Some(skin) = record.skin {
                     let mut words = [0; SKIN_WORDS];
-                    words[..2].copy_from_slice(&[palette, skinning.joints(skin)]);
+                    words[..2].copy_from_slice(&[palette & 0x7fff_ffff, skinning.joints(skin)]);
                     words[4..].copy_from_slice(&record.local.to_cols_array().map(f32::to_bits));
                     self.cull.words.extend(words);
                 }
