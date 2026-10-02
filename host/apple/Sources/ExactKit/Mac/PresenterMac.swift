@@ -606,6 +606,7 @@ final class Presenter {
             if view.isHidden || (view as? NodeView)?.inert == true { return }
             ancestor = view.superview
         }
+        if target.kind == "native", !selectText { _ = session?.natives.focus(target); return }
         if selectText, target.textArea == nil, target.field == nil { return }
         if let field = target.field, window.firstResponder === field.currentEditor() {
             if selectText { field.currentEditor()?.selectAll(nil) }
@@ -625,6 +626,11 @@ final class Presenter {
         guard let window = viewport.window else { return }
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            if target.kind == "native" {
+                guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
+                window.makeFirstResponder(nil)
+                return
+            }
             let responder: NSView = target.textArea ?? target.field ?? target
             guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
         }
@@ -1048,8 +1054,11 @@ final class Presenter {
         }
     }
 
-    /// The view that takes Tab for this node: an input's field, else itself.
-    private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
+    /// The same editing descendant takes explicit, sequential and modal focus.
+    func keyView(of v: NodeView) -> NSView {
+        if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
+        return v.textArea ?? v.field ?? v
+    }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
@@ -1106,6 +1115,7 @@ final class Presenter {
         let index = tabIndex(v)
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
+        if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
         if v.canBecomeKeyView { return true }
         return index > 0
