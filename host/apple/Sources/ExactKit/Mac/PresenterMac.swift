@@ -37,6 +37,7 @@ final class Presenter {
     }
     /// Scroll containers: the only views with a position to keep across a batch.
     var scrollers: Set<UInt32> = []
+    let glassGroups = GlassGroups()
     /// Views with an authored offset waiting for their frames.
     var pendingScrolls: Set<UInt32> = []
     var heightBindings: [UInt32: HeightDragBinding] = [:]
@@ -962,6 +963,7 @@ final class Presenter {
         segments.sync()
         controls.sync()
         menus.sync()
+        glassGroups.reconcile()
         positionContexts()
         toolbar.sync()
         shortcuts.sync()

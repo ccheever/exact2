@@ -94,7 +94,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
     var materialView: NSView?
-    private var materialContent: NSView?
+    /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
+    var glassGroupView: NSView?
+    var glassIsolation: NSView?
+    var materialContent: NSView?
     private var materialKind: String?
     /// Natural extent from the kernel, before the CSS client-size minimum.
     var content = CGSize.zero
@@ -517,14 +520,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
 
-    /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? clipBox ?? self }
+    /// Where children go: the scroll document view, or this view; a glass
+    /// group innermost (`GlassGroup.swift`).
+    var container: NSView { glassGroupContent ?? baseContainer }
 
     // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
     // AppKit owns accessibility/appearance adaptation, including Reduce
     // Transparency and Increase Contrast; do not freeze the effective appearance.
     var appliedMaterial: String {
-        guard let materialView, materialView.superview === self else {
+        guard let materialView, materialView.superview === self || (glassIsolation != nil && materialView.superview?.superview === glassIsolation) else {
             if (layer?.backgroundFilters?.count ?? 0) > 0 { return "backgroundFilters(CIGaussianBlur)" }
             return props["backgroundMaterial"] == nil ? "none" : "unsupported"
         }
@@ -534,9 +538,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func updateMaterial() {
         let requested = props["backgroundMaterial"]
-        defer { applyBackdrop() }
+        defer { applyBackdrop(); syncGlassSlot(); syncGlassGroup() }
         let kind = requested
         if materialKind != kind {
+            releaseGlassIsolation()
             let children = container.subviews.compactMap { $0 as? NodeView }
             let old = materialView
             materialView = nil
@@ -1051,15 +1056,19 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sv.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
             sv.autoresizingMask = [.width, .height]
-            for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
-            addSubview(sv)
+            GlassGroups.moving(in: self) {
+                for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+                addSubview(sv)
+            }
             scroll = sv
             presenter?.scrollers.insert(id)
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
-            sv.removeFromSuperview()
+            GlassGroups.moving(in: self) {
+                for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
+                sv.removeFromSuperview()
+            }
             scroll = nil
             presenter?.scrollers.remove(id)
         }
@@ -1080,6 +1089,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if clipsToBounds != clipped { clipsToBounds = clipped }
         applyClipRadius()
         applyShadow()
+        syncGlassGroup()
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
         let bx = s["overscroll_behavior_x"]?.string ?? "auto"
@@ -1211,6 +1221,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
+        if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
     }

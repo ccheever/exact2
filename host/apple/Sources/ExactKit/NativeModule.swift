@@ -9,7 +9,7 @@
 // The table (`exact_native_abi()`, 64-bit layout; the module side is
 // `host/apple/modules/ExactNativeModule.swift`):
 //
-//   0  u32 major            2
+//   0  u32 major            3
 //   4  u32 size             104 or more
 //   8  const char *roster   JSON: {"tag": {"snapshot": bool}, …}
 //  16  create(module, tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
@@ -34,6 +34,8 @@
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
 //     message carry UTF-8, hover "true"/"false"; from any thread.
+//   event kind 9 is host-only intrinsic content size: UTF-8 "width,height"
+//     in points, or empty to clear. Never dispatched as a Contract event.
 //   reply(ctx, nonce, token, kind, bytes, len)   kind 0 PNG bytes, 2 error text.
 //
 // Every entry is called on the main thread (LLP 1067.000 Q5). Callbacks may come from any
@@ -69,7 +71,7 @@ private struct NativeFailure: Error { let state: String; let message: String }
 
 /// The loaded table: the roster and the entries, read once.
 private final class NativeTable {
-    static let major: UInt32 = 2
+    static let major: UInt32 = 3
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -170,6 +172,8 @@ private final class NativeEntry {
     var view: NativePlatformView?
     var props = "{}"
     var snapshotBit = false
+    var intrinsicSize: CGSize?
+    var hasIntrinsicReport = false
     init(owner: NodeView) { self.owner = owner; self.id = owner.id }
     var status: [String: Any] {
         var s: [String: Any] = ["name": name, "state": state]
@@ -502,7 +506,7 @@ final class NativeViews {
         }
         let view = Unmanaged<NativePlatformView>.fromOpaque(raw).takeUnretainedValue()
         // The host sizes the box; the platform view fills it (bounds are observed, D4).
-        view.frame = owner.bounds
+        view.frame = owner.contentBox()
         #if os(macOS)
         view.autoresizingMask = [.width, .height]
         #else
@@ -615,10 +619,66 @@ final class NativeViews {
         log("dropped \(name) from nonce \(nonce) after destroy")
     }
 
+    // Keep the incarnation through both asynchronous boundaries: the callback
+    // hop and the session's in-flight collection fill. One turn, one layout.
+    private var intrinsicSizes: [UInt32: CGSize?] = [:]
+    private var intrinsicFlushPending = false
+    private func intrinsic(_ entry: NativeEntry, data: Data) {
+        let size: CGSize?
+        if data.isEmpty { size = nil } else {
+            let parts = String(decoding: data, as: UTF8.self).split(separator: ",", omittingEmptySubsequences: false)
+            guard parts.count == 2, let w = Float(parts[0]), let h = Float(parts[1]),
+                  w.isFinite, h.isFinite, w > 0, h > 0 else {
+                return log("\(entry.name) #\(entry.id): refused intrinsic size")
+            }
+            size = CGSize(width: CGFloat(w), height: CGFloat(h))
+        }
+        guard !entry.hasIntrinsicReport || size != entry.intrinsicSize else { return }
+        entry.hasIntrinsicReport = true
+        entry.intrinsicSize = size
+        intrinsicSizes.updateValue(size, forKey: entry.nonce)
+        guard !intrinsicFlushPending else { return }
+        intrinsicFlushPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let flush = { [weak self] in self?.flushIntrinsicSizes() }
+            if let session = self.session { session.whenIdle { flush() } } else { flush() }
+        }
+    }
+
+    private func flushIntrinsicSizes() {
+        let queued = intrinsicSizes
+        intrinsicSizes.removeAll()
+        intrinsicFlushPending = false
+        var sizes: [(UInt32, CGSize?)] = []
+        var presenter: Presenter?
+        for (nonce, size) in queued {
+            guard let entry = entries.values.first(where: { $0.nonce == nonce }),
+                  NativeProcess.incarnation(entry.instance) == nonce,
+                  let owner = entry.owner, let p = owner.presenter, p.views[entry.id] === owner else { continue }
+            presenter = p
+            sizes.append((entry.id, size))
+        }
+        if !sizes.isEmpty { presenter?.onIntrinsic?(sizes) }
+    }
+
+    /// The platform widget occupies CSS's content box, as the custom element's
+    /// DOM content does. It never reports this assigned frame as a natural size.
+    func laidOut(_ owner: NodeView) {
+        guard let entry = entries[owner.id], let view = entry.view else { return }
+        if entry.sizing && owner.bounds.isEmpty { return }
+        entry.sizing = false
+        view.frame = owner.contentBox()
+        #if os(iOS)
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        #endif
+    }
+
     fileprivate func received(nonce: UInt32, kind: UInt32, data: Data) {
         guard let entry = entries.values.first(where: { $0.nonce == nonce }), let owner = entry.owner,
               let presenter = owner.presenter, presenter.views[entry.id] === owner
         else { return dropped(nonce: nonce, kind: kind) }
+        if kind == 9 { intrinsic(entry, data: data); return }
         guard kind < NativeViews.kinds.count else { return log("\(entry.name) #\(entry.id): refused event kind \(kind)") }
         #if os(iOS)
         if kind == 7, entry.revealing { entry.revealing = false; entry.view?.alpha = 1 }
@@ -795,7 +855,7 @@ extension NativeViews {
         // A new node has no box yet: the view keeps its size, which is most
         // often the next row's, until the node is laid out (`laidOut`) — a
         // map's resize to nothing and back costs as much as its reset.
-        if owner.bounds.isEmpty { view.autoresizingMask = []; entry.sizing = true } else { view.frame = owner.bounds }
+        if owner.bounds.isEmpty { view.autoresizingMask = []; entry.sizing = true } else { view.frame = owner.contentBox() }
         owner.addSubview(view)
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
         entry.props = props
@@ -806,14 +866,6 @@ extension NativeViews {
         if status != 0 { fail(entry, "error", "props refused: \(String(cString: error.map { CChar(bitPattern: $0) }))") }
         log("\(entry.name) #\(entry.id): ready (reused)")
         return true
-    }
-
-    /// `owner` was laid out: a taken view that kept its size takes the box.
-    func laidOut(_ owner: NodeView) {
-        guard let entry = entries[owner.id], entry.sizing, let view = entry.view, !owner.bounds.isEmpty else { return }
-        entry.sizing = false
-        view.frame = owner.bounds
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     }
 
     /// A parked instance is destroyed: past the cap, on memory pressure, in

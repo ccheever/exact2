@@ -614,6 +614,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
+        "glassGroup" => AttrTarget::Prop(p("glassGroup")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),

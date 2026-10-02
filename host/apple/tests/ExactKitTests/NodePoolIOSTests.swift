@@ -366,6 +366,26 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1053.000.000 D2: a glass group is the row's own view; parked, it
+    /// goes, and the next row's props make a new one.
+    func testAGroupRowPoolsWithANewGroupView() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8"]]) { $1 } : op
+        }, root: 10)
+        let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11])
+        let view = try XCTUnwrap(row.glassGroupView)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "8"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[20] === row, "the row pools")
+        let fresh = try XCTUnwrap(row.glassGroupView)
+        XCTAssertFalse(fresh === view)
+        XCTAssertNil(view.superview)
+        XCTAssertTrue(glyph.superview === fresh.contentView)
+    }
+
     func testAMaterialRowWithoutTheMaterialComesBackWithout() throws {
         let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
             i == 0 ? op.merging(["props": ["testId": "row-10", "backgroundMaterial": "glass"]]) { $1 } : op
@@ -417,6 +437,8 @@ final class NodePoolIOSTests: XCTestCase {
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
         let natives = NativeViews()
         natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        var sizes: [(UInt32, CGSize?)] = []
+        p.onIntrinsic = { sizes.append(contentsOf: $0) }
         var loads: [UInt32] = []
         p.onLoad = { loads.append($0) }
         func node(_ id: UInt32, _ tag: String, _ props: String) -> NodeView {
@@ -440,10 +462,34 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(FakeModule.made.count, 1)
         let first = FakeModule.made[0]
         XCTAssertTrue(first.view.superview === a)
-        retire(a)
+        a.style = ["padding_left": 4, "padding_right": 4, "padding_top": 4, "padding_bottom": 4, "border_width": 2]
+        natives.laidOut(a)
+        XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 188, height: 88), "module content excludes padding and border")
+        a.frame.size = CGSize(width: 160, height: 80)
+        natives.laidOut(a)
+        XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 148, height: 68), "the content frame follows CSS resizing")
+        first.send(9, "120,40"); first.send(9, "120,80")
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "one turn coalesces to the latest preferred size")
+        XCTAssertEqual(sizes.last?.0, 10)
+        XCTAssertEqual(sizes.last?.1, CGSize(width: 120, height: 80))
+        first.send(9, "120,80"); first.send(9, "nan,20"); first.send(9, "0,20")
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "unchanged and invalid sizes do not relayout")
+        first.send(9)
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 2)
+        XCTAssertNil(sizes.last!.1, "empty clears the preference")
+        sizes.removeAll()
+        // Let the callback hop accept the size, then park before its flush.
+        first.send(9, "120,90")
+        DispatchQueue.main.async { retire(a) }
+        settle(); settle()
+        XCTAssertTrue(sizes.isEmpty, "a queued report cannot survive retirement")
         XCTAssertEqual(first.resets, 1, "reset at the park")
         XCTAssertNil(first.view.superview, "parked out of the window")
         XCTAssertFalse(first.destroyed)
+        first.send(9, "120,100") // a size issued while parked
         first.send(7) // a load issued while parked
         let b = node(20, "fake-map", #"{"place":"b"}"#)
         XCTAssertEqual(FakeModule.made.count, 1, "no new instance: the parked one is taken")
@@ -452,6 +498,11 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(first.view.alpha, 0, "transparent until the instance says nothing of the last row shows")
         settle()
         XCTAssertEqual(loads, [], "the parked instance's load reaches no node")
+        XCTAssertTrue(sizes.isEmpty, "a parked size cannot reach a new incarnation")
+        first.send(9, "120,60")
+        settle(); settle()
+        XCTAssertEqual(sizes.last?.0, 20)
+        XCTAssertEqual(sizes.last?.1, CGSize(width: 120, height: 60))
         XCTAssertEqual(first.view.alpha, 0)
         first.send(7)
         settle()
@@ -476,6 +527,23 @@ final class NodePoolIOSTests: XCTestCase {
         let made = try XCTUnwrap(FakeModule.made.last)
         retire(plain)
         XCTAssertTrue(made.destroyed); XCTAssertEqual(made.resets, 0)
+        // Recycling destroys an instance but leaves its kernel node and size.
+        // A new incarnation's first nil must clear that retained preference.
+        let far = node(110, "fake-plain", "{}")
+        let old = try XCTUnwrap(FakeModule.made.last)
+        old.send(9, "120,40")
+        settle(); settle()
+        sizes.removeAll()
+        XCTAssertEqual(natives.recycleFar(hide: 1, release: 2) { $0 === far ? 3 : nil }.count, 1)
+        natives.release(far)
+        let fresh = try XCTUnwrap(FakeModule.made.last)
+        XCTAssertFalse(old === fresh)
+        fresh.send(9)
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "the first clear of a fresh instance must reach the retained node")
+        XCTAssertEqual(sizes.last?.0, 110)
+        XCTAssertNil(sizes.last!.1)
+        retire(far)
         XCTAssertEqual(natives.observation["reused"] as? Int, NativeViews.reuseLimit)
         natives.drainParked()
         NativeViews.uninstallTable()
@@ -505,7 +573,10 @@ private enum FakeModule {
         init(nonce: UInt32, event: @escaping @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void) {
             self.nonce = nonce; self.event = event
         }
-        func send(_ kind: UInt32) { event(nil, nonce, kind, nil, 0) }
+        func send(_ kind: UInt32, _ text: String = "") {
+            let bytes = Array(text.utf8)
+            bytes.withUnsafeBufferPointer { event(nil, nonce, kind, $0.baseAddress, UInt32($0.count)) }
+        }
     }
     nonisolated(unsafe) static var made: [Instance] = []
     static func reset() { made = [] }
@@ -532,7 +603,7 @@ private enum FakeModule {
         }
         let none: @convention(c) (UnsafeMutableRawPointer?) -> Void = { _ in }
         let reuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { FakeModule.instance($0).resets += 1; return 0 }
-        put(UInt32(2), 0); put(UInt32(112), 4); put(UnsafeRawPointer(roster), 8)
+        put(UInt32(3), 0); put(UInt32(112), 4); put(UnsafeRawPointer(roster), 8)
         put(unsafeBitCast(create, to: UnsafeRawPointer.self), 16); put(unsafeBitCast(view, to: UnsafeRawPointer.self), 24)
         put(unsafeBitCast(set, to: UnsafeRawPointer.self), 32); put(unsafeBitCast(destroy, to: UnsafeRawPointer.self), 48)
         // The module entries are never called here (the test installs an instance).

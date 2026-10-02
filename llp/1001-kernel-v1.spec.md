@@ -450,7 +450,14 @@ weight/style whose declared family lacks the needed face, and the web host emits
 `font-synthesis: none` (LLP 1019 §5). A `ScrollView`/`List` scrolls on its
 block axis unless the producer sets `overflow_y` — the only per-tag default,
 applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
-web). An `Image` is a replaced element: the host reports its intrinsic size
+web). A `NativeView` may report a preferred content-size pair through the same
+`Kernel::set_intrinsic_size` seam as a `Control` (LLP 1024 D4, 2026-10-01).
+It is a measured leaf without an inferred ratio or a projected tablist's
+minimum; CSS still determines the outer box. Without a report its content
+measures zero, and a block still stretches to available width. Reports are
+finite positive pairs or `None` to clear, not constrained measurements.
+
+An `Image` is a replaced element: the host reports its intrinsic size
 (`Kernel::set_intrinsic_size`, the bitmap's pixel counts one-for-one as points,
 after the image loads; before that each unknown axis measures 0, so a `width`
 row still sizes the box), the node is measured from it, and it keeps its
@@ -819,7 +826,17 @@ within-window blending and window-active-state tracking. AppKit has no ultra-thi
 material; this is a semantic floating-surface fallback, not pixel parity. Authored
 children use the glass content view unless a scroll/canvas already owns their
 container. AppKit supplies appearance and accessibility adaptation. Glass grouping
-is not implemented. Since LLP 1053.000 D4 `backgroundMaterial` names every UIKit
+is the `glassGroup` prop (LLP 1053.000.000): its value is the spacing in
+points at which the subtree's glass merges, through `UIGlassContainerEffect`
+or `NSGlassEffectContainerView` as the node's innermost view; it is
+layout-neutral and draws nothing on the web or Linux, and is refused beside a
+material, on a scroll or on a canvas. Declared deviations, measured: inside a
+group the platform draws all its glass in one layer, beneath the group's
+other content on iOS and above it on macOS, whatever the CSS order; glass
+overlapping or inside glass fuses into one shape; and because the platform
+ignores the opacity, masks and clipping between a group and its glass, the
+host isolates a glass whose path fades, masks or clips in a container of its
+own, where it is faded and clipped as CSS says and merges with nothing. Since LLP 1053.000 D4 `backgroundMaterial` names every UIKit
 and AppKit material (the schema's `materials` table); a platform without the named
 one draws its stand-in and logs once, and the web and Linux draw the table's stated
 approximation (a blur and a tint; declared approximate). This explicit

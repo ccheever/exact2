@@ -562,6 +562,85 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
     );
 }
 
+/// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
+/// makes no containing block, refused out of range and where a group cannot
+/// be: beside the element's own material, on a scroll, on a canvas.
+#[test]
+fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
+    use exact_kernel::{PositionType::Static, PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state gap = 8
+  view
+    column
+      row testId="group" glassGroup=12
+        box testId="lit" backgroundMaterial="glass"
+        box position="absolute"
+      row testId="bound" glassGroup=gap
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    for (id, spacing) in [("group", 12.0), ("bound", 8.0)] {
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        assert_eq!(
+            node.props.get(PropId::GlassGroup),
+            Some(&PropValue::Float(spacing)),
+            "{id}"
+        );
+        // A group holding an absolute child is not its containing block.
+        assert_eq!(node.style.position_type, Static, "{id}");
+    }
+    for (source, id, says) in [
+        ("box glassGroup=-1", "lower-attr-value", "from 0 to 10000"),
+        (
+            "box glassGroup=20000",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
+        (
+            "box glassGroup=4 backgroundMaterial=\"glass\"",
+            "lower-glass-group",
+            "put the group on the parent",
+        ),
+        (
+            "box glassGroup=4 backdrop-filter=\"blur(8px)\"",
+            "lower-glass-group",
+            "`backdrop-filter`",
+        ),
+        (
+            "box glassGroup=4 overflow=\"scroll\" height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "scroll glassGroup=4 height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "canvas glassGroup=4",
+            "lower-glass-group",
+            "child of the canvas",
+        ),
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {source}\n")).unwrap_err();
+        assert_eq!(error.id, id, "{source}: {error:?}");
+        assert!(error.message.contains(says), "{source}: {error:?}");
+    }
+    contract::compile("component App\n  view\n    box glassGroup=0 overflow=\"hidden\"\n").unwrap();
+}
+
 /// LLP 1074 T1: `position` is `static` unless authored, except on a box that
 /// contains its absolutely positioned descendants on every host, which is
 /// lowered `relative`; an authored `static` there is refused.

@@ -378,6 +378,7 @@ extension Agent {
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
+        host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let control = presenter.controls.observation(host) { native["control"] = control }

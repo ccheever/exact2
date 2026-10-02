@@ -7,6 +7,12 @@
 // drives it through the eight operations.
 
 component NativeFixture
+  state expanded = false
+  state natural = true
+  action grow writes expanded
+    expanded = not expanded
+  action sizing writes natural
+    natural = not natural
   state count = 0
   state emit = 0
   state shown = true
@@ -59,8 +65,13 @@ component NativeFixture
           text "Reject"
         button press=mode testId="mode" padding=6 background-color="#e5e7eb"
           text "Mode"
+      row gap=6
+        button press=grow testId="grow" padding=6
+          text "Grow content"
+        button press=sizing testId="sizing" padding=6
+          text "Toggle intrinsic size"
       text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
       when shown
         exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-      exact-plain testId="plain" width=120 height=60 tint="#11aa44"
+      exact-plain testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
       exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"

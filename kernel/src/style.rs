@@ -1379,7 +1379,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // An explicit CSS min-height still owns that constraint; no natural ratio
     // or preferred width is inferred from this container measurement.
     if !arena.node_type(slot).is_replaced()
-        && arena.node_type(slot) != NodeType::Control
+        && !matches!(
+            arena.node_type(slot),
+            NodeType::Control | NodeType::NativeView
+        )
         && s.min_size.height.is_auto()
     {
         if let Some((_, height)) = arena.intrinsic(slot) {

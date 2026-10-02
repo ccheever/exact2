@@ -103,6 +103,9 @@ final class FlatLeaves {
         return true
     }
     func isFlat(_ id: UInt32) -> Bool { leaves[id] != nil }
+    /// `id`'s children moved to another container view (a material or a
+    /// glass group came or went): its leaves follow at the next flush.
+    func containerChanged(_ id: UInt32) { if order[id] != nil { dirty.insert(id) } }
 
     /// A style op for `id`: applied (true), or the leaf was promoted.
     func style(_ id: UInt32, _ op: BatchOp) -> Bool {
