@@ -72,6 +72,16 @@ impl Em<'_> {
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let writes: Vec<(String, String, Option<String>)> = match id {
+            // @ref LLP 1076 D8 — the `rotate` and `translate` attributes bind
+            // these with the same value: the angle's and xy's declaration
+            // writes the author's whole text.
+            StyleId::RotateAxis | StyleId::TranslateZ => {
+                let pair = if id == StyleId::RotateAxis { StyleId::Rotate } else { StyleId::Translate };
+                if binding(pair).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
+                    return Ok(());
+                }
+                return refuse("a dynamic 3D part without its `rotate` or `translate`");
+            }
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();

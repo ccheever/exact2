@@ -1070,6 +1070,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
         let origin = style["transform_origin"]
+        let space = [style["rotate_axis"], style["translate_z"], style["perspective"], style["perspective_origin"], style["backface_visibility"]]
         style = s
         updateSymbol()
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
@@ -1086,6 +1087,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         layer.zPosition = usedZIndex
         if s["transform_origin"] != origin { applyTransform() }
+        // LLP 1076 D8: the 3D rows.
+        if [s["rotate_axis"], s["translate_z"], s["perspective"], s["perspective_origin"], s["backface_visibility"]] != space {
+            applyTransform(); applyPerspective()
+        }
         setNeedsDisplay()
     }
 
@@ -1201,6 +1206,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         super.layoutSubviews()
         if materialView != nil { applyMaterialRadius() }
         syncEllipticalClip()
+        if style["perspective"] != nil { applyPerspective() }
         if kind == "image" { presenter?.session?.rasters.resized(self); if raster != nil { applyImageLayer() } }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()

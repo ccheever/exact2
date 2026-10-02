@@ -360,6 +360,11 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   stroke of their outlines, so a glyph's overlapping contours show no inner
   lines as Chrome's and Core Text's do. `background-clip: text` clips to the
   node's own paragraph, not to text in its descendants.
+- **3D transforms** ([LLP 1076 D8](1076-css-visual-properties-native-draws-cheaply.rfc.md))
+  flatten every box into its parent's plane (`transform-style: preserve-3d`
+  is refused), and a transition between two different `rotate` axes changes
+  the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
+  on the CPU.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

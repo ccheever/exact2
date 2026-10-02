@@ -153,6 +153,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
         StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
+        StyleValueError::BadRotateAxis { .. } => "expected an angle, and optionally an axis: `x`, `y`, `z` or three numbers".into(),
         StyleValueError::BadBoxShadow { .. } => "expected none, or shadows separated by commas: `inset? <x> <y> [<blur> [<spread>]] <colour>`".into(),
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }

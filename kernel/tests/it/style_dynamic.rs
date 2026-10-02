@@ -30,7 +30,9 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         "0 1",
         "none",
         "1px,2px",
-        "1px 2px 0px",
+        // A third length is `translate`'s z (LLP 1076 D8), a fourth nothing.
+        "1px 2px 0px 0px",
+        "1px 2px 3",
         "10% 0",
         "calc(1px + 2px) 0",
         "NaNpx 0",
@@ -564,6 +566,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("0px 300px".into()),
         StyleValue::Text("squircle".into()),
         StyleValue::Text("1px 2px #000".into()),
+        StyleValue::Text("y 30deg".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

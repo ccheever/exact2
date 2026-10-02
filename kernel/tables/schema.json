@@ -1396,6 +1396,13 @@
       ],
       "default": "none"
     },
+    "BackfaceVisibility": {
+      "values": [
+        "visible",
+        "hidden"
+      ],
+      "default": "visible"
+    },
     "BackgroundClip": {
       "values": [
         "border-box",
@@ -2771,6 +2778,38 @@
       "field": "background_clip",
       "codec": "enum:BackgroundClip",
       "_comment": "@ref LLP 1076 D6: CSS `background-clip`: the background colour and image painted within the border box (initial), the padding box, the content box, or the glyphs of the node's own text. Not inherited."
+    },
+    {
+      "bit": 157,
+      "field": "rotate_axis",
+      "codec": "rotate-axis",
+      "_comment": "@ref LLP 1076 D8: the axis of CSS `rotate` (`x`, `y`, `z` or three numbers), set with `rotate`'s angle by the one `rotate` attribute; initial z. The angle is `rotate` (bit 62), which the engine animates."
+    },
+    {
+      "bit": 158,
+      "field": "translate_z",
+      "codec": "f32",
+      "default": 0,
+      "_comment": "@ref LLP 1076 D8: CSS `translate`'s third length, px, set with x and y by the one `translate` attribute."
+    },
+    {
+      "bit": 159,
+      "field": "perspective",
+      "codec": "f32",
+      "default": 0,
+      "_comment": "@ref LLP 1076 D8: CSS `perspective`, px; 0 is `none`. On the parent: it projects its children's 3D transforms."
+    },
+    {
+      "bit": 160,
+      "field": "perspective_origin",
+      "codec": "transform-origin",
+      "_comment": "@ref LLP 1076 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
+    },
+    {
+      "bit": 161,
+      "field": "backface_visibility",
+      "codec": "enum:BackfaceVisibility",
+      "_comment": "@ref LLP 1076 D8: CSS `backface-visibility`: a hidden box turned away from the viewer paints nothing."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

@@ -50,6 +50,8 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid or unsupported CSS `box-shadow` (LLP 1076 D4).
     BadBoxShadow,
+    /// Invalid CSS `rotate` axis (LLP 1076 D8).
+    BadRotateAxis,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1076 D3).
     BadTextShadow,
     /// Invalid or unsupported CSS `mask-image` (LLP 1076 D2).
@@ -480,6 +482,10 @@ pub enum StyleValueError {
     },
     /// Not `none`, `all` or a list of `<dashed-ident>`s.
     BadTimelineScope {
+        style: StyleId,
+    },
+    /// Not a CSS `rotate` (LLP 1076 D8).
+    BadRotateAxis {
         style: StyleId,
     },
     /// Not `-webkit-text-stroke` (LLP 1076 D7); `reason` names what.

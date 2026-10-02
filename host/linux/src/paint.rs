@@ -39,6 +39,7 @@ mod placed;
 mod presented;
 mod region;
 mod shadow;
+mod space;
 mod svg;
 mod text_clip;
 mod text_shadow;
@@ -588,6 +589,9 @@ pub struct Painter {
     damage: damage::Retained,
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
+    /// The node a 3D island paints flat, its own transform being the warp's
+    /// (LLP 1076 D8).
+    pub(crate) flatten: Option<ViewId>,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -664,6 +668,7 @@ impl Painter {
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
+            flatten: None,
         }
     }
 
@@ -903,6 +908,11 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        // @ref LLP 1076 D8 — turned or moved in space: painted apart, warped.
+        if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.damage.unsupported = true;
+            return;
+        }
         // @ref LLP 1043.000 §3 D7 — collect damage eligibility during the
         // existing paint walk, not an extra whole-document walk per flow tick.
         // A shadow paints outside the node's box, where damage never looks.
@@ -915,7 +925,7 @@ impl Painter {
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)
             || !p.colors.is_empty();
-        let ts = if p.moves() {
+        let ts = if p.moves() && self.flatten != Some(id) {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
             ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
         } else {

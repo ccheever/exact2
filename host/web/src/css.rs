@@ -164,6 +164,25 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1)
                 );
             }
+            // @ref LLP 1076 D8 — `rotate` is the angle and its axis, and
+            // `translate` x, y and z: one declaration each.
+            (StyleId::Rotate, RowValue::Number(n)) if style.rotate_axis.0 != [0.0, 0.0, 1.0] => {
+                push_text!(&mut out, "rotate:{} ", style.rotate_axis.css());
+                num_into(&mut out, *n as f32);
+                out.push_str("deg;");
+            }
+            (StyleId::Translate, RowValue::Vec2(v)) if style.translate_z != 0.0 => {
+                out.push_str("translate:");
+                for n in [v.x, v.y, style.translate_z] {
+                    num_into(&mut out, n);
+                    out.push_str("px ");
+                }
+                out.pop();
+                out.push(';');
+            }
+            (StyleId::Perspective, RowValue::Number(n)) if *n == 0.0 => {
+                out.push_str("perspective:none;")
+            }
             (StyleId::Scale, RowValue::Number(n)) if press => {
                 out.push_str("--exact-scale:");
                 num_into(&mut out, *n as f32);
@@ -396,6 +415,9 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
+        // Written with `rotate` and `translate` (LLP 1076 D8).
+        RowValue::RotateAxis(_) => false,
+        RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
@@ -497,6 +519,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::TextShadow(s) => out.push_str(&s.css()),
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
+        RowValue::RotateAxis(_) => {}
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -992,6 +1015,25 @@ mod declaration_tests {
     /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
+    #[test]
+    fn a_3d_rotate_and_translate_are_one_declaration_each() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::Rotate, t("y 30deg")),
+                (StyleId::RotateAxis, t("y 30deg")),
+                (StyleId::Translate, t("1px 2px 3px")),
+                (StyleId::TranslateZ, t("1px 2px 3px")),
+                (StyleId::Perspective, StyleValue::Number(800.0)),
+            ],
+            &[],
+        );
+        assert!(text.contains("rotate:y 30deg;"), "{text}");
+        assert!(text.contains("translate:1px 2px 3px;"), "{text}");
+        assert!(text.contains("perspective:800px;"), "{text}");
+        assert_eq!(text.matches("rotate").count(), 1, "{text}");
+    }
+
     #[test]
     fn text_stroke_is_the_compat_standards_two_properties() {
         let t = |s: &str| StyleValue::Text(s.into());

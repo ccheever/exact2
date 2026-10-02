@@ -24,6 +24,7 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
+pub mod space;
 mod stroke;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
@@ -424,6 +425,35 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        // @ref LLP 1076 D8 — `rotate`'s angle part, `translate`'s z part,
+        // `perspective` as CSS writes it.
+        if let StyleValue::Text(t) = self {
+            let parsed = match style {
+                StyleId::Rotate => space::rotate(t).map(|(_, deg)| deg),
+                StyleId::TranslateZ => space::translate_z(t),
+                StyleId::Perspective => space::perspective(t),
+                _ => None,
+            };
+            if matches!(
+                style,
+                StyleId::Rotate | StyleId::TranslateZ | StyleId::Perspective
+            ) {
+                return parsed.ok_or(StyleValueError::WrongKind {
+                    style,
+                    expected: "CSS's value: an angle and an optional axis (`rotate`), up to three lengths (`translate`), `none` or a length (`perspective`)",
+                });
+            }
+        }
+        if style == StyleId::Perspective {
+            if let StyleValue::Number(n) = self {
+                if n.is_nan() || *n < 0.0 {
+                    return Err(StyleValueError::WrongKind {
+                        style,
+                        expected: "`none` or a nonnegative length",
+                    });
+                }
+            }
+        }
         // @ref LLP 1076 D7 — a width, or the shorthand's width part.
         if style == StyleId::TextStrokeWidth {
             return match self {
@@ -698,7 +728,12 @@ fn parse_translate(text: &str) -> Option<Vec2> {
         Some(s) => parse_pixel_length(s)?,
         None => 0.0,
     };
-    if parts.next().is_some() {
+    // A third length is `translate`'s z, its own row (LLP 1076 D8).
+    if parts
+        .next()
+        .is_some_and(|z| parse_pixel_length(z).is_none())
+        || parts.next().is_some()
+    {
         return None;
     }
     Some(Vec2 { x, y })
@@ -902,6 +937,8 @@ pub enum RowValue<'a> {
     MaskImage(&'a crate::gradient::BackgroundImage),
     /// CSS `corner-shape` (LLP 1076 D1).
     CornerShape(&'a crate::corner::CornerShape),
+    /// CSS `rotate`'s axis (LLP 1076 D8).
+    RotateAxis(&'a space::RotateAxis),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -958,6 +995,7 @@ impl RowValue<'_> {
             | RowValue::BoxShadow(_)
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)
+            | RowValue::RotateAxis(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)

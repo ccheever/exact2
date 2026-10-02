@@ -1,7 +1,7 @@
 # LLP 1076: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–3 built 2026-10-02 (§8); stage 4 and §5 being implemented.
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–4 built 2026-10-02 (§8); §5 being implemented.
 **Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
@@ -249,6 +249,28 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 
 - `background-clip: text` on a box whose text is in its descendants: only a paragraph's own glyphs clip today.
 - Motion on the three rows.
+
+### Stage 4 (2026-10-02): 3D transforms
+
+- **Rows.** 157 `rotate_axis`, 158 `translate_z`, 159 `perspective`, 160 `perspective_origin` (the transform-origin codec), 161 `backface_visibility` (an enum).
+  - The `rotate` attribute binds `rotate` (the angle the engine animates) and its axis. It now takes CSS's text forms too (`45deg`, `x 30deg`, `1 1 0 10deg`), where it took only a number before. `translate` binds x/y and z.
+  - `perspective` makes a containing block, as CSS's does.
+- **Apple.** A rotation out of the screen's plane, or a z translation, is the layer's `CATransform3D`, built as CSS orders it (translate, rotate, scale about `transform-origin`). The parent's `perspective` is its child container's `sublayerTransform`, about `perspective-origin`. `backface-visibility` is `isDoubleSided`.
+  - **macOS fix.** AppKit rewrites a layer-backed view's layer geometry, transform included, during its layout and display. Every authored transform, 2D ones too, now goes back on in `layout()` and `updateLayer()`. Before this, a static `rotate` or `translate` never showed on macOS. That was an existing bug this stage found.
+- **Linux.** The placement route canvas children already took (`placement.rs`): the box is painted flat apart and warped through its plane's homography, its parent's perspective included, and hit-tested through the same map. `warp_soft` gives the warped outline antialiased edges, as a browser's 3D layer has; canvas children keep opaque edges. The Vello patch (§D8) is not needed for correctness and is not built: both painters use this CPU warp. It is owed only if a measured 3D animation is too slow.
+- **Web.** CSS: `rotate` written with its axis, `translate` with its z.
+
+**Measured against Chrome** on `scripts/fixtures/space.contract` (turned about y, x and an axis, z, a corner vanishing point, no perspective, hidden and shown backs, a child flattened into its parent's plane), light and dark:
+
+- **Linux, both painters:** every case ≤ 1.44/255, with no pixels beyond the band after soft edges (they were up to 2.5% without them).
+- **The iOS simulator and macOS:** match every case by eye.
+
+**Owed after stage 4:**
+
+- `transform-style: preserve-3d` (refused).
+- `perspective()` and `matrix3d()` inside `transform`.
+- Slerp between different axes in motion (the axis changes at once).
+- A device frame check of an animated flip on Linux's CPU warp.
 
 ## 7. Open questions for Charlie
 

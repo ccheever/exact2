@@ -45,7 +45,7 @@ pub enum AttrTarget {
 /// - Motion (an animation, a transition, a press scale, a timeline): the
 ///   browser makes the box a containing block while a transform runs, so it
 ///   is one at rest too.
-pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
+pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     StyleId::OverflowX,
     StyleId::OverflowY,
     StyleId::Translate,
@@ -61,6 +61,8 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
     StyleId::PressScale,
     StyleId::DragTimeline,
     StyleId::AnimationTimeline,
+    // CSS: `perspective` makes a containing block too (LLP 1076 D8).
+    StyleId::Perspective,
 ];
 
 /// Whether an attribute makes its box a containing block (see
@@ -1008,9 +1010,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        "translate" => styles(&[StyleId::Translate]),
+        // @ref LLP 1076 D8 — one value to two rows: x and y, and z; the
+        // angle, and its axis.
+        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
         "scale" => styles(&[StyleId::Scale]),
-        "rotate" => styles(&[StyleId::Rotate]),
+        "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
+        "perspective" => styles(&[StyleId::Perspective]),
+        "perspective-origin" => styles(&[StyleId::PerspectiveOrigin]),
+        "backface-visibility" => styles(&[StyleId::BackfaceVisibility]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,

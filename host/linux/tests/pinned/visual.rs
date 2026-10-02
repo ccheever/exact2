@@ -183,7 +183,7 @@ fn background_clip_and_text_stroke_paint_where_css_paints_them() {
         // Gradient text: red at its left, blue at its right, nothing white
         // between glyphs that a box background would have filled.
         let red = |[r, g, b]: [u8; 3]| r > 180 && g < 120 && b < 120;
-        let blue = |[r, g, b]: [u8; 3]| b > 180 && r < 120;
+        let blue = |[r, _g, b]: [u8; 3]| b > 180 && r < 120;
         assert!(
             count_where(&mut p, "gradient-text", 0.0, red) > 30,
             "{name}: gradient text's red"
@@ -218,6 +218,32 @@ fn background_clip_and_text_stroke_paint_where_css_paints_them() {
             count_where(&mut p, "hollow", 0.0, green) > 60,
             "{name}: hollow stroke"
         );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1076 D8: 3D transforms (`space.contract`), the warped planes held to
+/// Chrome's.
+const SPACE_CASES: [&str; 9] = [
+    "y", "x", "axis", "z", "origin", "flat", "hidden", "back", "nested",
+];
+
+#[test]
+fn every_space_case_matches_chrome_light_then_dark() {
+    let mut failures = Vec::new();
+    for choice in painters() {
+        let name = format!("{choice:?}");
+        let mut p = boot(choice, "space.contract");
+        failures.extend(held_to_chrome(&mut p, "space.web.png", &name, &SPACE_CASES));
+        let id = view(&p, "dark");
+        p.tap(id).unwrap();
+        p.run_commands(NoData::default);
+        failures.extend(held_to_chrome(
+            &mut p,
+            "space.web-dark.png",
+            &name,
+            &SPACE_CASES,
+        ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

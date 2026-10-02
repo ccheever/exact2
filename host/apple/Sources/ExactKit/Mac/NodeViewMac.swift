@@ -1011,6 +1011,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return layerBoxEligible && !Capture.capturing && !drawsPaint
     }
     override func updateLayer() {
+        // AppKit has rewritten the layer's geometry by now: the authored
+        // transform goes back on (as after `layout()`).
+        applyTransform()
         if let readerParagraph {
             readerParagraph.update(self)
             layer?.contents = nil
@@ -1034,8 +1037,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         defer { video?.update() }
         layerPaintCache = nil
         let origin = style["transform_origin"]
+        let space = [style["rotate_axis"], style["translate_z"], style["perspective"], style["perspective_origin"], style["backface_visibility"]]
         style = s
         if s["transform_origin"] != origin { applyTransform() }
+        // LLP 1076 D8: the 3D rows.
+        if [s["rotate_axis"], s["translate_z"], s["perspective"], s["perspective_origin"], s["backface_visibility"]] != space {
+            applyTransform(); applyPerspective()
+        }
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1232,6 +1240,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
+        // AppKit rewrites a layer-backed view's layer geometry, transform
+        // included, as it lays it out: the authored one goes back on.
+        applyTransform()
+        if style["perspective"] != nil { applyPerspective() }
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()

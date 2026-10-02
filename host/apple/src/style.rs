@@ -224,6 +224,19 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 }
                 None => false,
             },
+            // @ref LLP 1076 D8 — `[x, y, z]`; the z axis (CSS's initial) is
+            // no row.
+            RowValue::RotateAxis(a) if a.0 == [0.0, 0.0, 1.0] => false,
+            RowValue::RotateAxis(a) => {
+                out.push('[');
+                push_num(&mut out, a.0[0]);
+                out.push(',');
+                push_num(&mut out, a.0[1]);
+                out.push(',');
+                push_num(&mut out, a.0[2]);
+                out.push(']');
+                true
+            }
             // @ref LLP 1076 D1 — four corners: K, "inf", "-inf" or "apple".
             // All `round` is no row: the hosts' arcs.
             RowValue::CornerShape(c) if c.is_round() => false,
