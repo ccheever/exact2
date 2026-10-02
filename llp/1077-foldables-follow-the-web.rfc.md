@@ -1,4 +1,4 @@
-# LLP 1076: Foldables follow the web — `device-posture` and viewport segments
+# LLP 1077: Foldables follow the web — `device-posture` and viewport segments
 
 **Type:** RFC
 **Status:** Accepted by Charlie, 2026-10-02 (Q1 "for now", Q2 "ok", Q3 "ok rec for now", Q4 "rec prob is fine", Q5 "follow UIKit"), to land once the integrated lane passes the checks, the smokes and the Duo run that day; more testing "once the phone is actually released"
