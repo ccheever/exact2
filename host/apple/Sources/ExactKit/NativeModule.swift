@@ -213,7 +213,13 @@ private let nativeEventCallback: NativeEventFn = { _, instance, kind, bytes, len
     // Never synchronously: the host enters the runner through the presenter's gate.
     DispatchQueue.main.async {
         if let natives = NativeProcess.owners[nonce]?.natives { natives.received(nonce: nonce, kind: kind, data: data) }
-        else { NativeProcess.retired[nonce]?.natives?.dropped(nonce: nonce, kind: kind) }
+        else {
+            // A callback issued after retirement captured 0. The module's
+            // original nonce still identifies its weak diagnostic owner;
+            // use it only for logging, never to deliver to a reused view.
+            let retiredNonce = nonce == 0 ? instance : nonce
+            NativeProcess.retired[retiredNonce]?.natives?.dropped(nonce: retiredNonce, kind: kind)
+        }
     }
 }
 

@@ -711,7 +711,7 @@ extension Agent {
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
             guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
-            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
+            guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             return ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
         }
@@ -726,7 +726,9 @@ extension Agent {
         Capture.capturing = false
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        guard let png = rep.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
+        // The display's profile can be P3. Agent pixel comparisons and films
+        // consume sRGB bytes, so convert the pixels rather than just retagging.
+        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         return ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
     }
