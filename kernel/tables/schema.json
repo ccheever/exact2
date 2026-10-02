@@ -1240,6 +1240,13 @@
       "name": "glassGroup",
       "kind": "float",
       "_comment": "@ref LLP 1053.000.000 D1: the element's subtree is one Liquid Glass group whose glass begins to merge this many points apart (UIGlassContainerEffect, NSGlassEffectContainerView). Layout-neutral; drawn only on Apple 26+."
+    },
+    {
+      "id": 217,
+      "name": "buttonStyle",
+      "kind": "str",
+      "styleable": true,
+      "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -3080,6 +3087,21 @@
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
+  "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
+  "buttonStyles": [
+    ["plain", "plain", "plain", "borderless", "text"],
+    ["gray", "gray", "gray", "push", "ua"],
+    ["tinted", "tinted", "tinted", "~push", "soft"],
+    ["filled", "filled", "filled", "push-accent", "fill"],
+    ["borderless", "borderless", "borderless", "borderless", "text"],
+    ["bordered", "bordered", "bordered", "push", "ua"],
+    ["bordered-tinted", "borderedTinted", "borderedTinted", "~push", "soft"],
+    ["bordered-prominent", "borderedProminent", "borderedProminent", "push-accent", "fill"],
+    ["glass", "glass", "~bordered", "glass", "glass"],
+    ["prominent-glass", "prominentGlass", "~borderedProminent", "glass-accent", "glass-fill"],
+    ["clear-glass", "clearGlass", "~bordered", "~glass", "glass"],
+    ["prominent-clear-glass", "prominentClearGlass", "~borderedProminent", "~glass-accent", "glass-fill"]
+  ],
   "materials": [
     ["ultra-thin", "systemUltraThinMaterial", "~popover", "20", "180", "#ffffff80", "#20202080"],
     ["thin", "systemThinMaterial", "~popover", "30", "180", "#ffffff99", "#252525a6"],
