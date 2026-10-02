@@ -2,8 +2,9 @@
 //
 // No JavaScript anywhere: schedule data comes from the Rust data crate
 // (apps/caltrain/data) through `resource` declarations; the clock time comes
-// from the stdlib roster's `formatTime`; everything else is Contract. The first frame is
-// compiled data — the build bakes every resource's boot value into the plan.
+// from the stdlib roster's `formatTime`; everything else is Contract. The
+// first frame is compiled data — the build bakes every resource's boot value
+// into the plan.
 
 // @ref LLP 1048.003 D5 — the one page renders at build into dist/ (and its
 // 404 with it); the view doesn't branch on the route, so nothing it shows moves.

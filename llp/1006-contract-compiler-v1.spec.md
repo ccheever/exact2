@@ -602,8 +602,8 @@ tenth to 20 mi, up to 10⁹ km; walks at 0, 1, 79, 80, 81, 160 and negative;
 countdowns negative, 0, 1 ms, 59,999–60,001 ms and 10¹² ms.
 Measured, brotli-11, against `ffd5b0621`: the wasm cores lost 281 B
 (Caltrain), 1,480 B (RealWorld) and 1,095 B (video player); Caltrain's
-JS-target `app.js` gained 27 B (2.9 KB raw), each `fn` inlined at its seven
-call sites.
+JS-target `app.js` gained 27 B (2.9 KB raw), each `fn` inlined at every call
+(ten, on seven lines; `tenthsText` inside each `distanceText`).
 
 ## 6. Identity and refusal (LLP 1004 D3)
 
