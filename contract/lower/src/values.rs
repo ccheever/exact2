@@ -58,8 +58,8 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadGridTracks { .. } => "expected CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, fit-content(), minmax(), repeat() (including auto-fill/auto-fit), and named lines".into(),
-        StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line, or `span N`, optionally followed by `/` and a second line".into(),
+        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, fit-content(), minmax(), repeat() (including auto-fill/auto-fit), and named lines".into(),
+        StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line through 10,000, or `span N` through 10,000, optionally followed by `/` and a second line".into(),
         StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }

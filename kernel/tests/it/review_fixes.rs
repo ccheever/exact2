@@ -376,17 +376,46 @@ fn structured_style_domain_matches_wire_and_export() {
     let mut overlarge = StyleProps::default();
     overlarge.grid_template_columns = GridTracks::from_tracks(vec![GridTrack::Fr(1.0); 10_001]);
     overlarge.mask.set(StyleId::GridTemplateColumns);
-    k.apply(
-        0,
-        2,
-        &[Op::SetStyle {
-            id: 1,
-            patch: Box::new(overlarge),
-        }],
-    )
-    .unwrap();
     let before = k.export(None).unwrap();
     let epoch = k.epoch();
+    let overlarge = Op::SetStyle {
+        id: 1,
+        patch: Box::new(overlarge),
+    };
+    assert_eq!(
+        k.apply(0, 2, std::slice::from_ref(&overlarge)),
+        Err(KernelError::Apply(ApplyError::InvalidGridTrack {
+            op_index: 0,
+            style: StyleId::GridTemplateColumns,
+        }))
+    );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 2, &[overlarge])),
+        Err(KernelError::Decode(DecodeError::InvalidGridTrack))
+    );
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!(k.epoch(), epoch);
+
+    let mut overlarge = StyleProps::default();
+    overlarge.grid_column = GridPlacement::from_lines(GridLine::Line(10_001), GridLine::Auto);
+    overlarge.mask.set(StyleId::GridColumn);
+    let overlarge = Op::SetStyle {
+        id: 1,
+        patch: Box::new(overlarge),
+    };
+    assert_eq!(
+        k.apply(0, 3, std::slice::from_ref(&overlarge)),
+        Err(KernelError::Apply(ApplyError::InvalidGridSpan {
+            op_index: 0,
+            style: StyleId::GridColumn,
+        }))
+    );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 3, &[overlarge])),
+        Err(KernelError::Decode(DecodeError::InvalidGridSpan))
+    );
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!(k.epoch(), epoch);
 
     let mut auto_padding = StyleProps::default();
     auto_padding.padding_top = Dimension::Auto;
@@ -396,14 +425,14 @@ fn structured_style_domain_matches_wire_and_export() {
         patch: Box::new(auto_padding),
     };
     assert_eq!(
-        k.apply(0, 3, std::slice::from_ref(&invalid_auto)),
+        k.apply(0, 4, std::slice::from_ref(&invalid_auto)),
         Err(KernelError::Apply(ApplyError::AutoNotAdmitted {
             op_index: 0,
             style: StyleId::PaddingTop,
         }))
     );
     assert_eq!(
-        k.apply_frame(&wire::encode(0, 4, &[invalid_auto])),
+        k.apply_frame(&wire::encode(0, 5, &[invalid_auto])),
         Err(KernelError::Decode(DecodeError::AutoNotAdmitted {
             style: StyleId::PaddingTop,
         }))

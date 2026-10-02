@@ -1509,6 +1509,9 @@ impl FromCss for TrackSizingFunction {
                 let min = MinTrackSizingFunction::from_css(parser)?;
                 parser.expect_comma()?;
                 let max = MaxTrackSizingFunction::from_css(parser)?;
+                if max.is_fit_content() {
+                    return Err(parser.new_error(cssparser::BasicParseErrorKind::EndOfInput));
+                }
 
                 Ok(Self { min, max })
             })

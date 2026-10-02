@@ -364,6 +364,35 @@ fn normal_alignment_matches_chrome_in_grid_and_flex() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn physical_justify_items_uses_inherited_direction() {
+    for (value, x) in [("left", 0.0), ("right", 80.0)] {
+        let k = lay_out(
+            props(&vec![(Width, n(200.0)), (Direction, t("rtl"))]),
+            vec![
+                (
+                    2,
+                    1,
+                    vec![
+                        (Display, t("grid")),
+                        (Width, n(100.0)),
+                        (JustifyItems, t(value)),
+                    ],
+                ),
+                (3, 2, vec![(Width, n(20.0)), (Height, n(10.0))]),
+            ],
+            &[],
+        );
+        let grid = k.node(2).unwrap().frame;
+        let item = k.node(3).unwrap().frame;
+        assert_eq!(
+            [item.x - grid.x, item.y - grid.y, item.width, item.height],
+            [x, 0.0, 20.0, 10.0],
+            "inherited rtl justify-items: {value}"
+        );
+    }
+}
+
 /// CSS Box Model §4 (CSS 2.1 §8.4): a percentage padding or border width
 /// refers to the containing block's width on every side. Taffy's block
 /// algorithm resolved vertical sides against the parent's height when it

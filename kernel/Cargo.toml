@@ -12,6 +12,7 @@ name = "exact_kernel"
 crate-type = ["rlib"]
 
 [dependencies]
+cssparser = { version = "0.37.0", default-features = false }
 exact-motion = { path = "../motion" }
 exact-num = { path = "../num" }
 exact-textflow = { path = "../textflow" }

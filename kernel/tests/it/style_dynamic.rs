@@ -295,7 +295,7 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
         (
             StyleId::GridTemplateColumns,
             StyleValue::Text("100PX".into()),
-            "100PX",
+            "100px",
         ),
         (
             StyleId::GridTemplateColumns,
@@ -339,13 +339,19 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
     assert_eq!(style.grid_template_columns, before);
 
     style
-        .set_dynamic(StyleId::GridAutoFlow, &StyleValue::Text("DENSE".into()))
+        .set_dynamic(
+            StyleId::GridAutoFlow,
+            &StyleValue::Text("r\\6f w/**/dense".into()),
+        )
         .unwrap();
-    assert_eq!(style.get(StyleId::GridAutoFlow), RowValue::Enum("dense"));
+    assert_eq!(
+        style.get(StyleId::GridAutoFlow),
+        RowValue::Enum("row dense")
+    );
     style
         .set_dynamic(
             StyleId::JustifyItems,
-            &StyleValue::Text("SAFE CENTER".into()),
+            &StyleValue::Text("safe c\\65 nter".into()),
         )
         .unwrap();
     assert_eq!(

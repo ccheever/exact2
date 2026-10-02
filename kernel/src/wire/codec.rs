@@ -621,7 +621,7 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0x3e2f_a1d7_d549_3f4f);
+        assert_eq!(SCHEMA_DIGEST, 0xf879_b089_347b_2cf7);
     }
 
     #[test]
@@ -745,7 +745,7 @@ mod tests {
         ]);
         let placement = GridPlacement {
             start: GridLine::Line(2),
-            end: GridLine::Span(40_000),
+            end: GridLine::Span(10_000),
         };
         let mut w = Writer::new();
         w.tracks(&tracks);
@@ -754,6 +754,13 @@ mod tests {
         let mut r = Reader::new(&bytes);
         assert_eq!(r.tracks().unwrap(), tracks);
         assert_eq!(r.placement().unwrap(), placement);
+
+        for css in ["rail / auto", "\\31 foo / 2"] {
+            let placement = GridPlacement::parse(css).unwrap();
+            let mut w = Writer::new();
+            w.placement(&placement);
+            assert_eq!(Reader::new(&w.into_vec()).placement().unwrap(), placement);
+        }
 
         let mut w = Writer::new();
         w.tracks(&GridTracks::from_tracks(vec![GridTrack::Points(-1.0)]));

@@ -1103,9 +1103,9 @@ fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
 
 impl GridAutoFlow {
     pub(crate) fn from_css(text: &str) -> Option<Self> {
-        let words = text
-            .split_ascii_whitespace()
-            .map(str::to_ascii_lowercase)
+        let words = grid::css_idents(text)?
+            .into_iter()
+            .map(|word| word.to_ascii_lowercase())
             .collect::<Vec<_>>();
         match words.as_slice() {
             [row] if row == "row" => Some(Self::Row),
@@ -1124,9 +1124,9 @@ impl GridAutoFlow {
 
 impl JustifyItems {
     pub(crate) fn from_css(text: &str) -> Option<Self> {
-        let mut value = text
-            .split_ascii_whitespace()
-            .map(str::to_ascii_lowercase)
+        let mut value = grid::css_idents(text)?
+            .into_iter()
+            .map(|word| word.to_ascii_lowercase())
             .collect::<Vec<_>>()
             .join(" ");
         if value == "first baseline" {
@@ -1330,10 +1330,12 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
-    s.direction = match arena.computed_style(slot, StyleMask::INHERITED).direction {
+    let direction = arena.computed_style(slot, StyleMask::INHERITED).direction;
+    s.direction = match direction {
         Direction::Ltr => taffy::style::Direction::Ltr,
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
+    s.justify_items = justify_items(arena.style(slot).justify_items, direction);
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.

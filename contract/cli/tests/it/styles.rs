@@ -780,6 +780,10 @@ fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
         ("grid-template-columns", "fit-content(40px)"),
         ("grid-auto-flow", "DENSE"),
         ("justify-items", "SAFE CENTER"),
+        ("grid-template-columns", "[\\\\31 foo] 40px"),
+        ("grid-column", "\\\\31 foo / 2"),
+        ("grid-row", "2 /* gap */ / span 2"),
+        ("grid-template-columns", "1e2%"),
     ] {
         let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
         contract::compile(&source).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
@@ -815,6 +819,12 @@ fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
         ("justify-items", "last baseline"),
         ("justify-items", "left legacy"),
         ("justify-items", "var(--items)"),
+        ("grid-template-columns", "repeat(10001, 1px)"),
+        ("grid-column", "10001"),
+        (
+            "grid-template-columns",
+            "minmax(auto, f\\\\69 t-content(40px))",
+        ),
     ] {
         let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
         let error = contract::compile(&source).unwrap_err();

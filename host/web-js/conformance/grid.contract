@@ -37,6 +37,14 @@ component Grid
           text "auto-fit"
         button testId="grid-fitcontent" press=setGrid("fit-content(40px)", "auto") width=84 height=24
           text "fit-content"
+        button testId="grid-comment" press=setGrid("80px 80px 80px", "2 /* gap */ / span 2") width=84 height=24
+          text "comments"
+        button testId="grid-large-tracks" press=setGrid("repeat(10001, 1px)", "auto") width=84 height=24
+          text "large tracks"
+        button testId="grid-large-line" press=setGrid("80px 80px", "10001") width=84 height=24
+          text "large line"
+        button testId="grid-scientific" press=setGrid("1e2%", "auto") width=84 height=24
+          text "scientific"
         button testId="grid-subgrid" press=setGrid("subgrid [rails]", "auto") width=84 height=24
           text "refused subgrid"
         button testId="grid-keywords" press=setKeywords("DENSE", "SAFE CENTER") width=84 height=24

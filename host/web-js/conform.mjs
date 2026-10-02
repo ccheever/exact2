@@ -214,7 +214,7 @@ async function drive(t, report, fail, dir, ws, js) {
         linuxReport.differences += ol.length;
       }
       // Paint facts are part of parity even when boxes happen not to overlap.
-      const paint = `Array.from(document.querySelectorAll('#exact-root > *, #exact-root [data-testid]'), e => { const s = getComputedStyle(e); return [e.dataset.testid ?? '$root', s.isolation, s.position]; })`;
+      const paint = `Array.from(document.querySelectorAll('#exact-root > *, [data-testid="runtime"]'), e => { const s = getComputedStyle(e), d = e.style; return [e.dataset.testid ?? '$root', s.isolation, s.position, d.gridTemplateColumns, d.gridTemplateRows, d.gridColumn, d.gridRow, d.gridAutoFlow, d.justifyItems]; })`;
       const [fw, fj] = await Promise.all([W, J].map(s => s.carrier.evaluate(paint)));
       const op = []; diffJSON(fw, fj, 'paint', op); op.forEach(x => fail(step, x)); st += op.length;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');

@@ -5,6 +5,7 @@
 //! subset explicit. The same parser serves literals, runtime writes and wire
 //! decode; the web only excludes the few valid forms Taffy cannot run.
 
+use cssparser::{serialize_identifier, Parser, ParserInput, Token};
 use taffy::prelude::{
     auto, fit_content, fr, length, line, max_content, min_content, minmax, percent, span,
 };
@@ -150,12 +151,10 @@ impl GridTracks {
     /// Parse the CSS grammar Taffy can lay out. `subgrid`, non-pixel CSS
     /// lengths and calculated lengths are valid CSS but have no Taffy value.
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim();
-        if text.eq_ignore_ascii_case("none") {
+        if css_idents(text)
+            .is_some_and(|words| words.len() == 1 && words[0].eq_ignore_ascii_case("none"))
+        {
             return Some(Self::default());
-        }
-        if text.is_empty() || fit_content_inside_minmax(text) {
-            return None;
         }
         let parsed = text
             .parse::<TaffyTracks<String, TaffyComponent<String>>>()
@@ -165,18 +164,36 @@ impl GridTracks {
             .into_iter()
             .map(component_from_taffy)
             .collect::<Option<Vec<_>>>()?;
+        let line_names = parsed.line_names;
+        let css = template_css(&components, &line_names);
         let value = Self {
             components,
-            line_names: parsed.line_names,
-            css: text.into(),
+            line_names,
+            css,
         };
         value.is_valid().then_some(value)
     }
 
-    /// The CSS declaration value. Parsed values retain the browser-accepted
-    /// token spelling; in-process constructors use a canonical spelling.
+    /// The canonical CSS declaration value.
     pub fn css(&self) -> &str {
         &self.css
+    }
+
+    /// Heap-bearing entries used by native host packet sizing. The CSS text
+    /// itself is exposed separately by [`Self::css`].
+    pub fn storage_len(&self) -> usize {
+        self.components.len()
+            + self.line_names.iter().map(Vec::len).sum::<usize>()
+            + self
+                .components
+                .iter()
+                .map(|component| match component {
+                    GridTrackComponent::Single(_) => 0,
+                    GridTrackComponent::Repeat(repeat) => {
+                        repeat.tracks.len() + repeat.line_names.iter().map(Vec::len).sum::<usize>()
+                    }
+                })
+                .sum::<usize>()
     }
 
     /// Whether every track size is finite.
@@ -190,7 +207,7 @@ impl GridTracks {
         if self.components.is_empty() {
             return self.css.eq_ignore_ascii_case("none");
         }
-        if self.line_names.len() != self.components.len() + 1
+        if self.line_names.len() != self.components.len().saturating_add(1)
             || !self
                 .line_names
                 .iter()
@@ -199,6 +216,22 @@ impl GridTracks {
             || !self.components.iter().all(component_valid)
         {
             return false;
+        }
+        let mut explicit_tracks = 0usize;
+        for component in &self.components {
+            let count = match component {
+                GridTrackComponent::Single(_) => 1,
+                GridTrackComponent::Repeat(GridRepeat {
+                    count: GridRepeatCount::Count(count),
+                    tracks,
+                    ..
+                }) => usize::from(*count).saturating_mul(tracks.len()),
+                GridTrackComponent::Repeat(GridRepeat { tracks, .. }) => tracks.len(),
+            };
+            explicit_tracks = explicit_tracks.saturating_add(count);
+            if explicit_tracks > MAX_GRID_TRACKS {
+                return false;
+            }
         }
         let auto_repeats = self
             .components
@@ -340,7 +373,7 @@ fn component_valid(value: &GridTrackComponent) -> bool {
         GridTrackComponent::Single(track) => track_valid(*track),
         GridTrackComponent::Repeat(repeat) => {
             !repeat.tracks.is_empty()
-                && repeat.line_names.len() == repeat.tracks.len() + 1
+                && repeat.line_names.len() == repeat.tracks.len().saturating_add(1)
                 && repeat
                     .line_names
                     .iter()
@@ -350,6 +383,62 @@ fn component_valid(value: &GridTrackComponent) -> bool {
                 && repeat.tracks.iter().copied().all(track_valid)
         }
     }
+}
+
+fn template_css(components: &[GridTrackComponent], line_names: &[Vec<String>]) -> String {
+    if components.is_empty() {
+        return "none".into();
+    }
+    track_list_css(components, line_names)
+}
+
+fn track_list_css(components: &[GridTrackComponent], line_names: &[Vec<String>]) -> String {
+    let mut parts = Vec::with_capacity(components.len().saturating_mul(2).saturating_add(1));
+    for (index, component) in components.iter().enumerate() {
+        if let Some(names) = line_names.get(index).filter(|names| !names.is_empty()) {
+            parts.push(line_names_css(names));
+        }
+        parts.push(component_css(component));
+    }
+    if let Some(names) = line_names.last().filter(|names| !names.is_empty()) {
+        parts.push(line_names_css(names));
+    }
+    parts.join(" ")
+}
+
+fn component_css(value: &GridTrackComponent) -> String {
+    match value {
+        GridTrackComponent::Single(track) => track_css(track),
+        GridTrackComponent::Repeat(repeat) => {
+            let count = match repeat.count {
+                GridRepeatCount::Count(count) => count.to_string(),
+                GridRepeatCount::AutoFill => "auto-fill".into(),
+                GridRepeatCount::AutoFit => "auto-fit".into(),
+            };
+            let components = repeat
+                .tracks
+                .iter()
+                .copied()
+                .map(GridTrackComponent::Single)
+                .collect::<Vec<_>>();
+            format!(
+                "repeat({count}, {})",
+                track_list_css(&components, &repeat.line_names)
+            )
+        }
+    }
+}
+
+fn line_names_css(names: &[String]) -> String {
+    let mut out = String::from("[");
+    for (index, name) in names.iter().enumerate() {
+        if index != 0 {
+            out.push(' ');
+        }
+        serialize_identifier(name, &mut out).expect("writing CSS to a String cannot fail");
+    }
+    out.push(']');
+    out
 }
 
 fn component_is_fixed(value: &GridTrackComponent) -> bool {
@@ -503,32 +592,6 @@ fn max_track(value: GridTrackMax) -> MaxTrackSizingFunction {
     }
 }
 
-fn fit_content_inside_minmax(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    let bytes = lower.as_bytes();
-    let mut stack: Vec<&str> = Vec::new();
-    let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'(' {
-            let mut start = at;
-            while start > 0
-                && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'-')
-            {
-                start -= 1;
-            }
-            let name = &lower[start..at];
-            if name == "fit-content" && stack.contains(&"minmax") {
-                return true;
-            }
-            stack.push(name);
-        } else if bytes[at] == b')' {
-            stack.pop();
-        }
-        at += 1;
-    }
-    false
-}
-
 /// One edge of a grid placement.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum GridLine {
@@ -548,9 +611,15 @@ pub enum GridLine {
 impl GridLine {
     pub(crate) fn is_valid(&self) -> bool {
         match self {
-            GridLine::Line(0) | GridLine::Span(0) => false,
-            GridLine::NamedLine(name, _) | GridLine::NamedSpan(name, _) => valid_grid_ident(name),
-            GridLine::Auto | GridLine::Line(_) | GridLine::Span(_) => true,
+            GridLine::Line(line) => *line != 0 && line.unsigned_abs() as usize <= MAX_GRID_TRACKS,
+            GridLine::Span(span) => *span != 0 && usize::from(*span) <= MAX_GRID_TRACKS,
+            GridLine::NamedLine(name, line) => {
+                valid_grid_ident(name) && line.unsigned_abs() as usize <= MAX_GRID_TRACKS
+            }
+            GridLine::NamedSpan(name, span) => {
+                valid_grid_ident(name) && usize::from(*span) <= MAX_GRID_TRACKS
+            }
+            GridLine::Auto => true,
         }
     }
 }
@@ -567,14 +636,9 @@ pub struct GridPlacement {
 impl GridPlacement {
     /// Parse `<grid-line> [ / <grid-line> ]?`, including named lines.
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim();
-        if is_css_wide_keyword(text) {
-            return None;
-        }
-        let (start, end) = split_placement(text)?;
-        let start = placement_from_taffy(start.parse::<TaffyPlacement<String>>().ok()?);
+        let (start, end) = placement_tokens(text)?;
         let end = match end {
-            Some(value) => placement_from_taffy(value.parse::<TaffyPlacement<String>>().ok()?),
+            Some(value) => value,
             // CSS Grid §7.3.1: an omitted end copies a bare custom-ident;
             // every other start defaults the end to auto.
             None => match &start {
@@ -593,7 +657,13 @@ impl GridPlacement {
 
     /// The canonical CSS declaration value.
     pub fn css(&self) -> String {
-        if self.end == GridLine::Auto {
+        let omission_keeps_meaning = match (&self.start, &self.end) {
+            (GridLine::NamedLine(start, 0), GridLine::NamedLine(end, 0)) => start == end,
+            (GridLine::NamedLine(_, 0), GridLine::Auto) => false,
+            (_, GridLine::Auto) => true,
+            _ => false,
+        };
+        if omission_keeps_meaning {
             line_css(&self.start)
         } else {
             format!("{} / {}", line_css(&self.start), line_css(&self.end))
@@ -603,12 +673,6 @@ impl GridPlacement {
     pub(crate) fn is_valid(&self) -> bool {
         self.start.is_valid() && self.end.is_valid()
     }
-}
-
-fn is_css_wide_keyword(text: &str) -> bool {
-    ["inherit", "initial", "unset", "revert", "revert-layer"]
-        .iter()
-        .any(|keyword| text.eq_ignore_ascii_case(keyword))
 }
 
 fn valid_grid_ident(name: &str) -> bool {
@@ -626,50 +690,113 @@ fn valid_grid_ident(name: &str) -> bool {
     .any(|keyword| name.eq_ignore_ascii_case(keyword))
 }
 
-fn split_placement(text: &str) -> Option<(&str, Option<&str>)> {
-    if text.is_empty() {
-        return None;
-    }
-    let mut slash = None;
-    let mut escaped = false;
-    for (i, byte) in text.bytes().enumerate() {
-        if escaped {
-            escaped = false;
-        } else if byte == b'\\' {
-            escaped = true;
-        } else if byte == b'/' && slash.replace(i).is_some() {
-            return None;
-        }
-    }
-    Some(match slash {
-        Some(i) => (text[..i].trim(), Some(text[i + 1..].trim())),
-        None => (text, None),
-    })
+#[derive(Default)]
+struct PlacementPart {
+    span: bool,
+    number: Option<i32>,
+    ident: Option<String>,
 }
 
-fn placement_from_taffy(value: TaffyPlacement<String>) -> GridLine {
-    match value {
-        TaffyPlacement::Auto => GridLine::Auto,
-        TaffyPlacement::Line(line) => GridLine::Line(line.as_i16()),
-        TaffyPlacement::NamedLine(name, index) => GridLine::NamedLine(name, index),
-        TaffyPlacement::Span(count) => GridLine::Span(count),
-        TaffyPlacement::NamedSpan(name, count) => GridLine::NamedSpan(name, count),
+impl PlacementPart {
+    fn push(&mut self, token: Token<'_>) -> Option<()> {
+        match token {
+            Token::Ident(ident) if ident.eq_ignore_ascii_case("auto") => {
+                if self.span || self.number.is_some() || self.ident.is_some() {
+                    return None;
+                }
+                self.ident = Some("auto".into());
+            }
+            Token::Ident(ident) if ident.eq_ignore_ascii_case("span") => {
+                if self.span || self.ident.as_deref() == Some("auto") {
+                    return None;
+                }
+                self.span = true;
+            }
+            Token::Ident(ident) => {
+                if self.ident.is_some() || !valid_grid_ident(&ident) {
+                    return None;
+                }
+                self.ident = Some(ident.as_ref().to_string());
+            }
+            Token::Number {
+                int_value: Some(value),
+                ..
+            } if value != 0 && self.number.is_none() => self.number = Some(value),
+            _ => return None,
+        }
+        Some(())
     }
+
+    fn finish(self) -> Option<GridLine> {
+        if self.ident.as_deref() == Some("auto") {
+            return (!self.span && self.number.is_none()).then_some(GridLine::Auto);
+        }
+        let number = self.number.unwrap_or(0);
+        if self.span {
+            let count = u16::try_from(number).ok()?;
+            if usize::from(count) > MAX_GRID_TRACKS {
+                return None;
+            }
+            return match (count, self.ident) {
+                (0, None) => None,
+                (count, None) => Some(GridLine::Span(count)),
+                (count, Some(name)) => Some(GridLine::NamedSpan(name, count)),
+            };
+        }
+        if number.unsigned_abs() as usize > MAX_GRID_TRACKS {
+            return None;
+        }
+        match (number, self.ident) {
+            (0, None) => None,
+            (number, None) => Some(GridLine::Line(i16::try_from(number).ok()?)),
+            (number, Some(name)) => Some(GridLine::NamedLine(name, i16::try_from(number).ok()?)),
+        }
+    }
+}
+
+fn placement_tokens(text: &str) -> Option<(GridLine, Option<GridLine>)> {
+    let mut input = ParserInput::new(text);
+    let mut parser = Parser::new(&mut input);
+    let mut parts = [PlacementPart::default(), PlacementPart::default()];
+    let mut side = 0usize;
+    while !parser.is_exhausted() {
+        let token = parser.next().ok()?.clone();
+        if token == Token::Delim('/') {
+            if side != 0 || parts[0].finish_ref().is_none() {
+                return None;
+            }
+            side = 1;
+        } else {
+            parts[side].push(token)?;
+        }
+    }
+    let [start, end] = parts;
+    let end = if side == 1 { Some(end.finish()?) } else { None };
+    Some((start.finish()?, end))
+}
+
+impl PlacementPart {
+    fn finish_ref(&self) -> Option<()> {
+        (self.span || self.number.is_some() || self.ident.is_some()).then_some(())
+    }
+}
+
+pub(super) fn css_idents(text: &str) -> Option<Vec<String>> {
+    let mut input = ParserInput::new(text);
+    let mut parser = Parser::new(&mut input);
+    let mut words = Vec::new();
+    while !parser.is_exhausted() {
+        match parser.next().ok()?.clone() {
+            Token::Ident(ident) => words.push(ident.as_ref().to_string()),
+            _ => return None,
+        }
+    }
+    (!words.is_empty()).then_some(words)
 }
 
 fn css_ident(name: &str) -> String {
     let mut out = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        let safe = ch == '-' || ch == '_' || ch.is_ascii_alphanumeric() || !ch.is_ascii();
-        let leading_digit =
-            ch.is_ascii_digit() && (i == 0 || (i == 1 && name.as_bytes().first() == Some(&b'-')));
-        if safe && !leading_digit {
-            out.push(ch);
-        } else {
-            out.push('\\');
-            out.push(ch);
-        }
-    }
+    serialize_identifier(name, &mut out).expect("writing CSS to a String cannot fail");
     out
 }
 
@@ -711,6 +838,9 @@ mod tests {
             "repeat(auto-fit, minmax(80px, 1fr))",
             "repeat(auto-fit, minmax(0, 1fr))",
             "[start] 40px [middle] 1fr [end]",
+            "[em] 40px",
+            "1e2%",
+            "minmax(1e2px, 1fr)",
         ] {
             assert!(GridTracks::parse(value).is_some(), "{value}");
         }
@@ -721,9 +851,25 @@ mod tests {
             "1fr repeat(auto-fit, 40px)",
             "subgrid",
             "[auto] 1fr",
+            "repeat(10001, 1px)",
+            "repeat(6000, 1px) repeat(6000, 1px)",
         ] {
             assert!(GridTracks::parse(value).is_none(), "{value}");
         }
+        assert_eq!(
+            GridTracks::parse("[\\31 foo] 100PX repeat(2, [mid] minmax(0, 1FR))")
+                .unwrap()
+                .css(),
+            "[\\31 foo] 100px repeat(2, [mid] minmax(0px, 1fr))"
+        );
+    }
+
+    #[test]
+    fn an_over_u16_repeat_fragment_is_refused_without_reaching_layout() {
+        let tracks = std::iter::repeat_n("1px", usize::from(u16::MAX) + 1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(GridTracks::parse(&format!("repeat(1, {tracks})")).is_none());
     }
 
     #[test]
@@ -734,6 +880,7 @@ mod tests {
             "auto / SPAN 2",
             "2 rail / span 3 rail",
             "rail / span rail",
+            "2 /* gap */ / span 2",
         ] {
             assert!(GridPlacement::parse(value).is_some(), "{value}");
         }
@@ -742,7 +889,17 @@ mod tests {
         assert!(GridPlacement::parse("inherit").is_none());
         assert!(GridPlacement::parse("2 inherit").is_none());
         assert!(GridPlacement::parse("1 / 2 / 3").is_none());
-        assert_eq!(GridPlacement::parse("rail").unwrap().css(), "rail / rail");
+        assert!(GridPlacement::parse("10001").is_none());
+        assert!(GridPlacement::parse("span 10001").is_none());
+        assert_eq!(GridPlacement::parse("rail").unwrap().css(), "rail");
+        assert_eq!(
+            GridPlacement::parse("rail / auto").unwrap().css(),
+            "rail / auto"
+        );
+        assert_eq!(
+            GridPlacement::parse("\\31 foo / 2").unwrap().css(),
+            "\\31 foo / 2"
+        );
         assert_eq!(GridPlacement::parse("2 rail").unwrap().css(), "2 rail");
     }
 }

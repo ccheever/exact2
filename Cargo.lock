@@ -1078,6 +1078,7 @@ dependencies = [
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
+ "cssparser",
  "exact-motion",
  "exact-num",
  "exact-textflow",

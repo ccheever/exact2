@@ -477,23 +477,19 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         ],
         StyleId::GridTemplateColumns | StyleId::GridTemplateRows => vec![with(
             &css_property(row),
-            // Chrome is the grammar parser. Refuse only valid CSS forms for
-            // which Taffy has no value: subgrid, CSS-wide keywords and
-            // non-pixel/calculated lengths (LLP 1001 D17).
-            "v=>{if(v==null)return v;const s=String(v);if(/^\\s*subgrid(?:\\s|\\[|$)/i.test(s)||/^\\s*(?:inherit|initial|unset|revert|revert-layer)\\s*$/i.test(s)||/\\b(?:calc|min|max|clamp|var|env)\\s*\\(/i.test(s))return null;for(const m of s.matchAll(/(?:^|[^\\w.-])(?:\\d*\\.)?\\d+(?:e[+-]?\\d+)?([a-z]+)\\b/gi))if(!/^(?:px|fr)$/i.test(m[1]))return null;return v}",
+            "v=>gridValue(\"tracks\",v)",
         )],
         StyleId::GridColumn | StyleId::GridRow => vec![with(
             &css_property(row),
-            "v=>v==null||(!/^\\s*(?:inherit|initial|unset|revert|revert-layer)\\s*$/i.test(v)&&!/(?:^|\\W)(?:calc|min|max|clamp|var|env)\\s*\\(/i.test(v))?v:null",
+            "v=>gridValue(\"placement\",v)",
         )],
         StyleId::GridAutoFlow => vec![with(
             "grid-auto-flow",
-            "v=>{if(v==null)return v;const a=String(v).trim().toLowerCase().split(/\\s+/);if(a.length===1&&/^(?:row|column|dense)$/.test(a[0]))return a[0];if(a.length===2&&a.includes(\"dense\")){const x=a.find(x=>x!==\"dense\");if(x===\"row\"||x===\"column\")return `${x} dense`}return null}",
+            "v=>gridValue(\"flow\",v)",
         )],
         StyleId::JustifyItems => vec![with(
             "justify-items",
-            // Taffy has no last-baseline or legacy alignment mode.
-            "v=>v==null||(!/^\\s*(?:inherit|initial|unset|revert|revert-layer|last\\s+baseline|legacy(?:\\s+(?:left|right|center))?|(?:left|right|center)\\s+legacy)\\s*$/i.test(v)&&!/(?:^|\\W)(?:var|env)\\s*\\(/i.test(v))?v:null",
+            "v=>gridValue(\"justify\",v)",
         )],
         // A spring is lowered by the engine (motion.js): the declaration
         // is the rest, as css.rs `transition_css` leaves springs out.

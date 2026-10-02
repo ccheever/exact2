@@ -390,6 +390,9 @@ named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
 percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
 maxima. Placement accepts numeric and named lines and spans. Keywords and units
 are ASCII-case-insensitive; nested `repeat()` is refused as invalid CSS.
+All six rows are parsed as CSS tokens, so escapes and comments have their CSS
+meaning; canonical output uses the CSS serializer for identifiers and retains a
+shorthand's trailing placement whenever omission would change that meaning.
 The following Chrome-valid forms are the complete declared grid grammar gaps:
 
 - `subgrid`; Taffy has no subgrid layout algorithm;
@@ -401,12 +404,17 @@ The following Chrome-valid forms are the complete declared grid grammar gaps:
   on all six rows, plus custom/environment values on `justify-items`; kernel
   style rows store specified values without a CSS cascade;
 - `justify-items: last baseline` and its `legacy` modes; Taffy exposes neither
-  alignment mode.
+  alignment mode;
+- more than 10,000 explicit tracks, or a placement index/span whose magnitude
+  exceeds 10,000. Chrome 154 accepts larger specified values and clamps used
+  grid coordinates at 1,000,000; Taffy's layout engine clamps at 10,000, so
+  Exact refuses the larger portable value instead of laying it out differently.
 
 Literal declarations in those gaps are compile errors. The JS target filters
-the same forms before asking Chrome to set a dynamic declaration, so it cannot
-lay out a value native cleared. Other invalid dynamic grammar is left to
-Chrome's parser and is dropped exactly as the kernel parser drops it.
+the same forms after asking Chrome for its specified-value serialization
+(escapes resolved, comments removed), so it cannot lay out a value native
+cleared. A value Chrome rejects clears the row on both paths. Other invalid
+dynamic grammar is dropped exactly as the kernel parser drops it.
 
 `position` is CSS's (LLP 1074 T1, 2026-09-30): `static | relative | absolute`,
 `static` initially. An absolutely positioned box is placed against its nearest
@@ -661,8 +669,8 @@ Value grammars: dimension = kind byte (0 auto, 1 points, 2 percent) + f32;
 fraction exactly once (`style.rs`); `auto` is admitted per row (`admitsAuto`) and is
 a rejection elsewhere (`AutoNotAdmitted`); colors are `0xRRGGBBAA`; grid templates
 and placements are length-prefixed canonical CSS strings, reparsed and domain-
-validated at decode; Taffy clamps an overlarge grid to 10,000 tracks as CSS
-Grid requires. Enum bytes outside
+validated at decode; portable grid templates, indexes and spans above Taffy's
+10,000-track limit are refused rather than clamped. Enum bytes outside
 their vocabulary are rejected, never defaulted.
 
 ## 5. Layout proportional to change (WS-H)

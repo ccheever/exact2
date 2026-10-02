@@ -11,8 +11,9 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 const SCHEMA_PATH: &str = "tables/schema.json";
-const CODEC_PATHS: [&str; 4] = [
+const CODEC_PATHS: [&str; 5] = [
     "../vendor/taffy/src/style/grid.rs",
+    "build.rs",
     "build/codec.rs",
     "src/style/grid.rs",
     "src/wire/codec.rs",

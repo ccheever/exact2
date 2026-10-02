@@ -1008,7 +1008,7 @@ mod declaration_tests {
             (
                 StyleId::GridTemplateColumns,
                 t("repeat(2, minmax(80px, 1fr)) 25%"),
-                "grid-template-columns:minmax(80px, 1fr) minmax(80px, 1fr) 25%;",
+                "grid-template-columns:repeat(2, minmax(80px, 1fr)) 25%;",
             ),
             (
                 StyleId::GridTemplateRows,
