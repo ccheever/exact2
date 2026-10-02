@@ -177,9 +177,15 @@ component NativeFixture
 component HookedRows
   props
     items: list<Row>
+  state reuse = false
+  action toggleReuse writes reuse
+    reuse = not reuse
   view
-    list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
-      each r in items key=r.n
-        row height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
-          column hook="dot" width=12 height=12 border-radius=6 background-color="#6366f1"
-          text ("Row " + toString(r.n))
+    column flex=1 min-height=0
+      button press=toggleReuse testId="reuse" padding=6 margin=12 background-color="#e5e7eb"
+        text (reuse ? "Rows reused" : "Rows not reused")
+      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
+        each r in items key=r.n
+          row height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
+            column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
+            text ("Row " + toString(r.n))

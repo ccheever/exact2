@@ -623,6 +623,9 @@ final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
+        // Hooked nodes this batch destroys end first, so a reusable hook has
+        // undone its additions before the pool looks at their rows.
+        elements.begin(batch)
         pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)

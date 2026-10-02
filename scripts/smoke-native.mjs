@@ -171,6 +171,19 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const said = (await s.logs()).lines.join('\n');
       const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
       check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
+      // A hook that undoes what it adds says so (`reusable`, LLP
+      // 1075.003.000.000 §8): its rows are reused again.
+      // (Rows built after the toggle carry it; the live ones keep theirs, so
+      // the list scrolls away and back before rows of reusable dots retire.)
+      if (host === 'ios') {
+        await s.tap('reuse'); await settle(s); await s.clock('settle');
+        const from = (await s.state()).pool?.takes;
+        await s.tap('hooked-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
+        await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
+        const st = await s.state(), freed = (await s.logs()).lines.join('\n');
+        check(st.pool?.takes > from && st.hooks?.dot?.reusable > 0 && /hook element dot: its hook undoes what it adds; its row is reused/.test(freed),
+          `${host} native: a reusable hook's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hooks?.dot)}`);
+      }
       await s.tap('back'); await settle(s);
       t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
     }

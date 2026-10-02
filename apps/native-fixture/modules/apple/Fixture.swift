@@ -40,6 +40,14 @@ final class FixtureModule: ExactModule {
         #if os(iOS)
         // Owned by Exact (LLP 1075.003.000 §3.6): the development check says so.
         if element.hook == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
+        // A row's dot takes a recognizer of its own, which `elementEnded`
+        // takes back; with `data-reuse` the hook says so, and its row may be
+        // reused (LLP 1075.003.000.000 §8).
+        if element.hook == .dot {
+            if element.isNew { element.view?.addGestureRecognizer(DotPress()) }
+            element.reusable = element.data[.reuse] == "true"
+            return
+        }
         #endif
         guard element.hook == .badge, element.isNew, let view = element.view else { return }
         #if os(iOS)
@@ -88,6 +96,11 @@ final class FixtureModule: ExactModule {
             if route.data[.transition] == "true" { navigation.delegate = fade }
             else if navigation.delegate === fade { navigation.delegate = nil }
         }
+    }
+
+    override func elementEnded(_ element: ExactElement) {
+        guard element.hook == .dot, let view = element.view else { return }
+        for case let press as DotPress in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(press) }
     }
 
     override func routeEnded(_ route: ExactRoute) {
@@ -176,6 +189,9 @@ final class Screen: ExactNativeInstance {
 #if os(iOS)
 /// A hook-made control that stands for an authored one: it clicks it, so the
 /// agent, tapping the authored control, runs the same handler.
+/// The dot's own recognizer: what an app's hook adds to a row's view.
+private final class DotPress: UILongPressGestureRecognizer {}
+
 /// The badge's context menu: one item, with the badge's word.
 private final class BadgeMenu: NSObject, UIContextMenuInteractionDelegate {
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {

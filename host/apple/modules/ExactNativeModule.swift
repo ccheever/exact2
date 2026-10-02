@@ -408,6 +408,15 @@ public final class ExactElement {
     public internal(set) weak var platform: AnyObject?
     /// Whether this call is the node's first.
     public internal(set) var isNew = true
+    /// Set in `element` when `elementEnded` undoes everything this hook adds
+    /// to `view` (its interactions, gestures, subviews, sublayers, and any
+    /// property it changed): a list row holding the node may then be reused
+    /// for another row (iOS), as UIKit reuses a cell after `prepareForReuse`,
+    /// and the next node there is a new element with `isNew`. A row whose
+    /// view still has interactions or gesture recognizers is never reused,
+    /// so one left behind costs the reuse, not another row. Read after each
+    /// call; on other hosts it changes nothing (LLP 1075.003.000.000 §8).
+    public var reusable = false
     var ended = false
     /// False once the element's route or node has ended: it then does nothing.
     public var isLive: Bool {
@@ -804,18 +813,18 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     #endif
 }
 
-/// `element(module, event, view, platform, json, len)` (LLP 1075.003.000):
-/// event 0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
-/// "data"}.
-private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, view, platform, json, length in
+/// `element(module, event, view, platform, json, len) → flags`
+/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended; json {"hook",
+/// "node", "id", "kind", "data"}; bit 0 of the flags: `reusable`.
+private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32 = { raw, event, view, platform, json, length in
     guard let m = module(raw), let hooks = m.hooks, let json, length > 0,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
-          let word = object["hook"] as? String, let node = (object["node"] as? NSNumber)?.uint32Value else { return }
+          let word = object["hook"] as? String, let node = (object["node"] as? NSNumber)?.uint32Value else { return 0 }
     if event == 2 {
-        guard let element = hooks.elements.removeValue(forKey: node) else { return }
+        guard let element = hooks.elements.removeValue(forKey: node) else { return 0 }
         element.ended = true
         m.elementEnded(element)
-        return
+        return 0
     }
     let element: ExactElement
     if let known = hooks.elements[node] {
@@ -829,6 +838,7 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
     element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
     m.element(element)
+    return element.reusable ? 1 : 0
 }
 
 /// `toolbar(module, toolbar, window)` (macOS, LLP 1075.003.000 §3.7).

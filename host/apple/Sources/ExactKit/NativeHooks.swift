@@ -45,7 +45,7 @@ typealias HookNavigationFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, U
 typealias HookRouteFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 typealias HookTabsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void
 typealias HookTabContainerFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer?
-typealias HookElementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+typealias HookElementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
 typealias HookToolbarFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
 
 private typealias HookResolveFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32) -> UInt32
@@ -146,18 +146,21 @@ extension NativeViews {
     /// 1075.003.000): its view, its kind's platform object, and
     /// `{"hook", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
-    func elementHook(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) {
-        guard hooksConnected, let instance, let call = elementCall else { return }
+    /// True when the hook set `reusable` (LLP 1075.003.000.000 §8).
+    @discardableResult
+    func elementHook(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) -> Bool {
+        guard hooksConnected, let instance, let call = elementCall else { return false }
         let fields: [String: Any] = ["hook": node.props["hook"] ?? "", "node": node.id, "id": node.props["id"] ?? "", "kind": node.kind]
         var json = (try? JSONSerialization.data(withJSONObject: fields)) ?? Data("{}".utf8)
         json.removeLast()
         json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
         let word = node.props["hook"] ?? ""
         if !quiet { session?.log("hook element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
-        json.withUnsafeBytes { j in
+        let flags = json.withUnsafeBytes { j in
             call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                  j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
         }
+        return flags & 1 != 0
     }
 
     /// `toolbar` for the window toolbar Exact installed (macOS, LLP

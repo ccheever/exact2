@@ -12,7 +12,7 @@
     "name": "Native Fixture"
   },
   "modules": ["exact-fixture", "exact-plain", "exact-absent", "exact-screen"],
-  "data": ["menu", "screen", "tone", "transition", "violate"],
+  "data": ["menu", "reuse", "screen", "tone", "transition", "violate"],
   "hooks": ["badge", "detail-list", "dot"],
   "host": {
     "ios": {

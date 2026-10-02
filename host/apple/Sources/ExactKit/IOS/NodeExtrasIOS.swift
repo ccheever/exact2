@@ -79,6 +79,9 @@ final class NodeExtras {
     var scrollCollapsed: CGFloat = 0
     /// What the style last said of the scroll view's indicators and deceleration.
     var scrollWritten: String?
+    /// A hooked node whose hook undoes its own additions: its row may be
+    /// reused (LLP 1075.003.000.000 §8).
+    var hookReusable = false
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
     weak var activeReadingAnchor: NodeView?
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
@@ -157,6 +160,7 @@ extension NodeView {
     var scrollOrigin: CGFloat { get { extras?.scrollOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.scrollOrigin = newValue } } }
     var scrollCollapsed: CGFloat { get { extras?.scrollCollapsed ?? 0 } set { if newValue != 0 || extras != nil { more.scrollCollapsed = newValue } } }
     var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }
+    var hookReusable: Bool { get { extras?.hookReusable ?? false } set { if newValue || extras != nil { more.hookReusable = newValue } } }
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
     /// top inset when a collapsing title's bar insets it — the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset

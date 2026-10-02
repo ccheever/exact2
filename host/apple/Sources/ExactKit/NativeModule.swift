@@ -42,9 +42,10 @@
 // 144  module_tab_container(module, json, len, controllers, count) → container
 //        json {"names", "nodes", "selected"}; retained once, or nil (Exact's)
 // 152  platform_controller(handle) → UIViewController *, a native screen's
-// 160  module_element(module, event, view, platform, json, len)   size ≥ 168
-//        (LLP 1075.003.000): a node marked `hook="word"`; event 0 built,
-//        1 changed, 2 ended; json {"hook", "node", "id", "kind", "data"}
+// 160  module_element(module, event, view, platform, json, len) → flags
+//        size ≥ 168 (LLP 1075.003.000): a node marked `hook="word"`; event
+//        0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
+//        "data"}; flags bit 0: the hook made it reusable
 // 168  module_toolbar(module, toolbar, window)        size ≥ 176; macOS:
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 //

@@ -4,7 +4,8 @@
 // words change (`changed`), and before its view leaves (`ended`); a cold
 // launch's are replayed once the module connects. A hooked node leaves the
 // fast path, and this says so: on iOS it is never a flat leaf and its list
-// row is never parked (FlatLeavesIOS, NodePoolIOS, by its `hook` prop); the journal names what
+// row is never parked (FlatLeavesIOS, NodePoolIOS, by its `hook` prop),
+// unless its hook made it `reusable` (LLP 1075.003.000.000 §8); the journal names what
 // each word gave up, once, and warns once for a word in a list's row;
 // `state.hooks` counts them. Shared by the AppKit and UIKit presenters; the
 // module side is ExactNativeModule.swift, the call NativeHooks.swift.
@@ -24,17 +25,19 @@ final class ElementHooks {
         let inList: Bool
     }
     private var nodes: [UInt32: Entry] = [:]
-    /// The words the journal has named, and those it has warned for.
-    private var said: Set<String> = [], warned: Set<String> = []
+    /// The words the journal has named, those it has warned for, and those
+    /// it has said a reusable hook frees.
+    private var said: Set<String> = [], warned: Set<String> = [], freed: Set<String> = []
     /// Calls by word and moment, since launch.
     private var calls: [String: [String: Int]] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// What a hooked node gives up on this host.
-    static var lost: [String] {
+    /// What a hooked node gives up on this host: on iOS its flat leaf, and
+    /// its row's reuse unless its hook is `reusable`.
+    static func lost(reusable: Bool) -> [String] {
         #if os(iOS)
-        ["flat", "pool"]
+        reusable ? ["flat"] : ["flat", "pool"]
         #else
         []
         #endif
@@ -54,8 +57,8 @@ final class ElementHooks {
               let natives = presenter.session?.natives, natives.hooksConnected, let word = node.props["hook"] else { return }
         let entry = Entry(node: node, told: true, data: known.data, inList: Self.list(holding: node) != nil)
         nodes[node.id] = entry
-        say(word, node: node, inList: entry.inList)
-        call(.built, entry)
+        let reusable = call(.built, entry)
+        say(word, node: node, inList: entry.inList, reusable: reusable)
     }
 
     /// A hooked node's props changed: its hook hears new `data-*` words.
@@ -65,9 +68,19 @@ final class ElementHooks {
         nodes[id] = entry
         guard entry.told else { return }
         presenter.afterBatch { [weak self] in
-            guard let self, let now = self.nodes[id], now.node === entry.node else { return }
-            self.call(.changed, now)
+            guard let self, let now = self.nodes[id], now.node === entry.node, let word = now.node.props["hook"] else { return }
+            let reusable = self.call(.changed, now)
+            self.say(word, node: now.node, inList: now.inList, reusable: reusable)
         }
+    }
+
+    /// Before a batch's ops: every hooked node it destroys ends now, its view
+    /// still in its row. A row's root is destroyed before its children, and
+    /// the node pool decides at the root whether the row parks, so a
+    /// `reusable` hook must have undone its additions by then (iOS).
+    func begin(_ batch: Batch) {
+        guard !nodes.isEmpty else { return }
+        for op in batch.ops where op.op == .destroy { destroyed(op.id) }
     }
 
     /// A node the batch destroys: its hook hears `ended` while its view is
@@ -88,27 +101,39 @@ final class ElementHooks {
         for id in nodes.keys.sorted() { if let entry = nodes[id], !entry.told { build(entry.node) } }
     }
 
-    private func call(_ event: RouteHookEvent, _ entry: Entry) {
+    /// The call, and whether the hook made the node `reusable` (its view
+    /// carries the answer to the node pool, LLP 1075.003.000.000 §8).
+    @discardableResult
+    private func call(_ event: RouteHookEvent, _ entry: Entry) -> Bool {
         let word = entry.node.props["hook"] ?? ""
         calls[word, default: [:]][event.name, default: 0] += 1
         // In a list's row, the first of each moment is journaled; `state`
         // counts the rest, so a fling does not flood the journal.
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
-        presenter.session?.natives.elementHook(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet)
+        let reusable = presenter.session?.natives.elementHook(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
+        #if os(iOS)
+        if event != .ended { entry.node.hookReusable = reusable }
+        #endif
+        return reusable
     }
 
     // MARK: Saying so (LLP 1075.003.000 §3.5)
 
-    private func say(_ word: String, node: NodeView, inList: Bool) {
+    private func say(_ word: String, node: NodeView, inList: Bool, reusable: Bool) {
+        let lost = Self.lost(reusable: reusable)
         if said.insert(word).inserted {
-            let gave = Self.lost.isEmpty ? "nothing beyond the call on this host"
-                : "a view, not a flat leaf; its row is not reused"
+            let gave = lost.isEmpty ? "nothing beyond the call on this host"
+                : lost.contains("pool") ? "a view, not a flat leaf; its row is not reused"
+                : "a view, not a flat leaf; its row is reused, its hook undoing what it adds"
             presenter.session?.log("hook element \(word): \(gave) (LLP 1075.003.000)")
+            if !lost.isEmpty, !lost.contains("pool") { freed.insert(word) }
+        } else if !lost.isEmpty, !lost.contains("pool"), freed.insert(word).inserted {
+            presenter.session?.log("hook element \(word): its hook undoes what it adds; its row is reused (LLP 1075.003.000.000 §8)")
         }
         if inList, warned.insert(word).inserted, let list = Self.list(holding: node) {
             let name = list.props["testId"].map { "list \($0)" } ?? "list #\(list.id)"
             presenter.session?.log("hook element \(word) is in a row of \(name): each row's mount calls its hook on the main thread"
-                + (Self.lost.contains("pool") ? ", and its row is never reused" : ""))
+                + (lost.contains("pool") ? ", and its row is never reused" : ""))
         }
     }
 
@@ -125,11 +150,20 @@ final class ElementHooks {
     /// `state.hooks`: per word, how many are live, what they gave up, and
     /// the calls so far.
     var observation: [String: Any] {
-        var live: [String: Int] = [:]
-        for entry in nodes.values { live[entry.node.props["hook"] ?? "", default: 0] += 1 }
+        var live: [String: Int] = [:], reused: [String: Int] = [:]
+        for entry in nodes.values {
+            let word = entry.node.props["hook"] ?? ""
+            live[word, default: 0] += 1
+            #if os(iOS)
+            if entry.node.hookReusable { reused[word, default: 0] += 1 }
+            #endif
+        }
         var out: [String: Any] = [:]
         for word in Set(live.keys).union(calls.keys) {
-            out[word] = ["live": live[word] ?? 0, "lost": Self.lost, "calls": calls[word] ?? [:]] as [String: Any]
+            // A word whose live nodes are all reusable gives up only its flat leaf.
+            let reusable = (reused[word] ?? 0) > 0 && reused[word] == live[word]
+            out[word] = ["live": live[word] ?? 0, "reusable": reused[word] ?? 0, "lost": Self.lost(reusable: reusable),
+                         "calls": calls[word] ?? [:]] as [String: Any]
         }
         return out
     }

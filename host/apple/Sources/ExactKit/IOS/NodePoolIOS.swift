@@ -313,9 +313,12 @@ final class NodePool {
             && !v.pressed && (v.gestureRecognizers?.isEmpty ?? true) && v.interactions.isEmpty
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
-            // A hooked node's view is the app's to keep (LLP 1075.003.000);
-            // its props stay until it is forgotten, after its own destroy op.
-            && v.props["hook"] == nil
+            // A hooked node's view is the app's to keep (LLP 1075.003.000),
+            // unless its hook undoes what it adds (`reusable`, LLP
+            // 1075.003.000.000 §8); the checks above still refuse a view
+            // with interactions or gestures left on it. Its props and the mark
+            // stay until it is forgotten, after its own destroy op.
+            && (v.props["hook"] == nil || v.hookReusable)
     }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
@@ -437,6 +440,8 @@ extension NodeView {
         if symbolView == nil { image = nil }
         symbolRefusal = nil
         inlinePressed = nil
+        // The next node's hook decides again.
+        hookReusable = false
         content = .zero
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
