@@ -162,12 +162,13 @@ open class ExactModule {
     /// on the main thread as each one mounts, and a hooked node leaves
     /// Exact's fast path: on iOS it is never drawn as a flat leaf into its
     /// parent's layer, and a list row that holds one is never reused.
-    /// Measured (§7.4, §7.5): every row's avatar hooked on the Extra Heavy
-    /// feed, with this hook empty, took a fling's CPU up about 16% and its
-    /// frame rate 115.4 → 110.4 fps on an iPhone 13 Pro Max (117.8 → 115.3
-    /// on an M1 iPad Pro), and peak memory down 26–41 MB. All of it is the
-    /// lost row reuse; the call itself, and a build with nothing hooked,
-    /// cost nothing measurable. A few hooked nodes on a screen cost nothing.
+    /// Measured (LLP 1075.003.000.000): every row's avatar hooked on the
+    /// Extra Heavy feed, with this hook empty, took a fling's CPU up about
+    /// 16–20% and its frame rate 115.3 → 110.2 fps on an iPhone 13 Pro Max
+    /// (117.6 → 115.1 on an M1 iPad Pro). All of it is the lost row reuse:
+    /// set `element.reusable` (and undo in `elementEnded`) and the same feed
+    /// ran as if nothing were hooked (115.0 fps, CPU +10 ms/s). The call
+    /// itself, and a build with nothing hooked, cost nothing measurable.
     open func element(_ element: ExactElement) {}
     /// A hooked node is leaving; its view goes after this returns, and the
     /// handle does nothing from now on.
