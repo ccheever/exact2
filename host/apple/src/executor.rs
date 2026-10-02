@@ -5,6 +5,8 @@ use exact_runner::{Outcome, RequestOut, Work};
 use std::ffi::c_void;
 #[path = "executor_core.rs"]
 mod core;
+/// A new executor waits for a native-worker slot only under test (the core's `reserve`).
+const WAIT_FOR_SLOT: bool = cfg!(test);
 
 /// Schedule a pump on the presenter's thread. Must enqueue asynchronously;
 /// called under the retirement guard, never synchronously reenter Exact.

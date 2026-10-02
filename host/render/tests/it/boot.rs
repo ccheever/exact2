@@ -137,9 +137,9 @@ fn a_boot_document_goes_before_the_answers_and_the_settled_page_replaces_it() {
         generations: None,
     };
     let plan = contract::compile(SRC).unwrap();
-    let server = Server::bind(serve, plan, Cards.grants()).unwrap();
-    let addr = server.addr();
-    std::thread::spawn(move || server.run(|| Cards));
+    let served =
+        super::serve::serving(Server::bind(serve, plan, Cards.grants()).unwrap(), || Cards);
+    let addr = served.addr;
 
     // The boot document arrives before the answer could have.
     let (page, boot) = navigate(addr, "/");

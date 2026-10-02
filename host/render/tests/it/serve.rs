@@ -165,16 +165,23 @@ impl Drop for Served {
     }
 }
 
-fn run(serve: Serve) -> Served {
-    let plan = contract::compile(SRC).unwrap();
-    let server = Server::bind(serve, plan, Posts.grants()).unwrap();
+/// Run `server` on its own thread until the returned [`Served`] drops.
+pub(super) fn serving<D: exact_runner::DataSource + 'static>(
+    server: Server,
+    data: fn() -> D,
+) -> Served {
     let (addr, stopper) = (server.addr(), server.stopper());
-    let serving = Some(std::thread::spawn(move || server.run(|| Posts)));
+    let serving = Some(std::thread::spawn(move || server.run(data)));
     Served {
         addr,
         stopper,
         serving,
     }
+}
+
+fn run(serve: Serve) -> Served {
+    let plan = contract::compile(SRC).unwrap();
+    serving(Server::bind(serve, plan, Posts.grants()).unwrap(), || Posts)
 }
 
 /// Status, headers (lowercased names) and body of one request.
@@ -601,9 +608,11 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
         generations: None,
     };
     let plan = contract::compile(FEED).unwrap();
-    let server = Server::bind(serve, plan.clone(), Feed.grants()).unwrap();
-    let addr = server.addr();
-    std::thread::spawn(move || server.run(|| Feed));
+    let served = serving(
+        Server::bind(serve, plan.clone(), Feed.grants()).unwrap(),
+        || Feed,
+    );
+    let addr = served.addr;
     let (status, _, body) = get(addr, "/");
     assert_eq!(status, 200);
     assert!(body.contains(">third<"), "{body}");

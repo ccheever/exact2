@@ -1241,6 +1241,7 @@ dependencies = [
  "exact-data",
  "exact-kernel",
  "exact-plan",
+ "exact-render",
  "exact-runner",
  "exact-web",
  "exact-web-capabilities",
