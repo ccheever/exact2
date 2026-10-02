@@ -764,10 +764,33 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
 
 #[cfg(test)]
 mod name_tests {
+    use super::host_css_of;
+    use exact_kernel::{NodeFacts, NodeType, PropId, PropList, PropValue, StyleProps};
+
     #[test]
     fn prop_names_are_ascii() {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
+        }
+    }
+
+    #[test]
+    fn controls_leave_native_web_sizing_to_the_browser() {
+        for (tag, ty) in [("input", "checkbox"), ("select", "select")] {
+            let style = StyleProps::default();
+            let mut props = PropList::default();
+            props.set(PropId::Type, PropValue::Str(ty.into()));
+            let facts = NodeFacts {
+                id: 1,
+                node_type: NodeType::Control,
+                style: &style,
+                props: &props,
+                is_root: false,
+                inline_run: false,
+            };
+            let css = host_css_of(&facts, String::new(), tag);
+            assert!(!css.contains("width:"), "{tag}: {css}");
+            assert!(!css.contains("box-sizing:"), "{tag}: {css}");
         }
     }
 }

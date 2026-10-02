@@ -1212,14 +1212,14 @@ impl StyleProps {
             Direction::Rtl => taffy::style::Direction::Rtl,
         };
         s.item_is_replaced = node_type.is_replaced();
-        // A text field in a block container keeps its own width, 20
-        // characters or its content's (`field-sizing`), where a `<div>`
-        // stretches: an `<input>` or `<textarea>` at `display: block`. Flex
-        // and grid still stretch it, and insets still size it, as Chrome
-        // does. Taffy's block layout skips stretch for tables and replaced
-        // elements; a replaced element would also stop the insets, so the
-        // field takes the table's exemption (a leaf: nothing else follows).
-        s.item_is_table = node_type == NodeType::TextInput;
+        // A form control in a block container keeps its preferred width,
+        // where a `<div>` stretches: an `<input>`, `<textarea>` or `<select>`
+        // at `display: block`. Flex columns and grids still stretch it, and
+        // absolute insets still size it, as Chrome does. Taffy's block layout
+        // skips stretch for tables and replaced elements; a replaced element
+        // would also stop the insets, so these measured leaves take the
+        // table's exemption (nothing else follows from that marker).
+        s.item_is_table = matches!(node_type, NodeType::TextInput | NodeType::Control);
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,
@@ -1347,6 +1347,37 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
+    // Exact resets a `<button>` to an authored flex container, but HTML's
+    // form-control block sizing still makes its automatic inline size
+    // shrink-to-fit. Links are Pressables too and remain ordinary blocks.
+    if arena.node_type(slot) == NodeType::Pressable
+        && arena.props(slot).str(crate::PropId::AccessibilityRole) == Some("button")
+    {
+        s.item_is_table = true;
+    }
+    // Native-appearance widgets retain the UA's box semantics even though
+    // the web reset computes `box-sizing: content-box`. Chrome ignores a
+    // checkbox's padding and treats its authored width as the whole widget;
+    // a select's UA default is border-box unless the author overrides it.
+    // Other controls (range, file and the date types) keep content-box
+    // padding, so this is deliberately per kind rather than a Control rule.
+    if arena.style(slot).appearance == crate::Appearance::Auto {
+        match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
+            Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
+                s.box_sizing = taffy::style::BoxSizing::BorderBox;
+                s.padding = taffy::geometry::Rect {
+                    top: length(0.0),
+                    right: length(0.0),
+                    bottom: length(0.0),
+                    left: length(0.0),
+                };
+            }
+            Some(crate::ControlKind::Select) if !arena.style(slot).mask.has(StyleId::BoxSizing) => {
+                s.box_sizing = taffy::style::BoxSizing::BorderBox;
+            }
+            _ => {}
+        }
+    }
     s.direction = match arena.computed_style(slot, StyleMask::INHERITED).direction {
         Direction::Ltr => taffy::style::Direction::Ltr,
         Direction::Rtl => taffy::style::Direction::Rtl,
