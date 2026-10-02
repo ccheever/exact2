@@ -348,6 +348,11 @@ public final class Agent {
     /// names its fact (LLP 1076 D10); nothing applies unless all are known.
     private func preferFold(_ fold: [String: Any]) -> String? {
         #if os(iOS)
+        // The hinge interaction reports after the view attaches, a turn or two
+        // after boot; a drive's first `prefer` can arrive before it. Give it a
+        // bounded moment on a 27.1 device so the answer is the device's.
+        let deadline = Date(timeIntervalSinceNow: 0.3)
+        while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         if presenter.hasFold { return "prefer: posture and segments: the device decides (it has a fold)" }
         #endif
         var next = presenter.fold

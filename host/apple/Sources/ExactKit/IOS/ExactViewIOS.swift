@@ -51,6 +51,7 @@ public final class ExactView: UIView {
         // lay out again (LLP 1076 D5).
         ReservedRegions.observeHinge(on: self) { [weak self] status in
             guard let self else { return }
+            session.presenter.hingeReported = true
             if status != nil { session.presenter.hasFold = true }
             setNeedsLayout()
         }

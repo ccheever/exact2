@@ -84,6 +84,9 @@ final class Presenter {
     /// or a hinge — in which case `prefer posture`/`segments` is refused:
     /// the device decides (LLP 1076 D7).
     var hasFold = false
+    /// Whether `UIHingeInteraction` has reported once (a hinge or none):
+    /// before that, a 27.1 device's fold is unknown (LLP 1076 D7).
+    var hingeReported = false
     /// The keyboard's inset on the viewport: the points of the screen's
     /// viewport a software keyboard covers. By default the web's visual
     /// viewport — the layout viewport does not change; the viewport insets
