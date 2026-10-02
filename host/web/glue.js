@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl } from "./navigation.js";
+import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -1035,7 +1035,7 @@ function nodeDetail(id, plan = false) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const rect = (r) => ({ x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) });
   const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
-  const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
+  const r = exact.gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
   node.space = {
     viewport: rect(r),
     local: { w: r2(el.clientWidth), h: r2(el.clientHeight) },
@@ -1134,7 +1134,7 @@ function agentReply(request) {
         const nodes = [];
         for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
           if (!el.isConnected) continue;
-          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
+          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
           const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
           if (el instanceof HTMLIFrameElement) {
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);

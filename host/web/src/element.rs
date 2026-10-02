@@ -23,6 +23,140 @@ pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
     host_css_of(&node.facts(), css, tag)
 }
 
+/// Whether a text is its box's text content on the web, not an element box of
+/// its own (LLP 1007.001): the only child of a box or a button, with no style
+/// row, no prop but its text and no handler — nothing a box of its own could
+/// show or hear. Its element stays (the runtime writes its text, the agent
+/// reads its node) as `display: contents`, so it makes no box, and a flex
+/// box holding it is a block ([`blocks`]): its text is the box's own line
+/// boxes, laid out and painted as a stretched style-less block child's are.
+/// Only where the two lay out alike — a block, or a flex column that
+/// stretches and starts its items — and not where the box's own rows would
+/// reach its inline content (`text-overflow`, `line-clamp`).
+pub fn folds(
+    text: &NodeFacts<'_>,
+    parent: &NodeFacts<'_>,
+    outer: Option<&NodeFacts<'_>>,
+    only_child: bool,
+    handled: bool,
+) -> bool {
+    only_child
+        && !handled
+        && text.node_type == NodeType::Text
+        && !text.is_inline_run()
+        && text.style.mask == exact_kernel::StyleMask::EMPTY
+        && text.props.iter().all(|(p, _)| p == PropId::Text)
+        && matches!(parent.node_type, NodeType::View | NodeType::Pressable)
+        && !parent.style.mask.has(StyleId::TextOverflow)
+        && !parent.style.mask.has(StyleId::LineClamp)
+        && lays_out_as_block(parent)
+        && (parent.node_type != NodeType::Pressable
+            || parent.style.display == exact_kernel::Display::Block
+            || content_tall(parent, outer))
+}
+
+/// A `<button>` that is a block centers its line boxes in its height, so a
+/// flex button becomes one only where its height is its content's: none of
+/// its own, nothing to grow into, and not stretched across a row by `outer`.
+fn content_tall(b: &NodeFacts<'_>, outer: Option<&NodeFacts<'_>>) -> bool {
+    use exact_kernel::{AlignItems, AlignSelf, Dimension, Display, FlexDirection, PositionType};
+    let s = b.style;
+    let Some(o) = outer.map(|o| o.style) else {
+        return false;
+    };
+    let sized = s.height != Dimension::Auto
+        || s.min_height != Dimension::Auto
+        || s.aspect_ratio != Default::default()
+        || s.position_type == PositionType::Absolute;
+    !sized
+        && match (o.display, o.flex_direction) {
+            (Display::Block, _) => true,
+            (Display::Flex, FlexDirection::Column | FlexDirection::ColumnReverse) => {
+                s.flex_grow == 0.0 && s.flex_basis == Dimension::Auto
+            }
+            (Display::Flex, _) => match s.align_self {
+                AlignSelf::Auto => {
+                    !matches!(o.align_items, AlignItems::Normal | AlignItems::Stretch)
+                }
+                a => a != AlignSelf::Stretch,
+            },
+            _ => false,
+        }
+}
+
+/// A box whose one anonymous child lays out as a block's would.
+fn lays_out_as_block(b: &NodeFacts<'_>) -> bool {
+    use exact_kernel::{AlignItems, Display, FlexDirection, JustifyContent};
+    let s = b.style;
+    match s.display {
+        Display::Block => true,
+        Display::Flex => {
+            s.flex_direction == FlexDirection::Column
+                && matches!(
+                    s.justify_content,
+                    JustifyContent::Normal | JustifyContent::FlexStart | JustifyContent::Start
+                )
+                && matches!(s.align_items, AlignItems::Normal | AlignItems::Stretch)
+        }
+        _ => false,
+    }
+}
+
+/// [`folds`] for a node of `kernel`, as its tree stands.
+pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool {
+    node.node_type == NodeType::Text
+        && node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
+            let outer = p.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
+            folds(
+                &node.facts(),
+                &p.facts(),
+                outer.as_ref(),
+                p.children().len() == 1,
+                handled,
+            )
+        })
+}
+
+/// Whether a node of `kernel` holds a folded text: its only child folds.
+pub(super) fn holds_folded(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    handled: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    let children = node.children();
+    let outer = node.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
+    children.len() == 1
+        && kernel.node(children[0]).is_some_and(|c| {
+            c.node_type == NodeType::Text
+                && folds(
+                    &c.facts(),
+                    &node.facts(),
+                    outer.as_ref(),
+                    true,
+                    handled(c.id),
+                )
+        })
+}
+
+/// A box holding a folded text ([`folds`]) is a block, which wraps no
+/// anonymous item around its text.
+pub fn blocks(mut css: String, holds_folded: bool) -> String {
+    if holds_folded {
+        css.push_str("display:block;");
+    }
+    css
+}
+
+/// A folded text's CSS ([`folds`]): no box.
+pub fn contents(css: String, folded: bool) -> String {
+    if !folded {
+        return css;
+    }
+    let mut css = css.replace("display:block;", "");
+    css.push_str("display:contents;");
+    css
+}
+
 /// [`host_css`], from a node's facts.
 pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
@@ -768,6 +902,51 @@ mod name_tests {
     fn prop_names_are_ascii() {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
+        }
+    }
+}
+
+impl<D: exact_runner::DataSource> super::Host<D> {
+    /// A view's CSS as the page has it: the rows, the host's additions, a
+    /// folded text's (LLP 1007.001) and its paint isolation.
+    pub(crate) fn view_css(&self, node: &exact_kernel::NodeRef<'_>) -> String {
+        let kernel = self.runner.kernel();
+        let m = self.mirror.get(&node.id);
+        let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
+        let css = host_css(node, css, tag_for(node, m.is_some_and(|m| m.in_button)));
+        let fold = folded(kernel, node, m.is_some_and(|m| m.handled));
+        let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
+        let css = blocks(contents(css, fold), holds_folded(kernel, node, &handled));
+        super::layers::with_isolation(css, self.layers.isolated(node.id))
+    }
+
+    /// A box's CSS and its text children's again when it or its children
+    /// moved: whether a text folds into it (LLP 1007.001).
+    pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
+        let kernel = self.runner.kernel();
+        let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
+        // A button's fold reads its parent's rows ([`content_tall`]): a
+        // button child is refolded, and so is the one text it holds.
+        let held = |c: &exact_kernel::ViewId| {
+            let n = kernel
+                .node(*c)
+                .filter(|n| n.node_type == NodeType::Pressable)?;
+            let t = n.children();
+            (t.len() == 1).then(|| t[0])
+        };
+        let texts: Vec<_> = children.iter().filter_map(held).collect();
+        for child in std::iter::once(id).chain(children).chain(texts) {
+            let Some(node) = kernel.node(child) else {
+                continue;
+            };
+            if child != id && !matches!(node.node_type, NodeType::Text | NodeType::Pressable) {
+                continue;
+            }
+            let css = self.view_css(&node);
+            if let Some(m) = self.mirror.get_mut(&child).filter(|m| m.css != css) {
+                batch.style(child, &css);
+                m.css = css;
+            }
         }
     }
 }

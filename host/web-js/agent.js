@@ -4,7 +4,7 @@
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
 import { R, eq, pieces, pageHistory } from './rt.js';
-import { environment, navigation, guestOutline, guestTap, guestType } from './navigation.js';
+import { environment, navigation, guestOutline, guestTap, guestType, viewBox } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget']];
@@ -97,7 +97,7 @@ export function install(exact) {
       for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) if (a.style.getPropertyValue(prop) || declared(a).has(prop)) { from = id(a); break; }
       style[row] = { value: cs.getPropertyValue(prop), ...(from != null ? { source: 'inherited', from } : { source: 'initial' }) };
     }
-    const r = el.getBoundingClientRect(), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
+    const r = viewBox(el), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
     const scroll = [], clip = [];
     let clipped = r.width === 0 || r.height === 0, parent = null;
     for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) {
@@ -203,7 +203,7 @@ export function install(exact) {
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
         const r2 = x => Math.round(x * 100) / 100;
         const nodes = all().map(n => {
-          const el = views.get(n.id), b = el.getBoundingClientRect();
+          const el = views.get(n.id), b = viewBox(el);
           // An iframe says whether its centre hits it (glue.js).
           const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
           return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
