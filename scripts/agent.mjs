@@ -13,7 +13,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, parseFlags, launchFacts, launchEnvironment, refuseStale, warnStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
@@ -91,8 +91,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
     await assertWebDistApp(dist, selected);
     const js = jsTargetBuild(dist), env = process.env.EXACT_APP_DIR || webDist || process.env.EXACT_WEB_DIST ? `EXACT_APP_DIR=${selected.dir} EXACT_WEB_DIST=${dist} ` : '';
     const command = `${env}bun host/web/build.mjs ${selected.crate('web')}${js ? '' : ' --wasm'}`, changed = webChanges(dist, selected);
-    refuseStale('web', resolve(dist, '.exact-build.json'), changed.app, command);
-    warnStale('web', resolve(dist, '.exact-build.json'), changed.shared, `if they matter, run ${command}`);
+    refuseStale('web', resolve(dist, '.exact-build.json'), changed.all, command);
   }
   // A JS-target build (LLP 1071) is served as its tree. It compiles one plan
   // ahead of time, so `--plan` is a JS build of that plan (host/web-js/build.mjs
@@ -116,7 +115,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
