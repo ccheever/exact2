@@ -600,6 +600,10 @@ VM (Linux host) and the JS target for 2,670 inputs: distances at 0, at and
 around 0.1 mi (160.9344 m), at and one ulp around every half-tenth and whole
 tenth to 20 mi, up to 10⁹ km; walks at 0, 1, 79, 80, 81, 160 and negative;
 countdowns negative, 0, 1 ms, 59,999–60,001 ms and 10¹² ms.
+Measured, brotli-11, against `ffd5b0621`: the wasm cores lost 281 B
+(Caltrain), 1,480 B (RealWorld) and 1,095 B (video player); Caltrain's
+JS-target `app.js` gained 27 B (2.9 KB raw), each `fn` inlined at its seven
+call sites.
 
 ## 6. Identity and refusal (LLP 1004 D3)
 
