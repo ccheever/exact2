@@ -1,22 +1,25 @@
 import {test,expect} from 'bun:test';
 import {open,assertWebDistApp} from '../../../scripts/agent.mjs';
-import {refuseStale,webChanges} from '../../../scripts/agent-launch.mjs';
+import {chromium,refuseStale,webChanges} from '../../../scripts/agent-launch.mjs';
 
 import {resolve} from 'node:path';
 import {resolveApp} from '../../../scripts/app.mjs';
 import {jsTargetBuild} from '../serve.mjs';
 const app=resolveApp('caltrain');
 const dist=resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname);
-let unavailable;
+const {unavailable:browserUnavailable}=chromium();
+let unavailable=browserUnavailable;
 try {
-  await assertWebDistApp(dist,app);
-  refuseStale('web',resolve(dist,'.exact-build.json'),webChanges(dist,app).app,
-    `bun host/web/build.mjs ${app.crate('web')}${jsTargetBuild(dist) ? '' : ' --wasm'}`);
+  if(!unavailable) {
+    await assertWebDistApp(dist,app);
+    refuseStale('web',resolve(dist,'.exact-build.json'),webChanges(dist,app).all,
+      `bun host/web/build.mjs ${app.crate('web')}${jsTargetBuild(dist) ? '' : ' --wasm'}`);
+  }
 } catch(error) {
   if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web build is stale')) throw error;
   unavailable=error.message;
-  console.warn(`SKIP: ${unavailable}`);
 }
+if(unavailable) console.warn(`SKIP: ${unavailable}`);
 const check = unavailable ? test.skip : test;
 check(`Caltrain web frame-only stack remains a plain column${unavailable ? ` — ${unavailable}` : ''}`,async()=>{
   const s=await open({host:'web'});
