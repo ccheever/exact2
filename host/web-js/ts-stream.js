@@ -11,7 +11,7 @@ import { bodyFromRefusal, methodOf, readBodyFile } from './ts-fetch.js';
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a
 // refusal ends the stream with that message, which fails the answer.
-function request(input, init) {
+function request(input, init, redirect) {
   if (typeof init.exactStream !== 'function') throw new TypeError('exactStream maps each event to the answer: (event) => value');
   const independent = init.exactIndependentHttp?.maxResponseBytes;
   if (independent !== undefined && (!Number.isInteger(independent) || independent <= 0 || independent > 67108864))
@@ -21,11 +21,11 @@ function request(input, init) {
   if (refusal) throw new TypeError(refusal);
   const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
-  return { method: methodOf(input, init), url: request ? request.url : String(input), headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, maxResponseBytes: independent ?? 1048576 };
+  return { method: methodOf(input, init), url: request ? request.url : String(input), headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576 };
 }
-export function open({ input, init }, conv, grantSet, deliver, controller) {
+export function open({ input, init, redirect }, conv, grantSet, deliver, controller) {
   let req;
-  try { req = request(input, init); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e) }); }
+  try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e) }); }
   // The caller's signal, as Fetch picks it (`init.signal` over the Request's),
   // ends the stream too, before a body is read from a file or after.
   const own = init.signal !== undefined ? init.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;

@@ -1332,6 +1332,11 @@ impl Deadline {
 fn fetch_request(request: Request, forced: bool) -> ibex2::stdlib::fetch::Request {
     let mut req = ibex2::stdlib::fetch::Request::get(&request.url);
     req.method = request.method;
+    req.redirect = match request.redirect {
+        exact_runner::Redirect::Follow => ibex2::stdlib::fetch::RedirectMode::Follow,
+        exact_runner::Redirect::Manual => ibex2::stdlib::fetch::RedirectMode::Manual,
+        exact_runner::Redirect::Error => ibex2::stdlib::fetch::RedirectMode::Error,
+    };
     for (k, v) in &request.headers {
         req.headers.append(k, v);
     }

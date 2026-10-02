@@ -215,6 +215,20 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
+    case "redirected": return fetch("https://api.castle.xyz/moved", {
+      ...(args[0] === "" ? {} : { redirect: args[0] }),
+    }).then(r => r.status + " " + (r.headers.get("location") ?? ""));
+    // A `redirect` getter that throws rejects the fetch, which the source can recover from.
+    case "redirectThrows": return fetch("https://api.castle.xyz/moved", {
+      get redirect(): RequestRedirect { throw new Error("no mode"); },
+    }).then(() => "sent", (e: Error) => `recovered: ${e.message}`);
+    // A bad mode is a TypeError before an aborted signal's reason, as Fetch checks it first.
+    case "redirectAborted": {
+      const aborted = new AbortController();
+      aborted.abort(new Error("stop"));
+      return fetch("https://api.castle.xyz/moved", { redirect: "sideways" as RequestRedirect, signal: aborted.signal })
+        .then(() => "sent", (e: Error) => `${e instanceof TypeError ? "TypeError" : "other"}: ${e.message}`);
+    }
     default: throw new DataError("UnknownSource", source);
   }
 }

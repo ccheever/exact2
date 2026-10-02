@@ -36,8 +36,9 @@ pub(crate) const RUST_ABI: u32 = 3;
 /// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
 /// prelude learns something a bundle cannot do without and an older prelude
 /// would silently ignore. 1: `fetch`'s `exactBodyFrom` (LLP 1108 D6 R2),
-/// which an older prelude would send as an empty body.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 1;
+/// which an older prelude would send as an empty body. 2: `fetch`'s
+/// `redirect`, which an older prelude would ignore and follow.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 2;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 

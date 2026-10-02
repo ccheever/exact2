@@ -6,12 +6,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
-import { boundedHttpBody, request } from './http-body.js';
+import { boundedHttpBody, request, streamed } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
-import { createRequestExecutor, createSecretFacade, fetchWith } from '../web-js/admission.js';
+import { createRequestExecutor, createSecretFacade, fetchWith, redirectOf } from '../web-js/admission.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+// The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
+const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
 function normalized(spec) {
   if (sets.has(spec)) return sets.get(spec);
@@ -84,6 +86,41 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     }
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
+});
+
+// fetch's `redirect` reaches the browser on every web path: the wasm host's request op, a stream's,
+// and the JS target's `fetch`; a GET that asked not to follow is never sent early; a word that is
+// not a mode is a TypeError, as in the native prelude.
+test('the redirect mode reaches every web executor', async () => {
+  let destinationHits = 0;
+  const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('callback'); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 302, headers: { location: `${destination.url}cb?code=1` } }); } });
+  const set = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${destination.url.origin}`);
+  const wasm = op => request(op, { grantSet: set, controllers: new Set(), moduleLoader: null });
+  try {
+    const manual = await wasm({ method: 'GET', url: `${origin.url}authorize`, headers: [], redirect: 'manual' });
+    expect(manual.kind ?? 0).toBe(0);
+    expect(manual.status).not.toBe(200);
+    const error = await wasm({ method: 'GET', url: `${origin.url}authorize`, headers: [], redirect: 'error' });
+    expect(error.failed ?? error.kind).not.toBe(0);
+    const stream = await streamed({ method: 'GET', url: `${origin.url}authorize`, headers: [], redirect: 'manual' }, set, () => {}, new AbortController());
+    expect(stream.status).not.toBe(200);
+    const fetched = await fetchWith(set, `${origin.url}authorize`, { redirect: 'manual' });
+    expect(fetched.status).not.toBe(200);
+    expect(await fetchWith(set, `${origin.url}authorize`, { redirect: 'error' }).then(() => null, e => e)).not.toBe(null);
+    expect(destinationHits).toBe(0);
+    for (const bad of ['sideways', null]) expect(() => redirectOf('https://example.com/', { redirect: bad })).toThrow(TypeError);
+    expect(await fetchWith(set, `${origin.url}authorize`, { redirect: 'sideways' }).catch(e => e)).toBeInstanceOf(TypeError);
+    expect(redirectOf(new Request('https://example.com/', { redirect: 'manual' }), {})).toBe('manual');
+    // A `redirect` getter is read once: the request keeps what it answered first
+    let reads = 0;
+    const once = await fetchWith(set, `${origin.url}authorize`, { get redirect() { if (reads++) throw new Error('read twice'); return 'manual'; } });
+    expect([once.status === 200, reads]).toEqual([false, 1]);
+    globalThis.exact ??= {}; // module-glue.js installs its runtime there
+    const { fetchEarly } = await import('./module-glue.js');
+    expect(fetchEarly({ method: 'GET', url: `${origin.url}authorize`, headers: [], redirect: 'manual' }, set)).toBe(null);
+    expect((await (await fetchWith(set, `${origin.url}authorize`)).text())).toBe('callback');
+  } finally { origin.stop(true); destination.stop(true); }
 });
 
 // LLP 1109 D3: a response over its size limit is the host refusing it (`failure(x)`'s `refused`) on every web
@@ -549,7 +586,7 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
 test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves nothing unhandled', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-abort-'));
   writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
-  writeFileSync(resolve(dir, 'admission.js'), 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
+  writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   const unhandled = [];
   const listen = reason => unhandled.push(reason);
@@ -561,6 +598,43 @@ test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves 
     await new Promise(r => setTimeout(r, 20));
     expect([error.message, globalThis.bodyReads ?? 0, globalThis.sentBodies ?? 0, unhandled.length]).toEqual(['gone', 0, 0, 0]);
   } finally { process.off('unhandledRejection', listen); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A TypeScript source's redirect mode on the JS target is checked and taken as
+// `fetch` is called: an invalid one rejects as a TypeError before a file is read
+// or a stream registered, and a later change to the options is not the request's.
+test('the JS target checks and takes the redirect mode once, as fetch is called', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-redirect-'));
+  writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.redirectReads = (globalThis.redirectReads ?? 0) + 1; return true; }; export const fetchWith = async (set, input, init, expires, redirect) => { globalThis.redirectSent = redirect; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
+  writeFileSync(resolve(dir, 'storage-fs.js'), 'export const requestBody = async () => new Blob([\'x\']);\n');
+  try {
+    const { fetch: appFetch, answering } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    const upload = await appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/p.jpg', redirect: 'sideways' }).catch(e => e);
+    expect([upload instanceof TypeError, globalThis.redirectReads ?? 0]).toEqual([true, 0]);
+    answering.call = {};
+    const refused = await appFetch('https://x.test/events', { exactStream: e => e, redirect: 'sideways' }).catch(e => e);
+    expect([refused instanceof TypeError, answering.call.stream]).toEqual([true, undefined]);
+    const options = { exactStream: e => e, redirect: 'manual' };
+    void appFetch('https://x.test/events', options);
+    options.redirect = 'follow';
+    expect(answering.call.stream.redirect).toBe('manual');
+    // The caller's options stay as given, inherited ones too, and an accessor is read once
+    answering.call = {};
+    let reads = 0;
+    const inherited = Object.create({ method: 'POST', headers: { authorization: 'Bearer t' } }, {
+      exactStream: { value: e => e, enumerable: true },
+      redirect: { get: () => (reads++ ? 'follow' : 'manual'), enumerable: true },
+    });
+    void appFetch('https://x.test/events', inherited);
+    expect([answering.call.stream.init === inherited, answering.call.stream.redirect, reads]).toEqual([true, 'manual', 1]);
+    // An upload reads it once too, and sends the mode it read
+    reads = 0;
+    const once = { method: 'POST', exactBodyFrom: 'app:/data/p.jpg', get redirect() { if (reads++) throw new Error('read twice'); return 'manual'; } };
+    await appFetch('https://x.test/up', once);
+    expect([globalThis.redirectSent, reads]).toEqual(['manual', 1]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // @ref LLP 1108 D6 R2 — `exactBodyFrom` on the JS target: the app file is the
@@ -902,7 +976,7 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
+  writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
   const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
@@ -950,7 +1024,7 @@ test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and Ev
   const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
   const guards = resolve(dir, 'ts-fetch.js');
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
-  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
+  writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export const fetchWith = () => Promise.reject(new Error("no fetch here")); export class FetchError extends Error {} export const coversPath = () => false; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
   const source = resolve(dir, 'source.js');
   writeFileSync(source, `const io = { WebSocket, XMLHttpRequest, EventSource };

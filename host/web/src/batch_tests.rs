@@ -204,6 +204,14 @@ fn cases() -> Vec<(&'static str, String)> {
             }),
         ),
         (
+            "request-manual-redirect",
+            one(|b| {
+                let mut authorize = Request::get("https://api.example/authorize");
+                authorize.redirect = exact_runner::Redirect::Manual;
+                b.request(&request(49, authorize, false))
+            }),
+        ),
+        (
             "request-continue",
             one(|b| {
                 b.request(&request(
@@ -380,6 +388,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "request-body-from",
         r#"{"ops":[{"op":"request","ticket":48,"target":"feed \"home\"","scope":null,"method":"POST","url":"https://api.example/blob","headers":[],"bodyFrom":"app:/tmp/a.jpg","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "request-manual-redirect",
+        r#"{"ops":[{"op":"request","ticket":49,"target":"feed \"home\"","scope":null,"method":"GET","url":"https://api.example/authorize","headers":[],"redirect":"manual","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "request-continue",
