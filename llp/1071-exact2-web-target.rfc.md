@@ -1709,11 +1709,37 @@ equal on the wasm page, the JS page and the Linux reference.
   68,303 / 18,554 / 16,160 → 69,955 / 19,139 / 16,690; RealWorld
   102,883 / 29,011 / 24,666 → 104,444 / 29,634 / 25,186 (the head about
   two thirds of it, in every app with a `head`).
-- *Found, not fixed* (QUEUE): the JS target checks no `net.fetch` grant (a
-  request outside the grants goes out where the wasm host refuses it); it
-  projects a navigation root (hides and inerts covered routes) only in a plan
-  with a router; and a render under Bun refuses a boot whose `each` builds
-  two or more rows in one pass (dom.js has no `prepend`).
+- *Found beside them* (QUEUE, since closed): the JS target checked no
+  `net.fetch` grant (a request outside the grants went out where the wasm
+  host refused it); it has since 001e43d03, the whole-set grant admission
+  (`issues/closed/20260924-grant-readers-disagree.md`). The other two are
+  fixed below.
+
+**Navigation roots without a router, and `prepend` under Bun** (2026-10-02):
+- *A navigation root in a plan with no `routes`.* The emitted module
+  connected navigation.js and projected a root (its covered routes hidden
+  and inert) only through the router, a microtask after each change of the
+  router slot, so a plan whose root switched routes from its own state
+  showed every route, each taking presses; the web host connects
+  navigation.js at boot and projects after every batch. Now emit.rs wires
+  any plan with a `navigationBack`, and document.js `projectRoots` connects
+  navigation.js (Escape on a modal route, a popstate's location) and
+  projects now and after every commit's tree, with a router or without, so
+  a router plan is also projected after every commit, not only when its
+  slot changes. `conformance/navroot.contract` (a root over two routes from
+  a `depth` state, a tap on the covered route's control): 5 of 10 steps
+  equal before (the covered route on screen, 14.39% of the pixels), 10 of
+  10 after, and 10 of 10 on the Linux reference.
+- *`prepend` under Bun.* rt.js's `each` prepends a row's anchor and each
+  row's fragment; dom.js had no `prepend`, so a render whose `each` built a
+  row of more than one node, or two rows in one pass, refused its boot (the
+  heads plan at `/detail/7`: "batch.prepend is not a function"). dom.js has
+  it now, and that page renders both routes and the detail's head.
+- *Cost* (`app.js`, raw / brotli-11): a plan with a router about none
+  (Caltrain 74,845 → 74,877 / 17,521 → 17,482); one with no root, none; a
+  root without a router now carries navigation.js's `navigation`, as every
+  wasm page does (the navroot plan 19,639 → 24,778 / 6,971 → 8,545; no app
+  here has one).
 
 ## 8. Rulings and open questions for Charlie
 
