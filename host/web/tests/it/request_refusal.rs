@@ -95,7 +95,7 @@ fn direct_sources_refuse_at_boot_and_dispatch_without_converting_tokens_and_sett
         let source = if at_boot {
             "shape Reply\n  refused: bool\ncomponent App\n  resource reply = bad(true) as shape Reply\n  view\n    text \"boot\"\n"
         } else {
-            "shape Reply\n  refused: bool\ncomponent App\n  mutation reply as shape Reply\n  action fire writes reply\n    send reply = bad()\n  view\n    button press=fire testId=\"fire\"\n      text \"Fire\"\n"
+            "shape Reply\n  refused: bool\ncomponent App\n  mutation reply as shape Reply\n  action fire\n    send reply = bad()\n  view\n    button press=fire testId=\"fire\"\n      text \"Fire\"\n"
         };
         let plan = contract::compile(source).unwrap().encode();
         for request in invalid_requests() {

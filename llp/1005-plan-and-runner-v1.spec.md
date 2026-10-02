@@ -96,9 +96,17 @@ A stack machine over values with a small locals stack. Opcodes: literals
 LoadParam LoadItem LoadBound LoadLocal`), structure (`Field Record List`),
 arithmetic and comparison (`Add Sub Mul Div Rem Neg Eq Ne Lt Le Gt Ge Not
 Concat`), control (`Jump JumpIfFalse JumpIfNone Unwrap`), `Call <Stdlib>`,
-effects (`StoreSlot Command`), stack (`Pop BindLocal DropLocal`), `Return`.
+effects (`StoreSlot Send Refresh Command`), stack (`Pop BindLocal DropLocal`), `Return`.
 `LoadItem`/`LoadBound` take a depth in region frames (0 = innermost).
-`StoreSlot` outside an action's declared `writes` is `Trap::WriteNotDeclared`.
+An action's `writes` row is its allowlist: a `StoreSlot`, or a `Send` (whose
+mutation's slot it writes), naming a slot outside it is
+`Trap::WriteNotDeclared`, and code that is not an action's body (a derive, a
+resource's arguments, an initializer, a handler's arguments) runs with an
+empty one. Contract declares no writes (LLP 1035.005.000 D1, 2026-10-02: an
+authored `writes` clause is `syntax-writes-clause`): lowering sets the row to
+exactly the slots the body assigns or sends through every branch, in slot
+order (`Action::effects`, LLP 1006 §2), so a compiled plan never meets the
+trap; it guards a plan assembled by hand or corrupted.
 A derive or resource read before it settles this update is `Trap::Pending`
 (§6). A `List`, `Record` or `Some` whose expanded tree — a shared value
 counted in every place it appears, as equality, shape checks and encoding
@@ -114,13 +122,16 @@ jumps by label; a compiler never writes a raw byte.
 
 ## 5. The roster (`runner/src/stdlib.rs`)
 
-Each `stdlib` entry has one body: `now`, `formatClockTime` (UTC `h:mm AM`),
-`formatCountdownMinutes`, `formatDistance` (miles, one decimal, `nearby` under
-0.1), `formatWalk` (80 m/min), `length` (text in UTF-16 code units, as the
+Each `stdlib` entry has one body: `now`, `formatTime` (`h:mm AM`, LLP
+1054.000.003), `length` (text in UTF-16 code units, as the
 web's `String.length` and `maxlength` count), `isEmpty`, `toString` (integers print
 as JavaScript does), `floor`, `max`, `min`, and `at` (`Array.prototype.at` as
 an option, appended 2026-09-28 at the table's end so earlier ordinals hold;
-LLP 1006 §3). Deterministic and locale-free by
+LLP 1006 §3). `formatCountdownMinutes`, `formatDistance` and `formatWalk`
+were Caltrain's wording and are Caltrain `fn`s since 2026-10-02 (LLP
+1035.005.000 D8, LLP 1006 §5); deleting their rows moved every later entry's
+ordinal down three, so the format digest changed and every host re-bakes.
+Deterministic and locale-free by
 design. The compiler type-checks calls against the same table (LLP 1006 §3).
 
 LLP 1038 D3 adds these signatures, preserving the existing roster entries
@@ -281,7 +292,8 @@ numbers as UTF-8 `left,top`; malformed coordinates are refused.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
-rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`;
+rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`
+and `Send` (§4);
 its commands (`capability-call`) are collected and returned by
 `take_commands()` after commit, in order — and every host reads them after
 each commit and carries them to its presenter as `command` ops (2026-08-30;

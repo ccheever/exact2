@@ -34,10 +34,10 @@ const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 // sitemap) and head links carried, so the web root it publishes is the
 // wasm root's in everything but the program (LLP 1071 §7, delivery).
 const production = args.includes('--production');
-// Only host/web-js/dev.mjs asks for this: typed state checkpoint hooks that
-// ordinary and production builds neither emit nor link.
-const devReload = args.includes('--dev-reload');
-if (production && devReload) { console.error('--production and --dev-reload are mutually exclusive'); process.exit(2); }
+// `--dev` (host/web-js/dev.mjs): typed state checkpoint hooks that ordinary
+// and production builds neither emit nor link.
+const devReload = args.includes('--dev');
+if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });

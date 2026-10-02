@@ -93,7 +93,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         let error = contract::compile(&source(list)).unwrap_err().to_string();
         assert!(error.contains(id), "{list}: {error}: expected {id}");
     }
-    let reorder = "component App\n  state n = \"\"\n  resource rows = rows() as shape list<number>\n  action drop(item: string, before: option<string>) writes n\n    n = item\n  view\n    list id=\"s\" reorderdrop=drop virtualized=true display=\"flex\" height=132\n      each x in rows key=x\n        text `${x}`\n";
+    let reorder = "component App\n  state n = \"\"\n  resource rows = rows() as shape list<number>\n  action drop(item: string, before: option<string>)\n    n = item\n  view\n    list id=\"s\" reorderdrop=drop virtualized=true display=\"flex\" height=132\n      each x in rows key=x\n        text `${x}`\n";
     let error = contract::compile(reorder).unwrap_err().to_string();
     assert!(error.contains("lower-collection-reorder"), "{error}");
 }

@@ -2,7 +2,7 @@
 // kernel's transition row and, on the web, the element's CSS.
 component Fade
   state shown = true
-  action toggle writes shown
+  action toggle
     shown = not shown
   view
     column testId="root"

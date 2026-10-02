@@ -4,23 +4,23 @@ component Symbols
   state selected = "home"
   state count = 0
   state large = false
-  action missing writes source
+  action missing
     source = "symbol:sf/exact.nonexistent.symbol"
-  action empty writes source
+  action empty
     source = "symbol:sf/"
-  action restore writes source
+  action restore
     source = "symbol:sf/airpodsmax"
-  action portable writes source
+  action portable
     source = "symbol:home"
-  action raster writes source
+  action raster
     source = "assets/caltrain.png"
-  action resize writes large
+  action resize
     large = not large
-  action press writes count
+  action press
     count = count + 1
-  action home writes selected
+  action home
     selected = "home"
-  action saved writes selected
+  action saved
     selected = "saved"
   view
     column padding=12 gap=12 font-size=(large ? 28 : 20) background-color="#ffffff"

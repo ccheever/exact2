@@ -523,19 +523,19 @@ component Deck
   derive title = `${query} ${length(items)} ${stamp}`
   task clock mount
     every(250, tick)
-  action tick writes stamp
+  action tick
     stamp = stamp + 1
-  action typeQuery(value) writes query
+  action typeQuery(value)
     query = value
-  action pick(id: string) writes picked
+  action pick(id: string)
     picked = id
-  action revise writes revision
+  action revise
     revision = revision + 1
-  action toggle writes shown
+  action toggle
     shown = not shown
-  action jump writes scrollTo
+  action jump
     scrollTo = scrollTo + 40
-  action moveItem(item: string, before: option<string>) writes moved
+  action moveItem(item: string, before: option<string>)
     moved = item
   view
     column
@@ -577,7 +577,7 @@ component Card
     picked: string
   state open = false
   state taps = 0
-  action flip writes open, taps
+  action flip
     open = not open
     taps = taps + 1
   view
@@ -701,7 +701,7 @@ fn store_provenance_propagates_through_unchanged_values() {
   derive first = input
   derive second = first
   resource dependent = consume(second) as shape number
-  action change writes revision
+  action change
     revision = revision + 1
   view
     text `${dependent}`

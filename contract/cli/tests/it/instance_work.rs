@@ -31,11 +31,11 @@ component App
   state revision = 0
   state suffix = "a"
   resource rows = rows(revision) as shape list<Row>
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action revise writes revision
+  action revise
     revision = revision + 1
-  action rename writes suffix
+  action rename
     suffix = "b"
   view
     column
@@ -95,7 +95,7 @@ component Counter
   props
     id: number
   state n = 0
-  action increment writes n
+  action increment
     n = n + 1
   view
     button press=increment testId=`button-${id}`
@@ -184,7 +184,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             Ok(Answer::Now(Value::Number(1.0)))
         }
     }
-    let source=APP.replace("  state draft", "  mutation result as shape number\n  action submit writes result\n    send result = submit()\n  state draft")
+    let source=APP.replace("  state draft", "  mutation result as shape number\n  action submit\n    send result = submit()\n  state draft")
         .replace("`${r.label} ${suffix}`", "`${pending(result)}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),

@@ -51,7 +51,7 @@ fn box_shadow_sets_the_four_rows_from_a_literal_a_style_a_choice_and_a_template(
         "style Raised\n  box-shadow=\"0 2px 12px rgba(0, 0, 0, 0.2)\"\n",
         "style Flat\n  box-shadow=\"none\"\n",
         "component App\n  state lift = 3\n  state pressed = false\n",
-        "  action press writes pressed\n    pressed = not pressed\n",
+        "  action press\n    pressed = not pressed\n",
         "  view\n    column\n",
         "      view box-shadow=\"#11223380 1px -2px\" testId=\"literal\"\n",
         "      view class=Raised testId=\"styled\"\n",

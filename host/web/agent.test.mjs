@@ -247,6 +247,7 @@ function fixture(agentMode = true) {
     document: { activeElement: null, body: {}, querySelector: () => null },
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
+    viewBox: element => element.getBoundingClientRect(),
     navigation: { observation: () => ({ location: '/' }), reset() {} },
     presence: { live: null },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
@@ -512,9 +513,9 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
   writeFileSync(contract, `component BrowserFixture
   state presses = 0
   state words = ""
-  action pressed writes presses
+  action pressed
     presses = presses + 1
-  action changed(value: string) writes words
+  action changed(value: string)
     words = value
   view
     column testId="root" gap=8 padding=8

@@ -7,7 +7,7 @@ const SOURCE: &str = r#"
 component App
   state showing = true
   resource rows = rows() as shape list<number>
-  action toggle writes showing
+  action toggle
     showing = !showing
   view
     column
@@ -146,7 +146,7 @@ fn collection_feedback_submits_edge_request_without_another_bridge_call() {
     let source = r#"component App
   state cursor = 0
   resource rows = rows(cursor) as shape list<number>
-  action next writes cursor
+  action next
     cursor = 1
   view
     list virtualized=true height=160 width=240 reachend=next

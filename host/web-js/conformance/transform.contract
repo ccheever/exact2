@@ -10,9 +10,9 @@ component App
   state y = 0
   state s = 1
   state releases = 0
-  action measured(w: number, h: number, pw: number, ph: number) writes geometry
+  action measured(w: number, h: number, pw: number, ph: number)
     geometry = `${w}x${h} in ${pw}x${ph}`
-  action released(nx: number, ny: number, ns: number, vx: number, vy: number, vs: number) writes x, y, s, releases
+  action released(nx: number, ny: number, ns: number, vx: number, vy: number, vs: number)
     s = ns < 1 ? 1 : (ns > 3 ? 3 : ns)
     x = s == 1 ? 0 : nx
     y = s == 1 ? 0 : ny

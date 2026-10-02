@@ -19,7 +19,7 @@ impl DataSource for GrowthRows {
 
 const SOURCE: &str = r#"component App
   state count = 20
-  action grow writes count
+  action grow
     count = 200
   resource rows = growthRows(count) as shape list<number>
   view

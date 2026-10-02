@@ -18,9 +18,9 @@ fn fixture() -> Host<NoData> {
     let plan = contract::compile(r#"component App
   state target = 0
   state showing = true
-  action retarget writes target
+  action retarget
     target = 120
-  action remove writes showing
+  action remove
     showing = false
   view
     column
@@ -161,7 +161,7 @@ fn overdue_timers_keep_runner_order_without_rewinding_held_or_unrelated_motion()
     let plan = contract::compile(
         r#"component App
   state value = 1
-  action step writes value
+  action step
     value = value + 1
   task ticker mount
     every(100, step)

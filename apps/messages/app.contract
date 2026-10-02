@@ -72,7 +72,7 @@ component Messages
   resource models = catalog(modelQuery, choosing ? 1 : 0) as shape list<Model>
   derive maximum = min(viewport.width - 121.333, (viewport.width - 32) * 0.85)
 
-  action openThread(id: string, saved: string) writes nav, draft, draftThread, endRequest, replyBody, panel, selected, pull, changed, swiped, flightPhase
+  action openThread(id: string, saved: string)
     nav = open(nav, path("thread", id))
     draft = saved
     draftThread = id
@@ -84,29 +84,29 @@ component Messages
     swiped = ""
     flightPhase = 0
     send changed = command("read", id, "", wallTime.epochAtZero + now())
-  action back writes nav, panel, selected, choosing, editing, flightPhase
+  action back
     nav = back(nav)
     panel = false
     selected = ""
     choosing = false
     editing = false
     flightPhase = 0
-  action navigate(location: string) writes nav, draftThread, flightPhase
+  action navigate(location: string)
     nav = open(nav, location)
     draftThread = ""
     flightPhase = 0
-  action search(value: string) writes query
+  action search(value: string)
     query = value
-  action write(value: string) writes draft, draftThread, changed
+  action write(value: string)
     draft = value
     draftThread = thread
     send changed = command("draft", thread, value, wallTime.epochAtZero + now())
-  action focusComposer writes editing, endRequest
+  action focusComposer
     editing = true
     endRequest = endRequest + 1
-  action blurComposer writes editing
+  action blurComposer
     editing = false
-  action send writes changed, draft, draftThread, endRequest, panel, replyBody, flightBody, flightId, flightPhase, flightAt, flightRevision, fieldX, fieldY, fieldWidth, flightThread
+  action send
     if data.busy
       send changed = command("stop", thread, "", wallTime.epochAtZero + now())
     else
@@ -126,13 +126,13 @@ component Messages
         panel = false
         replyBody = ""
         endRequest = endRequest + 1
-  action drag(dx: number, dy: number) writes pull, dragging
+  action drag(dx: number, dy: number)
     pull = max(0, pull - dx)
     dragging = true
-  action release(vx: number, vy: number) writes pull, dragging
+  action release(vx: number, vy: number)
     pull = 0
     dragging = false
-  action select(id: string, body: string, outgoing: bool) writes selected, selectedBody, selectedOutgoing, selectedY, selectedHeight, panel
+  action select(id: string, body: string, outgoing: bool)
     selectedY = frame(`bubble-${id}`).y
     selectedHeight = min(320, frame(`bubble-${id}`).height)
     selected = id
@@ -140,61 +140,61 @@ component Messages
     selectedOutgoing = outgoing
     panel = false
     blur("composer")
-  action dismiss writes selected, panel, choosing
+  action dismiss
     selected = ""
     panel = false
     choosing = false
-  action react(glyph: string) writes changed, selected
+  action react(glyph: string)
     send changed = command("reaction", thread, `${selected}|${glyph}`, wallTime.epochAtZero + now())
     selected = ""
-  action copy writes selected
+  action copy
     copyText(selectedBody)
     selected = ""
-  action reply(id: string, body: string) writes replyBody, selected
+  action reply(id: string, body: string)
     replyBody = body
     selected = ""
     focus("composer")
-  action cancelReply writes replyBody
+  action cancelReply
     replyBody = ""
-  action remove writes selected, changed
+  action remove
     send changed = command("delete", thread, selected, wallTime.epochAtZero + now())
     selected = ""
-  action read(body: string) writes fullText, nav, selected
+  action read(body: string)
     fullText = body
     selected = ""
     nav = push(nav, path("reader", thread))
-  action togglePanel writes panel
+  action togglePanel
     panel = not panel
-  action operation(op: string) writes changed, panel
+  action operation(op: string)
     send changed = command(op, thread, "", wallTime.epochAtZero + now())
     panel = false
-  action jump(end: bool) writes endRequest, panel
+  action jump(end: bool)
     endRequest = end ? max(1, endRequest + 1) : min(-1, endRequest - 1)
     panel = false
-  action choose(new: bool) writes choosing, newConversation, modelQuery, panel
+  action choose(new: bool)
     choosing = true
     newConversation = new
     modelQuery = ""
     panel = false
     blur("composer")
-  action searchModels(value: string) writes modelQuery
+  action searchModels(value: string)
     modelQuery = value
-  action model(id: string) writes changed, choosing
+  action model(id: string)
     send changed = command(newConversation ? "new" : "model", thread, id, wallTime.epochAtZero + now())
     choosing = false
-  action swipe(id: string) writes swiped, swipeOffset
+  action swipe(id: string)
     swiped = swiped == id ? "" : id
     swipeOffset = 200
-  action inboxScrolled(id: string, x: number, y: number) writes swiped, swipeOffset
+  action inboxScrolled(id: string, x: number, y: number)
     swiped = id
     swipeOffset = x
-  action editInbox writes inboxEditing, swiped
+  action editInbox
     inboxEditing = not inboxEditing
     swiped = ""
-  action inboxOperation(op: string, id: string) writes changed, swiped
+  action inboxOperation(op: string, id: string)
     send changed = command(op, id, "", wallTime.epochAtZero + now())
     swiped = ""
-  action poll writes heartbeat, time
+  action poll
     time = now()
     if not pending(heartbeat)
       send heartbeat = pulse(wallTime.epochAtZero + now())
@@ -202,7 +202,7 @@ component Messages
     every(250, poll)
   // Geometry is read once after the new balloon has laid out. Motion is
   // then evaluated by Exact's spring, with the reference's 55 ms throw delay.
-  action animate writes seenChange, nav, newConversation, draft, draftThread, flightPhase, flightId, flightX, flightY, flightWidth, flightDelta, flightScale, flightAt, time
+  action animate
     if flightBody != "" and now() - flightAt < 6000
       time = now()
     if changeRevision != seenChange

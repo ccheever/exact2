@@ -14,7 +14,7 @@ style Fresh
 
 component Checklist
   state doing = true
-  action toggle writes doing
+  action toggle
     doing = not doing
   view
     column testId="root"

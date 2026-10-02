@@ -12,13 +12,13 @@ const APP: &str = r#"shape Post
 component App
   state shown = 0
   resource posts = posts() as shape list<Post>
-  action go(n: number) writes shown
+  action go(n: number)
     shown = n
     scrollIntoView("feed", n, block="center")
-  action goEnd(n: number) writes shown
+  action goEnd(n: number)
     shown = n
     scrollIntoView("feed", n, block="end")
-  action card(post: number, n: number) writes shown
+  action card(post: number, n: number)
     shown = n
     scrollIntoView("strip", n, row=post, inline="center", block="start")
   view

@@ -15,7 +15,7 @@ fn a_tinted_raster_is_its_alpha_masking_the_tint() {
     let plan = contract::compile(
         r##"component App
   state wide = false
-  action toggle writes wide
+  action toggle
     wide = not wide
   view
     column

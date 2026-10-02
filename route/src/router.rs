@@ -144,6 +144,15 @@ pub fn push(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
     let result = (|| {
         let d = destination(table, &r, location)?;
         let index = selected(&r)?;
+        // A push of the location already on top is no new visit: as HTML
+        // replaces the entry for a same-URL navigation (LLP 1038).
+        if r.tabs[index]
+            .stack
+            .last()
+            .is_some_and(|top| top.url == d.url)
+        {
+            return Ok(r.clone());
+        }
         let mut out = r.clone();
         let entry = mint(&mut out.next, d)?;
         out.tabs[index].stack.push(entry);

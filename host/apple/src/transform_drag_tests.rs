@@ -22,18 +22,18 @@ const SOURCE: &str = r#"component App
   state bw = 0
   state shown = true
   state reference = "photo"
-  action geometry(w: number, h: number, pw: number, ph: number) writes measured, bw
+  action geometry(w: number, h: number, pw: number, ph: number)
     measured = measured + 1
     bw = w
-  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes released, x, y
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     released = released + 1
     x = px
     y = py
-  action zoomIn writes zoom
+  action zoomIn
     zoom = 2
-  action unbind writes reference
+  action unbind
     reference = "absent"
-  action remove writes shown
+  action remove
     shown = false
   view
     column
@@ -770,7 +770,7 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
 #[test]
 fn rejected_packets_keep_unrelated_motion_and_timer_status() {
     let source = SOURCE.replace("    column\n", "    column testId=\"root\" transition=\"opacity 1000ms linear\"\n")
-        .replace("  view\n", "  state ticks = 0\n  action tick writes ticks\n    ticks = ticks + 1\n  task ticker mount\n    every(1000, tick)\n  view\n");
+        .replace("  view\n", "  state ticks = 0\n  action tick\n    ticks = ticks + 1\n  task ticker mount\n    every(1000, tick)\n  view\n");
     let (mut host, mut p, _) = boot_source(&source);
     accepted(&p.send(&mut host));
     p.op = 11;

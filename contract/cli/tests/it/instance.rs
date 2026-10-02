@@ -59,7 +59,12 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
     for source in [
         source.clone(),
         source
-            .replace("      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          Screen(entry=e, data=data, save=save)", "      provide data = data\n        provide save = save\n          each e in stack(nav) key=e.id\n            column navigationKey=`${e.id}`\n              Screen(entry=e)")
+            .replace("Screen(entry=e, data=data, save=save)", "Screen(entry=e)")
+            // Bare names provide the values of those names (LLP 1035.005.000 D9).
+            .replace(
+                "  view\n    main",
+                "  provide\n    data\n    save\n  view\n    main",
+            )
             .replace("    data: App", "  inject\n    data: App"),
     ] {
         let plan = contract::compile(&source).unwrap();
@@ -84,7 +89,10 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         )
         .unwrap();
         r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
-        assert_eq!(r.data_ref().saved, [Value::str("Alice"), Value::str("Edited Alice")]);
+        assert_eq!(
+            r.data_ref().saved,
+            [Value::str("Alice"), Value::str("Edited Alice")]
+        );
     }
     let invalid = source.replace("editingProfile = false", "editingProfile = 0");
     let error = contract::compile(&invalid).unwrap_err();
@@ -243,7 +251,7 @@ fn a_row_initializer_must_conform_before_the_row_is_published() {
 
 #[test]
 fn an_action_parameter_shadows_a_same_named_child_prop() {
-    let src = "component App\n  view\n    Capture(value=\"prop\")\ncomponent Capture\n  props\n    value: string\n  state seen = \"\"\n  action capture(value: string) writes seen\n    seen = value\n  view\n    column\n      input value=seen change=capture testId=\"capture-input\"\n      text seen testId=\"capture-result\"\n";
+    let src = "component App\n  view\n    Capture(value=\"prop\")\ncomponent Capture\n  props\n    value: string\n  state seen = \"\"\n  action capture(value: string)\n    seen = value\n  view\n    column\n      input value=seen change=capture testId=\"capture-input\"\n      text seen testId=\"capture-result\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -260,7 +268,7 @@ fn an_action_parameter_shadows_a_same_named_child_prop() {
 
 #[test]
 fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
-    let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        each item in stations key=item.id\n          when visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose writes result\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
+    let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        each item in stations key=item.id\n          when visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
     let plan = contract::compile(src).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
     let mut r = Runner::boot(
@@ -309,9 +317,9 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
   state reverse = false
   state shown = true
   resource keys = keys(reverse) as shape list<number>
-  action flip writes reverse
+  action flip
     reverse = !reverse
-  action toggle writes shown
+  action toggle
     shown = !shown
   view
     column testId="root"
@@ -364,7 +372,7 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
 fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
     let source = r#"component App
   state shown = true
-  action toggle writes shown
+  action toggle
     shown = !shown
   view
     column testId="root"
@@ -634,9 +642,9 @@ component Child
   state n = 0
   derive b = c * 2
   derive c = a + n
-  action add(a: number) writes n
+  action add(a: number)
     n = b + a
-  action step writes n
+  action step
     n = b
   view
     column

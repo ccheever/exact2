@@ -27,7 +27,7 @@ component Locale
   resource hud = exactSurface("world") as shape Hud
   state n = 2
   state greeting = t("title")
-  action more writes n
+  action more
     n = n + 1
   view
     column testId="root" padding=10

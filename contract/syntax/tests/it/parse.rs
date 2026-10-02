@@ -16,7 +16,7 @@ component App
   resource board = departures(selected) as shape list<Departure>
   derive count = length(board)
 
-  action selectStation(id) writes stationId, query
+  action selectStation(id)
     stationId = some(id)
     query = ""
   action setDark
@@ -24,10 +24,6 @@ component App
 
   task ticker mount
     every(1000, tick)
-
-  contract
-    has text "Caltrain"
-    when query == "" then has button "x"
 
   view
     column gap=16 testId="main"
@@ -49,7 +45,7 @@ component Row
     press: string
   view
     button press=press(dep.id) aria-label=`Train ${dep.train}`
-      text formatCountdownMinutes(dep.at, nowMs) font-size=(1 + 2) * 3
+      text countdownText(dep.at, nowMs) font-size=(1 + 2) * 3
 "#;
 
 #[test]
@@ -65,7 +61,7 @@ fn the_app_slice_parses_to_the_expected_tree() {
     assert_eq!(app.resources.len(), 1);
     assert!(matches!(app.resources[0].shape, TypeExpr::List(..)));
     assert_eq!(app.actions.len(), 2);
-    assert_eq!(app.actions[0].writes.len(), 2);
+    assert_eq!(app.actions[0].effects().len(), 2);
     assert!(
         matches!(app.actions[0].body[0], Stmt::Assign { ref target, .. } if target == "stationId")
     );
@@ -142,7 +138,7 @@ fn the_app_slice_parses_to_the_expected_tree() {
 #[test]
 fn a_task_fires_once_with_after() {
     let file = parse(
-        "component A\n  state launching = true\n  action arrived writes launching\n    launching = false\n  task launch mount\n    after(60, arrived)\n  view\n    text \"a\"\n",
+        "component A\n  state launching = true\n  action arrived\n    launching = false\n  task launch mount\n    after(60, arrived)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     let task = &file.components[0].tasks[0];
@@ -163,7 +159,7 @@ fn a_task_fires_once_with_after() {
 #[test]
 fn a_task_fires_each_frame_with_every_frame() {
     let file = parse(
-        "component A\n  state frame = 0\n  action step writes frame\n    frame = frame + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text \"a\"\n",
+        "component A\n  state frame = 0\n  action step\n    frame = frame + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     let task = &file.components[0].tasks[0];
@@ -171,7 +167,7 @@ fn a_task_fires_each_frame_with_every_frame() {
     assert_eq!(task.timer.1, "step");
     // An expression that starts with the word is still an interval.
     let file = parse(
-        "component A\n  state frame = 16\n  action step writes frame\n    frame = 16\n  task t mount\n    every(frame + 1, step)\n  view\n    text \"a\"\n",
+        "component A\n  state frame = 16\n  action step\n    frame = 16\n  task t mount\n    every(frame + 1, step)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     assert_eq!(file.components[0].tasks[0].kind, TaskKind::Every);
@@ -225,11 +221,11 @@ fn a_template_expression_balances_match_braces_and_string_braces() {
 fn if_when_and_their_explicit_else_need_non_empty_blocks() {
     let cases = [
         (
-            "component A\n  state n = 0\n  action go writes n\n    if true\n    n = 1\n  view\n    text \"a\"\n",
+            "component A\n  state n = 0\n  action go\n    if true\n    n = 1\n  view\n    text \"a\"\n",
             4,
         ),
         (
-            "component A\n  state n = 0\n  action go writes n\n    if true\n      n = 1\n    else\n    n = 2\n  view\n    text \"a\"\n",
+            "component A\n  state n = 0\n  action go\n    if true\n      n = 1\n    else\n    n = 2\n  view\n    text \"a\"\n",
             4,
         ),
         (
@@ -306,7 +302,7 @@ fn rejections_carry_stable_ids_and_spans() {
 fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals() {
     // LLP 1035.005 D1: `name=` on a deeper line continues the attribute
     // list; a child begins with a tag, so one-token lookahead decides.
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
     let file = parse(src).unwrap();
     let Node::Element {
         attrs, children, ..
@@ -377,7 +373,7 @@ fn source_identity_reaches_nested_ast_ranges_without_changing_syntax() {
 
 #[test]
 fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
-    let src = "component A\n  props\n    send: action\n  state count = 0\n  mutation session as shape Session\n  action go writes session, count\n    send()\n    send(count)\n    send session = login(send=count)\n    count = send\n  view\n    Row(send=go)\n";
+    let src = "component A\n  props\n    send: action\n  state count = 0\n  mutation session as shape Session\n  action go\n    send()\n    send(count)\n    send session = login(send=count)\n    count = send\n  view\n    Row(send=go)\n";
     let file = parse(src).unwrap();
     let a = &file.components[0];
     assert_eq!(a.props[0].name, "send");
@@ -399,9 +395,31 @@ fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
         if target == "count" && matches!(expr, Expr::Ident(n, _) if n == "send")));
     assert!(matches!(&a.view[0], Node::Use { args, .. } if args[0].name == "send"));
 
-    let src = "component A\n  state send = 0\n  action go writes send\n    send = send + 1\n  view\n    text `${send}`\n";
+    let src = "component A\n  state send = 0\n  action go\n    send = send + 1\n  view\n    text `${send}`\n";
     let file = parse(src).unwrap();
     let a = &file.components[0];
     assert_eq!(a.states[0].name, "send");
     assert!(matches!(&a.actions[0].body[0], Stmt::Assign { target, .. } if target == "send"));
+}
+
+#[test]
+fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_arguments() {
+    // LLP 1035.005.000 D2 and D3.
+    let src = "component A\n  state let = 0\n  action go\n    let next = F(base, title=\"a\")\n    if next.pinned\n      let word = \"b\"\n    let = 1\n  view\n    text \"a\"\n";
+    let file = parse(src).unwrap();
+    let body = &file.components[0].actions[0].body;
+    assert!(
+        matches!(&body[0], Stmt::Let { name, expr: Expr::Call(shape, args, _), span }
+        if name == "next" && shape == "F" && (span.line, span.col) == (4, 9)
+            && matches!(&args[0], Expr::Ident(b, _) if b == "base")
+            && matches!(&args[1], Expr::NamedArg(f, _, _) if f == "title"))
+    );
+    assert!(matches!(&body[1], Stmt::If { then, .. }
+        if matches!(&then[0], Stmt::Let { name, .. } if name == "word")));
+    assert!(matches!(&body[2], Stmt::Assign { target, .. } if target == "let"));
+    let e =
+        parse("component A\n  action go\n    let view = 1\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-name", "{e:?}");
+    let e = parse("component A\n  action go\n    let a 1\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected", "{e:?}");
 }

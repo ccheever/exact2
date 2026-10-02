@@ -449,7 +449,7 @@ fn an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action() {
     let mut p = compiled(
         r##"component Dialog
   state count = 0
-  action invoked writes count
+  action invoked
     count = count + 1
   view
     column width="100%" height="100%" background-color="#ffffff"

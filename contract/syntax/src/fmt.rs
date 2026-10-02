@@ -1,7 +1,7 @@
 //! Source-preserving formatting. @ref LLP 1035.005 D1.
 //!
 //! The parser identifies safe attribute/argument breaks. The lexer's exact
-//! ranges preserve literal spelling, comments and opaque `contract` bodies;
+//! ranges preserve literal spelling and comments;
 //! no second literal scanner or expression printer is involved. Existing
 //! physical breaks remain, including comments and blank groups at file edges.
 
@@ -66,7 +66,6 @@ struct Layout<'a> {
     /// A keyframe selector's `%`, which stays against its number: `50%`.
     percents: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
-    opaque: BTreeMap<usize, usize>,
 }
 
 impl<'a> Layout<'a> {
@@ -123,26 +122,6 @@ impl<'a> Layout<'a> {
                 }
             }
         }
-        let mut opaque = BTreeMap::new();
-        let mut contract_indent = None;
-        for (line, indices) in by_line.iter().enumerate() {
-            if let Some(&first) = indices.first() {
-                let source_indent = tokens[first].span.col as usize - 1;
-                if contract_indent.is_some_and(|width| source_indent <= width) {
-                    contract_indent = None;
-                }
-                if indents[line] == 1 && text(&tokens[first], lines) == "contract" {
-                    contract_indent = Some(source_indent);
-                    continue;
-                }
-            }
-            if let Some(width) = contract_indent {
-                let leading = lines[line].len() - lines[line].trim_start().len();
-                if leading > width {
-                    opaque.insert(line, width);
-                }
-            }
-        }
         Self {
             tokens,
             lines,
@@ -153,7 +132,6 @@ impl<'a> Layout<'a> {
             type_angles: BTreeSet::new(),
             percents: BTreeSet::new(),
             breaks: BTreeMap::new(),
-            opaque,
         }
     }
 
@@ -166,6 +144,18 @@ impl<'a> Layout<'a> {
     }
 
     fn file(&mut self, file: &File) {
+        // A named argument's `=` stays against its name, as an attribute's
+        // does: `Fields(base, title=value)`, `empty(field=value)`. Only a
+        // call's arguments put a name and `=` after `(` or `,`.
+        let ordinary: Vec<&Token> = self.tokens.iter().filter(|t| ordinary(t)).collect();
+        for w in ordinary.windows(3) {
+            if matches!(w[0].kind, TokenKind::Punct("(" | ","))
+                && matches!(w[1].kind, TokenKind::Ident(_))
+                && w[2].kind == TokenKind::Punct("=")
+            {
+                self.attributes.insert(w[1].span);
+            }
+        }
         for route in file.routes.iter().flat_map(|r| &r.rows) {
             self.attributes.extend(route.fields.iter().map(|a| a.span));
         }
@@ -275,7 +265,7 @@ impl<'a> Layout<'a> {
                     self.header(*span, args, true, None);
                     self.nodes(children);
                 }
-                Node::Provide { body, .. } | Node::Each { body, .. } => self.nodes(body),
+                Node::Each { body, .. } => self.nodes(body),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -398,13 +388,6 @@ impl<'a> Layout<'a> {
         let mut out = String::new();
         for (line, raw) in self.lines.iter().enumerate() {
             if raw.trim().is_empty() {
-                out.push('\n');
-                continue;
-            }
-            if let Some(width) = self.opaque.get(&line) {
-                let leading = raw.len() - raw.trim_start().len();
-                out.push_str(&" ".repeat(2 + leading.saturating_sub(*width)));
-                out.push_str(raw.trim_start());
                 out.push('\n');
                 continue;
             }

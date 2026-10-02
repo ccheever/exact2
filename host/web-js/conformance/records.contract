@@ -1,0 +1,104 @@
+// Synthetic conformance plan (LLP 1035.005.000 D2, D3): records built and
+// copied in expressions, compared with `!=`, and `let` in actions — through
+// branches, in a `match` arm, after a write (which it does not see), and in a
+// child's action lifted into the root; and built and copied in `map` and
+// `filter` callbacks over Caltrain's nearest stations.
+shape Fields
+  title: string
+  body: string
+  pinned: bool
+
+shape Point
+  x: number
+  y: number
+
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+shape Stop
+  name: string
+  rank: number
+
+fn blank(title: string): Fields = Fields(title=title, body="", pinned=false)
+
+component Records
+  state loaded = Fields(title="Groceries", body="eggs", pinned=false)
+  state draft = none
+  state count = 1
+  state seen = 0
+  state spot = Point(x=0, y=0)
+  state label = ""
+  derive fields = match draft { case some(d) => d, case none => loaded }
+  derive dirty = fields != loaded
+  resource loc = defaultLocation() as shape Location
+  resource close = nearest(loc, 3) as shape list<Station>
+  derive stops = map(close, (s, i) => Stop(name=s.name, rank=i + count))
+  derive ranked = map(stops, s => Stop(s, rank=s.rank * 10))
+  derive kept = filter(ranked, s => Stop(s, name="") != Stop(name="", rank=count * 10))
+  action retitle
+    let next = Fields(fields, title=`${fields.title}!`)
+    draft = some(next)
+  action pin
+    let flipped = not fields.pinned
+    if flipped
+      let word = "pinned"
+      label = word
+    else
+      let word = "loose"
+      label = word
+    draft = some(Fields(fields, pinned=flipped))
+  action step
+    let start = count
+    count = count + 1
+    let after = count
+    seen = start + after
+  action move(maybe: option<Point>)
+    match maybe
+      case some(p)
+        let moved = Point(p, x=p.x + count)
+        spot = Point(moved, y=moved.y * 10)
+      case none
+        spot = Point(x=0, y=0)
+  action save
+    loaded = fields
+    draft = none
+  action reset
+    draft = some(blank("Fresh"))
+  view
+    column testId="root" gap=4 padding=8
+      text fields.title testId="title"
+      text `${fields.body} ${fields.pinned ? "pinned" : "loose"} ${dirty ? "dirty" : "clean"}` testId="status"
+      text `${count} ${seen} ${spot.x},${spot.y} ${label}` testId="locals"
+      text join(map(kept, s => `${s.name}:${s.rank}`), ", ") testId="stops"
+      row gap=8
+        button press=retitle testId="retitle"
+          text "retitle"
+        button press=pin testId="pin"
+          text "pin"
+        button press=step testId="step"
+          text "step"
+        button press=move(some(Point(x=1, y=2))) testId="move"
+          text "move"
+        button press=save testId="save"
+          text "save"
+        button press=reset testId="reset"
+          text "reset"
+      Child(amount=count)
+
+component Child
+  props
+    amount: number
+  state doubled = 0
+  action double
+    let count = 2
+    doubled = amount * count
+  view
+    button press=double testId="double"
+      text `${doubled}` testId="doubled"

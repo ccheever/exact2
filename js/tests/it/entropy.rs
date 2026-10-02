@@ -22,21 +22,21 @@ component App
   resource plain = plain() as shape string
   resource abc = abcDigest() as shape string
   mutation result as shape string
-  action atInit writes result
+  action atInit
     send result = atInit(form)
-  action bytes writes result
+  action bytes
     send result = bytes(4)
-  action later writes result
+  action later
     send result = uuidLater()
-  action refusals writes result
+  action refusals
     send result = refusals()
-  action describe writes result
+  action describe
     send result = globals()
-  action digests writes result
+  action digests
     send result = digests()
-  action digestRefusals writes result
+  action digestRefusals
     send result = digestRefusals()
-  action digestLater writes result
+  action digestLater
     send result = digestLater()
   view
     column

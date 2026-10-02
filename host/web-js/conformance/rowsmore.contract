@@ -14,7 +14,7 @@ keyframes glow
 
 component RowsMore
   state on = false
-  action flip writes on
+  action flip
     on = not on
   view
     column testId="root" padding=16 gap=12 background-color="#ffffff" height=900 box-sizing="border-box"

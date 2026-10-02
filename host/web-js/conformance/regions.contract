@@ -21,19 +21,19 @@ component Regions
   state picked = none
   state open = true
   state mode = 0
-  action rotate writes skip
+  action rotate
     skip = match first(items) { case some(h) => h, case none => "" }
-  action push writes next
+  action push
     next = next + 1
-  action restore writes near
+  action restore
     near = not near
-  action pick(id) writes picked
+  action pick(id)
     picked = some(id)
-  action clear writes picked
+  action clear
     picked = none
-  action toggle writes open
+  action toggle
     open = not open
-  action cycle writes mode
+  action cycle
     mode = (mode + 1) % 3
   view
     column testId="root" padding=12 gap=6

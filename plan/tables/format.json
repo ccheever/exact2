@@ -910,28 +910,6 @@
       "_comment": "@ref LLP 1054.000.003 D1/D7: `h:mm AM` of (epochMs, utcOffset minutes east), as Intl.DateTimeFormat(\"en-US\", { timeZone: <the offset>, timeStyle: \"short\" }) prints it. Core: every app links it, as it linked formatClockTime. A parameter spelled as string literals (`\"a\" | \"b\"`) is a string the compiler requires written as one of them."
     },
     {
-      "name": "formatCountdownMinutes",
-      "params": [
-        "number",
-        "number"
-      ],
-      "returns": "string"
-    },
-    {
-      "name": "formatDistance",
-      "params": [
-        "number"
-      ],
-      "returns": "string"
-    },
-    {
-      "name": "formatWalk",
-      "params": [
-        "number"
-      ],
-      "returns": "string"
-    },
-    {
       "name": "length",
       "params": [
         "any"

@@ -302,15 +302,15 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
 /// resource stations = stations()               (compiled: constant args)
 /// resource board = departures(selected)        (requested when `selected` changes)
 /// derive count = length(board)
-/// action selectStation(id) writes stationId    action setQuery(q) writes query
-/// action tick writes nowMs                     task ticker mount: every(1000, tick)
+/// action selectStation(id)                    action setQuery(q)
+/// action tick                                  task ticker mount: every(1000, tick)
 /// view
 ///   column testId="main"
 ///     text `${count} trains` font-size=24 font-weight=700 testId="count"
 ///     when query == ""
 ///       each d in board key=d.id
 ///         button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
-///           text formatCountdownMinutes(d.at, nowMs)
+///           text toString(max(0, -floor(-((d.at - nowMs) / 60000))))
 ///     else
 ///       text "searching" testId="searching"
 ///     input value=query input=setQuery testId="search"
@@ -493,12 +493,22 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         &[(EventKind::Press, select_station, &[press_arg])],
         None,
     );
+    // `toString(max(0, -floor(-((d.at - nowMs) / 60000))))`: whole minutes
+    // to the departure, a ceiling as the negated floor of the negation.
     let mut countdown = Asm::new();
     countdown
+        .number(0.0)
         .load_item(0)
         .field(2)
         .load_slot(now_ms)
-        .call(Stdlib::FormatCountdownMinutes);
+        .simple(Opcode::Sub)
+        .number(60_000.0)
+        .simple(Opcode::Div)
+        .simple(Opcode::Neg)
+        .call(Stdlib::Floor)
+        .simple(Opcode::Neg)
+        .call(Stdlib::Max)
+        .call(Stdlib::ToString);
     let countdown = b.code(countdown);
     b.node(
         NodeType::Text as u8,

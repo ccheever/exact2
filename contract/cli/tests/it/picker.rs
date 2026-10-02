@@ -18,9 +18,9 @@ const COMPOSE: &str = r#"component App
   state cancels = 0
   action choose
     showPicker("attach")
-  action attach(files: list<Picked>) writes summary
+  action attach(files: list<Picked>)
     summary = join(map(files, (f, i) => `${f.name}:${f.type}:${f.size}:${match f.width { case some(w) => w, case none => 0 }}`), ",")
-  action dismissed writes cancels
+  action dismissed
     cancels = cancels + 1
   view
     column

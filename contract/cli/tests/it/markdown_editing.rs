@@ -16,7 +16,7 @@ const SOURCE: &str = r#"component App
   state link = ""
   state unavailable = ""
   state boldActive = false
-  action selected(s) writes formats, mixed, link, unavailable, boldActive
+  action selected(s)
     formats = s.formats
     mixed = s.mixed
     link = s.link

@@ -20,7 +20,7 @@ impl DataSource for Granted {
 #[test]
 fn an_export_is_held_answered_with_a_path_and_refused_outside_its_grant() {
     let plan = contract::compile(
-        "component App\n  state saved = \"none\"\n  state cancels = 0\n  action save\n    saveFile(\"out\", \"app:/data/out/a.json\", \"a.json\")\n  action stray\n    saveFile(\"out\", \"app:/data/secret.json\", \"s.json\")\n  action done(name) writes saved\n    saved = name\n  action cancelled writes cancels\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input id=\"out\" testId=\"out\" display=\"none\" change=done cancel=cancelled\n      button press=save testId=\"save\" width=100 height=40\n        text \"Save\"\n      button press=stray testId=\"stray\" width=100 height=40\n        text \"Stray\"\n",
+        "component App\n  state saved = \"none\"\n  state cancels = 0\n  action save\n    saveFile(\"out\", \"app:/data/out/a.json\", \"a.json\")\n  action stray\n    saveFile(\"out\", \"app:/data/secret.json\", \"s.json\")\n  action done(name)\n    saved = name\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input id=\"out\" testId=\"out\" display=\"none\" change=done cancel=cancelled\n      button press=save testId=\"save\" width=100 height=40\n        text \"Save\"\n      button press=stray testId=\"stray\" width=100 height=40\n        text \"Stray\"\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(

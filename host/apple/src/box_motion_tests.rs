@@ -35,7 +35,7 @@ keyframes drop
   to cy=30
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column
@@ -195,7 +195,7 @@ keyframes glow
   to background-color="#2563eb"
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column
@@ -253,7 +253,7 @@ fn opacity_inside_a_glass_group_is_sampled() {
   to opacity=0.2
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column
@@ -307,7 +307,7 @@ fn a_lowered_opacity_animation_under_a_group_is_switched_to_sampling() {
   to opacity=0.2
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column

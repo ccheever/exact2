@@ -19,7 +19,7 @@ component Blog
   state id = "7"
   resource post = post(id) as shape Post else emptyPost()
   resource viewer = viewer() as shape string
-  action next writes id
+  action next
     id = "8"
   view
     column

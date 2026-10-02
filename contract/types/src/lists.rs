@@ -93,9 +93,13 @@ pub(crate) fn infer_call(
             .map(|(p, t)| (p.clone(), Ref::Local(0), t))
             .collect(),
     );
-    // `map(items, i => Row(item=i))`: the JSX habit.
+    // `map(items, i => Row(item=i))`: the JSX habit. A declared shape's
+    // name builds a record (`F(x=i)`, `F(f, x=…)`; LLP 1035.005.000 D3), a
+    // value a callback may return.
     if let Expr::Call(callee, _, at) = &**body {
-        if callee.starts_with(|c: char| c.is_ascii_uppercase()) && !shapes.fns.contains_key(callee)
+        if callee.starts_with(|c: char| c.is_ascii_uppercase())
+            && !shapes.fns.contains_key(callee)
+            && !crate::records::is_record_call(callee, shapes)
         {
             return err(
                 "type-callback-view",

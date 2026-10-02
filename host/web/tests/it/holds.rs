@@ -13,10 +13,10 @@ const SOURCE: &str = r##"component App
   state color = "#ff0000"
   state shown = true
   state count = 0
-  action retarget writes target, color
+  action retarget
     target = 24
     color = "#0000ff"
-  action swipe writes count, shown
+  action swipe
     count = count + 1
     shown = false
   view
@@ -220,21 +220,21 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
   state disabled = false
   state tint = "#ff0000"
   state returning = "translate 0s spring(180, 12, 1) 100ms"
-  action edit(value) writes draft, tint
+  action edit(value)
     draft = value
     tint = "#0000ff"
-  action plain writes returning
+  action plain
     returning = "none"
-  action arm writes kill
+  action arm
     kill = true
-  action deactivate writes blocked
+  action deactivate
     blocked = true
-  action disable writes disabled
+  action disable
     disabled = true
-  action enable writes blocked, disabled
+  action enable
     blocked = false
     disabled = false
-  action swipe writes count, shown
+  action swipe
     count = count + 1
     shown = not kill
   view

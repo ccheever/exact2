@@ -14,9 +14,9 @@ component App
   state who = ""
   mutation session as shape Session
   derive busy = pending(session)
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action submit writes session
+  action submit
     send session = login(who)
   view
     column testId="app"

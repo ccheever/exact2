@@ -163,7 +163,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
             ))
         }
     }
-    let source = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      each k, i in keys key=k\n        text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    let source = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      each k, i in keys key=k\n        text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
     let plan = contract::compile(source).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -199,7 +199,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
     assert_eq!(text(&r, "row-b").1, "2:b");
     // A virtualized list's rows read their positions too, and a row the
     // window keeps reads its new one when the list moves under it.
-    let list = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 virtualized=true estimated-item-height=20 overflow-x=\"hidden\" testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    let list = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 virtualized=true estimated-item-height=20 overflow-x=\"hidden\" testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
     {
         let source = list;
         let mut r = Runner::boot(
@@ -230,7 +230,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
 /// colours may be keyframed, one fixed colour each.
 #[test]
 fn a_computed_delay_staggers_and_colours_keyframe() {
-    let source = "keyframes enter\n  from opacity=0 background-color=\"#ff000080\"\n\ncomponent App\n  state step = 2\n  action next writes step\n    step = step + 1\n  view\n    column\n      button press=next testId=\"next\"\n        text \"Next\"\n      text \"a\" testId=\"row\" animation=`enter 320ms ease-out ${step * 70}ms both`\n";
+    let source = "keyframes enter\n  from opacity=0 background-color=\"#ff000080\"\n\ncomponent App\n  state step = 2\n  action next\n    step = step + 1\n  view\n    column\n      button press=next testId=\"next\"\n        text \"Next\"\n      text \"a\" testId=\"row\" animation=`enter 320ms ease-out ${step * 70}ms both`\n";
     let plan = contract::compile(source).unwrap();
     let mut r = Runner::boot(
         Plan::decode(&plan.encode()).unwrap(),

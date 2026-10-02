@@ -12,9 +12,9 @@ const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
   resource rows = rows() as shape list<string>
-  action receive(item: string, before: option<string>) writes count
+  action receive(item: string, before: option<string>)
     count = count + 1
-  action block writes disabled
+  action block
     disabled = true
   view
     column

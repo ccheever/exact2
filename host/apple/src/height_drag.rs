@@ -268,7 +268,7 @@ mod tests {
         let plan = contract::compile(
             r#"component App
   state count = 0
-  action release(height: number, velocity: number) writes count
+  action release(height: number, velocity: number)
     count = count + 1
   view
     box id="sheet" testId="sheet" height=200 box-sizing="border-box"

@@ -19,18 +19,18 @@ const SOURCE: &str = r#"component App
   state bw = 0
   state shown = true
   state reference = "photo"
-  action geometry(w: number, h: number, pw: number, ph: number) writes measured, bw
+  action geometry(w: number, h: number, pw: number, ph: number)
     measured = measured + 1
     bw = w
-  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes released, x, y
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     released = released + 1
     x = px
     y = py
-  action zoomIn writes zoom
+  action zoomIn
     zoom = 2
-  action unbind writes reference
+  action unbind
     reference = "absent"
-  action remove writes shown
+  action remove
     shown = false
   view
     column

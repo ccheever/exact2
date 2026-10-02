@@ -17,7 +17,7 @@ const SOURCE: &str = "routes nav
     thread \"/t/:thread\"
 
 component App
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\" testId=\"navigation\"

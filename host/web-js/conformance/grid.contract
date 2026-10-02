@@ -8,12 +8,12 @@ component Grid
   state placement = "auto"
   state flow = "row"
   state items = "center"
-  action switchTemplate writes alternate
+  action switchTemplate
     alternate = not alternate
-  action setGrid(nextColumns: string, nextPlacement: string) writes columns, placement
+  action setGrid(nextColumns: string, nextPlacement: string)
     columns = nextColumns
     placement = nextPlacement
-  action setKeywords(nextFlow: string, nextItems: string) writes flow, items
+  action setKeywords(nextFlow: string, nextItems: string)
     flow = nextFlow
     items = nextItems
   view

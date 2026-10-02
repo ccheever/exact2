@@ -7,11 +7,11 @@ component Motion
   state moved = false
   state auto = false
   state launching = true
-  action toggle writes moved
+  action toggle
     moved = not moved
-  action bump writes auto
+  action bump
     auto = true
-  action arrived writes launching
+  action arrived
     launching = false
   task ticker mount
     every(1000, bump)

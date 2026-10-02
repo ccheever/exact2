@@ -139,7 +139,7 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
     let source = r#"component Named
   state paused = false
   state again = false
-  action pause writes paused
+  action pause
     paused = not paused
   view
     canvas surface=world(restart=again, seed=min(9, 7), paused=paused)

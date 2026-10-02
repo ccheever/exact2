@@ -10,7 +10,7 @@
 // paint to them within an antialiasing band.
 component Gradients
   state dark = false
-  action scheme writes dark
+  action scheme
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view

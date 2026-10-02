@@ -180,13 +180,54 @@ pub fn project(
     kernel
         .apply(0, 1, &ops)
         .map_err(|e| format!("kernel refused the static tree: {e:?}"))?;
+    // A text folds into its box's content (LLP 1007.001) only when the
+    // template holds all of it: no bound row or prop but its text, no
+    // handler, and not a repeated row (copies would join one block). A box
+    // with a bound row keeps its text too: the row may make it lay out
+    // other than a block, and so does a button whose parent has one (its
+    // height may come to be the parent's).
+    let repeated = each_rows(plan, sites);
+    let bound = |i: usize, only_text: bool| {
+        plan.nodes[i]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| {
+                literal(plan, plan.code(b.expr)).is_none()
+                    && !(only_text && b.kind == BindingKind::Prop && b.id == PropId::Text as u16)
+                    && (only_text || b.kind == BindingKind::Style)
+            })
+    };
+    let parents = {
+        let mut p = vec![None; plan.nodes.len()];
+        for (i, c) in tree.iter().enumerate() {
+            for c in c {
+                p[*c as usize] = Some(i);
+            }
+        }
+        p
+    };
+    let may_fold: Vec<bool> = (0..plan.nodes.len())
+        .map(|i| {
+            plan.nodes[i].handlers.len == 0
+                && !repeated.contains(&i)
+                && !bound(i, true)
+                && parents[i].is_some_and(|p| {
+                    let button =
+                        NodeType::from_wire(plan.nodes[p].node_type) == Some(NodeType::Pressable);
+                    !bound(p, false) && !(button && parents[p].is_none_or(|g| bound(g, false)))
+                })
+        })
+        .collect();
     let mut out = Vec::with_capacity(plan.nodes.len());
     for (i, node) in plan.nodes.iter().enumerate() {
         if NodeType::from_wire(node.node_type) == Some(NodeType::Head) {
             out.push(None);
             continue;
         }
-        let mut parts = template::parts(&kernel, plan, view(i)).ok_or("a view the kernel lost")?;
+        let child_may_fold = matches!(tree[i].as_slice(), [c] if may_fold[*c as usize]);
+        let mut parts = template::parts_with(&kernel, plan, view(i), may_fold[i], child_may_fold)
+            .ok_or("a view the kernel lost")?;
         // A sampled prop decided the tag; its value is the effect's.
         for b in node.bindings.iter() {
             let row = plan.binding(b);
@@ -242,6 +283,38 @@ pub fn project(
         }
     }
     Ok(out)
+}
+
+/// Every `each` row's roots, through any region at its top.
+fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {
+    fn roots(
+        plan: &Plan,
+        sites: &crate::emit::Sites,
+        list: &[crate::emit::Site],
+        into: &mut Vec<usize>,
+    ) {
+        for s in list {
+            match s {
+                crate::emit::Site::Node(i) => into.push(*i as usize),
+                crate::emit::Site::Region(r) => {
+                    for arm in plan.regions[*r as usize].arms.iter() {
+                        roots(plan, sites, sites.of_arm(arm.0), into);
+                    }
+                }
+            }
+        }
+    }
+    let mut rows = Vec::new();
+    for region in plan
+        .regions
+        .iter()
+        .filter(|r| r.kind == exact_plan::RegionKind::Each)
+    {
+        for arm in region.arms.iter() {
+            roots(plan, sites, sites.of_arm(arm.0), &mut rows);
+        }
+    }
+    rows
 }
 
 /// Which nodes can follow, among their parent's children, a node that paints
@@ -305,34 +378,7 @@ fn can_follow(
         holds[i] = Some(h);
         h
     }
-    // An `each` row's roots, through any region at its top.
-    fn roots(
-        plan: &Plan,
-        sites: &crate::emit::Sites,
-        list: &[crate::emit::Site],
-        into: &mut Vec<usize>,
-    ) {
-        for s in list {
-            match s {
-                crate::emit::Site::Node(i) => into.push(*i as usize),
-                crate::emit::Site::Region(r) => {
-                    for arm in plan.regions[*r as usize].arms.iter() {
-                        roots(plan, sites, sites.of_arm(arm.0), into);
-                    }
-                }
-            }
-        }
-    }
-    let mut rows = Vec::new();
-    for region in plan
-        .regions
-        .iter()
-        .filter(|r| r.kind == exact_plan::RegionKind::Each)
-    {
-        for arm in region.arms.iter() {
-            roots(plan, sites, sites.of_arm(arm.0), &mut rows);
-        }
-    }
+    let rows = each_rows(plan, sites);
     let mut follows = vec![false; n];
     for children in tree {
         let mut before = false;

@@ -32,10 +32,10 @@ const SOURCE: &str = r#"component App
   resource initial = rows() as shape list<string>
   mutation changed as shape list<string>
   derive rows = match changed { case some(value) => value, case none => initial }
-  action receive(item: string, before: option<string>) writes changed, count
+  action receive(item: string, before: option<string>)
     send changed = move(item, before)
     count = count + 1
-  action block writes disabled
+  action block
     disabled = true
   view
     column

@@ -23,7 +23,9 @@
 //! repaired: the page a reader gets without JavaScript is the page the live
 //! host builds, or it is no page.
 
-use super::element::{css_style_of, host_css_of, props_of, svg_props_of, tag_of};
+use super::element::{
+    blocks, contents, css_style_of, folds, host_css_of, props_of, svg_props_of, tag_of,
+};
 use super::{font_names, layers, Host};
 
 #[path = "page.rs"]
@@ -282,7 +284,7 @@ fn write<S: Source>(
     };
     let mut after = false;
     for root in roots {
-        after |= walk.element(*root, after, None, 16.)?;
+        after |= walk.element(*root, after, None, 16., false)?;
     }
     let rest = walk.out[walk.sent..].to_string();
     Ok((
@@ -356,11 +358,14 @@ impl<S: Source> Walk<'_, '_, S> {
         &mut self,
         id: ViewId,
         after: bool,
-        parent: Option<exact_kernel::Display>,
+        up: Option<ViewId>,
         inherited_font: f32,
+        folded: bool,
     ) -> Result<bool, DocumentError> {
         let src = self.src;
         let node = src.facts(id).expect("the runner's tree names live views");
+        let above = up.and_then(|u| src.facts(u));
+        let parent = above.map(|o| o.style.display);
         if node.node_type.is_metadata() {
             // The page's `<head>`, never an element (as the live host).
             return Ok(false);
@@ -400,7 +405,16 @@ impl<S: Source> Walk<'_, '_, S> {
         let children = src.children(id);
         let paint = layers::paint_of(&node, parent);
         let isolated = layers::isolated(paint, after);
-        let mut style = layers::with_isolation(host_css_of(&node, text, tag), isolated);
+        let holds = children.len() == 1
+            && src.facts(children[0]).is_some_and(|c| {
+                let handled = self
+                    .handlers
+                    .get(&children[0])
+                    .is_some_and(|k| !k.is_empty());
+                folds(&c, &node, above.as_ref(), true, handled)
+            });
+        let css = blocks(contents(host_css_of(&node, text, tag), folded), holds);
+        let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
@@ -550,8 +564,14 @@ impl<S: Source> Walk<'_, '_, S> {
         self.buttons += u32::from(button);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let mut under = false;
+        let only = children.len() == 1;
         for child in children.iter().copied() {
-            under |= self.element(child, under, Some(node.style.display), font)?;
+            let handled = self.handlers.get(&child).is_some_and(|k| !k.is_empty());
+            let fold = only
+                && src
+                    .facts(child)
+                    .is_some_and(|c| folds(&c, &node, above.as_ref(), true, handled));
+            under |= self.element(child, under, Some(id), font, fold)?;
         }
         if let Some(outer) = outer {
             self.select = outer;

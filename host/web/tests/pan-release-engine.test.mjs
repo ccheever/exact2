@@ -45,9 +45,9 @@ const SOURCE = `component App
   state vx = 0
   state vy = 0
   state releases = 0
-  action moved(dx: number, dy: number) writes x
+  action moved(dx: number, dy: number)
     x = x + dx
-  action released(sx: number, sy: number) writes vx, vy, releases
+  action released(sx: number, sy: number)
     vx = sx
     vy = sy
     releases = releases + 1

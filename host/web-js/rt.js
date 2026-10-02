@@ -176,8 +176,8 @@ export function commit(f, what = "commit") {
   Store.persist();
   for (const go of out) go();
   for (const c of cmds) command(...c);
-  // An answer's `then` runs as its own commit, after this one stood.
-  for (const m of landed) if (m.then) setTimeout(() => m.then());
+  // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
+  for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
   return true;
 }
 /** What runs after each commit's tree update (a loaded piece's publication),
@@ -199,11 +199,12 @@ function markDocument() {
   for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
 }
+let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
     if (e.$jump) e.$jump(name, at);
-    else if (e[name] !== at) { if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+    else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
   Scrolls.clear();
 }
@@ -221,7 +222,6 @@ function command(name, args) {
   say(`command ${name}`);
   if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
-
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // `now()` is elapsed time: the driver's clock under the agent and in a
@@ -253,20 +253,24 @@ export function frames(action) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
   if (!clock.agent) paint();
 }
-/** Move the clock to `to`, firing each due timer at its own time, in order;
- * a seek fires frame tasks' virtual frames too, the wall clock's (`wall`) none. */
-/** `stop()`, asked after each timer, ends the advance there (the agent's:
- * one that sent a request): true when it stopped short of `to`. Under the
+/** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
+ * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
+ * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time, and a
+ * non-finite `to` (NonFiniteClock) leaves the clock where it was: its journal line, as the runner's error. Under the
  * agent the journal gets the runner's line for an advance that fired. */
 export function advance(to, wall, stop) {
+  if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
-    let next = null;
+    let next = null, then = null;
     for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
-    if (!next) break;
-    clock.now = next.due;
-    if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms;
-    fire(next);
+    // An answer's `then` goes before a timer due at the same time: the answer landed first.
+    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
+    if (!next && !then) break;
+    if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
+    if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
+    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
+    if (fire(then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
     fired++;
     if (stop?.()) { stopped = true; break; }
   }
@@ -276,12 +280,12 @@ export function advance(to, wall, stop) {
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
-function fire(t) { Timing = true; try { t.action(); } finally { Timing = false; } }
+function fire(f) { Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 function drive() {
   clearTimeout(driving);
   let next = Infinity;
-  for (const t of clock.timers) if (!t.frame && t.due < next) next = t.due;
+  for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
 }
@@ -296,7 +300,7 @@ function paint() {
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
-    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t); }
+    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -437,7 +441,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
 export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
-  const m = { ticket: null, then: null };
+  const m = { name, ticket: null, then: null, due: Infinity };
   Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
@@ -772,7 +776,7 @@ export function on(e, kind, f) {
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
     // The port's offsets, as the web host sends them (`glue.js` `attach`).
-    case "scroll": return l(kind, () => f(e.scrollLeft, e.scrollTop));
+    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
@@ -1223,7 +1227,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1233,7 +1237,7 @@ export function mount(f) {
     root.textContent = "";
     commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  if (!built) throw new Error("boot refused: " + journal.at(-1));
+  Booting = false; if (!built) throw new Error("boot refused: " + journal.at(-1));
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
@@ -1290,10 +1294,6 @@ export function x_formatTime(ms, off) {
   const w = Math.trunc(ms) + off * 60000, m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
   return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-export const x_formatCountdownMinutes = (at, now) => String(Math.max(0, Math.ceil((at - now) / 6e4)));
-export const x_formatDistance = m => (m /= 1609.344) < 0.1 ? "nearby" : `${(Math.round(m * 10) / 10).toFixed(1)} mi`;
-export const x_formatWalk = m => `${Math.max(1, Math.ceil(m / 80))} min walk`;
-
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale
@@ -1335,7 +1335,6 @@ export function language(slot) {
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
-
 // ---------------------------------------------------------------- the router (LLP 1038; route/src)
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
 // [id, name, url, tab, params], params positional in the table's
@@ -1426,6 +1425,7 @@ export function x_push(r, location) {
   const d = dest(r, location), i = sel(r);
   if (!d) return refuse(r, `no route matches ${canonical(location)}`);
   if (i < 0) return refuse(r, "router has no selected stack");
+  if (r[1][i][1].at(-1)?.[2] === d.url) return r; // the location on top: no new visit (route/src/router.rs)
   const out = copy(r); out[1][i][1].push(mint(out, d)); return out;
 }
 export function x_replace(r, location) {

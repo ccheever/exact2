@@ -60,22 +60,17 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         }
-    } else if sites {
-        match contract::compile_path_mapped(path) {
+    } else {
+        // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
+        match contract::compile_path_all(path, sites) {
             Ok((p, m)) => {
-                map = Some(m);
+                map = m;
                 p
             }
-            Err(e) => {
-                eprintln!("{input}:{e}");
-                return ExitCode::from(1);
-            }
-        }
-    } else {
-        match contract::compile_path(path) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("{input}:{e}");
+            Err(errors) => {
+                for e in errors {
+                    eprintln!("{e}");
+                }
                 return ExitCode::from(1);
             }
         }

@@ -4,7 +4,7 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart, TypeExpr,
+    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, TemplatePart, TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -462,7 +462,6 @@ fn collect_owner_scopes(
             Node::Element { children, .. } | Node::Use { children, .. } => {
                 collect_owner_scopes(children, scope, shapes, scopes)?;
             }
-            Node::Provide { body, .. } => collect_owner_scopes(body, scope, shapes, scopes)?,
             Node::Children { .. } => {}
             Node::When {
                 then, otherwise, ..
@@ -517,20 +516,34 @@ fn collect_owner_scopes(
     Ok(())
 }
 
+/// A slot's fill, checked where `children` stands with its caller's scope
+/// and providers (LLP 1035.005.000 D9: the slot's own section does not
+/// reach it).
 #[derive(Clone)]
 struct Fill {
     nodes: Vec<Node>,
     scope: Scope,
+    provides: Vec<(String, Ty, Span)>,
 }
 
-/// Check the concrete provider path to every inject after component typing.
+/// Check the concrete provider path to every inject after component typing:
+/// `provides` is the root's `provide` section, `scope` its scope.
 pub(super) fn check_injects(
     nodes: &[Node],
+    provides: &[Binding],
     scope: &Scope,
     types: &Types,
     file: &File,
 ) -> Result<(), TypeError> {
-    check_inject_nodes(nodes, scope, types, file, &mut Vec::new(), None, 0)
+    let mut provided = Vec::new();
+    for b in provides {
+        provided.push((
+            b.name.clone(),
+            infer(&b.expr, scope, &types.shapes)?,
+            b.span,
+        ));
+    }
+    check_inject_nodes(nodes, scope, types, file, &mut provided, None, 0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -577,7 +590,7 @@ fn check_inject_nodes(
                         return err(
                             "type-provide",
                             format!(
-                                "`provide {} = …` is `{got}`, but `{name}` injects `{want}`",
+                                "the provided `{}` is `{got}`, but `{name}` injects `{want}`",
                                 inject.name
                             ),
                             *provided_at,
@@ -595,8 +608,14 @@ fn check_inject_nodes(
                 let child_fill = target_c.slot.then(|| Fill {
                     nodes: children.clone(),
                     scope: scope.clone(),
+                    provides: provides.clone(),
                 });
-                check_inject_nodes(
+                let outer = provides.len();
+                for b in &target_c.provides {
+                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
+                    provides.push((b.name.clone(), got, b.span));
+                }
+                let checked = check_inject_nodes(
                     &target_c.view,
                     &target_scope,
                     types,
@@ -604,17 +623,9 @@ fn check_inject_nodes(
                     provides,
                     child_fill.as_ref(),
                     depth + 1,
-                )?;
-            }
-            Node::Provide {
-                name,
-                expr,
-                body,
-                span,
-            } => {
-                provides.push((name.clone(), infer(expr, scope, &types.shapes)?, *span));
-                check_inject_nodes(body, scope, types, file, provides, fill, depth)?;
-                provides.pop();
+                );
+                provides.truncate(outer);
+                checked?;
             }
             Node::Children { .. } => {
                 if let Some(fill) = fill {
@@ -623,7 +634,7 @@ fn check_inject_nodes(
                         &fill.scope,
                         types,
                         file,
-                        provides,
+                        &mut fill.provides.clone(),
                         None,
                         depth,
                     )?;
@@ -910,173 +921,43 @@ fn into_view_args(
     Ok(())
 }
 
-/// Check an action body's statements through every branch (LLP 1017 P2).
-/// Check each statement, recording a refusal and moving on to the next.
-pub(super) fn check_stmts(
-    stmts: &[Stmt],
+/// A host command's name and arguments (`name(args)` in an action body).
+pub(super) fn check_command(
+    name: &str,
+    args: &[Expr],
     scope: &Scope,
-    c: &Component,
-    ct: &mut ComponentTypes,
     shapes: &Shapes,
-    sink: &mut Sink,
-) {
-    for stmt in stmts {
-        let checked = check_stmt(stmt, scope, c, ct, shapes, sink);
-        sink.keep_unit(checked);
-    }
-}
-
-fn check_stmt(
-    stmt: &Stmt,
-    scope: &Scope,
-    c: &Component,
-    ct: &mut ComponentTypes,
-    shapes: &Shapes,
-    sink: &mut Sink,
+    span: Span,
 ) -> Result<(), TypeError> {
-    {
-        match stmt {
-            Stmt::Assign { target, expr, span } => {
-                let Some(si) = c.states.iter().position(|s| &s.name == target) else {
-                    // A mutation's slot may be assigned (`session = none`);
-                    // its type is `option<T>` and is never inferred from here.
-                    if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
-                        let t = infer(expr, scope, shapes)?;
-                        let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
-                        if !can_unify(&mt, &t) {
-                            return err(
-                                "type-assign",
-                                format!("`{target}` is `{mt}`, cannot assign `{t}`"),
-                                *span,
-                            );
-                        }
-                        return Ok(());
-                    }
-                    return err(
-                        "type-assign-not-state",
-                        format!("`{target}` is not a state or a mutation"),
-                        *span,
-                    );
-                };
-                let t = infer(expr, scope, shapes)?;
-                match ct.slots[si].unify(&t) {
-                    Some(u) => ct.slots[si] = u,
-                    None => {
-                        return err(
-                            "type-assign",
-                            format!("`{target}` is `{}`, cannot assign `{t}`", ct.slots[si]),
-                            *span,
-                        )
-                    }
-                }
-            }
-            Stmt::Command { name, args, span } => {
-                if !HOST_COMMANDS.contains(&name.as_str()) {
-                    let message = match scope.lookup(name) {
-                        Some((Ref::Action(_), Ty::Action(_))) => format!(
-                            "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
-                        ),
-                        Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                            "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
-                        ),
-                        _ => format!(
-                            "`{name}` is not a host command; the hosts answer {}",
-                            HOST_COMMANDS.join(", ")
-                        ),
-                    };
-                    return err("type-unknown-command", message, *span);
-                }
-                if name == "share" {
-                    return share_args(args, scope, shapes, *span);
-                }
-                if name == "saveFile" {
-                    return save_file_args(args, scope, shapes, *span);
-                }
-                if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
-                    return picker_args(name, args, scope, shapes, *span);
-                }
-                if name == "scrollIntoView" {
-                    return into_view_args(args, scope, shapes, *span);
-                }
-                for arg in args {
-                    infer(arg, scope, shapes)?;
-                }
-            }
-            Stmt::Send {
-                target,
-                source,
-                args,
-                span,
-                ..
-            } => {
-                if !c.mutations.iter().any(|m| &m.name == target) {
-                    return err(
-                        "type-send-not-mutation",
-                        format!(
-                            "`{target}` is not a mutation: declare `mutation {target} as shape T`"
-                        ),
-                        *span,
-                    );
-                }
-                let mut params = Vec::with_capacity(args.len());
-                for arg in args {
-                    params.push(crate::source_argument(arg, source, scope, shapes)?);
-                }
-                let mi = c
-                    .mutations
-                    .iter()
-                    .position(|m| &m.name == target)
-                    .expect("checked above");
-                let result = ct.mutations[mi].clone();
-                crate::record_source(ct, source, params, result, *span)?;
-            }
-            Stmt::Refresh { target, span } => {
-                if !c.resources.iter().any(|r| &r.name == target) {
-                    return err(
-                        "type-refresh-not-resource",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                }
-            }
-            Stmt::If {
-                cond,
-                then,
-                otherwise,
-                ..
-            } => {
-                match infer(cond, scope, shapes) {
-                    Ok(Ty::Bool) => {}
-                    Ok(_) => sink.push(TypeError {
-                        id: "type-condition",
-                        message: "`if` needs a bool".into(),
-                        span: cond.span(),
-                    }),
-                    Err(e) => sink.push(e),
-                }
-                check_stmts(then, scope, c, ct, shapes, sink);
-                check_stmts(otherwise, scope, c, ct, shapes, sink);
-            }
-            Stmt::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let ts = infer(subject, scope, shapes)?;
-                let Ty::Option(inner) = ts else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ts}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner_scope = scope.clone();
-                inner_scope.push(vec![(some.0.clone(), Ref::Local(0), (*inner).clone())]);
-                check_stmts(&some.1, &inner_scope, c, ct, shapes, sink);
-                check_stmts(none, scope, c, ct, shapes, sink);
-            }
-        }
+    if !HOST_COMMANDS.contains(&name) {
+        let message = match scope.lookup(name) {
+            Some((Ref::Action(_), Ty::Action(_))) => format!(
+                "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
+            ),
+            Some((Ref::Prop(_), Ty::Action(_))) => format!(
+                "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
+            ),
+            _ => format!(
+                "`{name}` is not a host command; the hosts answer {}",
+                HOST_COMMANDS.join(", ")
+            ),
+        };
+        return err("type-unknown-command", message, span);
+    }
+    if name == "share" {
+        return share_args(args, scope, shapes, span);
+    }
+    if name == "saveFile" {
+        return save_file_args(args, scope, shapes, span);
+    }
+    if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
+        return picker_args(name, args, scope, shapes, span);
+    }
+    if name == "scrollIntoView" {
+        return into_view_args(args, scope, shapes, span);
+    }
+    for arg in args {
+        infer(arg, scope, shapes)?;
     }
     Ok(())
 }
@@ -1087,10 +968,6 @@ fn check_stmt(
 pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &mut Sink) {
     for n in nodes {
         match n {
-            Node::Provide { expr, body, .. } => {
-                sink.keep(infer(expr, scope, shapes));
-                check_view(body, scope, shapes, sink);
-            }
             Node::Children { .. } => {}
             Node::Element {
                 tag,

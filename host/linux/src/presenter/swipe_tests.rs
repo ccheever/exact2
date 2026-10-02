@@ -18,12 +18,12 @@ fn source() -> String {
   state count = 0
   state target = 0
   state showing = true
-  action reply writes count, target
+  action reply
     count = count + 1
     target = 180
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
   view
     column width=400 height=500
@@ -328,11 +328,11 @@ fn navigation_cancels_a_held_view_without_waiting_for_the_next_pointer_event() {
     let src = r#"component App
   state selected = "a"
   state count = 0
-  action away writes selected
+  action away
     selected = "b"
-  action back writes selected
+  action back
     selected = "a"
-  action reply writes count
+  action reply
     count = count + 1
   view
     main navigationKey=selected navigationBack="back"
@@ -500,19 +500,19 @@ component App
   state replying = ""
   state draft = ""
   resource rows = rows(revision, changed) as shape list<Message>
-  action body writes revision
+  action body
     revision = revision + 1
-  action curry writes changed
+  action curry
     changed = true
-  action disable writes disabled
+  action disable
     disabled = true
-  action hide writes showing
+  action hide
     showing = false
-  action replyTo(id: string) writes replying
+  action replyTo(id: string)
     replying = id
-  action outside writes replying
+  action outside
     replying = "outside"
-  action edit(value) writes draft
+  action edit(value)
     draft = value
   view
     column width=400 height=500 padding-left=5.3 padding-top=3.7 box-sizing="border-box"
@@ -777,7 +777,7 @@ component MessageBubble
         r##"component App
   state replying = ""
   resource extras = extras() as shape list<string>
-  action replyTo(id: string) writes replying
+  action replyTo(id: string)
     replying = id
   view
     view id="owner" width=400 height=500 overflow-x="hidden" overflow-y="hidden"
@@ -844,9 +844,9 @@ component MessageBubble
     fn retained_actions_binding_utf8_accounting_counts_bytes_not_scalars_or_source() {
         let source = r#"component App
   state selected = ""
-  action choose(id: string, ok: bool, n: number) writes selected
+  action choose(id: string, ok: bool, n: number)
     selected = id
-  action clear writes selected
+  action clear
     selected = ""
   view
     column
@@ -876,8 +876,14 @@ component MessageBubble
     fn retained_actions_unsupported_child_is_a_barrier_not_parent_fallthrough() {
         let _service = crate::content_region::test_service();
         let src = source()
-            .replace("  action outside writes replying", "  action unsupported writes replying\n    replying = replying\n  action outside writes replying")
-            .replace("column width=\"100%\" padding=5.3", "column press=outside width=\"100%\" padding=5.3")
+            .replace(
+                "  action outside",
+                "  action unsupported\n    replying = replying\n  action outside",
+            )
+            .replace(
+                "column width=\"100%\" padding=5.3",
+                "column press=outside width=\"100%\" padding=5.3",
+            )
             .replace("button press=replyTo(m.id)", "button press=unsupported");
         let mut p = boot(&src, true, Rows::default());
         let child = id(&p, "reply-message-0");
@@ -950,7 +956,7 @@ component MessageBubble
     #[test]
     fn retained_actions_recycled_row_key_cannot_borrow_old_coordinates_or_binding() {
         let _service = crate::content_region::test_service();
-        let src = source().replace("  action hide writes showing", "  action show writes showing\n    showing = true\n  action hide writes showing")
+        let src = source().replace("  action hide", "  action show\n    showing = true\n  action hide")
             .replace("      input value=draft", "      button press=show testId=\"show\" height=20\n        text \"Show\"\n      input value=draft")
             .replace("  resource rows = rows(revision, changed) as shape list<Message>", "  resource rows = rows(revision, changed) as shape list<Message>\n  resource emptyRows = extras() as shape list<Message>")
             .replace("each m in rows key=m.rowKey", "each m in (showing ? rows : emptyRows) key=m.rowKey");

@@ -6,7 +6,7 @@
 component App
   state px = 400
   state snaps = 0
-  action snap(height: number, velocity: number) writes px, snaps
+  action snap(height: number, velocity: number)
     px = height > 300 ? 640 : 200
     snaps = snaps + 1
   view

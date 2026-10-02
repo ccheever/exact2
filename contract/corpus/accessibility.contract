@@ -1,9 +1,9 @@
 component Accessibility
   state count = 0
   state shown = true
-  action increment writes count
+  action increment
     count = count + 1
-  action toggle writes shown
+  action toggle
     shown = not shown
   task ticker mount
     every(1000, toggle)

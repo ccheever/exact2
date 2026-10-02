@@ -102,7 +102,7 @@ fn an_animation_is_presented_from_boot_and_stops_when_its_row_does() {
 /// slide asks for it.
 #[test]
 fn a_colour_is_motion_and_a_slide_is_spatial() {
-    let src = "keyframes breathe\n  from color=\"#666666\"\n  50% color=\"#000000\"\n  to color=\"#666666\"\ncomponent A\n  state sliding = false\n  action slide writes sliding\n    sliding = not sliding\n  view\n    column\n      button press=slide testId=\"slide\"\n        text \"Slide\"\n      text \"Breathe\" animation=\"breathe 4.2s ease-in-out infinite\"\n      text \"Card\" transition=\"translate 300ms ease\" translate=(sliding ? \"0px 40px\" : \"0px 0px\")\n";
+    let src = "keyframes breathe\n  from color=\"#666666\"\n  50% color=\"#000000\"\n  to color=\"#666666\"\ncomponent A\n  state sliding = false\n  action slide\n    sliding = not sliding\n  view\n    column\n      button press=slide testId=\"slide\"\n        text \"Slide\"\n      text \"Breathe\" animation=\"breathe 4.2s ease-in-out infinite\"\n      text \"Card\" transition=\"translate 300ms ease\" translate=(sliding ? \"0px 40px\" : \"0px 0px\")\n";
     let plan = contract::compile(src).unwrap();
     let (mut host, first) = Host::boot(
         &plan.encode(),

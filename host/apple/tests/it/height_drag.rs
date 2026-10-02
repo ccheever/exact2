@@ -21,14 +21,14 @@ fn fixture() -> (Host<NoData>, String) {
   state binding = "sheet"
   state showing = true
   state releases = 0
-  action release(height: number, velocity: number) writes size, releases
+  action release(height: number, velocity: number)
     size = height < 270 ? 180 : height < 500 ? 360 : 640
     releases = releases + 1
-  action disable writes disabled
+  action disable
     disabled = true
-  action rebind writes binding
+  action rebind
     binding = "other"
-  action remove writes showing
+  action remove
     showing = false
   view
     column width="100%" height="100%"
@@ -177,7 +177,7 @@ fn programmatic_registration_without_authored_handles_is_not_cleared() {
     let plan = contract::compile(
         r#"component App
   state counter = 0
-  action increment writes counter
+  action increment
     counter = counter + 1
   view
     box testId="panel" height=180 box-sizing="border-box" press=increment
@@ -206,7 +206,7 @@ fn catch_and_release_use_constrained_height_and_action_deletion_makes_end_stale(
         r#"component App
   state showing = true
   state seen = 0
-  action release(height: number, velocity: number) writes seen, showing
+  action release(height: number, velocity: number)
     seen = height
     showing = false
   view
@@ -286,9 +286,9 @@ fn unbind_uses_latest_none_or_zero_transition_before_cancelling_unchanged_target
             r#"component App
   state binding = "sheet"
   state declaration = "height spring(180, 12, 1)"
-  action release(height: number, velocity: number) writes binding
+  action release(height: number, velocity: number)
     binding = binding
-  action unbind writes binding, declaration
+  action unbind
     binding = ""
     declaration = "{declaration}"
   view
@@ -333,9 +333,9 @@ fn unbind_with_retarget_and_negative_delay_starts_from_held_value_once() {
     let plan = contract::compile(r#"component App
   state binding = "sheet"
   state height = 360
-  action release(px: number, velocity: number) writes height
+  action release(px: number, velocity: number)
     height = px
-  action unbind writes binding, height
+  action unbind
     binding = ""
     height = 600
   view
@@ -382,11 +382,11 @@ fn ownership_fixture() -> Host<NoData> {
         r#"component App
   state binding = "sheet"
   state count = 0
-  action release(height: number, velocity: number) writes count
+  action release(height: number, velocity: number)
     count = count + 1
-  action ping writes count
+  action ping
     count = count + 1
-  action unbind writes binding
+  action unbind
     binding = ""
   view
     column
@@ -487,7 +487,7 @@ fn prop_only_target_cannot_preempt_a_real_release_handle() {
     let plan = contract::compile(
         r#"component App
   state released = 0
-  action release(height: number, velocity: number) writes released
+  action release(height: number, velocity: number)
     released = released + 1
   view
     column
@@ -521,9 +521,9 @@ fn release_handler_survives_empty_set_clear_set_idref() {
         r#"component App
   state enabled = false
   state releases = 0
-  action toggle writes enabled
+  action toggle
     enabled = !enabled
-  action release(height: number, velocity: number) writes releases
+  action release(height: number, velocity: number)
     releases = releases + 1
   view
     column
@@ -565,7 +565,7 @@ fn measured_release_velocity_follows_the_constrained_height_shown() {
             r#"component App
   state size = 200
   state seen = 0
-  action release(height: number, velocity: number) writes seen
+  action release(height: number, velocity: number)
     seen = velocity
   view
     column id="sheet" testId="sheet" height=size {max} box-sizing="border-box" transition="height spring(180, 12, 1)"

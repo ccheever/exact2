@@ -73,7 +73,7 @@ an application frame-time measurement. Evidence: `/tmp/exact-semantic-tags-4b8b1
 | --- | --- | --- |
 | `contract-syntax` | lexer, parser, AST, source spans | nothing |
 | `contract-types` | closed-type inference; stdlib signatures come from the roster | `contract-syntax`, `exact-plan` |
-| `contract-analyze` | dependency DAG, effect signatures, `writes` checking, region structure | `contract-types` |
+| `contract-analyze` | dependency DAG, effect signatures (inferred from action bodies, LLP 1035.005.000 D1), region structure | `contract-types` |
 | `contract-lower` | tables and bytecode, byte-identically, in the kernel's vocabulary; build-time evaluation of constant resources (D4) | `contract-analyze`, `exact-plan`, `exact-kernel`, the app's data crate |
 | `contract` | the driver: CLI, resident dev-loop server, diagnostics rendering | all of the above |
 
@@ -86,7 +86,9 @@ crate legible. No new apparatus.
 the v1 app and owned here.** Decided: exactly these constructs —
 `state`/`derive`/`action`/`task`/`resource`, components with `props`,
 `when`/`match`/keyed `each`, closed inferred types, `Option`-only absence,
-actions as reducers with `writes` and 0508 §10.3's closed command vocabulary,
+actions as reducers whose writes are inferred from their bodies (LLP
+1035.005.000 D1, 2026-10-02: the authored `writes` list is refused) and 0508
+§10.3's closed command vocabulary,
 the stdlib roster of D2. 0508 is research: the implementation spec
 transcribes the semantics it adopts for these constructs and names each
 deviation; its edition machinery, flags, and migration rules are not
@@ -162,8 +164,8 @@ claim.
 
 **D6 — The corpus is how the language evolves.** `contract/corpus/` holds,
 per construct, an accept fixture with its expected plan, and per diagnostic
-id a reject fixture; where constructs compose (`each` inside `match`, a
-`writes` list against a derive), an interaction fixture. Comparison is on
+id a reject fixture; where constructs compose (`each` inside `match`, an
+assignment to a derive), an interaction fixture. Comparison is on
 canonical bytes, so byte-identity is tested, not asserted. Every accept
 fixture and every roster entry also runs on the runner with an observable
 expectation (exported tree, state, or command), so a construct is proven at

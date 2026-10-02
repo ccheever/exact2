@@ -20,7 +20,7 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`font-size`"), "{e}");
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    button press=go label=\"Go\"\n      text \"a\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go label=\"Go\"\n      text \"a\"\n";
     let e = contract::compile(src).unwrap_err();
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
@@ -133,7 +133,7 @@ fn a_horizontal_scroll_can_grow_vertically_with_its_contents() {
 
 #[test]
 fn bake_refuses_a_pressable_with_zero_area() {
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
     let plan = contract::compile(src).unwrap();
     let e = contract::bake(plan, NoData).unwrap_err();
     match e {
@@ -185,7 +185,7 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
   state on = false
   state n = true
   state maybe = some(20)
-  action toggle writes on
+  action toggle
     on = !on
   view
     column testId="branch" top=(on ? -10 : (match maybe { case some(n) => n, case none => 0 })) align-items=(on ? "center" : "flex-end")
@@ -221,7 +221,7 @@ fn conditional_pixel_lengths_compile_and_update() {
             r#"component App
   state on = false
   state maybe = none
-  action toggle writes on, maybe
+  action toggle
     on = !on
     maybe = some(1)
   view
@@ -325,7 +325,7 @@ component App
   state draft = ""
   state count = 0
   resource todos = items(3) as shape list<Todo>
-  action add writes count
+  action add
     count = count + 1
   view
     main padding=16 gap=8 className="x"

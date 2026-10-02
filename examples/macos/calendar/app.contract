@@ -230,7 +230,7 @@ component Calendar
   derive edgeWanted = held and dragMoved and dragY >= portY and dragY <= portY + portHeight and dragX >= portX and dragX <= portX + portWidth ? (dragX < portX + 28 and month > 22800 ? -1 : (dragX > portX + portWidth - 28 and month < 25211 ? 1 : 0)) : 0
   derive hoverDay = held ? hoverTarget.day : -1000000
 
-  action tick writes minute
+  action tick
     minute = floor(now() / 60000) * 60000
   task clockTick mount
     every(60000, tick)
@@ -244,13 +244,13 @@ component Calendar
 
   // The input root posts drag packets, and a page turn for each horizontal
   // trackpad swipe over the month.
-  action dragInput(raw: string) writes contact, monthAnchor
+  action dragInput(raw: string)
     if raw == "swipe:next" or raw == "swipe:previous"
       if not dragging and not modalOpen
         monthAnchor = some(boundedMonth(month + (raw == "swipe:next" ? 1 : -1)))
     else
       send contact = calendarDragInput(raw)
-  action didContact writes contactAck, dragSerial, dragWireId, dragId, dragTitle, dragRangeLabel, dragKind, dragCompleted, dragColor, dragSpan, dragStartDay, dragSource, dragSourceMonth, dragStickerId, markX, markY, titleX, titleY, rangeX, rangeY, dropDay, pendingMove, dragX, dragY, dragOriginX, dragOriginY, dragMoved, dragCommitted, ghostX, ghostY, sourceX, sourceY, sourceWidth, sourceHeight, liftPrepared, liftReadyAt, returnPrepared, returnReadyAt, landingWidth, landingHeight, landingBefore, landingAfter, dragPhase, dragUntil, dragFrameTime, portX, portY, portWidth, portHeight, calendarScrollRequest, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, changed, operation, operationSequence, error, hovered
+  action didContact
     match contact
       case some(packet)
         if packet.valid and packet.sequence > contactAck
@@ -382,7 +382,7 @@ component Calendar
               ghostY = sourceY
       case none
         error = "The drag contact could not be read."
-  action animateDrag writes calendarScrollRequest, dragFrameTime, dragPhase, dragUntil, dragId, dragWireId, liftPrepared, returnPrepared, libraryStarted, libraryMessage, loadedLibrary, stageWidth, stageHeight, stageViewportWidth, stageViewportHeight, monthAnchor, portX, portY, portWidth, portHeight, calendarScrollMonth, edgeDirection, edgeSince, edgeReadyAt, dataRevision, pendingMove, selectedDay, editorOpen, editorClosing, themeOpen, themeClosing, titleFocusPending
+  action animateDrag
     // Reuse this frame's geometry without caching it across frames or resizes.
     match some(frame("calendar-stage"))
       case some(stage)
@@ -450,7 +450,7 @@ component Calendar
     if themeClosing and now() >= themeUntil
       themeOpen = false
       themeClosing = false
-  action calendarScrolled(page: number, left: number, top: number) writes calendarScrollTop, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6
+  action calendarScrolled(page: number, left: number, top: number)
     if page == month
       calendarScrollTop = top
     if scrollSlot(page) == 0
@@ -474,9 +474,9 @@ component Calendar
     if scrollSlot(page) == 6
       scrollMonth6 = page
       scrollY6 = top
-  action retryEvent writes eventRetry
+  action retryEvent
     eventRetry = eventRetry + 1
-  action didLoadLibrary writes libraryReady, libraryRevision, libraryMessage
+  action didLoadLibrary
     match loadedLibrary
       case some(value)
         libraryReady = value.ready
@@ -485,32 +485,32 @@ component Calendar
       case none
         libraryReady = false
         libraryMessage = "Schedules could not be loaded. Please try again."
-  action retryStorage writes libraryStarted
+  action retryStorage
     if not pending(loadedLibrary)
       libraryStarted = false
 
-  action goToday writes monthAnchor, selectedDay
+  action goToday
     if not dragging and not modalOpen
       monthAnchor = some(clock.month)
       selectedDay = some(clock.today)
   // Each click turns one page; the pages slide by their laid-out origins.
-  action goMonth(offset: number) writes monthAnchor
+  action goMonth(offset: number)
     if not dragging and not modalOpen
       monthAnchor = some(boundedMonth(month + offset))
   // The Mac reports every pointer move over a hovered view; write only a change.
-  action hoverOn(name: string, over: bool) writes hovered
+  action hoverOn(name: string, over: bool)
     if over and hovered != name
       hovered = name
     if not over and hovered == name
       hovered = ""
   // A double click presses twice before it double-clicks: selecting is idempotent.
-  action selectDate(value: number) writes selectedDay, error
+  action selectDate(value: number)
     if not dragging and not modalOpen
       selectedDay = some(value)
       error = ""
       focus(`day-${month}-${value}`)
   // Arrows move the selection; Enter and Space also press the cell, so they are left to it.
-  action moveSelection(value: number, pressed: string) writes selectedDay, monthAnchor
+  action moveSelection(value: number, pressed: string)
     if not dragging and not modalOpen and keyStep(pressed) != 0
       selectedDay = some(value + keyStep(pressed))
       if value + keyStep(pressed) < monthFirstDay and month > 22800
@@ -523,7 +523,7 @@ component Calendar
         else
           focus(`day-${month}-${value + keyStep(pressed)}`)
 
-  action create(kind: string, value: number, date: string) writes selectedDay, editorOpen, editorClosing, editorKind, editId, editorDate, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation, hovered
+  action create(kind: string, value: number, date: string)
     if libraryReady and not busy and not dragging and not modalOpen and date != ""
       selectedDay = some(value)
       editorOpen = true
@@ -545,12 +545,12 @@ component Calendar
       retryOperation = ""
       hovered = ""
       focus("schedule-title")
-  action setKind(kind: string) writes editorKind, retryToken, retryOperation
+  action setKind(kind: string)
     if editorOpen and not editorClosing and editId == "" and not busy
       editorKind = kind
       retryToken = ""
       retryOperation = ""
-  action openItem(id: string, kind: string) writes editorOpen, editorClosing, editId, editorKind, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation, titleFocusPending, hovered
+  action openItem(id: string, kind: string)
     if not busy and not dragging and not modalOpen
       editId = id
       editorKind = kind
@@ -571,7 +571,7 @@ component Calendar
       titleFocusPending = true
       hovered = ""
   // The Mac's context menu on a schedule: every command is also reachable without it.
-  action itemCommand(id: string, kind: string, completed: bool, command: string) writes changed, operationSequence, operation, editorOpen, editorClosing, editId, editorKind, titleDraft, notesDraft, colorDraft, allDayDraft, startDateDraft, endDateDraft, startTimeDraft, endTimeDraft, confirmDelete, error, retryToken, retryOperation, titleFocusPending, hovered
+  action itemCommand(id: string, kind: string, completed: bool, command: string)
     if not busy and not dragging and not modalOpen
       if command == "toggle" and kind == "todo"
         operationSequence = operationSequence + 1
@@ -597,7 +597,7 @@ component Calendar
         retryOperation = ""
         titleFocusPending = command == "edit"
         hovered = ""
-  action stickerCommand(value: number, command: string) writes changed, operationSequence, operation, error
+  action stickerCommand(value: number, command: string)
     if command == "delete" and libraryReady and not busy and not dragging and not modalOpen
       operationSequence = operationSequence + 1
       operation = "sticker"
@@ -607,7 +607,7 @@ component Calendar
   action refocusEditor
     if editorOpen and not editorClosing and editorReady and not busy
       focus("schedule-title")
-  action editorKey(pressed: string) writes editorClosing, editorUntil, confirmDelete, error, retryToken, retryOperation
+  action editorKey(pressed: string)
     if pressed == "Escape" and editorOpen and not busy and not editorClosing
       retryToken = ""
       retryOperation = ""
@@ -616,7 +616,7 @@ component Calendar
       editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
       confirmDelete = false
       error = ""
-  action closeEditor writes editorClosing, editorUntil, confirmDelete, error, retryToken, retryOperation
+  action closeEditor
     if editorOpen and not busy and not editorClosing
       retryToken = ""
       retryOperation = ""
@@ -626,7 +626,7 @@ component Calendar
       confirmDelete = false
       error = ""
 
-  action toggleThemes writes themeOpen, themeClosing, themeUntil, error, hovered
+  action toggleThemes
     if themeOpen
       if not themeClosing
         themeClosing = true
@@ -637,14 +637,14 @@ component Calendar
         themeClosing = false
         error = ""
         hovered = ""
-  action closeThemes writes themeClosing, themeUntil
+  action closeThemes
     if themeOpen and not themeClosing
       themeClosing = true
       themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
   // The panel's own surface takes its clicks, so the focus stays in the window's view.
-  action keepThemes writes hovered
+  action keepThemes
     hovered = ""
-  action chooseTheme(value: number) writes themeClosing, themeUntil, changed, operationSequence, operation, error
+  action chooseTheme(value: number)
     if themeOpen and not themeClosing and not busy and value >= 0 and value <= 6
       themeClosing = true
       themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
@@ -654,13 +654,13 @@ component Calendar
         error = ""
         send changed = setTheme(value, freshToken)
 
-  action toggleStickerPalette writes stickerPaletteOpen
+  action toggleStickerPalette
     if not dragging
       stickerPaletteOpen = not stickerPaletteOpen
-  action showPalette writes stickerPaletteOpen
+  action showPalette
     stickerPaletteOpen = true
   // A palette click toggles: the date's own sticker comes off, another goes on.
-  action applySticker(value: string) writes changed, operationSequence, operation, error
+  action applySticker(value: string)
     if libraryReady and not busy and not dragging and not modalOpen and not pending(agenda)
       operationSequence = operationSequence + 1
       operation = "sticker"
@@ -669,59 +669,59 @@ component Calendar
         send changed = removeSticker(day, freshToken)
       else
         send changed = setSticker(day, value, freshToken)
-  action clearSticker writes changed, operationSequence, operation, error
+  action clearSticker
     if libraryReady and not busy and not dragging and not modalOpen and not pending(agenda) and agenda.stickerId != ""
       operationSequence = operationSequence + 1
       operation = "sticker"
       error = ""
       send changed = removeSticker(day, freshToken)
-  action deleteItem(id: string) writes changed, operationSequence, operation, error, hovered
+  action deleteItem(id: string)
     if libraryReady and not busy and not dragging and not modalOpen
       operationSequence = operationSequence + 1
       operation = "remove-item"
       error = ""
       hovered = ""
       send changed = deleteSchedule(id, freshToken)
-  action toggleTodo(id: string, completed: bool) writes changed, operationSequence, operation, error
+  action toggleTodo(id: string, completed: bool)
     if not busy and not dragging and not modalOpen
       operationSequence = operationSequence + 1
       operation = "complete"
       error = ""
       send changed = setTodoCompleted(id, completed, time.epochAtZero + now(), freshToken)
 
-  action writeTitle(value: string) writes titleDraft, retryToken, retryOperation
+  action writeTitle(value: string)
     retryToken = ""
     retryOperation = ""
     titleDraft = some(value)
-  action writeNotes(value: string) writes notesDraft, retryToken, retryOperation
+  action writeNotes(value: string)
     retryToken = ""
     retryOperation = ""
     notesDraft = some(value)
-  action pickColor(value: string) writes colorDraft, retryToken, retryOperation
+  action pickColor(value: string)
     retryToken = ""
     retryOperation = ""
     colorDraft = some(value)
-  action toggleAllDay(value: bool) writes allDayDraft, retryToken, retryOperation
+  action toggleAllDay(value: bool)
     retryToken = ""
     retryOperation = ""
     allDayDraft = some(value)
-  action writeStartDate(value: string) writes startDateDraft, retryToken, retryOperation
+  action writeStartDate(value: string)
     retryToken = ""
     retryOperation = ""
     startDateDraft = some(value)
-  action writeEndDate(value: string) writes endDateDraft, retryToken, retryOperation
+  action writeEndDate(value: string)
     retryToken = ""
     retryOperation = ""
     endDateDraft = some(value)
-  action writeStartTime(value: string) writes startTimeDraft, retryToken, retryOperation
+  action writeStartTime(value: string)
     retryToken = ""
     retryOperation = ""
     startTimeDraft = some(value)
-  action writeEndTime(value: string) writes endTimeDraft, retryToken, retryOperation
+  action writeEndTime(value: string)
     retryToken = ""
     retryOperation = ""
     endTimeDraft = some(value)
-  action save writes changed, operationSequence, operation, error, retryToken, retryOperation
+  action save
     if editorOpen and not busy and not editorClosing and editorReady and title != ""
       operationSequence = operationSequence + 1
       operation = "save"
@@ -735,11 +735,11 @@ component Calendar
           send changed = savePlan(editId, title, notes, color, allDay, startDate, endDate, startTime, endTime, saveToken)
         else
           send changed = saveSchedule(editId, title, notes, color, allDay, startDate, endDate, startTime, endTime, saveToken)
-  action askDelete writes confirmDelete
+  action askDelete
     confirmDelete = true
-  action keepEvent writes confirmDelete
+  action keepEvent
     confirmDelete = false
-  action remove writes changed, operationSequence, operation, error, retryToken, retryOperation
+  action remove
     if not busy and not editorClosing and editId != ""
       operationSequence = operationSequence + 1
       operation = "delete"
@@ -747,7 +747,7 @@ component Calendar
       retryOperation = "delete"
       error = ""
       send changed = deleteSchedule(editId, deleteToken)
-  action didChange writes dataRevision, editorClosing, editorUntil, confirmDelete, error, dragPhase, dragUntil, dragCommitted, returnPrepared, returnReadyAt, ghostX, ghostY, retryToken, retryOperation, pendingMove, pendingMoveRevision
+  action didChange
     match changed
       case some(result)
         if result.success

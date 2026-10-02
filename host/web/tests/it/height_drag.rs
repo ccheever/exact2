@@ -20,24 +20,24 @@ const SOURCE: &str = r#"component App
   state first = true
   state second = true
   state shown = true
-  action snap(height: number, velocity: number) writes extent, count, received, speed
+  action snap(height: number, velocity: number)
     extent = 240
     count = count + 1
     received = height
     speed = velocity
-  action hide writes display
+  action hide
     display = "none"
-  action show writes display
+  action show
     display = "block"
-  action unbind writes reference
+  action unbind
     reference = "missing"
-  action firstOff writes first
+  action firstOff
     first = false
-  action secondOff writes second
+  action secondOff
     second = false
-  action remove writes shown
+  action remove
     shown = false
-  action restore writes shown
+  action restore
     shown = true
   view
     column
@@ -347,15 +347,10 @@ fn rebegin_reuse_and_action_destruction_retire_generational_active_record() {
         .unwrap()
         .is_none());
     assert!(!host.has_hold(new.token.serial()));
-    let deleting = SOURCE
-        .replace(
-            "writes extent, count, received, speed",
-            "writes extent, count, received, speed, shown",
-        )
-        .replace(
-            "    speed = velocity",
-            "    speed = velocity\n    shown = false",
-        );
+    let deleting = SOURCE.replace(
+        "    speed = velocity",
+        "    speed = velocity\n    shown = false",
+    );
     let (mut host, _) = boot_source(&deleting);
     let held = begin(&mut host, "handle", 300.0, 1.0);
     let batch = host
@@ -609,7 +604,7 @@ fn malformed_typed_release_does_not_change_host_clock_or_action_state() {
 
 #[test]
 fn overdue_timer_retains_height_hold_and_lowers_unrelated_action_motion() {
-    let source = SOURCE.replace("  view\n", "  action tick writes extent, count\n    extent = 240\n    count = count + 1\n  task clock mount\n    every(100, tick)\n  view\n")
+    let source = SOURCE.replace("  view\n", "  action tick\n    extent = 240\n    count = count + 1\n  task clock mount\n    every(100, tick)\n  view\n")
         .replace("testId=\"result\"", "testId=\"result\" opacity=(count == 0 ? 1 : 0.5) transition=\"opacity spring(180, 12, 1)\"");
     let (mut host, _) = boot_source(&source);
     let held = begin(&mut host, "handle", 400.0, 150.0);
@@ -682,8 +677,8 @@ fn accepted_receipt_cancellation_starts_at_receipt_time_and_retargets_from_elaps
 fn accepted_cancellation_uses_latest_zero_duration_or_removed_transition() {
     for transition in ["none", "height 0ms linear"] {
         let source = SOURCE.replace("  state reference =", "  state transition = \"height spring(180, 12, 1)\"\n  state reference =")
-            .replace("  action unbind writes reference\n    reference = \"missing\"",
-                &format!("  action unbind writes reference, transition\n    reference = \"missing\"\n    transition = \"{transition}\""))
+            .replace("  action unbind\n    reference = \"missing\"",
+                &format!("  action unbind\n    reference = \"missing\"\n    transition = \"{transition}\""))
             .replace("transition=\"height spring(180, 12, 1)\"", "transition=transition");
         let (mut host, _) = boot_source(&source);
         let held = begin(&mut host, "handle", 300.0, 100.0);
@@ -708,8 +703,8 @@ fn accepted_cancellation_uses_latest_zero_duration_or_removed_transition() {
 #[test]
 fn accepted_cancellation_uses_latest_target_spring_and_delay_while_still_held() {
     let source = SOURCE.replace("  state reference =", "  state declaration = \"height spring(180, 12, 1)\"\n  state reference =")
-        .replace("  action unbind writes reference\n    reference = \"missing\"",
-            "  action unbind writes reference, extent, declaration\n    reference = \"missing\"\n    extent = 240\n    declaration = \"height 0s spring(120, 8, 2) 50ms\"")
+        .replace("  action unbind\n    reference = \"missing\"",
+            "  action unbind\n    reference = \"missing\"\n    extent = 240\n    declaration = \"height 0s spring(120, 8, 2) 50ms\"")
         .replace("transition=\"height spring(180, 12, 1)\"", "transition=declaration");
     let (mut host, _) = boot_source(&source);
     let held = begin(&mut host, "handle", 300.0, 100.0);

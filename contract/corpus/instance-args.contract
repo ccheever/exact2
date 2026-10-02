@@ -15,7 +15,7 @@ component App
   resource data = app(started) as shape App
   mutation outcome as shape Result
   state started = true
-  action save(name: string) writes outcome
+  action save(name: string)
     send outcome = command("profile", name)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
@@ -30,7 +30,7 @@ component Screen
   state editingProfile = false
   state editName = ""
   derive profileName = (editingProfile ? editName : data.viewer.name)
-  action edit(value: string) writes editName, editingProfile
+  action edit(value: string)
     editingProfile = true
     editName = value
   view

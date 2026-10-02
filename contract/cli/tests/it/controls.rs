@@ -19,14 +19,14 @@ const SETTINGS: &str = r#"component App
   state draft = ""
   state sent = ""
   state moves = 0
-  action setMuted(on: bool) writes muted, moves
+  action setMuted(on: bool)
     muted = on
     moves = moves + 1
-  action refuse(on: bool) writes moves
+  action refuse(on: bool)
     moves = moves + 1
-  action write(value: string) writes draft
+  action write(value: string)
     draft = value
-  action commit(value: string) writes sent
+  action commit(value: string)
     sent = value
   view
     column
@@ -130,7 +130,7 @@ fn the_compiler_names_what_a_control_takes() {
     let refused = |src: &str| contract::compile(src).unwrap_err().to_string();
     let app = |line: &str| {
         format!(
-            "component App\n  state on = false\n  state kind = \"checkbox\"\n  action set(v: bool) writes on\n    on = v\n  action text(v: string) writes kind\n    kind = v\n  view\n    column\n      {line}\n"
+            "component App\n  state on = false\n  state kind = \"checkbox\"\n  action set(v: bool)\n    on = v\n  action text(v: string)\n    kind = v\n  view\n    column\n      {line}\n"
         )
     };
     // A checkbox's `change` supplies a bool, not the text a field's does.
@@ -181,7 +181,7 @@ fn a_text_fields_type_is_a_choice_between_text_fields_types() {
     // parameter is written without a type.
     let field = |kind: &str| {
         format!(
-            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle writes shown\n    shown = not shown\n  action keep(value) writes secret\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
+            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle\n    shown = not shown\n  action keep(value)\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
         )
     };
     let mut r = boot(&field("shown ? \"text\" : \"password\""));
@@ -239,10 +239,10 @@ component App
   resource themes = themes() as shape list<Theme>
   state theme = "system"
   state moves = 0
-  action setTheme(value: string) writes theme, moves
+  action setTheme(value: string)
     theme = value
     moves = moves + 1
-  action refuse(value: string) writes moves
+  action refuse(value: string)
     moves = moves + 1
   view
     column
@@ -353,11 +353,11 @@ const VOLUME: &str = r#"component App
   state volume = 40
   state scale = 1
   state preview = 0
-  action setVolume(value: number) writes volume
+  action setVolume(value: number)
     volume = value
-  action hear(value: number) writes preview
+  action hear(value: number)
     preview = value
-  action setScale(value: number) writes scale
+  action setScale(value: number)
     scale = value
   view
     column
@@ -410,11 +410,11 @@ const DUE: &str = r#"component App
   state due = "2026-10-01"
   state alarm = "07:00"
   state at = ""
-  action setDue(value: string) writes due
+  action setDue(value: string)
     due = value
-  action setAlarm(value: string) writes alarm
+  action setAlarm(value: string)
     alarm = value
-  action setAt(value: string) writes at
+  action setAt(value: string)
     at = value
   view
     column

@@ -12,9 +12,9 @@ component BootPress
   state presses = 0
   state words = ""
   resource tags = popularTags(true) as shape list<string>
-  action bump writes presses
+  action bump
     presses = presses + 1
-  action setWords(value: string) writes words
+  action setWords(value: string)
     words = value
   view
     column testId="root" padding=24 gap=12

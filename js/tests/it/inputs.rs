@@ -57,23 +57,23 @@ component App
   state form = "now"
   resource value = explicit(elapsedMs, seed) as shape string
   mutation result as shape string
-  action refreshValue writes elapsedMs
+  action refreshValue
     refresh value
-  action tick writes elapsedMs
+  action tick
     elapsedMs = now()
-  action reseed(v: number) writes seed
+  action reseed(v: number)
     seed = v
-  action ambient writes result
+  action ambient
     send result = ambient(form)
-  action ambientLater writes result
+  action ambientLater
     send result = ambientLater(form)
-  action explicitLater writes result
+  action explicitLater
     send result = explicitLater(elapsedMs, seed)
-  action atInit writes result
+  action atInit
     send result = atInit(form)
-  action utc writes result
+  action utc
     send result = utc()
-  action intl writes result
+  action intl
     send result = intl(elapsedMs)
   view
     text value testId="value"

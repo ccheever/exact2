@@ -3,9 +3,9 @@
 component Styles
   state on = false
   state width = 120
-  action flip writes on
+  action flip
     on = not on
-  action widen writes width
+  action widen
     width = width + 40
   view
     column testId="root" padding=10 gap=8

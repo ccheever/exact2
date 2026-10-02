@@ -18,11 +18,11 @@ component EmptyList
   derive shown = showAll ? coins : []
   // Initialized empty; the write in `pick` says what it holds.
   state picked = []
-  action pick(id: string) writes picked
+  action pick(id: string)
     picked = map(filter(coins, c => c.id == id), c => c.id)
-  action toggle writes showAll
+  action toggle
     showAll = not showAll
-  action tick writes changed
+  action tick
     send changed = tick()
   view
     column testId="root"

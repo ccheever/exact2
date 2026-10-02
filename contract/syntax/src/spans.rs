@@ -94,14 +94,14 @@ structs! {
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
-    Component { name, props, injects, slot, states, derives, resources, mutations,
+    Component { name, props, injects, provides, slot, states, derives, resources, mutations,
         actions, tasks, view, span }
     Binding { name, expr, span }
     ResourceDecl { name, source, args, shape, placeholder, span }
     Placeholder { source, args, span }
     MutationDecl { name, shape, refreshes, then, span }
     Param { name, ty, span }
-    Action { name, params, writes, body, span }
+    Action { name, params, body, span }
     Task { name, kind, timer, span }
     Attr { name, value, span }
 }
@@ -126,7 +126,7 @@ record_variants! {
 }
 record_variants! {
     Stmt {
-        Assign { target, expr, span }, Command { name, args, span },
+        Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
     }
@@ -134,7 +134,7 @@ record_variants! {
 record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
-        Provide { name, expr, body, span }, Children { span },
+        Children { span },
         When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
         Match { subject, some, none, span },
     }

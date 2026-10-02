@@ -6,7 +6,7 @@ use StationRow from "./row.contract"
 component App
   state picked = ""
   resource stations = stations() as shape list<Station>
-  action pick(id) writes picked
+  action pick(id)
     picked = id
   view
     column testId="root"

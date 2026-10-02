@@ -19,11 +19,11 @@ component Now
   resource board = departures(selected) as shape list<Departure>
   derive count = length(board)
 
-  action selectStation(id) writes stationId
+  action selectStation(id)
     stationId = some(id)
-  action setQuery(q) writes query
+  action setQuery(q)
     query = q
-  action tick writes nowMs
+  action tick
     nowMs = now()
   action setDark(s: string)
     setScheme(s)
@@ -37,7 +37,7 @@ component Now
       when query == ""
         each d in board key=d.id
           button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
-            text formatCountdownMinutes(d.at, nowMs)
+            text toString(max(0, -floor(-((d.at - nowMs) / 60000))))
       else
         text "searching" testId="searching"
       input value=query input=setQuery testId="search"

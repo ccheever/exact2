@@ -352,14 +352,17 @@ async function drive(t, report, fail, dir, ws, js) {
         report.steps.push({ target: t.name, step: line, skipped: `${other}: ${op} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input` });
         continue;
       }
-      try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; }
-      try { await run(J); } catch (e) {
-        const message = e.message.split('\n')[0];
-        fail(line, `${other}: ${message}`);
-        diverged = true;
-        break;
-      }
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
+      // stops the advance at its time) is refused by the others too, then compared.
+      let refused = null;
+      try { await run(W); } catch (e) { if (op !== 'clock') { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; } refused = e.message.split('\n')[0]; }
+      const answered = who => { if (refused) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
+      let jsRefused = null;
+      try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
+      if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
+      if (!jsRefused) answered(other);
+      if (refused && !jsRefused) { diverged = true; break; }
+      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
       tree = await compare(line);
     }

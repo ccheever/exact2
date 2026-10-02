@@ -91,7 +91,7 @@ mod tests {
     fn fixture() -> Presenter<NoData> {
         let plan = contract::compile(r#"component App
   state count = 0
-  action reply writes count
+  action reply
     count = count + 1
   view
     column
@@ -282,7 +282,7 @@ mod tests {
   state target = 180
   state count = 0
   state seen = 0
-  action release(h: number, v: number) writes target, count, seen
+  action release(h: number, v: number)
     count = count + 1
     seen = h
     target = 360

@@ -1377,7 +1377,8 @@
     {"sequence": 2, "step": 4, "name": "absent", "expected": []}
   ],
   "laws": [
-    {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r)"},
+    {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r) for u not the top url"},
+    {"name": "push_top", "statement": "push(r, top(r).url) = r"},
     {"name": "back_root", "statement": "back(r) = r when depth(r) = 1"},
     {"name": "select_twice", "statement": "select(select(r, t), t) has depth 1"},
     {"name": "open_idempotent", "statement": "open(open(r, u), u) = open(r, u)"},

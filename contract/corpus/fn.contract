@@ -11,9 +11,9 @@ component Fns
   state on = true
   derive price = dollars(cents)
   derive label = pick(on, "yes", "no")
-  action flip writes on
+  action flip
     on = not on
-  action bump writes cents
+  action bump
     cents = quad(cents)
   view
     column testId="root"

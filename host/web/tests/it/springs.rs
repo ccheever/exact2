@@ -191,9 +191,9 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
   resource rows = rows() as shape list<number>
   state shown = true
   state big = false
-  action hide writes shown
+  action hide
     shown = not shown
-  action toggle writes big
+  action toggle
     big = not big
   view
     column

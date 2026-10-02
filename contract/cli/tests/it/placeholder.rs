@@ -465,7 +465,7 @@ impl DataSource for FailedSearch {
 }
 
 fn failed_search(stored: bool) -> Runner<FailedSearch> {
-    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  action search(q: string) writes query\n    query = q\n  action touch(v: string) writes changed\n    send changed = touch(v)\n  action retry\n    refresh results\n  view\n    text `${results}/${pending(results)}`\n";
+    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  action search(q: string)\n    query = q\n  action touch(v: string)\n    send changed = touch(v)\n  action retry\n    refresh results\n  view\n    text `${results}/${pending(results)}`\n";
     Runner::boot(
         contract::compile(src).unwrap(),
         FailedSearch {
@@ -600,9 +600,9 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
   resource status = report(failed(results)) as shape bool
   resource rows = rows() as shape list<number>
   mutation changed as shape bool
-  action search(q: string) writes query
+  action search(q: string)
     query = q
-  action touch(v: string) writes changed
+  action touch(v: string)
     send changed = touch(v)
   action retry
     refresh results

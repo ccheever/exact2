@@ -124,7 +124,7 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
     let plan = contract::compile(
         r##"component App
   state dark = false
-  action flip writes dark
+  action flip
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view

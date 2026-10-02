@@ -271,7 +271,7 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     let (path, compat) = fixture();
     let source = r#"component Controls
   state renamed = false
-  action rename writes renamed
+  action rename
     renamed = true
   view
     column
@@ -369,7 +369,7 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     drop(p);
     let source = r#"component Placed
   state count = 0
-  action press writes count
+  action press
     count = count + 1
   view
     canvas testId="world" width=100 height=100

@@ -31,12 +31,32 @@ pub fn kernel() -> Kernel {
 
 /// [`Parts`] for `id` in `kernel`, or `None` for a view it does not hold.
 pub fn parts(kernel: &Kernel, plan: &Plan, id: ViewId) -> Option<Parts> {
+    parts_with(kernel, plan, id, false, false)
+}
+
+/// [`parts`], for a node a build knows has nothing the template leaves out
+/// that would keep its text its own box (no bound row or prop but its
+/// text, no handler, not a repeated row): such a text may fold into its
+/// box's content as the live host folds it (LLP 1007.001); `child_may_fold`
+/// says the same of the node's only child.
+pub fn parts_with(
+    kernel: &Kernel,
+    plan: &Plan,
+    id: ViewId,
+    may_fold: bool,
+    child_may_fold: bool,
+) -> Option<Parts> {
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
     svg_props(kernel, &node, &mut props);
     let (text, skipped) = crate::css::css_text(&css_style(kernel, &node), &font_names(plan));
-    let css = host_css(&node, text, tag);
+    let css = super::element::contents(
+        host_css(&node, text, tag),
+        may_fold && super::element::folded(kernel, &node, false),
+    );
+    let holds = child_may_fold && super::element::holds_folded(kernel, &node, &|_| false);
+    let css = super::element::blocks(css, holds);
     Some(Parts {
         tag: tag.to_string(),
         props,

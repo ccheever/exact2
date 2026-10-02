@@ -412,7 +412,7 @@ fn direction_is_css_direction() {
 /// computed value, a `light-dark()` arm and a border side.
 #[test]
 fn transparent_is_a_colour() {
-    let src = "component A\n  state on = false\n  action flip writes on\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
+    let src = "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     let plan = contract::bake(plan, NoData).unwrap();
     let mut r = Runner::boot(

@@ -70,12 +70,12 @@ component App
   resource initial = rows() as shape list<Row>
   mutation changed as shape list<Row>
   derive rows = match changed { case some(value) => value, case none => initial }
-  action drop(item: string, before: option<string>) writes changed, count
+  action drop(item: string, before: option<string>)
     send changed = move(item, before)
     count = count + 1
-  action disable writes disabled
+  action disable
     disabled = true
-  action edit(v: string) writes draft
+  action edit(v: string)
     draft = v
   view
     box width="100%" height="100%"
@@ -336,10 +336,10 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
     assert!(!p.needs_animation_frame());
 }
 
-fn scroll_fixture(action: &str, writes: &str) -> String {
+fn scroll_fixture(action: &str) -> String {
     APP.replace(
         "  state count = 0",
-        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number) writes scrolls{writes}\n    scrolls = scrolls + 1\n{action}  state count = 0"),
+        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number)\n    scrolls = scrolls + 1\n{action}  state count = 0"),
     )
     .replace("width=300 height=184", "width=portWidth height=184")
     .replace("virtualized=true reorderdrop=drop", "virtualized=true reorderdrop=drop scroll=scrolled")
@@ -347,7 +347,7 @@ fn scroll_fixture(action: &str, writes: &str) -> String {
 
 #[test]
 fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() {
-    let mut p = boot_source(&scroll_fixture("", ""));
+    let mut p = boot_source(&scroll_fixture(""));
     let (source, point) = recognize(&mut p);
     let list = id(&p, "list");
     let port = p.rect_of(list).unwrap();
@@ -375,11 +375,11 @@ fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() 
 
 #[test]
 fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
-    for (action, writes, deleted) in [
-        ("    send changed = removeFirst()\n", ", changed", true),
-        ("    portWidth = 200\n", ", portWidth", false),
+    for (action, deleted) in [
+        ("    send changed = removeFirst()\n", true),
+        ("    portWidth = 200\n", false),
     ] {
-        let mut p = boot_source(&scroll_fixture(action, writes));
+        let mut p = boot_source(&scroll_fixture(action));
         let (source, point) = recognize(&mut p);
         let list = id(&p, "list");
         let port = p.rect_of(list).unwrap();

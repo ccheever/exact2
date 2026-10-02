@@ -1,5 +1,6 @@
 //! LLP 1017 P4a/P4b: `provide`/`inject` and `slot`/`children`, proven on
-//! the kernel after boot.
+//! the kernel after boot; `provide` is a component section (LLP
+//! 1035.005.000 D9).
 
 use exact_kernel::{Color, Kernel, PropValue};
 use exact_plan::Value;
@@ -57,26 +58,53 @@ fn a_slot_takes_the_nodes_under_a_use_in_the_use_sites_scope() {
 }
 
 #[test]
-fn a_provide_fills_an_inject_and_the_innermost_wins() {
+fn a_provide_section_fills_an_inject_and_the_nearest_component_wins() {
     let r = boot("provide.contract");
     let k = r.kernel();
     let color_of = |id: &str| {
         let key = k.find_by_test_id(id)[0];
         k.node_by_key(key).unwrap().style.text_color
     };
+    // LLP 1035.005.000 D9: a section covers its component's whole view, an
+    // inner component's overrides an outer one's, and a slot's fill keeps
+    // its caller's context.
+    for (id, hex) in [
+        ("label-outer", "#112233"),
+        ("label-through", "#112233"),
+        ("label-inner", "#ff0000"),
+        ("label-framed", "#00ff00"),
+        ("label-fill", "#ff0000"),
+    ] {
+        assert_eq!(color_of(id), Color::parse_hex(hex).unwrap().into(), "{id}");
+    }
+}
+
+#[test]
+fn the_nested_provide_form_and_a_twice_provided_name_are_refused() {
+    let nested = "component App\n  view\n    column\n      provide accent = \"#fff\"\n        Label()\ncomponent Label\n  inject\n    accent: string\n  view\n    text accent\n";
+    let error = contract::compile(nested).unwrap_err();
     assert_eq!(
-        color_of("label-outer"),
-        Color::parse_hex("#112233").unwrap().into()
+        (error.id.as_str(), error.span.line, error.span.col),
+        ("syntax-provide-in-view", 4, 7)
     );
+    assert!(
+        error
+            .message
+            .contains("write `provide` beside `props` and `inject`, with `accent = …`"),
+        "{error}"
+    );
+    let twice =
+        "component App\n  provide\n    accent = \"#fff\"\n    accent\n  view\n    text \"a\"\n";
+    let error = contract::compile(twice).unwrap_err();
     assert_eq!(
-        color_of("label-inner"),
-        Color::parse_hex("#ff0000").unwrap().into()
+        (error.id.as_str(), error.span.line, error.span.col),
+        ("syntax-duplicate-declaration", 4, 5)
     );
 }
 
 #[test]
 fn a_provided_value_may_be_state_and_follows_it() {
-    let src = "component App\n  state ink = \"#112233\"\n  action paint writes ink\n    ink = \"#00ff00\"\n  view\n    column testId=\"root\"\n      provide accent = ink\n        Label(text=\"x\")\ncomponent Label\n  props\n    text: string\n  inject\n    accent: string\n  view\n    text text color=accent testId=`label-${text}`\n";
+    let src = "component App\n  state ink = \"#112233\"\n  action paint\n    ink = \"#00ff00\"\n  provide\n    accent = ink\n  view\n    column testId=\"root\"\n      Label(text=\"x\")\ncomponent Label\n  props\n    text: string\n  inject\n    accent: string\n  view\n    text text color=accent testId=`label-${text}`\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -98,7 +126,7 @@ fn a_provided_value_may_be_state_and_follows_it() {
 #[test]
 fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
     let source = |args: &str| {
-        format!("shape Todo\n  title: string\ncomponent App\n  resource todo = todo() as shape Todo\n  state count = 0\n  action pick writes count\n    count = 1\n  view\n    Row({args})\ncomponent Row\n  props\n    todo: Todo\n    onPick: action\n  view\n    button press=onPick\n      text todo.title\n")
+        format!("shape Todo\n  title: string\ncomponent App\n  resource todo = todo() as shape Todo\n  state count = 0\n  action pick\n    count = 1\n  view\n    Row({args})\ncomponent Row\n  props\n    todo: Todo\n    onPick: action\n  view\n    button press=onPick\n      text todo.title\n")
     };
     let error = contract::compile(&source("todo=todo, onPik=pick")).unwrap_err();
     assert_eq!(

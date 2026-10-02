@@ -13,7 +13,7 @@ impl DataSource for NoData {
 
 fn source(params: &str, handler: &str, prop: &str) -> String {
     format!(
-        "component App\n  state sheetPx = 360\n  action snap({params}) writes sheetPx\n    sheetPx = 180\n  view\n    column id=\"sheet\" height=sheetPx box-sizing=\"border-box\"\n      column testId=\"handle\" heightDragFor={prop} heightrelease={handler}\n"
+        "component App\n  state sheetPx = 360\n  action snap({params})\n    sheetPx = 180\n  view\n    column id=\"sheet\" height=sheetPx box-sizing=\"border-box\"\n      column testId=\"handle\" heightDragFor={prop} heightrelease={handler}\n"
     )
 }
 
@@ -97,7 +97,7 @@ fn release_requires_two_numeric_trailing_parameters_and_string_idref() {
 fn child_action_props_are_rechecked_after_inlining() {
     for ty in ["number", "string"] {
         let src = format!(
-            "component App\n  state count = 0\n  action snap(height: {ty}, velocity: number) writes count\n    count = count + 1\n  view\n    column\n      Handle(release=snap)\ncomponent Handle\n  props\n    release: action\n  view\n    column heightDragFor=\"sheet\" heightrelease=release\n"
+            "component App\n  state count = 0\n  action snap(height: {ty}, velocity: number)\n    count = count + 1\n  view\n    column\n      Handle(release=snap)\ncomponent Handle\n  props\n    release: action\n  view\n    column heightDragFor=\"sheet\" heightrelease=release\n"
         );
         let result = contract::compile(&src);
         if ty == "number" {

@@ -45,7 +45,7 @@ fn fixture(ids: ContentRegionRegistration) -> Result<Fixture, exact_apple::HostE
 
 component App
   state draft = ""
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
   resource doc = blob() as shape Blob
   view
@@ -194,17 +194,17 @@ fn bridge_completion_owns_payload_even_when_runtime_not_booted() {
 fn selected_native_subtree_waits_for_b_while_outside_composer_commits() {
     let source = r##"component App
   state mounted = true
-  action unmount writes mounted
+  action unmount
     mounted = false
   state body = "A body 👩🏽‍💻 العربية"
   state sender = true
   state draft = ""
-  action revise writes body, sender
+  action revise
     body = "B body not selected yet"
     sender = false
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
-  action reply writes draft
+  action reply
     draft = "Reply selected row"
   view
     column width="100%" height="100%"
@@ -364,9 +364,9 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
   resource numbers = numbers() as shape list<number>
   state textValue = "A body"
   state draft = ""
-  action revise writes textValue
+  action revise
     textValue = "B longer body still pending"
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
   view
     column width="100%" height="100%"
@@ -584,9 +584,9 @@ fn projection_matches_ordinary(
 fn native_bulk_projection_matches_ordinary_through_origin_pending_and_width() {
     let source = r#"component App
   state top = 213.6
-  action shift writes top
+  action shift
     top = 213.7
-  action shiftAgain writes top
+  action shiftAgain
     top = 214.1
   view
     column width="100%" height="100%" padding-top=top

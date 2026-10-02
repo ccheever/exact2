@@ -15,29 +15,6 @@
 
 use exact_kernel::{NodeType, PropId, StyleId};
 
-/// A transform drag is admitted only with both callbacks its hosts require.
-pub(crate) fn check_transform_drag_handlers(
-    attrs: &[contract_syntax::Attr],
-) -> Result<(), crate::LowerError> {
-    let has = |name: &str| attrs.iter().any(|a| a.name == name);
-    if has("transformDragFor") {
-        for (present, missing) in [
-            ("transformgeometry", "transformrelease"),
-            ("transformrelease", "transformgeometry"),
-        ] {
-            if has(present) && !has(missing) {
-                let span = attrs.iter().find(|a| a.name == present).unwrap().span;
-                return crate::err(
-                    "lower-transform-drag-handlers",
-                    format!("`transformDragFor` with `{present}` also needs `{missing}`"),
-                    span,
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -1414,7 +1391,6 @@ pub(crate) fn host_transform_recipients(
                     collect(lower, otherwise, parent, repeated, boxes);
                 }
                 Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
-                Node::Provide { body, .. } => collect(lower, body, parent, repeated, boxes),
                 Node::Match { some, none, .. } => {
                     collect(lower, &some.1, parent, repeated, boxes);
                     collect(lower, none, parent, repeated, boxes);

@@ -50,7 +50,7 @@ fn an_action_branches_on_a_key_and_matches_an_option() {
 
 #[test]
 fn a_branch_may_nest_and_an_omitted_else_is_fine() {
-    let src = "component A\n  state n = 0\n  state s = \"\"\n  action go(k) writes n, s\n    if k == \"a\"\n      if n > 0\n        s = \"again\"\n      else\n        s = \"first\"\n      n = n + 1\n  view\n    column testId=\"root\"\n      input value=s change=go testId=\"i\"\n";
+    let src = "component A\n  state n = 0\n  state s = \"\"\n  action go(k)\n    if k == \"a\"\n      if n > 0\n        s = \"again\"\n      else\n        s = \"first\"\n      n = n + 1\n  view\n    column testId=\"root\"\n      input value=s change=go testId=\"i\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,

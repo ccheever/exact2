@@ -19,9 +19,9 @@ component App
   state saved = ""
   state revision = 0
   resource rows = rows(revision) as shape list<Message>
-  action save(id: string) writes saved
+  action save(id: string)
     saved = id
-  action bump writes revision
+  action bump
     revision = revision + 1
   view
     column testId="main" width="100%" height="100%" overflow="hidden"

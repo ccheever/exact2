@@ -36,8 +36,11 @@ file is under the 1,500-line cap.
 
 **Declarations.** `shape Name` with typed fields (`number string bool`, a
 shape name, `option<T>`, `list<T>`); `component Name` with sections `props`,
-`state`, `derive`, `resource`, `action`, `task`, `contract` (parsed, not
-compiled), `view`. The first component is the root; only the root holds
+`state`, `derive`, `resource`, `action`, `task`, `view`. A `contract`
+section is `syntax-contract-block`, whose message points at `test` blocks in
+`app.test.contract` (LLP 1017 P7; LLP 1035.005.000 D8, 2026-10-02: it was
+parsed and compiled to nothing, so assertion text promised what nothing
+enforced). The first component is the root; only the root holds
 `resource`/`mutation`/`task` (`type-child-resource`); a child component is a
 view over its `props` that may own `state`, `derive`, and `action` of its own
 (LLP 1017 P4c, 2026-08-30 — see **Instances** below), and a prop of type
@@ -62,8 +65,7 @@ routes nav
 
 The declaration inserts a root state slot before authored initializers and
 instance lifting, with no authored initializer. Its type is `Router`; launch
-fills it before initializers run. Actions declare `writes nav` and assign
-ordinary values. Only apps with `routes` receive the four compiler shapes,
+fills it before initializers run. Actions assign it ordinary values. Only apps with `routes` receive the four compiler shapes,
 with these exact positional field orders:
 
 - `Router { tab: string, tabs: list<Tab>, next: number }`
@@ -189,23 +191,38 @@ second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type,
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
 a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
+An app's wording is its own `fn`s, not the roster's (LLP 1035.005.000 D8,
+2026-10-02): `formatCountdownMinutes`, `formatDistance` and `formatWalk`,
+used only by Caltrain, left the roster for Caltrain `fn`s over `floor`, `max`
+and `toString` (§5).
 **Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
 and `action` (never a resource, mutation, or task — `type-child-resource`);
 `expand` lifts them into the root per use, renamed apart, a derive as a
 substituted expression, and a use under an `each` makes its states row slots
 (`slots.owner`), one value per keyed row on the runner. The "only the root
 holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
-(typed names, like `props`) that a use site does not pass — the nearest
-enclosing `provide name = expr` fills them at inlining, the innermost winning,
-none on the path `syntax-missing-provide`; and `slot`, so that the nodes
-indented under a use of it replace its `children` node, inlined in the use
-site's scope (`syntax-no-slot`, `syntax-children-without-slot`). Both are the
-inliner's; nothing reaches the plan.
+(typed names, like `props`) that a use site does not pass, and a `provide`
+section beside them (LLP 1035.005.000 D9, 2026-10-02), one binding per line:
+`name = expr`, any expression legal in the component's scope, or `name` alone
+for the in-scope value of that name. A section covers its component's whole
+view. Each inject is filled at inlining from the nearest providing component
+on the use's chain of component nesting: an inner component's section
+overrides an outer one's, a slot's fill keeps its caller's providers, and
+none on the chain is `syntax-missing-provide`, which names every missing
+inject in the section form. A name twice in one section is
+`syntax-duplicate-declaration`. The nested view form, `provide name = expr`
+over a subtree, is `syntax-provide-in-view`, whose message shows the section;
+no use needed the narrower scope, and rewriting all six in-repo uses
+(Caltrain's `accent`, five apps' `theme`) left every plan byte-identical. And
+`slot`, so that the nodes indented under a use of it replace its `children`
+node, inlined in the use site's scope (`syntax-no-slot`,
+`syntax-children-without-slot`). Both are the inliner's; nothing reaches the
+plan.
 
 **Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
 T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:
-`send name = source(args)` in an action asks the data source once (the
-mutation must be in the action's `writes`); `refresh resource` re-requests a
+`send name = source(args)` in an action asks the data source once;
+`refresh resource` re-requests a
 resource with its current arguments; `pending(x)` is `bool` for a resource
 or mutation `x` — a name, not a value, so it is not a roster entry. The name
 reads as `option<T>` (`match session { case some(s) => … }`) and may be
@@ -213,8 +230,12 @@ assigned (`session = none`), which forgets a reply in flight. `mutation name
 as shape T refreshes a, b` (LLP 1054.000.000 D1) names the root's resources a
 send changes: each is re-requested, forced, in the commit that sends and in
 the one where the reply lands (`type-refreshes-not-resource`,
-`type-refreshes-duplicate`). A resource's `else` is a source call over values
-(LLP 1048.003 D6) or `empty(field=value, …)`, its type's zero with named fields
+`type-refreshes-duplicate`). `… then action` (LLP 1016.001) names a
+parameterless action that runs once after the answers that land before the
+host next advances, as its own commit, reading the answer from the slot; one
+that can send its own mutation is `analyze-then-self-send`. A resource's
+`else` is a source call over values (LLP 1048.003 D6) or
+`empty(field=value, …)`, its type's zero with named fields
 replaced by constants (LLP 1054.000.002); without `else`, the zero shows while
 it is pending. `failed(resource)` (LLP 1054.000.002, ruled 2026-09-27) reads
 whether the latest request for the current arguments failed without an
@@ -225,19 +246,47 @@ a placeholder. Changed arguments or `refresh` clear the failure and allow a
 new request; a successful answer clears it too. A failure the source shapes
 into an answer is an answer, not `failed`. Like `pending`, this is a compiler
 call, not a value-taking roster entry. **Actions.**
-`action name(params) writes a, b` with a body of `slot = expr`
+`action name(params)` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case
 some(x)` / `case none` blocks of statements, nested as deep as wanted, with no
-loops (a body still always terminates, LLP 1005 §2; `writes` covers every
-branch; `if` needs a bool, `type-condition`; the `match` binds its name as a
-local, as the inline form does); a parameter's type is written or
+loops (a body still always terminates, LLP 1005 §2; `if` needs a bool,
+`type-condition`; the `match` binds its name as a local, as the inline form
+does), and — since 2026-10-02, LLP 1035.005.000 D2 — `let name = expr`: an
+immutable local, evaluated once where it stands and read by the statements
+after it in its block and the blocks nested there (each `if`, `else` and
+`case` arm is a block, so two arms may each declare `word`). A local reads
+earlier locals and whatever else is legal at that site (a parameter, a
+`match` binding, `frame(id)`); writes still land together and reads still
+see the action's starting state, so `count = count + 1` then `let seen =
+count` binds the old count. A local is never reassigned
+(`type-let-reassign`), read before its line (`type-let-before-declaration`;
+a nested block reading a later `let` of an enclosing one included), declared
+twice in one block (`type-let-duplicate`), or spelled like a name already in
+scope — a state, derive, resource, mutation, action, prop, parameter or
+another local (`type-let-shadow`). `let` starts a statement only before a
+name, as `send` does: `let = x` assigns a state named `let`. A child's local
+is checked in the child's scope; lifted into the root (`name#N`) it may
+spell a root name the child never saw, and it is renamed apart (`x@k`) when
+a substituted expression mentions it. Lowering binds it
+(`BindLocal`) and drops it (`DropLocal`) where its block ends
+(`contract/lower/src/stmts.rs`); the plan format, the VM and the
+JavaScript runtime are unchanged. A parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
-`change`'s payload types the last parameter `string`, a `hover`'s `bool`);
-an assignment to an undeclared slot is
-`analyze-write-not-declared`. **Tasks.** `task name mount` with
+`change`'s payload types the last parameter `string`, a `hover`'s `bool`).
+An action's effects are inferred, never declared (LLP 1035.005.000 D1,
+2026-10-02): the plan's `actions.writes`, the VM's `StoreSlot`/`Send`
+allowlist, is exactly the states and mutations the body assigns or sends
+through every branch, in slot order. A `writes` clause after the parameters
+is `syntax-writes-clause`, whose message says to delete it; there is no
+compatibility before 1.0, and one mechanical rewrite removed every clause.
+What the clause once caught is scope and type: an assignment to anything but
+the component's own state or mutation is `type-assign-not-state`, a `send` to
+anything but its mutation `type-send-not-mutation`. An unintended write to a
+valid, in-scope slot is no longer refused; `contract symbols` shows each
+action's inferred `writes` on its definition. **Tasks.** `task name mount` with
 `every(ms, action)` (fires at boot+ms and every ms after), `every(frame,
 action)` (once per presented frame, never caught up; LLP 1073) or `after(ms,
 action)` (fires once at boot+ms, then is spent and reports no deadline),
@@ -252,8 +301,26 @@ types, in a derive, a source argument, or an `each` list, is
 `type-cannot-infer` at the `[]`, and a state only `[]` initializes is
 refused as a state nothing writes; a list literal with items stays out,
 LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
-< <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
-{ case some(x) => a, case none => b }`.
+< <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, inline `match s
+{ case some(x) => a, case none => b }`, and records (LLP 1035.005.000 D3,
+2026-10-02). `Fields(title=v, body="", pinned=false)` builds a shape the app
+declares, naming every field once: none is defaulted
+(`type-record-missing` lists the missing ones), an unknown one is
+`type-record-unknown-field` (listing the shape's fields), a repeat
+`type-record-duplicate`, and a value of the wrong type `type-argument`.
+`Fields(base, title=v)` copies `base`, an expression of that shape, with the
+named fields replaced; the one positional argument comes first and is of
+the shape, or it is `type-record-base`. The result is the shape. It is
+written wherever an expression is: a state initializer, a derive, an action,
+a `let`, the view, a handler's argument, a `fn` body, a source's argument.
+The compiler's own shapes (`Router`, `Entry`, `Geometry`) are not built by
+hand, and a `fn` may not take a declared shape's name
+(`type-fn-shape-name`). Lowering emits the plan's existing `Record` opcode:
+a build pushes the values in declaration order; a copy binds its base once
+as a local and reads each kept field from it (`Field`). Equality is
+structural, as it was for records from sources. `contract fmt` keeps a named
+argument's `=` against its name (`empty(field=value)` too), as an
+attribute's.
 
 `includes(text, substring) -> bool` performs a case-sensitive literal substring
 search (the empty substring matches), as the web's `String.prototype.includes`
@@ -325,7 +392,7 @@ The source-preserving formatter uses the existing lexer's exact byte ranges
 and the parser's attribute/argument boundaries. It normalizes structural
 indentation to two spaces and token spacing, breaking long headers at
 100 columns. Existing line breaks, blank groups, comment attachment, literal
-spellings and opaque `contract` bodies survive; template interiors are kept
+spellings survive; template interiors are kept
 verbatim. Long indivisible literals, comments and non-header expressions can
 exceed the preferred width; a prefix containing interleaved positional arguments
 also stays on the element's head. Re-lexing verifies unchanged ordinary tokens;
@@ -356,6 +423,11 @@ checked standalone. Roster calls are checked against the table's `params`/
 without constructing a merged type. Type inference uses `Ty::unify` wherever
 it needs the merged value. Function body checking borrows the resolved signature;
 only the parameter types entering the body's owned scope are cloned.
+Action bodies are `actions.rs` (`check_body`: block scopes, the `let` rules);
+record builds are `records.rs`, which lowering and `symbols` share for
+`is_record_call` and the base (LLP 1035.005.000 D2/D3). `contract symbols`
+defines a `let` as a `local` for its block and refers a build to its shape
+and each named argument to its field.
 
 Unknown written types retain `type-unknown` and their original token span. The
 message lists known named types: primitives and bare `action`, then declared
@@ -458,29 +530,27 @@ position default; `commandfor` and `command` are schema props, passed by their
 HTML names. Their presentation belongs to the host (LLP 1021 D2), with no
 compiler-created open-state slot.
 
-**Analyze** (`contract-analyze`): `writes` declared and honored, handler
-shape and arity (`change` and `key` supply a string as the last parameter,
-`hover` a bool, `press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and
-`handler_payload` in `contract-analyze`), timer
-actions exist and take no parameters, component uses name real components
-with each argument once. Effect declarations are checked once on each authored
-component, including stateful children (LLP 1017 P4c), so errors name authored
-slots and actions rather than lifted instance names. Membership still uses the
-resolved slots, including the root's implicit router state. A missing `writes`
-declaration reports every undeclared target in first-write order, including
-`send` and every branch, without repeating targets. The stable
-`analyze-write-not-declared` ID and first offending statement's span remain.
-Unknown `writes` entries likewise report every invalid name in declaration order,
-without repeating names, and list the component's available state/mutation slots
-in sorted order. Choices use authored declarations plus the root's implicit
-router slot; parent slots, props, resources, derives and lifted child names are
-excluded. The `analyze-writes-unknown-state` ID and first invalid token's span
-remain, as does an earlier duplicate-entry refusal. Valid declarations construct
-no choices. Four scripted CLI repairs use the reported names, choices and original
-source location, reducing two or three successive refusals to one; non-message
-diagnostic fields and all 18 app/fixture plans are unchanged. This measures the
-repair protocol, not general agent productivity or runtime performance.
-Evidence: `/tmp/exact-writes-choices-06971c8e`.
+**Analyze** (`contract-analyze`): handler shape and arity (`change` and
+`key` supply a string as the last parameter, `hover` a bool,
+`press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and `handler_payload` in
+`contract-analyze`), timer actions exist and take no parameters, a mutation's
+`then` action takes none and never sends that mutation, in any branch
+(`analyze-then-self-send`, read from the body's effects), component uses name
+real components with each argument once. It checks no effect declarations:
+there are none (§2, LLP 1035.005.000 D1). `analyze-write-not-declared`,
+`analyze-writes-unknown-state` and `analyze-writes-duplicate` retired with the
+clause on 2026-10-02, with their fixtures and their repair-message work.
+Lowering computes each action's `writes` from `Action::effects` (the body's
+assignments and sends, every branch) after expansion, so a lifted child
+instance's action names its own renamed slots and a row-owned slot is written
+to the row in force, as before. Proof at the change: every one of the 117
+`.contract` roots in the repository (apps, examples, game fixtures, corpus,
+conformance) compiled before and after, and the decoded plans compared with
+`actions.writes` set aside are identical. 99 kept the same allowlists in the
+same order, 16 the same sets now in slot order, and two shrank where an app
+listed a slot its body never writes: Completion Storm's `sample` (`clicks`)
+and the iOS Calendar example's `animateDrag` (`editorMorphAt`) and
+`chooseType` (`pickerClosing`, `pickerUntil`).
 
 **Lower** (`contract-lower`): shapes to `types`; declarations to `slots`,
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view
@@ -513,7 +583,8 @@ layout refusals; the measured ones are bake's, §3 Driver); a leaf tag with
 children, or a `text` holding anything
 but `text` runs, is `lower-leaf-children`); every expression through one assembler
 (`expr.rs`: `and`/`or` short-circuit through a local; inline `match` binds a
-local; a non-string template part gets `toString`). A template whose parts are
+local; a record build is `Record`, a copy binding its base as a local; a
+non-string template part gets `toString`). A template whose parts are
 all literal strings after component expansion emits one interned string, so a
 literal prefix passed to a component adds no runtime concatenation. Dynamic
 parts and non-string conversions retain their ordinary evaluation. Row order is source
@@ -547,9 +618,44 @@ build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `contract/corpus/now-screen.contract` is the runner's hand-built plan as
 Contract; the corpus test compiles it, round-trips the bytes, bakes, boots,
 and asserts the same behavior the hand-built test asserts (keyed reorder,
-`when` flip, timers, commands) — proven at both ends. `rejects.txt` holds one
+`when` flip, timers, commands, and the countdown's whole minutes, which both
+spell `toString(max(0, -floor(-((at - now) / 60000))))`) — proven at both ends. `rejects.txt` holds one
 fixture per diagnostic id, each refused with exactly its id. The
 app itself is the integration fixture (`apps/caltrain/tests/app.rs`).
+
+`records.contract` (D3) and `let.contract` (D2) run on the runner in
+`contract/cli/tests/it/records.rs` and `locals.rs`: a record built in an
+initializer, a derive, a `fn`, an action, the view, a handler's argument and
+a source's argument, copied and compared; locals through branches, a `match`
+arm and a geometry read (one `frame` call), after a write, and in a lifted
+child action beside the root's names. Nine reject fixtures, one per new id.
+`host/web-js/conformance/records.contract` drives both features on the wasm
+runner and the JavaScript target. Every other root's plan is byte-identical
+(117 roots, 2026-10-02).
+
+Three apps adopt them (2026-10-02). Fieldnotes' editing session is one
+`Session` record (note id, saved id, `draft` and `original` as
+`option<Fields>`, request version, delete question) in place of ten slots;
+`fn nextSession` builds the next one naming every field, and `edit`,
+`newNote`, `restore` and `remove` each end a session with one assignment of
+it. `restore` had missed `confirmDelete`, so a restored notebook's blank
+editor still asked "Delete this note?" and sent `deleteNote("")`; that
+question is now part of the record the constructor resets. Twelve field
+derives became four (`loaded`, `fields`, `base`, `reference`) and `dirty` is
+`fields != reference`: 20 slots and 22 derives became 11 and 14, the plan
+24,086 bytes 23,525, the source (after D1's rewrite) 327 lines 290. The JS
+target was not driven through the editor: it still ignores typing there
+(LLP 1035.005.000 §6), as before the change. One wasm-target drive (two notes; save, edit while
+saving, discard, switch, a blocked switch while dirty, pin, cancel and
+confirm delete, search, backup and restore) gives the same 14 states before
+and after but the last, where only the stale question is gone. A keystroke
+through `Runner::dispatch` (one open note, release build, 5 rounds of 400)
+costs about 1 µs more: title 4.4 → 5.5 µs, body 4.7 → 5.9 µs (medians),
+since every derive that reads `session` re-evaluates. Interaction Gallery's
+`chooseSheet` and `snapSheet` bind `full` and `read` once, where each
+evaluated `sheetFullOf(frame("sheet-bay"), …)` four times and `measure`
+twice; Spark's `settle` binds `decision` once, where it evaluated
+`verdict(x, y, vx, vy, throwAt)` four times.
 
 Router rejects (LLP 1038 D2/D3) each have a same-named fixture in
 `rejects.txt`: `route-duplicate`, `route-shadowed`, `route-parent-param`,
@@ -581,6 +687,24 @@ regions, 9,893 bytes. `caltrain-data` implements `DataSource` for
 `defaultLocation`, `stations`, `nearest`, `station`, `board`, `search` over a
 seeded nine-station corridor with clock-face departures — exact1's `data.ts`,
 in Rust, one implementation for every host and for the bake.
+
+Its wording is four `fn`s at the top of `app.contract` (LLP 1035.005.000 D8,
+2026-10-02), the strings the roster's former formatters printed:
+`countdownText(at, now)` is the whole minutes to a departure, rounded up
+(`-floor(-x)`), never below 0; `distanceText(m)` is `nearby` under 0.1 mi,
+else the miles rounded to tenths (`floor(x * 10 + 0.5)`, which is
+`Math.round` for the positive tenths it sees) and printed by `tenthsText` as
+whole and tenth apart, so 2 prints `2.0 mi`; `walkText(m)` is at least
+`1 min walk`, at 80 m a minute, rounded up. Before the roster rows were
+deleted, each old formatter and its `fn` printed the same string on the Rust
+VM (Linux host) and the JS target for 2,670 inputs: distances at 0, at and
+around 0.1 mi (160.9344 m), at and one ulp around every half-tenth and whole
+tenth to 20 mi, up to 10⁹ km; walks at 0, 1, 79, 80, 81, 160 and negative;
+countdowns negative, 0, 1 ms, 59,999–60,001 ms and 10¹² ms.
+Measured, brotli-11, against `ffd5b0621`: the wasm cores lost 281 B
+(Caltrain), 1,480 B (RealWorld) and 1,095 B (video player); Caltrain's
+JS-target `app.js` gained 27 B (2.9 KB raw), each `fn` inlined at every call
+(ten, on seven lines; `tenthsText` inside each `distanceText`).
 
 ## 6. Identity and refusal (LLP 1004 D3)
 
@@ -620,10 +744,11 @@ values against their kernel rows~~ and ~~handler arity through a bare
 `action` prop~~ — both landed 2026-08-30 under LLP 1017 P1 (§3 Lower), with
 the root-region and the two layout refusals, and bake's layout lint (§3
 Driver); a total inlining budget beyond the
-depth guard; `@keyframes`, the `contract` block as
-executable assertions, `cursor`, per-instance state, LSP (the formatter is implemented above), `linear()`
+depth guard; `@keyframes`, `cursor`, per-instance state, LSP (the formatter is implemented above), `linear()`
 and transition rows from Contract (the kernel has the row; the tag table does
 not yet expose `transition`). Each is a fixture away, never a speculation.
+Executable `contract` assertions are not deferred but refused (§2): assertions
+are `test` blocks beside the app.
 
 ## 9. Checks that hold this
 

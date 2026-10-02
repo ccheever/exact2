@@ -719,3 +719,23 @@ export function typeControl(el, request) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
+
+// A view's box as the agent reports it. A text folded into its box's content
+// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
+// anonymous block its text is, as a style-less block child's was — its line
+// boxes along the main axis, and its box's content box across when the box
+// stretches its items (a block, or a flex or grid box that stretches).
+export function viewBox(el) {
+  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect(), p = el.parentElement;
+  if (!p) return t;
+  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
+  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
+  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
+  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
+  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
+  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
+  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}

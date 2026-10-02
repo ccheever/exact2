@@ -8,6 +8,11 @@ use std::time::Instant;
 #[path = "../../apple/src/executor_core.rs"]
 #[allow(dead_code)] // `run` is the core's own tests' entry
 mod core;
+/// A new executor waits for a native-worker slot under test: the crate's own
+/// tests, and the integration binary, whose every test's servers and renders
+/// share one process's bound (`test-wait`, which only the dev-dependency on
+/// this crate turns on). A server refuses (`Busy`) at the bound instead.
+const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
 
 /// The native core with a condition variable for its wake.
 pub struct Executor {

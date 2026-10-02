@@ -673,13 +673,19 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
         .map((line) => line.replace(/^(\/\S+?\.contract)/, (file) => relative(process.cwd(), file) || file));
       if (checked.status !== 0 && found.length) {
         const error = new Error(`${app.name}: the Contract does not compile:\n  ${[...new Set(found)].join('\n  ')}`);
-        error.stack = error.message;
+        error.stack = error.message; error.contract = true;
         throw error;
       }
     }
     throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   }
   return result;
+}
+/** A build script's call into the bake: a Contract that does not compile
+ * ends the process with its diagnostics as the last thing printed, with no
+ * stack after them (LLP 1054 L9); any other failure is thrown on. */
+export function contractLast(build) {
+  try { return build(); } catch (error) { if (!error?.contract) throw error; console.error(error.message); process.exit(1); }
 }
 /** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or
  * the per-pin cache every checkout shares, which host/apple/build.mjs fills

@@ -31,25 +31,25 @@ component Interview
   resource questions = loadQuestions(params(nav, "question")) as shape list<string>
   resource posts = loadPosts(params(nav, "post")) as shape list<Post>
   resource people = loadPeople(params(nav, "person")) as shape list<Person>
-  action openPost(id: string) writes nav
+  action openPost(id: string)
     nav = push(nav, path("post", id))
-  action openQuestion(id: number) writes nav
+  action openQuestion(id: number)
     nav = open(nav, path("question", id))
-  action open(url: string) writes nav
+  action open(url: string)
     nav = open(nav, url)
-  action push(url: string) writes nav
+  action push(url: string)
     nav = push(nav, url)
-  action replace(url: string) writes nav
+  action replace(url: string)
     nav = replace(nav, url)
-  action back writes nav
+  action back
     nav = back(nav)
-  action selectTab(name: string) writes nav
+  action selectTab(name: string)
     nav = select(nav, name)
-  action go(url: string) writes nav
+  action go(url: string)
     nav = go(nav, url)
-  action followLink(url: string) writes nav
+  action followLink(url: string)
     nav = go(nav, url)
-  action home writes nav
+  action home
     nav = open(nav, "/")
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink testId="navigation" width="100%" height="100%"

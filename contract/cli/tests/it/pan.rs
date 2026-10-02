@@ -13,7 +13,7 @@ fn pan_commits_curried_deltas_and_refuses_nonfinite_before_state_changes() {
         r#"component App
   state x = 0
   state y = 0
-  action move(factor: number, dx: number, dy: number) writes x, y
+  action move(factor: number, dx: number, dy: number)
     x = x + dx * factor
     y = y + dy * factor
   view
@@ -57,7 +57,7 @@ fn pan_commits_curried_deltas_and_refuses_nonfinite_before_state_changes() {
 #[test]
 fn pan_requires_two_numeric_payload_parameters_including_component_actions() {
     for params in ["dx: number", "dx: string, dy: number"] {
-        let src=format!("component App\n  state x = 0\n  action move({params}) writes x\n    x = 1\n  view\n    box pan=move\n");
+        let src=format!("component App\n  state x = 0\n  action move({params})\n    x = 1\n  view\n    box pan=move\n");
         assert!(contract::compile(&src).is_err());
     }
 }
