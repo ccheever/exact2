@@ -690,9 +690,9 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32) {
+    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
         guard let node = textHost(id), !node.inert, !node.disabled else { return }
-        let command = dialogs.command(node)
+        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         if command == nil || node.handlers.contains("press") { onPress?(id) }
         command?()
         // An invoker's press also drops its menu (LLP 1021 D3).

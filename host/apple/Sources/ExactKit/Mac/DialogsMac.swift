@@ -41,8 +41,8 @@ final class DialogHost {
         return view
     }
     /// Capture the command before the press's app code can replace its source.
-    func command(_ source: NodeView) -> (() -> Void)? {
-        guard !source.disabled, !source.inert, (!source.isHiddenOrHasHiddenAncestor || presenter?.toolbar.contains(source) == true),
+    func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
+        guard !source.disabled, !source.inert, (fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter?.toolbar.contains(source) == true),
               let name = source.props["commandfor"], let command = source.props["command"],
               let target = presenter?.carrying("tag:dialog").first(where: { $0.props["id"] == name }) else { return nil }
         return { [weak self, weak source, weak target] in

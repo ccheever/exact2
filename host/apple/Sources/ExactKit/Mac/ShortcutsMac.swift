@@ -60,6 +60,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         }
     }
     func perform(_ event: NSEvent) -> Bool {
+        // Escape belongs to the input method while composition is active.
+        if event.keyCode == 53, let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
         guard event.type == .keyDown,
               let view = nodes().first(where: {
                   !$0.inert && $0.window === event.window && $0.window?.attachedSheet == nil

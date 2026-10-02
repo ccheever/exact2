@@ -1,7 +1,7 @@
 // The native menu arm (exact2 LLP 1021 D3), macOS: a popover whose rows
 // are buttons presents as an NSMenu popped below its invoker, built from
 // the rows' data (text → title, aria-checked → the checkmark, disabled →
-// dimmed; a row without a press handler becomes the separator), and a
+// dimmed; a row without an action becomes the separator), and a
 // selection dispatches the row's press by view id into the runner — the
 // same journal entry a painted click makes. The invoker's own press has
 // already gone to the runner when the menu is built (the pop is deferred
@@ -59,12 +59,12 @@ final class MenuHost: NSObject {
     }
 
     /// The menu grammar, extracted (LLP 1021 D3).
-    private func menu(of pop: NodeView) -> NSMenu {
+    func menu(of pop: NodeView) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         var boundary = false
         for case let row as NodeView in pop.container.subviews {
-            guard row.handlers.contains("press") else {
+            guard row.pressable else {
                 boundary = true
                 continue
             }
@@ -82,7 +82,8 @@ final class MenuHost: NSObject {
 
     @objc private func pick(_ sender: NSMenuItem) {
         if let id = (sender.representedObject as? NSNumber)?.uint32Value {
-            presenter?.press(id)
+            // The source subtree is hidden because NSMenu presents it.
+            presenter?.press(id, fromNativeMenu: true)
         }
     }
 

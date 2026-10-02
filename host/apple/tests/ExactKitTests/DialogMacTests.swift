@@ -178,6 +178,34 @@ final class DialogMacTests: XCTestCase {
         p.dialogs.close(p.views[3]!)
     }
 
+    func testNativeMenuDialogCommandsUseTheProjectedRows() throws {
+        let p = fixture()
+        let popover = NodeView(id: 20, kind: "view", presenter: p)
+        p.views[20] = popover
+        p.root.addSubview(popover)
+        popover.addSubview(p.views[2]!)
+        popover.isHidden = true
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        for withHandler in [false, true] {
+            p.views[2]!.handlers = withHandler ? ["press"] : []
+            let menu = p.menus.menu(of: popover)
+            XCTAssertEqual(menu.items.count, 1, "command-only rows must be menu items")
+            let item = try XCTUnwrap(menu.items.first)
+            p.press(2)
+            XCTAssertNil(p.dialogs.active, "ordinary hidden-node activation stays blocked")
+            presses.removeAll()
+            _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            XCTAssertTrue(p.dialogs.active === p.views[3])
+            XCTAssertEqual(presses, withHandler ? [2] : [])
+            p.dialogs.close(p.views[3]!)
+            p.views[2]!.props["disabled"] = "true"
+            _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            XCTAssertNil(p.dialogs.active)
+            p.views[2]!.props.removeValue(forKey: "disabled")
+        }
+    }
+
     private func textarea(_ p: Presenter, id: UInt32, parent: UInt32) throws -> NSTextView {
         let node = NodeView(id: id, kind: "textarea", presenter: p)
         p.views[id] = node
@@ -219,17 +247,19 @@ final class DialogMacTests: XCTestCase {
     func testMarkedTextareaKeepsEscapeAndTabForItsInputMethod() throws {
         let p = fixture()
         let editor = try textarea(p, id: 7, parent: 3)
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": "Escape"], "clear": []]]))
         for code: UInt16 in [48, 53] {
             p.dialogs.show(p.views[3]!)
             XCTAssertTrue(window.makeFirstResponder(editor))
             editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
             XCTAssertTrue(editor.hasMarkedText())
-            XCTAssertFalse(p.dialogs.key(key(code)), "composition keys must reach the text input client")
+            XCTAssertFalse(p.dialogs.key(key(code)) || p.shortcuts.perform(key(code)), "composition keys must reach the text input client")
             XCTAssertTrue(p.dialogs.active === p.views[3])
             XCTAssertTrue(window.firstResponder === editor)
             editor.unmarkText()
         }
-        p.dialogs.close(p.views[3]!)
+        XCTAssertTrue(p.shortcuts.perform(key(53)), "the declared shortcut resumes after composition")
+        XCTAssertNil(p.dialogs.active)
     }
 
     func testSelectAllAndTextPaintingFollowTheTopLayer() {
