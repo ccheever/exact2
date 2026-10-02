@@ -48,6 +48,23 @@ pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
             none: Box::new(glass_group(none)?),
             span: *span,
         }),
+        // A shared derive's `let`: its value rewritten only when it is a
+        // spacing as written (a condition it binds is not), its body always.
+        Expr::Let {
+            name,
+            value,
+            body,
+            span,
+        } => Ok(Expr::Let {
+            name: name.clone(),
+            value: Box::new(if spacing_tree(value) {
+                glass_group(value)?
+            } else {
+                (**value).clone()
+            }),
+            body: Box::new(glass_group(body)?),
+            span: *span,
+        }),
         _ => {
             if let Some(spacing) = numeric_literal(e) {
                 if !(0.0..=10_000.0).contains(&spacing) {
@@ -60,6 +77,17 @@ pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
             }
             Ok(e.clone())
         }
+    }
+}
+
+/// Whether a value is a spacing as written: `"auto"`, a number, or a choice
+/// of them.
+fn spacing_tree(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s == "auto",
+        Expr::Ternary(_, a, b, _) => spacing_tree(a) && spacing_tree(b),
+        Expr::Match { some, none, .. } => spacing_tree(some) && spacing_tree(none),
+        _ => numeric_literal(e).is_some(),
     }
 }
 

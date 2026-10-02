@@ -32,6 +32,13 @@ fn view(host: &Host<NoData>, test_id: &str) -> u32 {
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
+/// Whether `op` carries `"key":value` as a whole number (not a prefix: 8 is not 80).
+fn has_number(op: &str, key: &str, value: &str) -> bool {
+    [",", "}"]
+        .iter()
+        .any(|end| op.contains(&format!("\"{key}\":{value}{end}")))
+}
+
 /// The last op of `kind` for `id`, up to the next op, as JSON text.
 fn last_op<'a>(batch: &'a str, kind: &str, id: u32) -> Option<&'a str> {
     let at = batch.rfind(&format!("\"op\":\"{kind}\",\"id\":{id},"))?;
@@ -84,7 +91,7 @@ fn an_auto_group_takes_its_spacing_from_its_gap_and_follows_it() {
         );
         assert!(create.contains("\"glassGroupAuto\":\"true\""), "{create}");
         assert!(
-            create.contains(&format!("\"glass_group_spacing\":{points}")),
+            has_number(create, "glass_group_spacing", points),
             "{id}: {create}"
         );
     }
@@ -93,12 +100,13 @@ fn an_auto_group_takes_its_spacing_from_its_gap_and_follows_it() {
     assert!(create.contains("\"glassGroup\":\"12\""), "{create}");
     assert!(!create.contains("glassGroupAuto"), "{create}");
     assert!(!create.contains("glass_group_spacing"), "{create}");
-    // A gap change sends no props, and the style op carries the new spacing.
+    // A gap change's style op carries the new spacing (the props, which carry
+    // the points too, follow with it).
     let batch = host.dispatch_at(view(&host, "widen"), Event::Press, 0.0);
     let style = last_op(&batch, "style", row).unwrap_or_else(|| panic!("{batch}"));
-    assert!(style.contains("\"glass_group_spacing\":20"), "{style}");
+    assert!(has_number(style, "glass_group_spacing", "20"), "{style}");
     // A direction change: the row becomes a column, its spacing its row gap.
     let batch = host.dispatch_at(view(&host, "turn"), Event::Press, 0.0);
     let style = last_op(&batch, "style", row).unwrap_or_else(|| panic!("{batch}"));
-    assert!(style.contains("\"glass_group_spacing\":3"), "{style}");
+    assert!(has_number(style, "glass_group_spacing", "3"), "{style}");
 }

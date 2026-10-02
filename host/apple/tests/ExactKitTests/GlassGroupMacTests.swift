@@ -56,9 +56,16 @@ final class GlassGroupMacTests: XCTestCase {
         var native: [String: Any] = [:]
         group.glassAgentFields(&native)
         XCTAssertEqual((native["glassGroup"] as? [String: Any])?["auto"] as? Bool, true)
-        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "12"], "clear": ["glassGroupAuto"]],
-                           ["op": "style", "id": 1, "style": ["text_color": [0, 0, 0, 255]]]]))
+        // The flag cleared alone: the prop rules, though a stale key remains.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "12"], "clear": ["glassGroupAuto"]]]))
         XCTAssertEqual(spacing(group), 12, "a number again")
+        native = [:]
+        group.glassAgentFields(&native)
+        XCTAssertNil((native["glassGroup"] as? [String: Any])?["auto"], "no longer auto")
+        // The key dropped alone, the flag set: the prop it came with.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "6", "glassGroupAuto": "true"], "clear": []],
+                           ["op": "style", "id": 1, "style": ["text_color": [0, 0, 0, 255]]]]))
+        XCTAssertEqual(spacing(group), 6)
     }
 
     func testAGroupHoldsItsChildrenInnermostAndGivesThemBack() throws {

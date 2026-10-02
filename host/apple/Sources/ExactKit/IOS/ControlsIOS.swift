@@ -104,6 +104,7 @@ final class ControlHost: NSObject {
             reported.removeValue(forKey: id)
             kinds.removeValue(forKey: id)
             menus.removeValue(forKey: id)
+            lastRange.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -153,8 +154,15 @@ final class ControlHost: NSObject {
                 sizes.append((owner.id, natural))
             }
         }
-        // Published outside the batch being applied, as images' are.
-        if !sizes.isEmpty { DispatchQueue.main.async { [weak self] in self?.presenter.onIntrinsic?(sizes) } }
+        // Published outside the batch being applied, as images' are; a
+        // control destroyed before then reports nothing.
+        if !sizes.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let live = sizes.filter { self.controls[$0.0] != nil && self.presenter.views[$0.0] != nil }
+                if !live.isEmpty { self.presenter.onIntrinsic?(live) }
+            }
+        }
     }
 
     @objc private func changed(_ sender: UIControl) {
@@ -198,6 +206,7 @@ final class ControlHost: NSObject {
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()
+        lastRange.removeAll()
     }
 }
 #endif

@@ -445,7 +445,9 @@ extension NodeView {
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
-        if glassGroupView != nil { props["glassGroup"] = nil; syncGlassGroup() }
+        // `glassGroupAuto` with it: a row recycled onto a numeric group must
+        // not report the old one's `auto` (LLP 1053.000.000.000).
+        if glassGroupView != nil { props["glassGroup"] = nil; props["glassGroupAuto"] = nil; syncGlassGroup() }
     }
     /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
     /// list's scroll, with its delegate detached while it resets.

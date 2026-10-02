@@ -429,6 +429,25 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(glyph.superview === fresh.contentView)
     }
 
+    /// LLP 1053.000.000.000 (grok's code review): a row recycled from an
+    /// auto group onto a numeric one does not report the old `auto`.
+    func testAnAutoGroupRowRecycledOntoANumericGroupIsNotAuto() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8", "glassGroupAuto": "true"]]) { $1 } : op
+        }, root: 10)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "12"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        let row = try XCTUnwrap(p.views[20])
+        XCTAssertNil(row.props["glassGroupAuto"])
+        var native: [String: Any] = [:]
+        row.glassAgentFields(&native)
+        XCTAssertEqual((native["glassGroup"] as? [String: Any])?["spacing"] as? Double, 12)
+        XCTAssertNil((native["glassGroup"] as? [String: Any])?["auto"])
+    }
+
     func testAMaterialRowWithoutTheMaterialComesBackWithout() throws {
         let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
             i == 0 ? op.merging(["props": ["testId": "row-10", "backgroundMaterial": "glass"]]) { $1 } : op
