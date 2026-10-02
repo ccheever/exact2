@@ -889,6 +889,33 @@ impl<'a> Lowerer<'a> {
                         origins.resize(bindings.len(), origin);
                     }
                 }
+                // @ref LLP 1057.003 C6 — a transform drag needs both halves:
+                // the page's geometry and the release. A handle with one is
+                // never admitted by any host, so it would sit inert, unsaid.
+                let has = |k: EventKind| handlers.iter().any(|(kind, ..)| *kind == k);
+                let (geometry, release) = (
+                    has(EventKind::Transformgeometry),
+                    has(EventKind::Transformrelease),
+                );
+                if geometry != release {
+                    let (present, missing) = if geometry {
+                        ("transformgeometry", "transformrelease")
+                    } else {
+                        ("transformrelease", "transformgeometry")
+                    };
+                    let span = expanded
+                        .iter()
+                        .find(|a| a.name == present)
+                        .map_or(*span, |a| a.span);
+                    self.errors.extend(
+                        err::<()>(
+                            "lower-transform-drag-handlers",
+                            format!("`{present}` without `{missing}`: a transform drag needs both (the page's geometry and the release), or it never starts; add `{missing}=`"),
+                            span,
+                        )
+                        .err(),
+                    );
+                }
                 // @ref LLP 1069.001 D8 — rows a control derives.
                 if control.is_some() && controls::derived_rows(&mut bindings) {
                     if let Some(origins) = &mut origins {
