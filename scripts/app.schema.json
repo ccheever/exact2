@@ -24,6 +24,14 @@
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
       }
     },
+    "hooks": {
+      "type": "array",
+      "description": "The app's hook words (LLP 1075.003.000 Q1): a node marked hook=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hook, which compares it with typed keys the build writes from this list (ExactHookKey). A hooked node leaves the host's fast path. A hook word in the Contract that this list lacks is bake-undeclared-hook.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,

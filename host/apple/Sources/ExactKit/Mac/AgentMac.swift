@@ -122,7 +122,7 @@ extension Agent {
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull()]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll

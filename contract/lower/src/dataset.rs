@@ -8,7 +8,7 @@
 //! words in `app.json` (`"data"`), and the bake refuses one it lacks.
 
 use crate::{err, LowerError, Lowerer};
-use contract_syntax::{Attr, File, Node, Span};
+use contract_syntax::{Attr, Expr, File, Node, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::PropId;
 use exact_plan::asm::Asm;
@@ -19,7 +19,7 @@ use exact_plan::{BindingKind, BindingsRow};
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 69] = [
+const HOST_WORDS: [&str; 70] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -54,6 +54,7 @@ const HOST_WORDS: [&str; 69] = [
     "headtitle",
     "heightdragfor",
     "hitslop",
+    "hook",
     "hyphen",
     "initialitemcount",
     "keyboarddismissmode",
@@ -142,31 +143,46 @@ pub(crate) fn refused(a: &Attr) -> Option<LowerError> {
 /// Every `data-` word the file's views use, with where: the driver checks
 /// them against the app's declared words (`bake-undeclared-data`).
 pub fn data_words(file: &File) -> Vec<(String, Span)> {
-    fn walk(nodes: &[Node], out: &mut Vec<(String, Span)>) {
+    attr_words(file, |a| word(&a.name).map(str::to_owned))
+}
+
+/// Every `hook` word the file's views use, with where (LLP 1075.003.000
+/// Q1): the driver checks them against `app.json` `hooks`
+/// (`bake-undeclared-hook`). Only a literal is a word; lowering refuses the
+/// rest.
+pub fn hook_words(file: &File) -> Vec<(String, Span)> {
+    attr_words(file, |a| match &a.value {
+        Expr::Str(w, _) if a.name == "hook" => Some(w.clone()),
+        _ => None,
+    })
+}
+
+fn attr_words(file: &File, pick: impl Fn(&Attr) -> Option<String> + Copy) -> Vec<(String, Span)> {
+    fn walk(
+        nodes: &[Node],
+        out: &mut Vec<(String, Span)>,
+        pick: impl Fn(&Attr) -> Option<String> + Copy,
+    ) {
         for n in nodes {
             match n {
                 Node::Element {
                     attrs, children, ..
                 } => {
-                    for a in attrs {
-                        if let Some(w) = word(&a.name) {
-                            out.push((w.to_owned(), a.span));
-                        }
-                    }
-                    walk(children, out);
+                    out.extend(attrs.iter().filter_map(|a| pick(a).map(|w| (w, a.span))));
+                    walk(children, out, pick);
                 }
-                Node::Use { children, .. } => walk(children, out),
-                Node::Provide { body, .. } => walk(body, out),
+                Node::Use { children, .. } => walk(children, out, pick),
+                Node::Provide { body, .. } => walk(body, out, pick),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, out);
-                    walk(otherwise, out);
+                    walk(then, out, pick);
+                    walk(otherwise, out, pick);
                 }
-                Node::Each { body, .. } => walk(body, out),
+                Node::Each { body, .. } => walk(body, out, pick),
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, out);
-                    walk(none, out);
+                    walk(&some.1, out, pick);
+                    walk(none, out, pick);
                 }
                 Node::Children { .. } => {}
             }
@@ -174,9 +190,34 @@ pub fn data_words(file: &File) -> Vec<(String, Span)> {
     }
     let mut out = Vec::new();
     for c in &file.components {
-        walk(&c.view, &mut out);
+        walk(&c.view, &mut out, pick);
     }
     out
+}
+
+/// A `hook` the lowering refuses (LLP 1075.003.000 §3.1): on a module tag,
+/// whose instance is already the module's; anything but a literal, since a
+/// node hooked at run time would need its view made mid-row; a value that is
+/// not a word.
+fn hook_refusal(tag: &str, a: &Attr) -> Option<LowerError> {
+    let refused = |id: &'static str, message: String| err::<()>(id, message, a.span).err();
+    if crate::is_module_tag(tag) {
+        return refused(
+            "lower-hook-module",
+            format!("`{tag}` is a module view, already the module's own: it takes no `hook`"),
+        );
+    }
+    match &a.value {
+        Expr::Str(w, _) if is_word(w) => None,
+        Expr::Str(w, _) => refused(
+            "lower-hook-word",
+            format!("`hook=\"{w}\"` is not a word: lowercase words of letters and digits joined by `-`"),
+        ),
+        _ => refused(
+            "lower-hook-value",
+            "`hook` takes a literal word, never a binding: the build decides which nodes leave the fast path".to_owned(),
+        ),
+    }
 }
 
 impl Lowerer<'_> {
@@ -191,6 +232,13 @@ impl Lowerer<'_> {
         bindings: &mut Vec<BindingsRow>,
         origins: &mut Option<Vec<crate::Origin>>,
     ) {
+        if let Some(e) = attrs
+            .iter()
+            .find(|a| a.name == "hook")
+            .and_then(|a| hook_refusal(tag, a))
+        {
+            self.errors.push(e);
+        }
         let words: Vec<&Attr> = attrs.iter().filter(|a| word(&a.name).is_some()).collect();
         if words.is_empty() {
             return;

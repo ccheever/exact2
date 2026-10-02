@@ -5,6 +5,8 @@
 //! box at runtime. Beside it, the app's `data-*` words (LLP 1075.003 Q2):
 //! `"data": ["word", …]`, from which the Apple build also writes the Swift
 //! module's typed keys; a word the list lacks is `bake-undeclared-data`.
+//! And its `hook` words (LLP 1075.003.000 Q1): `"hooks": ["word", …]`, the
+//! same way, `bake-undeclared-hook`.
 
 use super::{CompileError, Manifest};
 use contract_syntax::{File, Span};
@@ -32,39 +34,88 @@ pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
 /// The `data-*` words in `manifest`, each checked against HTML's spelling
 /// and the words a host already writes.
 pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
-    let Some(value) = manifest.json.get("data") else {
+    words(manifest, &Words::DATA)
+}
+
+/// The `hook` words in `manifest` (LLP 1075.003.000 Q1): the nodes the
+/// app's native code receives, each a word as `data-*`'s are.
+pub fn hook_words(manifest: &Manifest) -> Result<Vec<String>, String> {
+    words(manifest, &Words::HOOKS)
+}
+
+/// A list of words an app declares in `app.json`, and how the bake names
+/// one it lacks.
+struct Words {
+    key: &'static str,
+    noun: &'static str,
+    /// How a use is written in Contract, around the word.
+    written: (&'static str, &'static str),
+    refusal: &'static str,
+    /// Whether a host already writes the word itself (`data-*` only).
+    reserved: fn(&str) -> bool,
+}
+
+impl Words {
+    const DATA: Words = Words {
+        key: "data",
+        noun: "data-*",
+        written: ("data-", ""),
+        refusal: "bake-undeclared-data",
+        reserved: contract_lower::dataset::reserved,
+    };
+    const HOOKS: Words = Words {
+        key: "hooks",
+        noun: "hook",
+        written: ("hook=\"", "\""),
+        refusal: "bake-undeclared-hook",
+        reserved: |_| false,
+    };
+    fn written(&self, word: &str) -> String {
+        format!("`{}{word}{}`", self.written.0, self.written.1)
+    }
+}
+
+fn words(manifest: &Manifest, kind: &Words) -> Result<Vec<String>, String> {
+    let key = kind.key;
+    let Some(value) = manifest.json.get(key) else {
         return Ok(Vec::new());
     };
     let words = value
         .as_array()
-        .ok_or("app.json `data` is a list of data-* words, without the `data-`")?;
+        .ok_or_else(|| format!("app.json `{key}` is a list of words"))?;
     let mut seen = std::collections::BTreeSet::new();
     words
         .iter()
         .map(|word| match word.as_str() {
             // Each word is one member of the Swift module's typed keys.
-            Some(w) if !seen.insert(w) => Err(format!("app.json `data`: `{w}` is listed twice")),
-            Some(w)
-                if contract_lower::dataset::is_word(w)
-                    && !contract_lower::dataset::reserved(w) =>
-            {
+            Some(w) if !seen.insert(w) => Err(format!("app.json `{key}`: `{w}` is listed twice")),
+            Some(w) if contract_lower::dataset::is_word(w) && !(kind.reserved)(w) => {
                 Ok(w.to_owned())
             }
             Some(w) if contract_lower::dataset::is_word(w) => Err(format!(
-                "app.json `data`: `{w}` is written by the web host on its own elements (LLP 1075.003 §3.3)"
+                "app.json `{key}`: `{w}` is written by the web host on its own elements (LLP 1075.003 §3.3)"
             )),
             _ => Err(format!(
-                "app.json `data`: {word} is not a data-* word: lowercase words of letters and digits joined by `-`, without the `data-` (LLP 1075.003 Q2)"
+                "app.json `{key}`: {word} is not a word: lowercase words of letters and digits joined by `-` (LLP 1075.003 Q2)"
             )),
         })
         .collect()
 }
 
-/// Every module tag and `data-` word in `file` against what the app at
-/// `app_root` declares.
+/// Every module tag, `data-` word and `hook` word in `file` against what the
+/// app at `app_root` declares.
 pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
     let mut errors = check_modules(file, app_root).err().unwrap_or_default();
-    errors.extend(check_data(file, app_root).err().unwrap_or_default());
+    errors.extend(check_words(
+        contract_lower::data_words(file),
+        app_root,
+        &Words::DATA,
+    ));
+    errors.extend(check_words(
+        contract_lower::hook_words(file),
+        app_root,
+        &Words::HOOKS,
+    ));
     if errors.is_empty() {
         Ok(())
     } else {
@@ -72,10 +123,9 @@ pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError
     }
 }
 
-fn check_data(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
-    let used = contract_lower::data_words(file);
+fn check_words(used: Vec<(String, Span)>, app_root: &Path, kind: &Words) -> Vec<CompileError> {
     if used.is_empty() {
-        return Ok(());
+        return Vec::new();
     }
     let refusal = |id: &str, message: String, span: Span| CompileError {
         pass: "bake",
@@ -85,39 +135,37 @@ fn check_data(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
         file: None,
         related: Box::new([]),
     };
-    let declared = Manifest::read(app_root)
-        .and_then(|m| data_words(&m))
-        .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?;
+    let declared = match Manifest::read(app_root).and_then(|m| words(&m, kind)) {
+        Ok(declared) => declared,
+        Err(message) => return vec![refusal("app-manifest", message, Span::default())],
+    };
     let mut seen = std::collections::BTreeSet::new();
-    let errors: Vec<CompileError> = used
-        .into_iter()
+    used.into_iter()
         .filter(|(word, _)| {
             contract_lower::dataset::is_word(word)
-                && !contract_lower::dataset::reserved(word)
+                && !(kind.reserved)(word)
                 && !declared.contains(word)
                 && seen.insert(word.clone())
         })
         .map(|(word, span)| {
             let hint = contract_syntax::suggestion(&word, declared.iter().map(String::as_str))
-                .map(|n| format!("; did you mean `data-{n}`?"))
+                .map(|n| format!("; did you mean {}?", kind.written(n)))
                 .unwrap_or_default();
             let listed = if declared.is_empty() {
-                "the app declares no data-* words (app.json `data`)".to_owned()
+                format!(
+                    "the app declares no {} words (app.json `{}`)",
+                    kind.noun, kind.key
+                )
             } else {
                 format!("the app's words are {}", declared.join(", "))
             };
             refusal(
-                "bake-undeclared-data",
-                format!("`data-{word}` is not declared: {listed}{hint}"),
+                kind.refusal,
+                format!("{} is not declared: {listed}{hint}", kind.written(&word)),
                 span,
             )
         })
-        .collect();
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+        .collect()
 }
 
 fn check_modules(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {

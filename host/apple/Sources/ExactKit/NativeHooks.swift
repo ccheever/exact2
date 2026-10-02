@@ -5,8 +5,9 @@
 // control. The module side, its handles and the table's entries are
 // `host/apple/modules/ExactNativeModule.swift`; NativeModule.swift reads the
 // table. Every call is on the main thread and named in the journal, so
-// `logs` shows what app code ran. macOS projects no routes, so no hook runs
-// there (§3.11).
+// `logs` shows what app code ran. macOS projects no routes, so its route
+// and tab hooks never run there (§3.11); `element` runs on both (LLP
+// 1075.003.000, ElementHooks.swift).
 //
 // The host's table, handed to the module once (`module_connect`):
 //
@@ -42,6 +43,7 @@ typealias HookNavigationFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, U
 typealias HookRouteFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 typealias HookTabsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void
 typealias HookTabContainerFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer?
+typealias HookElementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 
 private typealias HookResolveFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32) -> UInt32
 private typealias HookActFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32) -> Int32
@@ -66,11 +68,7 @@ private let hookResolve: HookResolveFn = { host, key, keyLength, id, idLength in
 }
 
 private let hookAct: HookActFn = { host, node, action in
-    #if os(iOS)
-    hookSession(host)?.presenter.navigation.act(node, action) == true ? 0 : 1
-    #else
-    1
-    #endif
+    hookSession(host)?.presenter.elements.act(node, action) == true ? 0 : 1
 }
 
 private let hookLog: HookLogFn = { host, bytes, length in
@@ -128,14 +126,33 @@ extension NativeViews {
         return owned
     }
 
+    /// `element` (built, changed) or `elementEnded` for a hooked node (LLP
+    /// 1075.003.000): its view, its kind's platform object, and
+    /// `{"hook", "node", "id", "kind", "data"}`. `quiet` leaves the call out
+    /// of the journal (a list row's after the first; `state` counts them).
+    func elementHook(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) {
+        guard hooksConnected, let instance, let call = elementCall else { return }
+        let fields: [String: Any] = ["hook": node.props["hook"] ?? "", "node": node.id, "id": node.props["id"] ?? "", "kind": node.kind]
+        var json = (try? JSONSerialization.data(withJSONObject: fields)) ?? Data("{}".utf8)
+        json.removeLast()
+        json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
+        let word = node.props["hook"] ?? ""
+        if !quiet { session?.log("hook element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
+        json.withUnsafeBytes { j in
+            call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
+                 j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+        }
+    }
+
     /// After the session's module is made: hand it the host's callbacks
     /// when its table has hooks, then let the presenter replay the objects
     /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
     func connectHooks(_ connect: HookConnectFn, _ navigation: HookNavigationFn, _ route: HookRouteFn,
-                      _ tabs: (HookTabsFn, HookTabContainerFn)?, _ module: UnsafeMutableRawPointer) {
+                      _ tabs: (HookTabsFn, HookTabContainerFn)?, _ element: HookElementFn?, _ module: UnsafeMutableRawPointer) {
         connect(module, hookHostTable)
         hookCalls = (navigation, route)
         tabCalls = tabs
+        elementCall = element
         hooksConnected = true
         session?.log("hook: connected")
         DispatchQueue.main.async { [weak self] in self?.onHooksConnected?() }

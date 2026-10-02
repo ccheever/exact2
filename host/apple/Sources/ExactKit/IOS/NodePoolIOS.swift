@@ -313,6 +313,9 @@ final class NodePool {
             && !v.pressed && (v.gestureRecognizers?.isEmpty ?? true) && v.interactions.isEmpty
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
+            // A hooked node's view is the app's to keep (LLP 1075.003.000);
+            // its props stay until it is forgotten, after its own destroy op.
+            && v.props["hook"] == nil
     }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.

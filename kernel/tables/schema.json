@@ -594,6 +594,12 @@
       "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
     },
     {
+      "id": 219,
+      "name": "hook",
+      "kind": "str",
+      "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hooked node leaves the host's fast path. data-hook on the web."
+    },
+    {
       "id": 214,
       "name": "scrollRestoration",
       "kind": "str"

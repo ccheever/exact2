@@ -49,6 +49,8 @@ final class Presenter {
     lazy var menus = MenuHost(presenter: self)
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
+    /// Nodes marked `hook="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHooks(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
@@ -290,6 +292,7 @@ final class Presenter {
         leaves.reset()
         flats.reset()
         modals.reset()
+        elements.reset()
         navigation.reset()
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -715,6 +718,7 @@ final class Presenter {
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
                 views[id] = v
+                elements.created(v)
                 if v.kind == "video" { leaves.created(v) }
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
@@ -723,6 +727,7 @@ final class Presenter {
             case .props:
                 if flats.isFlat(id) { if FlatLeaves.onlyData(op) { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
+                elements.propsChanged(id)
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
@@ -757,6 +762,7 @@ final class Presenter {
                 if flats.isFlat(id) { flats.promote(id) }
                 beginExit(id)
             case .destroy:
+                elements.destroyed(id)
                 if flats.isFlat(id) { flats.destroy(id); continue }
                 if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.

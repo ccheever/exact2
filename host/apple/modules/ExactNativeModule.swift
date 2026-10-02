@@ -156,6 +156,16 @@ open class ExactModule {
     open func destroy() {}
     /// The host's side of the hooks, once it has connected (LLP 1075.003).
     var hooks: ExactHooks?
+    /// A node the Contract marks `hook="word"` (LLP 1075.003.000), on every
+    /// host with native objects: after the batch that mounts it
+    /// (`element.isNew`), and again when its `data-*` words change. It runs
+    /// on the main thread as each one mounts, and a hooked node leaves
+    /// Exact's fast path: on iOS it is never drawn as a flat leaf into its
+    /// parent's layer, and a list row that holds one is never reused.
+    open func element(_ element: ExactElement) {}
+    /// A hooked node is leaving; its view goes after this returns, and the
+    /// handle does nothing from now on.
+    open func elementEnded(_ element: ExactElement) {}
     #if os(iOS)
     /// A navigation controller Exact built: once, before any route in it is
     /// laid out (at a cold launch, once the module loads, for each one
@@ -208,6 +218,7 @@ final class ExactHooks {
     var tabs: ExactTabs?
     var contents: ExactTabContents?
     #endif
+    var elements: [UInt32: ExactElement] = [:]
 
     init?(host: UnsafeMutableRawPointer?, table: UnsafeRawPointer) {
         guard table.load(as: UInt32.self) >= 40,
@@ -348,30 +359,76 @@ public final class ExactTabContents {
     }
 }
 
-/// An authored element a hook acts on. Each act is the DOM's — `click()`
-/// presses it as a tap does — queued until the batch being applied is done.
+#endif
+
+/// An authored element a hook acts on, as the DOM's: `click()` presses it as
+/// a tap does, queued until the batch being applied is done. A route's
+/// (`route.element(id)`, iOS) lives while its route does; a node the
+/// Contract marks `hook="word"` (LLP 1075.003.000) while the node does, and
+/// carries its view and the platform object of its kind.
 public final class ExactElement {
-    /// Its HTML id.
+    /// Its HTML id ("" when it has none).
     public let id: String
     let node: UInt32, key: String
+    #if os(iOS)
     /// The route it was resolved in: once that ends (a pop, a reload), the
     /// element does nothing, so a saved one never reaches a later node.
     weak var route: ExactRoute?
+    #endif
     weak var hooks: ExactHooks?
+    /// A hooked node's word, or nil for a route's element.
+    public internal(set) var hook: ExactHookKey?
+    /// A hooked node's `data-*` words.
+    public internal(set) var data = ExactData([:])
+    /// A hooked node's view. Its frame, transform, alpha, hidden state, the
+    /// paint Exact draws and Exact's own subviews are Exact's; add
+    /// interactions, gestures, subviews and sublayers of your own (§3.6).
+    public internal(set) weak var view: ExactNativeView?
+    /// The platform object of a hooked node's kind, or nil: a text field or
+    /// text view, a control, a web view, a scroll view. What an authored row
+    /// or attribute writes on it is Exact's; the rest is yours.
+    public internal(set) weak var platform: AnyObject?
+    /// Whether this call is the node's first.
+    public internal(set) var isNew = true
+    var ended = false
+    /// False once the element's route or node has ended: it then does nothing.
+    public var isLive: Bool {
+        guard !ended else { return false }
+        #if os(iOS)
+        if hook == nil { return route?.isLive == true }
+        #endif
+        return hook != nil
+    }
+    #if os(iOS)
     init(id: String, node: UInt32, route: ExactRoute, hooks: ExactHooks) {
         self.id = id; self.node = node; key = route.key; self.route = route; self.hooks = hooks
     }
+    #endif
+    init(hook: ExactHookKey, id: String, node: UInt32, hooks: ExactHooks) {
+        self.id = id; self.node = node; key = hook.name; self.hook = hook; self.hooks = hooks
+    }
     private func act(_ action: UInt32, _ name: String) {
         guard let hooks else { return }
-        guard route?.isLive == true, hooks.act(node, action) else { return hooks.log("route \(key): \(name)() on #\(id) refused") }
+        let what = hook == nil ? "route \(key)" : "element \(key)"
+        guard isLive, hooks.act(node, action) else { return hooks.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
     }
     /// Press it, as HTMLElement.click() does: its `press` handler runs.
     public func click() { act(0, "click") }
     /// Focus it (LLP 1035.001's focus rules).
     public func focus() { act(1, "focus") }
     public func blur() { act(2, "blur") }
+    #if os(iOS)
+    public var scrollView: UIScrollView? { platform as? UIScrollView }
+    public var textField: UITextField? { platform as? UITextField }
+    public var textView: UITextView? { platform as? UITextView }
+    public var control: UIControl? { platform as? UIControl }
+    #else
+    public var scrollView: NSScrollView? { platform as? NSScrollView }
+    public var textField: NSTextField? { platform as? NSTextField }
+    public var textView: NSTextView? { platform as? NSTextView }
+    public var control: NSControl? { platform as? NSControl }
+    #endif
 }
-#endif
 
 /// The nine events, as the kernel's `EventKind` ordinals.
 public final class ExactNativeEvents: @unchecked Sendable {
@@ -702,6 +759,33 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     #endif
 }
 
+/// `element(module, event, view, platform, json, len)` (LLP 1075.003.000):
+/// event 0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
+/// "data"}.
+private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, view, platform, json, length in
+    guard let m = module(raw), let hooks = m.hooks, let json, length > 0,
+          let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
+          let word = object["hook"] as? String, let node = (object["node"] as? NSNumber)?.uint32Value else { return }
+    if event == 2 {
+        guard let element = hooks.elements.removeValue(forKey: node) else { return }
+        element.ended = true
+        m.elementEnded(element)
+        return
+    }
+    let element: ExactElement
+    if let known = hooks.elements[node] {
+        element = known
+        element.isNew = false
+    } else {
+        element = ExactElement(hook: ExactHookKey(word), id: object["id"] as? String ?? "", node: node, hooks: hooks)
+        hooks.elements[node] = element
+    }
+    element.data = ExactData(object["data"] as? [String: String] ?? [:])
+    element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
+    element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+    m.element(element)
+}
+
 /// `platform_controller(handle) → UIViewController?`: a native screen's
 /// controller (the module keeps ownership), or nil for a plain view.
 private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
@@ -719,7 +803,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     }.joined(separator: ",") + "}"
-    let size = 160
+    let size = 168
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -741,6 +825,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleTabs, to: UnsafeRawPointer.self), toByteOffset: 136, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTabContainer, to: UnsafeRawPointer.self), toByteOffset: 144, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 152, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
     return t
 }()
 

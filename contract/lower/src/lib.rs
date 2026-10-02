@@ -36,7 +36,7 @@ mod svg;
 pub mod tags;
 mod values;
 
-pub use dataset::data_words;
+pub use dataset::{data_words, hook_words};
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};

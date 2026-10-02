@@ -112,6 +112,22 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    // Hooked nodes (LLP 1075.003.000): the tree shows each word, `state`
+    // counts the calls (a data-* change reaches the hook), and a development
+    // build journals a write to what Exact owns of one. (The web is Stage 2.)
+    if (host !== 'web') {
+      await s.clock('settle');
+      check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
+      const hooks = (await s.state()).hooks;
+      check(hooks?.badge?.calls?.built === 1 && hooks?.badge?.calls?.changed === 1,
+        `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(hooks)}`);
+      if (host === 'ios') {
+        await s.tap('violate'); await settle(s);
+        await s.tap('violate'); await settle(s);
+        const owned = (await s.logs()).lines.join('\n');
+        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hooked nodes`);
+      }
+    }
     // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
     await s.tap('scroll-80'); await settle(s);
     const scrolled = (await s.layout()).nodes.find((n) => n.testId === 'list-detail');
@@ -122,6 +138,25 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     if (host === 'ios') {
       logs = await s.logs();
       check(logs.lines.some((l) => /hook route \d+: ended/.test(l)), `${host} native: a popped route's hook hears routeEnded`);
+    }
+    // A list whose rows each hold a hooked node: the journal names what the
+    // word gives up and warns for it in a row; a retired row's hook hears
+    // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
+    if (host !== 'web') {
+      const takes = (await s.state()).pool?.takes;
+      await s.tap('rows'); await settle(s);
+      t = await until(s, 'the hooked list shows rows', (t) => !!byTestId(t, 'row-1'));
+      await s.clock('settle');
+      check((await s.state()).hooks?.dot?.live > 0, `${host} native: each shown row's node is hooked`);
+      await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
+      const dot = (await s.state()).hooks?.dot;
+      check(dot?.calls?.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
+      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hooked node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
+      const said = (await s.logs()).lines.join('\n');
+      const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
+      check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
+      await s.tap('back'); await settle(s);
+      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
     }
     // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
     // (macOS projects no routes: there the sheet is its route, shown.)

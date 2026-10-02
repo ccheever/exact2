@@ -16,6 +16,12 @@
 // `data-violate` makes the route hook write the content scroll view's inset,
 // which Exact owns (the development check journals it); `data-transition`
 // gives the stack a cross-fade through the forwarded delegate.
+//
+// On every Apple host, nodes the Contract marks `hook` (LLP 1075.003.000)
+// reach `element`: the `badge` gets a context menu, an interaction Exact
+// leaves to the app; each list row's `dot` hook does nothing, so what a
+// hooked node costs is the cost of being hooked; with `data-violate` the
+// detail's scroller (`detail-list`) gets an inset Exact owns.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -30,7 +36,21 @@ final class FixtureModule: ExactModule {
          "exact-screen": ExactNativeFactory { _, events in Screen(events: events) }]
     }
 
+    override func element(_ element: ExactElement) {
+        #if os(iOS)
+        // Owned by Exact (LLP 1075.003.000 §3.6): the development check says so.
+        if element.hook == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
+        #endif
+        guard element.hook == .badge, element.isNew, let view = element.view else { return }
+        #if os(iOS)
+        view.addInteraction(UIContextMenuInteraction(delegate: badgeMenu))
+        #else
+        view.menu = NSMenu(title: "Badge \(element.data[.tone] ?? "")")
+        #endif
+    }
+
     #if os(iOS)
+    private let badgeMenu = BadgeMenu()
     private let fade = Fade()
     private var targets: [String: Click] = [:]
 
@@ -141,6 +161,13 @@ final class Screen: ExactNativeInstance {
 #if os(iOS)
 /// A hook-made control that stands for an authored one: it clicks it, so the
 /// agent, tapping the authored control, runs the same handler.
+/// The badge's context menu: one item, with the badge's word.
+private final class BadgeMenu: NSObject, UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        UIContextMenuConfiguration(actionProvider: { _ in UIMenu(children: [UIAction(title: "Badge") { _ in }]) })
+    }
+}
+
 /// The route is held weakly: the bar item holds this target, and the route's
 /// controller holds the bar item.
 private final class Click: NSObject {
