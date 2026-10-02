@@ -10,7 +10,7 @@ shape Station
 component App
   state order = "asc"
   resource stations = stations(order) as shape list<Station>
-  action flip writes order
+  action flip
     order = order == "asc" ? "desc" : "asc"
   view
     column testId="root"
@@ -26,7 +26,7 @@ component Counter
     label: string
   state n = 0
   derive doubled = n * 2
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId=`count-${label}`
@@ -37,7 +37,7 @@ component StationRow
     station: Station
   state label = station.name
   state hot = false
-  action setHot(over) writes hot
+  action setHot(over)
     hot = over
   view
     row hover=setHot testId=`station-${station.id}`

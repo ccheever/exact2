@@ -29,19 +29,19 @@ const APP: &str = r#"component App
   state lastKey = ""
   state presses = 0
   mutation kept as shape bool
-  action edit(value) writes text
+  action edit(value)
     text = value
-  action focused writes focuses
+  action focused
     focuses = focuses + 1
-  action blurred writes blurs
+  action blurred
     blurs = blurs + 1
-  action sent writes submits
+  action sent
     submits = submits + 1
-  action keyed(value) writes lastKey
+  action keyed(value)
     lastKey = value
-  action pressed writes presses
+  action pressed
     presses = presses + 1
-  action keep writes kept
+  action keep
     send kept = keep()
   view
     column width=400 height=400

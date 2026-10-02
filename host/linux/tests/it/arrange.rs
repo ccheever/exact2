@@ -70,12 +70,12 @@ component App
   resource initial = rows() as shape list<Row>
   mutation changed as shape list<Row>
   derive rows = match changed { case some(value) => value, case none => initial }
-  action drop(item: string, before: option<string>) writes changed, count
+  action drop(item: string, before: option<string>)
     send changed = move(item, before)
     count = count + 1
-  action disable writes disabled
+  action disable
     disabled = true
-  action edit(v: string) writes draft
+  action edit(v: string)
     draft = v
   view
     box width="100%" height="100%"
@@ -339,7 +339,7 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
 fn scroll_fixture(action: &str, writes: &str) -> String {
     APP.replace(
         "  state count = 0",
-        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number) writes scrolls{writes}\n    scrolls = scrolls + 1\n{action}  state count = 0"),
+        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number)\n    scrolls = scrolls + 1\n{action}  state count = 0"),
     )
     .replace("width=300 height=184", "width=portWidth height=184")
     .replace("virtualized=true reorderdrop=drop", "virtualized=true reorderdrop=drop scroll=scrolled")

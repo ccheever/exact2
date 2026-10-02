@@ -8,17 +8,17 @@ component SmallGame
   state collapsed = false
   state reordered = false
   resource hud = exactSurface("world") as shape Hud
-  action play writes playing
+  action play
     playing = true
-  action crowd writes plates, playing
+  action crowd
     plates = 40
     playing = true
-  action uncover writes covered, collapsed
+  action uncover
     if covered
       covered = false
     else
       collapsed = !collapsed
-  action reorder writes reordered
+  action reorder
     reordered = !reordered
   view
     main width="100%" height="100%" background-color="#101725" color="#ffffff"

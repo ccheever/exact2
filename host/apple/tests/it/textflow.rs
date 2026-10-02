@@ -10,9 +10,9 @@ impl DataSource for Data {
 }
 const SOURCE: &str = r#"component App
   state x = 80
-  action move writes x
+  action move
     x = x + 20
-  action leave writes x
+  action leave
     x = 900
   view
     column width=400 height=500
@@ -122,7 +122,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
     let plan = contract::compile(r#"component App
   state holes = true
   resource rows = rows() as shape list<number>
-  action clear writes holes
+  action clear
     holes = false
   view
     column width=240 height=200

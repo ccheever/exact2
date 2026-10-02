@@ -41,7 +41,7 @@ fn one_level_of_constant_nesting_compiles_and_the_rest_is_refused_by_name() {
     let deep = "shape Post\n  id: number\ncomponent App\n  resource posts = posts() as shape list<Post>\n  view\n    list virtualized=true height=600\n      each p in posts key=p.id\n        list virtualized=true height=300\n          each q in posts key=q.id\n            list virtualized=true height=100\n              each r in posts key=r.id\n                text \"x\"\n";
     let error = contract::compile(deep).unwrap_err().to_string();
     assert!(error.contains("lower-collection-depth"), "{error}");
-    let reorder = "shape Post\n  id: number\ncomponent App\n  state n = \"\"\n  resource posts = posts() as shape list<Post>\n  action drop(item: string, before: option<string>) writes n\n    n = item\n  view\n    list virtualized=true height=600\n      each p in posts key=p.id\n        list id=\"inner\" reorderdrop=drop virtualized=true height=300\n          each q in posts key=q.id\n            text \"x\"\n";
+    let reorder = "shape Post\n  id: number\ncomponent App\n  state n = \"\"\n  resource posts = posts() as shape list<Post>\n  action drop(item: string, before: option<string>)\n    n = item\n  view\n    list virtualized=true height=600\n      each p in posts key=p.id\n        list id=\"inner\" reorderdrop=drop virtualized=true height=300\n          each q in posts key=q.id\n            text \"x\"\n";
     let error = contract::compile(reorder).unwrap_err().to_string();
     assert!(error.contains("lower-collection-reorder"), "{error}");
 }

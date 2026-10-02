@@ -1,6 +1,6 @@
 component AssetFixture
   state playing = false
-  action play writes playing
+  action play
     playing = true
   view
     main width="100%" height="100%" background-color="#202731"

@@ -10,7 +10,7 @@ style Row
 
 component Presence
   state shown = true
-  action toggle writes shown
+  action toggle
     shown = not shown
   view
     column testId="root"

@@ -14,9 +14,9 @@ const APP: &str = r#"component App
   state vx = 0
   state vy = 0
   state released = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx
-  action release(scale: number, sx, sy) writes vx, vy, released
+  action release(scale: number, sx, sy)
     vx = sx * scale
     vy = sy * scale
     released = released + 1
@@ -86,10 +86,10 @@ fn panrelease_takes_two_numeric_payload_parameters() {
         "a: number, b: number, c: number",
     ] {
         let src = format!(
-            "component App\n  state x = 0\n  action done({params}) writes x\n    x = 1\n  view\n    box panrelease=done\n"
+            "component App\n  state x = 0\n  action done({params})\n    x = 1\n  view\n    box panrelease=done\n"
         );
         assert!(contract::compile(&src).is_err(), "{params}");
     }
-    let untyped = "component App\n  state x = 0\n  action done(vx, vy) writes x\n    x = vx + vy\n  view\n    box panrelease=done\n";
+    let untyped = "component App\n  state x = 0\n  action done(vx, vy)\n    x = vx + vy\n  view\n    box panrelease=done\n";
     contract::compile(untyped).unwrap();
 }

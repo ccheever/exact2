@@ -3,15 +3,15 @@ component VideoPlayer
   state note = ""
   state paused = false
   state failure = ""
-  action edit(value) writes note
+  action edit(value)
     note = value
-  action toggle writes paused
+  action toggle
     paused = not paused
-  action playing writes paused
+  action playing
     paused = false
-  action stopped writes paused
+  action stopped
     paused = true
-  action failed(message) writes failure
+  action failed(message)
     failure = message
   action done
     focus("done")

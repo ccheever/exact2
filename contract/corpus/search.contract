@@ -11,7 +11,7 @@ shape Session
 component Search
   resource sessions = sessions() as shape list<Session>
   state typed = ""
-  action edit(value: string) writes typed
+  action edit(value: string)
     typed = value
   derive named = filter(sessions, s => includes(s.name, typed))
   view

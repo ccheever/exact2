@@ -53,7 +53,7 @@ fn comments_on_branches_continuations_and_arguments_keep_their_anchors() {
 // header
 component A
     state n=0 // state
-    action go writes n
+    action go
         if n > 0
             n=0
         // the other case
@@ -169,7 +169,7 @@ fn nested_multiline_values_stay_stable_when_attribute_wrapping_adds_a_level() {
 
 #[test]
 fn an_empty_list_is_spelled_without_a_space() {
-    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear writes picked\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
+    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
     let after = preserved(src);
     assert!(!after.contains("[ "), "{after}");
     assert_eq!(after.matches("[]").count(), 4, "{after}");
@@ -243,7 +243,7 @@ fn positionals_after_named_attributes_stay_on_the_elements_head() {
 #[test]
 fn send_as_a_name_and_the_send_statement_both_round_trip() {
     // `send` spaces like any other name: `who` beside it gets the same treatment.
-    let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go writes session\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
+    let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
     let expected = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
     assert_eq!(preserved(src), expected);
 }

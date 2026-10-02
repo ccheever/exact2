@@ -19,16 +19,16 @@ const APP: &str = r#"component App
   state disabled = false
   state showing = true
   state draft = ""
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action release(h: number, v: number) writes target, count, seen, velocity
+  action release(h: number, v: number)
     count = count + 1
     seen = h
     velocity = v
     target = h < 270 ? 180 : h < 500 ? 360 : 640
-  action disable writes disabled
+  action disable
     disabled = true
-  action hide writes showing
+  action hide
     showing = false
   view
     box width=400 height=500

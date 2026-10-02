@@ -68,7 +68,7 @@ fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
         r#"component AutoRows
   state sizing = "auto"
   state bars = "auto"
-  action choose(value: string) writes bars
+  action choose(value: string)
     bars = value
   view
     scroll testId="reader" height=100 width=sizing overscroll-behavior-x=sizing align-self=sizing scrollbar-width=bars
@@ -285,7 +285,7 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
 
 #[test]
 fn button_primary_text_is_a_real_accessible_text_child() {
-    let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
+    let src = "component App\n  state pressed = false\n  action press\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
     let plan = contract::compile(src).unwrap();
     let r = Runner::boot(
         plan,
@@ -311,7 +311,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
 /// author's own row wins, as on any tag.
 #[test]
 fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
-    let src = "component App\n  state n = 0\n  action bump writes n\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump testId=\"save\"\n      button press=bump flex-direction=\"row\" testId=\"row\"\n        text \"Row\"\n";
+    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump testId=\"save\"\n      button press=bump flex-direction=\"row\" testId=\"row\"\n        text \"Row\"\n";
     let plan = contract::compile(src).unwrap();
     let r = Runner::boot(
         plan,
@@ -339,7 +339,7 @@ fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
 
 #[test]
 fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
-    let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value) writes textValue\n    textValue = value\n  action boolPayload(value) writes boolValue\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
+    let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value)\n    textValue = value\n  action boolPayload(value)\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
     contract::compile(src).unwrap();
 }
 
@@ -611,7 +611,7 @@ fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_
     let src = r#"component App
   state selected = ""
   state magnify = false
-  action choose(value: string) writes selected, magnify
+  action choose(value: string)
     selected = value
     magnify = value == "context"
   view
@@ -669,7 +669,7 @@ fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_
 fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
     let source = r#"component App
   state draft = ""
-  action write(value) writes draft
+  action write(value)
     draft = value
   view
     column width=200 height=400 testId="root"
@@ -732,7 +732,7 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
   state name = ""
   state left = 0
   state top = 0
-  action moved(id: string, x, y) writes name, left, top
+  action moved(id: string, x, y)
     name = id
     left = x
     top = y
@@ -784,7 +784,7 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
 fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() {
     let src = r#"component App
   state alternate = false
-  action choose writes alternate
+  action choose
     alternate = not alternate
   view
     scroll swipeContent="row" swipeLeading=(alternate ? "second" : "first") swipeTrailing="delete" width=300 height=80
@@ -934,7 +934,7 @@ fn template_folding_preserves_dynamic_values_and_string_conversion() {
     let source = r#"component App
   state name = "one"
   state n = 2
-  action change writes name, n
+  action change
     name = "two"
     n = 3
   view
@@ -1000,7 +1000,7 @@ fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
 #[test]
 fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
     let plan = contract::compile(
-        "component App\n  state n = 0\n  action step writes n\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text toString(n) testId=\"n\"\n",
+        "component App\n  state n = 0\n  action step\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text toString(n) testId=\"n\"\n",
     )
     .unwrap();
     assert_eq!(plan.timers.len(), 1);

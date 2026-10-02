@@ -182,28 +182,28 @@ component Reflow
   resource magazineScene = magazine(magazineInner) as shape Magazine
   resource spreadScene = spread(pageInner, viewport.width < 700 ? 17 : 21) as shape Spread
   resource asciiScene = ascii(asciiClock, measured, asciiWidth) as shape Ascii
-  action choose(value: string) writes scene, elapsed, scrollTop
+  action choose(value: string)
     scene = value
     elapsed = 0
     scrollTop = 0
-  action appearance writes dark
+  action appearance
     dark = not dark
     setScheme(dark ? "light" : "dark")
-  action pause writes running
+  action pause
     running = not running
-  action step writes elapsed
+  action step
     if running and (scene == "balls" or scene == "ascii")
       elapsed = elapsed + 16
-  action dragDragon(dx: number, dy: number) writes dragonDx, dragonDy
+  action dragDragon(dx: number, dy: number)
     dragonDx = min(pageInner, max(0 - pageInner, dragonDx + dx))
     dragonDy = min(dragonHeight, max(0 - dragonHeight, dragonDy + dy))
-  action shuffle writes seed
+  action shuffle
     seed = seed + 1
-  action resize(dx: number, dy: number) writes pageWidth
+  action resize(dx: number, dy: number)
     pageWidth = min(contentWidth, max(260, magazineWidth + dx))
-  action wallScrolled(x: number, y: number) writes scrollTop
+  action wallScrolled(x: number, y: number)
     scrollTop = y
-  action setMeasured(value: bool) writes measured
+  action setMeasured(value: bool)
     measured = value
   task motion mount
     every(16, step)

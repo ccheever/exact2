@@ -32,7 +32,7 @@ component App
   resource initial = messages() as shape Feed
   mutation changed as shape Feed
   derive feed = match changed { case some(f) => f, case none => initial }
-  action tick writes changed
+  action tick
     send changed = tick()
   view
     column width="100%" height="100%" overflow="hidden"

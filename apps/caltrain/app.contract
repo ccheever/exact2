@@ -67,52 +67,52 @@ component Caltrain
   resource matches = search(query, location) as shape list<Station>
   resource delivery = exactDelivery() as shape DeliveryState
 
-  action tick writes nowMs
+  action tick
     nowMs = nowMs + 1000
   action activateUpdate
     deliveryActivate()
-  action openStations writes screen
+  action openStations
     screen = "stations"
-  action openDeck writes screen, deckLoaded, deckLoads, deckMessage
+  action openDeck
     screen = "web-deck"
     deckLoaded = false
     deckLoads = 0
     deckMessage = ""
-  action goHome writes screen, query
+  action goHome
     screen = "home"
     query = ""
-  action selectStation(id) writes stationId, screen, query, searchFocused
+  action selectStation(id)
     stationId = some(id)
     screen = "home"
     query = ""
     searchFocused = false
-  action setQuery(value) writes query
+  action setQuery(value)
     query = value
   action setScheme(scheme: string)
     setScheme(scheme)
-  action setMaterial(m: string) writes material
+  action setMaterial(m: string)
     material = m
-  action toggleDeck writes deck
+  action toggleDeck
     deck = not deck
-  action focusDeparture(id) writes focus
+  action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
   derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
-  action hoverStation(id, over) writes hoverId, hoverOn
+  action hoverStation(id, over)
     hoverId = id
     hoverOn = over
-  action focusSearch writes searchFocused
+  action focusSearch
     searchFocused = true
-  action blurSearch writes searchFocused
+  action blurSearch
     searchFocused = false
-  action searchKey(k) writes lastKey
+  action searchKey(k)
     lastKey = k
-  action recordDeckLoad writes deckLoaded, deckLoads
+  action recordDeckLoad
     deckLoaded = true
     deckLoads = deckLoads + 1
-  action recordDeckMessage(payload) writes deckMessage
+  action recordDeckMessage(payload)
     deckMessage = payload
-  action toggleSky writes sky
+  action toggleSky
     sky = match sky { case some(c) => none, case none => some("#05081a") }
 
   task ticker mount

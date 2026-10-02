@@ -9,13 +9,13 @@ component SmallGame
   state paused = false
   resource hud = exactSurface("world") as shape Hud
 
-  action play writes playing
+  action play
     playing = true
 
-  action togglePause writes paused
+  action togglePause
     paused = not paused
 
-  action restart writes again, paused
+  action restart
     again = not again
     paused = false
 

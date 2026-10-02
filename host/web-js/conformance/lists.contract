@@ -22,13 +22,13 @@ component Lists
   state top = 0
   derive shown = filter(cards, c => c.n >= lo and c.n < hi)
   derive lines = filter(cards, c => c.n < said)
-  action earlier writes lo
+  action earlier
     lo = max(0, lo - 60)
-  action later writes hi
+  action later
     hi = min(2000, hi + 60)
-  action say writes said
+  action say
     said = said + 3
-  action jump writes top
+  action jump
     top = top + 2500
   view
     column testId="root" height="100%" display="flex" flex-direction="column"

@@ -33,9 +33,9 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let source = r#"component Controls
   state removed = false
   state text = ""
-  action change(value: string) writes text
+  action change(value: string)
     text = value
-  action remove writes removed
+  action remove
     removed = true
   view
     column
@@ -390,7 +390,7 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     let plan = contract::compile(
         r#"component Test
   state done = false
-  action finish writes done
+  action finish
     done = true
   view
     column
@@ -434,7 +434,7 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
         let plan = contract::compile(&format!(
             r#"component Test
   state done = false
-  action finish writes done
+  action finish
     done = true
   view
     column

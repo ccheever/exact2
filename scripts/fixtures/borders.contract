@@ -8,9 +8,9 @@
 component Borders
   state flipped = false
   state dark = false
-  action flip writes flipped
+  action flip
     flipped = not flipped
-  action scheme writes dark
+  action scheme
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view

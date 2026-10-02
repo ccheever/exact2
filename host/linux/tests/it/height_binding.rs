@@ -24,24 +24,24 @@ const APP: &str = r#"component App
   state first = true
   state second = true
   state disabled = false
-  action release(height: number, velocity: number) writes target, releases, seenHeight, seenVelocity
+  action release(height: number, velocity: number)
     seenHeight = height
     seenVelocity = velocity
     releases = releases + 1
     target = height < 270 ? 180 : height < 500 ? 360 : 640
-  action unbind writes binding
+  action unbind
     binding = ""
-  action rebind writes binding
+  action rebind
     binding = "other"
-  action remove writes first
+  action remove
     first = false
-  action restore writes first
+  action restore
     first = true
-  action disable writes disabled
+  action disable
     disabled = true
-  action enable writes disabled
+  action enable
     disabled = false
-  action clear writes binding, second
+  action clear
     binding = ""
     second = false
   view
@@ -307,9 +307,9 @@ fn delivered_async_receipt_revalidates_untouched_target_before_late_release() {
   mutation permission as shape bool
   state count = 0
   derive disabled = match permission { case some(value) => value, case none => false }
-  action check writes permission
+  action check
     send permission = check()
-  action release(height: number, velocity: number) writes count
+  action release(height: number, velocity: number)
     count = count + 1
   view
     box width=400 height=500
@@ -415,8 +415,8 @@ fn invalidation_uses_same_receipt_transition_and_latest_target_before_cancelling
             let source = APP
                 .replace("  state target = 180", "  state target = 180\n  state motion = \"height spring(300,30,1)\"")
                 .replace("transition=\"height spring(300,30,1)\"", "transition=motion")
-                .replace("  action unbind writes binding\n    binding = \"\"",
-                    &format!("  action unbind writes binding, motion, target\n    binding = \"\"\n    motion = \"{transition}\"\n    target = {target_px}"));
+                .replace("  action unbind\n    binding = \"\"",
+                    &format!("  action unbind\n    binding = \"\"\n    motion = \"{transition}\"\n    target = {target_px}"));
             let mut h = boot(&source);
             let target = key(&h, "panel");
             let first = key(&h, "first");
@@ -451,8 +451,8 @@ fn temporary_authored_handle_does_not_take_ownership_of_programmatic_registratio
         .replace("state second = true", "state second = false")
         .replace("heightDragFor=\"other\"", "heightDragFor=\"\"")
         .replace(
-            "  action restore writes first\n    first = true",
-            "  action restore writes first, binding\n    first = true\n    binding = \"panel\"",
+            "  action restore\n    first = true",
+            "  action restore\n    first = true\n    binding = \"panel\"",
         );
     let mut h = boot(&source);
     let panel = key(&h, "panel");

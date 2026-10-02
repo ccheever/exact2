@@ -404,7 +404,7 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
 
 #[test]
 fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair() {
-    let source = "component App\n  state divisor = 1\n  action breakIt writes divisor\n    divisor = 0\n  action repair writes divisor\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
+    let source = "component App\n  state divisor = 1\n  action breakIt\n    divisor = 0\n  action repair\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
     let baked = contract::compile(source).unwrap().encode();
     // A derive must be a finite number: carried `divisor = 0` refuses the
     // candidate's boot (a bound style value would only be unset).
@@ -972,7 +972,7 @@ fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
             Ok(self.clone())
         }
     }
-    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start writes reply\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
+    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let source = Held(calls.clone());
     let (mut presenter, _) = exact_linux::Presenter::boot(

@@ -57,7 +57,7 @@ component A
 == type-assign
 component A
   state n = 1
-  action bad writes n
+  action bad
     n = "one"
   view
     text "a"
@@ -164,7 +164,7 @@ component A
 == analyze-handler-arity
 component A
   state n = 1
-  action set(v: number) writes n
+  action set(v: number)
     n = v
   view
     button press=set
@@ -221,7 +221,7 @@ component A
 == lower-timer-literal
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     every(n, tick)
@@ -231,7 +231,7 @@ component A
 == lower-timer-interval
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     every(0, tick)
@@ -241,7 +241,7 @@ component A
 == lower-timer-interval
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     after(0, tick)
@@ -251,7 +251,7 @@ component A
 == contract-task-body
 component A
   state n = 1
-  action tick writes n
+  action tick
     n = n + 1
   task t mount
     later(60, tick)
@@ -261,7 +261,7 @@ component A
 == lower-leaf-children
 component A
   state q = ""
-  action set(v) writes q
+  action set(v)
     q = v
   view
     input value=q change=set
@@ -304,7 +304,7 @@ component A
 == lower-zero-size
 component A
   state n = 0
-  action go writes n
+  action go
     n = 1
   view
     column
@@ -313,7 +313,7 @@ component A
 == analyze-action-arity
 component A
   state n = ""
-  action pick(id: string) writes n
+  action pick(id: string)
     n = id
   view
     provide press = pick
@@ -328,7 +328,7 @@ component Row
 == type-condition
 component A
   state n = 0
-  action go writes n
+  action go
     if n
       n = 1
   view
@@ -548,7 +548,7 @@ component A
 == syntax-duplicate-declaration
 component A
   state choice = some("a")
-  action choose writes choice
+  action choose
     match choice
       case some(value)
         choice = some(value)
@@ -575,7 +575,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action changed(next: number) writes value
+  action changed(next: number)
     value = next
   view
     input change=changed
@@ -583,7 +583,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action keyed(next: number) writes value
+  action keyed(next: number)
     value = next
   view
     input key=keyed
@@ -591,7 +591,7 @@ component A
 == type-handler-payload
 component A
   state value = 0
-  action messaged(next: number) writes value
+  action messaged(next: number)
     value = next
   view
     iframe "/guest" message=messaged
@@ -599,7 +599,7 @@ component A
 == type-handler-payload
 component A
   state value = ""
-  action hovered(next: string) writes value
+  action hovered(next: string)
     value = next
   view
     column hover=hovered
@@ -712,7 +712,7 @@ routes nav
   home "/"
   notfound
 component App
-  action visit writes nav
+  action visit
     nav = open(nav, "/missing")
   view
     text "home"
@@ -728,7 +728,7 @@ component App
 routes nav
   home "/"
 component App
-  action visit writes nav
+  action visit
     nav = push(nav, path("missing"))
   view
     text "home"
@@ -738,7 +738,7 @@ routes nav
   home "/"
     post "/post/:post"
 component App
-  action visit(id: string) writes nav
+  action visit(id: string)
     nav = push(nav, `/post/${id}`)
   view
     text "home"
@@ -762,7 +762,7 @@ component App
 == lower-navigate-root
 component A
   state location = ""
-  action follow(url: string) writes location
+  action follow(url: string)
     location = url
   view
     main navigationKey="home" navigationBack="back"
@@ -786,7 +786,7 @@ shape Item
   id: string
 component App
   state chosen = ""
-  action choose(id: string, why: string) writes chosen
+  action choose(id: string, why: string)
     chosen = id
   resource items = items() as shape list<Item>
   view
@@ -838,7 +838,7 @@ component A
 # An action is not callable from an action.
 component A
   state n = 1
-  action begin writes n
+  action begin
     n = 2
   action go
     begin()
@@ -858,7 +858,7 @@ component Child
       text "a"
 component App
   state draft = ""
-  action post(text: string) writes draft
+  action post(text: string)
     draft = text
   view
     Child(comment=post)
@@ -1059,7 +1059,7 @@ component A
 component A
   state target = "box"
   state h = 0
-  action size writes h
+  action size
     h = measure(target).height
   view
     button press=size

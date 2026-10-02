@@ -34,13 +34,13 @@ const APP: &str = r#"component App
   state target = 180
   state showing = true
   state hidden = false
-  action grow writes target
+  action grow
     target = 420
-  action shrink writes target
+  action shrink
     target = 100
-  action hide writes hidden
+  action hide
     hidden = true
-  action toggle writes showing
+  action toggle
     showing = !showing
   view
     box width=400 height="100%"
@@ -418,9 +418,9 @@ fn inactive_retained_route_retires_hold_then_readopts_generation_on_return() {
     let mut h = boot(
         r#"component App
   state selected = "panel"
-  action away writes selected
+  action away
     selected = "away"
-  action back writes selected
+  action back
     selected = "panel"
   view
     main width=400 height=300 navigationKey=selected navigationBack="back"
@@ -461,7 +461,7 @@ fn overdue_height_timer_retargets_held_layout_without_rewinding_engine() {
     let mut h = boot(
         r#"component App
   state target = 180
-  action step writes target
+  action step
     target = target + 10
   task ticker mount
     every(100, step)

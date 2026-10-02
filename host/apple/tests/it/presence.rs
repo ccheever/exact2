@@ -136,7 +136,7 @@ fn a_resize_takes_new_places_without_sliding() {
 fn a_resize_retires_running_layout_in_its_own_batch() {
     for width in ["100", "\"100%\""] {
         let mut host = boot_source(&format!(
-            "component App\n  state moved = false\n  action move writes moved\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
+            "component App\n  state moved = false\n  action move\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
         ));
         let box_id = view(&host, "box").unwrap();
         let move_id = view(&host, "move").unwrap();
@@ -191,7 +191,7 @@ fn boot_source(source: &str) -> Host<NoData> {
 #[test]
 fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     let mut host = boot_source(
-        "component App\n  state open = false\n  action toggle writes open\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" layout-transition=\"400ms linear\"\n        text \"Title\"\n        when open\n          view height=120\n",
+        "component App\n  state open = false\n  action toggle\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" layout-transition=\"400ms linear\"\n        text \"Title\"\n        when open\n          view height=120\n",
     );
     let (card, toggle) = (view(&host, "card").unwrap(), view(&host, "toggle").unwrap());
     let before = host.runner().kernel().node(card).unwrap().frame;
@@ -215,7 +215,7 @@ fn a_box_that_grows_starts_its_surface_at_its_old_size() {
 #[test]
 fn a_node_that_gains_the_row_animates_its_first_move() {
     let mut host = boot_source(
-        "component App\n  state on = false\n  action go writes on\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      text \"B\" testId=\"b\" layout-transition=(on ? \"200ms linear\" : \"none\")\n",
+        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      text \"B\" testId=\"b\" layout-transition=(on ? \"200ms linear\" : \"none\")\n",
     );
     let (b, go) = (view(&host, "b").unwrap(), view(&host, "go").unwrap());
     // One commit gains the row and moves the node: as a CSS transition
@@ -242,7 +242,7 @@ impl DataSource for Keys {
 #[test]
 fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let plan = contract::compile(
-        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut writes short\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
+        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(
@@ -310,7 +310,7 @@ fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
 #[test]
 fn removing_a_layout_transition_presents_identity_mid_move() {
     let mut host = boot_source(
-        "component App\n  state moved = false\n  state animate = true\n  action move writes moved\n    moved = true\n  action stop writes animate\n    animate = false\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Stop\" press=stop testId=\"stop\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" height=(moved ? 100 : 50) layout-transition=(animate ? \"1s linear\" : \"none\")\n",
+        "component App\n  state moved = false\n  state animate = true\n  action move\n    moved = true\n  action stop\n    animate = false\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Stop\" press=stop testId=\"stop\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" height=(moved ? 100 : 50) layout-transition=(animate ? \"1s linear\" : \"none\")\n",
     );
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
@@ -329,7 +329,7 @@ fn removing_a_layout_transition_presents_identity_mid_move() {
 #[test]
 fn hiding_an_ancestor_retires_a_descendants_layout_presentation() {
     let mut host = boot_source(
-        "component App\n  state moved = false\n  state hidden = false\n  action move writes moved\n    moved = true\n  action toggle writes hidden\n    hidden = not hidden\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Hide\" press=toggle testId=\"toggle\"\n      column display=(hidden ? \"none\" : \"flex\")\n        view height=(moved ? 80 : 20)\n        view testId=\"box\" height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n",
+        "component App\n  state moved = false\n  state hidden = false\n  action move\n    moved = true\n  action toggle\n    hidden = not hidden\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Hide\" press=toggle testId=\"toggle\"\n      column display=(hidden ? \"none\" : \"flex\")\n        view height=(moved ? 80 : 20)\n        view testId=\"box\" height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n",
     );
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
@@ -354,7 +354,7 @@ fn hiding_an_ancestor_retires_a_descendants_layout_presentation() {
 #[test]
 fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
     let mut host = boot_source(
-        "component App\n  state small = false\n  action shrink writes small\n    small = true\n  view\n    column\n      button \"Shrink\" press=shrink testId=\"shrink\"\n      view testId=\"box\" width=(small ? 10 : 200) height=(small ? 10 : 200) layout-transition=\"spring(100, 1, 1)\"\n",
+        "component App\n  state small = false\n  action shrink\n    small = true\n  view\n    column\n      button \"Shrink\" press=shrink testId=\"shrink\"\n      view testId=\"box\" width=(small ? 10 : 200) height=(small ? 10 : 200) layout-transition=\"spring(100, 1, 1)\"\n",
     );
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "shrink").unwrap(), Event::Press, 0.0);

@@ -17,16 +17,16 @@ const APP: &str = r#"component App
   resource initial = rows() as shape list<string>
   mutation changed as shape list<string>
   derive rows = match changed { case some(v) => v, case none => initial }
-  action drop(item: string, before: option<string>) writes grips, count
+  action drop(item: string, before: option<string>)
     grips = false
     count = count + 1
-  action hide writes grips
+  action hide
     grips = false
-  action show writes grips
+  action show
     grips = true
-  action shrink writes width
+  action shrink
     width = 200
-  action remove writes changed
+  action remove
     send changed = remove("0")
   view
     column width="100%" height="100%"
@@ -181,7 +181,7 @@ fn nested_ancestor_scroll_changes_mapping_and_cancels_before_any_late_action() {
 
 #[test]
 fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_port() {
-    let source=APP.replace("  state grips = true", "  state panelHeight = 180\n  action grow writes panelHeight\n    panelHeight = 320\n  state grips = true")
+    let source=APP.replace("  state grips = true", "  state panelHeight = 180\n  action grow\n    panelHeight = 320\n  state grips = true")
         .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height spring(300,30,1)\" press=grow")
         .replace("width=width height=180", "width=width height=\"100%\" flex-shrink=0");
     let (mut p, error) = Presenter::boot_with(

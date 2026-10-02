@@ -82,23 +82,23 @@ component Fieldnotes
   // The share sheet, where the host has one (LLP 1069.003 D5).
   resource page = exactPage() as shape Page
 
-  action search(value) writes query
+  action search(value)
     query = value
-  action beginSearch writes backups
+  action beginSearch
     backups = false
     focus("search")
-  action closeSearch writes query
+  action closeSearch
     query = ""
     focus("note-body")
-  action changeTitle(value) writes draftTitle
+  action changeTitle(value)
     if openedReady and not pending(opened)
       draftTitle = some(value)
-  action changeBody(value) writes draftBody
+  action changeBody(value)
     if openedReady and not pending(opened)
       draftBody = some(value)
-  action togglePin writes draftPinned
+  action togglePin
     draftPinned = some(not pinned)
-  action edit(id: string) writes opened, noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete
+  action edit(id: string)
     send opened = openNote(id, version + 1)
     noteId = id
     savedId = ""
@@ -111,7 +111,7 @@ component Fieldnotes
     version = version + 1
     confirmDelete = false
     focus("note-body")
-  action newNote writes noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete, query, backups
+  action newNote
     noteId = ""
     savedId = ""
     draftTitle = none
@@ -125,47 +125,47 @@ component Fieldnotes
     query = ""
     backups = false
     focus("note-title")
-  action discard writes draftTitle, draftBody, draftPinned
+  action discard
     draftTitle = some(referenceTitle)
     draftBody = some(referenceBody)
     draftPinned = some(referencePinned)
-  action save writes saved, savedId, originalTitle, originalBody, originalPinned
+  action save
     savedId = editingId
     originalTitle = some(referenceTitle)
     originalBody = some(referenceBody)
     originalPinned = some(referencePinned)
     send saved = saveNote(editingId, title, body, pinned, version)
-  action showBackups writes backups
+  action showBackups
     if backups
       focus("note-body")
     backups = not backups
-  action backup writes status
+  action backup
     send status = backupNotes()
-  action readBackup writes status
+  action readBackup
     send status = readBackup()
-  action changeImport(value) writes importText
+  action changeImport(value)
     importText = value
-  action askRestore writes confirmRestore
+  action askRestore
     confirmRestore = true
   action chooseImport
     showPicker("import-file")
   // Export is a copy the host makes of the saved backup (LLP 1069.010 D3).
-  action exportBackup writes exportNote
+  action exportBackup
     exportNote = ""
     saveFile("export-file", "app:/data/backups/fieldnotes.json", "fieldnotes.json")
-  action exported(name) writes exportNote
+  action exported(name)
     exportNote = `Exported ${name}.`
-  action exportCancelled writes exportNote
+  action exportCancelled
     exportNote = "The backup was not exported."
-  action importPicked(files: list<Picked>) writes importPath, importName, confirmRestore
+  action importPicked(files: list<Picked>)
     importPath = match first(files) { case some(f) => f.path, case none => "" }
     importName = match first(files) { case some(f) => f.name, case none => "" }
     confirmRestore = length(files) > 0
-  action cancelRestore writes confirmRestore, importPath, importName
+  action cancelRestore
     confirmRestore = false
     importPath = ""
     importName = ""
-  action restore writes status, confirmRestore, importPath, importName, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
+  action restore
     if importPath != ""
       send status = importNotes(importPath)
     else
@@ -184,11 +184,11 @@ component Fieldnotes
     version = version + 1
   action shareNote
     share(title=title, text=body)
-  action askDelete writes confirmDelete
+  action askDelete
     confirmDelete = true
-  action cancelDelete writes confirmDelete
+  action cancelDelete
     confirmDelete = false
-  action remove writes status, confirmDelete, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
+  action remove
     send status = deleteNote(editingId)
     confirmDelete = false
     noteId = ""

@@ -51,7 +51,7 @@ impl Drop for AppDir {
     }
 }
 
-const APP: &str = "component App\n  state count = 2\n  action more writes count\n    count = count + 1\n  view\n    column\n      text t(\"title\") testId=\"title\"\n      text t(\"greeting\", name=\"Ada\", count=count) testId=\"greeting\"\n      text \"fixed\" testId=\"fixed\"\n      text t(\"only-base\") testId=\"only\"\n";
+const APP: &str = "component App\n  state count = 2\n  action more\n    count = count + 1\n  view\n    column\n      text t(\"title\") testId=\"title\"\n      text t(\"greeting\", name=\"Ada\", count=count) testId=\"greeting\"\n      text \"fixed\" testId=\"fixed\"\n      text t(\"only-base\") testId=\"only\"\n";
 
 const EN: &str = r#"{"title": "Journal", "greeting": "Hi {name}, {count} entries", "only-base": "Base only", "unused": "Never baked"}"#;
 const EN_GB: &str = r#"{"title": "Diary"}"#;
@@ -227,7 +227,7 @@ fn the_base_locale_matches_without_case_and_is_baked_first() {
 
 #[test]
 fn interpolation_refuses_expansion_past_the_vms_string_cap() {
-    let src = "component App\n  state label = \"\"\n  action expand(s: string) writes label\n    label = t(\"large\", name=s)\n  view\n    text label\n";
+    let src = "component App\n  state label = \"\"\n  action expand(s: string)\n    label = t(\"large\", name=s)\n  view\n    text label\n";
     let table = serde_json::json!({ "large": "{name}".repeat(1025) }).to_string();
     let app = AppDir::new(src, &[("strings/en.json", &table)]);
     let mut r = boot(app.compile().unwrap());

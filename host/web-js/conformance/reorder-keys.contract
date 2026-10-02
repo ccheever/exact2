@@ -19,11 +19,11 @@ component ReorderKeys
   resource close = nearest(loc, 3) as shape list<Station>
   state order = "line"
   derive shown = (order == "line" ? line : (order == "near" ? all : close))
-  action byLine writes order
+  action byLine
     order = "line"
-  action byDistance writes order
+  action byDistance
     order = "near"
-  action closest writes order
+  action closest
     order = "close"
   view
     column testId="root" gap=4 padding=8

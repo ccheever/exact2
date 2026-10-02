@@ -5,7 +5,7 @@ use exact_web::Host;
 fn media_properties_events_and_rejections() {
     let source = r#"component App
   state seconds = 0
-  action update(value: number) writes seconds
+  action update(value: number)
     seconds = value
   view
     column interactive-widget="resizes-content"

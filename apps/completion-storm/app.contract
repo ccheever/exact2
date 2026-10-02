@@ -193,27 +193,27 @@ component CompletionStorm
   derive failed7 = (active and 112 < waveCount and r112.wave == waveId and not r112.ok ? 1 : 0) + (active and 113 < waveCount and r113.wave == waveId and not r113.ok ? 1 : 0) + (active and 114 < waveCount and r114.wave == waveId and not r114.ok ? 1 : 0) + (active and 115 < waveCount and r115.wave == waveId and not r115.ok ? 1 : 0) + (active and 116 < waveCount and r116.wave == waveId and not r116.ok ? 1 : 0) + (active and 117 < waveCount and r117.wave == waveId and not r117.ok ? 1 : 0) + (active and 118 < waveCount and r118.wave == waveId and not r118.ok ? 1 : 0) + (active and 119 < waveCount and r119.wave == waveId and not r119.ok ? 1 : 0) + (active and 120 < waveCount and r120.wave == waveId and not r120.ok ? 1 : 0) + (active and 121 < waveCount and r121.wave == waveId and not r121.ok ? 1 : 0) + (active and 122 < waveCount and r122.wave == waveId and not r122.ok ? 1 : 0) + (active and 123 < waveCount and r123.wave == waveId and not r123.ok ? 1 : 0) + (active and 124 < waveCount and r124.wave == waveId and not r124.ok ? 1 : 0) + (active and 125 < waveCount and r125.wave == waveId and not r125.ok ? 1 : 0) + (active and 126 < waveCount and r126.wave == waveId and not r126.ok ? 1 : 0) + (active and 127 < waveCount and r127.wave == waveId and not r127.ok ? 1 : 0)
   derive failedCount = failed0 + failed1 + failed2 + failed3 + failed4 + failed5 + failed6 + failed7
 
-  action setCount(value) writes requested
+  action setCount(value)
     requested = value
-  action setErrors(value) writes errors
+  action setErrors(value)
     errors = value
-  action editNote(value) writes note
+  action editNote(value)
     note = value
-  action interact writes clicks
+  action interact
     clicks = clicks + 1
-  action startWave writes wave, mounted
+  action startWave
     mounted = true
     send wave = openWave(settings.count, settings.errors)
-  action navigateAway writes mounted, wave
+  action navigateAway
     mounted = false
     wave = none
-  action releaseCurrent writes fixture
+  action releaseCurrent
     send fixture = releaseWave(waveId)
-  action releaseAll writes fixture
+  action releaseAll
     send fixture = releaseWave(0)
-  action inspectFixture writes fixture
+  action inspectFixture
     send fixture = fixtureStats()
-  action sample writes clicks
+  action sample
     refresh counters
 
   task counters mount

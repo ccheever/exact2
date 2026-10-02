@@ -29,24 +29,24 @@ component Tennis
   resource hud = exactSurface("world") as shape Hud
   resource plan = jev(hud.ask) as shape string
 
-  action playJev writes playing, offline, paused
+  action playJev
     offline = false
     paused = false
     playing = true
 
-  action playOffline writes playing, offline, paused
+  action playOffline
     offline = true
     paused = false
     playing = true
 
-  action togglePause writes paused
+  action togglePause
     paused = not paused
 
-  action restart writes again, paused
+  action restart
     again = not again
     paused = false
 
-  action menu writes playing, paused
+  action menu
     playing = false
     paused = false
 

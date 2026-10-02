@@ -3,9 +3,9 @@
 component Timers
   state ticks = 0
   state running = true
-  action tick writes ticks
+  action tick
     ticks = running ? ticks + 1 : ticks
-  action stop writes running
+  action stop
     running = not running
   task beat mount
     every(1000, tick)

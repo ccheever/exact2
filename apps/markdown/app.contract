@@ -95,9 +95,9 @@ component Markdown
 
   // What the host delivers, what the field shows, and what a followed link
   // does are one action, because they are one thing.
-  action openFile(value) writes asked
+  action openFile(value)
     asked = value
-  action toggleFolder writes folder
+  action toggleFolder
     folder = not folder
   // The File System Access API's pickers, on every host that has them; the
   // handle arrives at `open-file` like every other way in (LLP 1069.010 D2).
@@ -105,7 +105,7 @@ component Markdown
     showOpenFilePicker("open-file")
   action chooseFolder
     showDirectoryPicker("open-file")
-  action chooseScheme(name: string) writes scheme
+  action chooseScheme(name: string)
     scheme = name
     setScheme(name)
 

@@ -35,7 +35,7 @@ fn op(batch: &str, id: u32) -> String {
 
 const SRC: &str = r##"component Type
   state big = false
-  action toggle writes big
+  action toggle
     big = not big
   view
     column font-size=(big ? 24 : 20) line-height="24px" testId="root"
@@ -54,7 +54,7 @@ const SRC: &str = r##"component Type
 fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     let plan = contract::compile(r##"component App
   state large = false
-  action change writes large
+  action change
     large = not large
   view
     column font-size=(large ? 28 : 17) font-weight=(large ? 600 : 400)
@@ -192,7 +192,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     let plan = contract::compile(
         r##"component Caret
   state changed = false
-  action toggle writes changed
+  action toggle
     changed = not changed
   view
     column caret-color=(changed ? "#00aaff" : "#ffffff")
@@ -227,9 +227,9 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
     let plan = contract::compile(r##"component Borders
   state mode = "none"
   state blue = false
-  action setMode(value: string) writes mode
+  action setMode(value: string)
     mode = value
-  action recolor writes blue
+  action recolor
     blue = not blue
   view
     column color=(blue ? "#0000ff" : "#ff0000")
@@ -438,7 +438,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     let plan = contract::compile(r##"component Inline
   state changed = false
   resource additions = additions(changed) as shape list<string>
-  action change writes changed
+  action change
     changed = not changed
   view
     column
@@ -514,7 +514,7 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     let plan = contract::compile(
         r##"component Case
   state caps = false
-  action toggle writes caps
+  action toggle
     caps = not caps
   view
     column text-transform=(caps ? "uppercase" : "capitalize") box-shadow="0 2px 12px rgba(0, 0, 0, 0.2)" testId="root"

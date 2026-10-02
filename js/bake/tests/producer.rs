@@ -13,7 +13,7 @@ const CONTRACT: &str = r#"
 component App
   state count = 0
   resource message = message(count) as shape string
-  action increment writes count
+  action increment
     count = count + 1
   view
     column

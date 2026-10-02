@@ -11,7 +11,7 @@ impl DataSource for NoData {
 }
 
 fn source(event: &str, params: &str, handler: &str, idref: &str) -> String {
-    format!("component App\n  state value = 0\n  action receive({params}) writes value\n    value = 1\n  view\n    column overflow=\"hidden\"\n      column id=\"photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n        column testId=\"handle\" transformDragFor={idref} {event}={handler}\n")
+    format!("component App\n  state value = 0\n  action receive({params})\n    value = 1\n  view\n    column overflow=\"hidden\"\n      column id=\"photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n        column testId=\"handle\" transformDragFor={idref} {event}={handler}\n")
 }
 
 const GEOMETRY: &str = "bw: number, bh: number, pw: number, ph: number";
@@ -105,7 +105,7 @@ fn numeric_types_are_rechecked_after_child_action_inlining() {
             } else {
                 params.into()
             };
-            let src = format!("component App\n  state n = 0\n  action receive({params}) writes n\n    n = 1\n  view\n    column\n      Handle(callback=receive)\ncomponent Handle\n  props\n    callback: action\n  view\n    column transformDragFor=\"photo\" {event}=callback\n");
+            let src = format!("component App\n  state n = 0\n  action receive({params})\n    n = 1\n  view\n    column\n      Handle(callback=receive)\ncomponent Handle\n  props\n    callback: action\n  view\n    column transformDragFor=\"photo\" {event}=callback\n");
             let result = contract::compile(&src);
             if invalid {
                 assert!(result.unwrap_err().to_string().contains("handler-type"));
@@ -118,7 +118,7 @@ fn numeric_types_are_rechecked_after_child_action_inlining() {
 
 #[test]
 fn pixel_translate_literals_and_dynamic_template_reach_kernel_rows() {
-    let src = "component App\n  state x = 0\n  state y = 0\n  action move(a: number, b: number) writes x, y\n    x = a\n    y = b\n  view\n    column\n      column testId=\"literal\" translate=\"-12.5px 3px\"\n      column testId=\"dynamic\" translate=`${x}px ${y}px`\n";
+    let src = "component App\n  state x = 0\n  state y = 0\n  action move(a: number, b: number)\n    x = a\n    y = b\n  view\n    column\n      column testId=\"literal\" translate=\"-12.5px 3px\"\n      column testId=\"dynamic\" translate=`${x}px ${y}px`\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,

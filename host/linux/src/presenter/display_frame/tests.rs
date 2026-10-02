@@ -45,17 +45,17 @@ const APP: &str = r##"component App
   state showing = true
   state ticks = 0
   mutation result as shape bool
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action press writes count
+  action press
     count = count + 1
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
-  action tick writes ticks
+  action tick
     ticks = ticks + 1
-  action request writes result
+  action request
     send result = work()
   task timer mount
     every(250, tick)
@@ -456,13 +456,13 @@ const VIEWPORT_APP: &str = r##"component App
   state extent = 600
   state draft = ""
   state count = 0
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action press writes count
+  action press
     count = count + 1
-  action shorten writes extent
+  action shorten
     extent = 100
-  action lengthen writes extent
+  action lengthen
     extent = 700
   view
     column testId="root" width="100%" height=extent background-color="#225599"
@@ -690,7 +690,7 @@ fn viewport_headless_resize_keeps_immediate_root_scroll_semantics() {
 const IDLE_TIMER: &str = r##"component App
   state running = false
   state ticks = 0
-  action tick writes ticks
+  action tick
     if running
       ticks = ticks + 1
   task timer mount
@@ -848,7 +848,7 @@ fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
 }
 #[test]
 fn timer_demand_router_change_is_consumed_even_without_view_edits() {
-    let source = "routes nav\n  home \"/\"\n    post \"/post\"\ncomponent App\n  action tick writes nav\n    nav = open(nav, \"/post\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged shell\"\n";
+    let source = "routes nav\n  home \"/\"\n    post \"/post\"\ncomponent App\n  action tick\n    nav = open(nav, \"/post\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged shell\"\n";
     let (mut p, _, _) = timer_primed(source);
     assert!(p.advance(250.).is_none());
     assert!(p.host.router_op().is_some());
@@ -1017,7 +1017,7 @@ fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
     at = now()
   task ticker mount

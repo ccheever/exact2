@@ -16,7 +16,7 @@ component App
   resource board = departures(selected) as shape list<Departure>
   derive count = length(board)
 
-  action selectStation(id) writes stationId, query
+  action selectStation(id)
     stationId = some(id)
     query = ""
   action setDark
@@ -138,7 +138,7 @@ fn the_app_slice_parses_to_the_expected_tree() {
 #[test]
 fn a_task_fires_once_with_after() {
     let file = parse(
-        "component A\n  state launching = true\n  action arrived writes launching\n    launching = false\n  task launch mount\n    after(60, arrived)\n  view\n    text \"a\"\n",
+        "component A\n  state launching = true\n  action arrived\n    launching = false\n  task launch mount\n    after(60, arrived)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     let task = &file.components[0].tasks[0];
@@ -159,7 +159,7 @@ fn a_task_fires_once_with_after() {
 #[test]
 fn a_task_fires_each_frame_with_every_frame() {
     let file = parse(
-        "component A\n  state frame = 0\n  action step writes frame\n    frame = frame + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text \"a\"\n",
+        "component A\n  state frame = 0\n  action step\n    frame = frame + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     let task = &file.components[0].tasks[0];
@@ -167,7 +167,7 @@ fn a_task_fires_each_frame_with_every_frame() {
     assert_eq!(task.timer.1, "step");
     // An expression that starts with the word is still an interval.
     let file = parse(
-        "component A\n  state frame = 16\n  action step writes frame\n    frame = 16\n  task t mount\n    every(frame + 1, step)\n  view\n    text \"a\"\n",
+        "component A\n  state frame = 16\n  action step\n    frame = 16\n  task t mount\n    every(frame + 1, step)\n  view\n    text \"a\"\n",
     )
     .unwrap();
     assert_eq!(file.components[0].tasks[0].kind, TaskKind::Every);
@@ -221,11 +221,11 @@ fn a_template_expression_balances_match_braces_and_string_braces() {
 fn if_when_and_their_explicit_else_need_non_empty_blocks() {
     let cases = [
         (
-            "component A\n  state n = 0\n  action go writes n\n    if true\n    n = 1\n  view\n    text \"a\"\n",
+            "component A\n  state n = 0\n  action go\n    if true\n    n = 1\n  view\n    text \"a\"\n",
             4,
         ),
         (
-            "component A\n  state n = 0\n  action go writes n\n    if true\n      n = 1\n    else\n    n = 2\n  view\n    text \"a\"\n",
+            "component A\n  state n = 0\n  action go\n    if true\n      n = 1\n    else\n    n = 2\n  view\n    text \"a\"\n",
             4,
         ),
         (
@@ -302,7 +302,7 @@ fn rejections_carry_stable_ids_and_spans() {
 fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals() {
     // LLP 1035.005 D1: `name=` on a deeper line continues the attribute
     // list; a child begins with a tag, so one-token lookahead decides.
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
     let file = parse(src).unwrap();
     let Node::Element {
         attrs, children, ..
@@ -373,7 +373,7 @@ fn source_identity_reaches_nested_ast_ranges_without_changing_syntax() {
 
 #[test]
 fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
-    let src = "component A\n  props\n    send: action\n  state count = 0\n  mutation session as shape Session\n  action go writes session, count\n    send()\n    send(count)\n    send session = login(send=count)\n    count = send\n  view\n    Row(send=go)\n";
+    let src = "component A\n  props\n    send: action\n  state count = 0\n  mutation session as shape Session\n  action go\n    send()\n    send(count)\n    send session = login(send=count)\n    count = send\n  view\n    Row(send=go)\n";
     let file = parse(src).unwrap();
     let a = &file.components[0];
     assert_eq!(a.props[0].name, "send");
@@ -395,7 +395,7 @@ fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
         if target == "count" && matches!(expr, Expr::Ident(n, _) if n == "send")));
     assert!(matches!(&a.view[0], Node::Use { args, .. } if args[0].name == "send"));
 
-    let src = "component A\n  state send = 0\n  action go writes send\n    send = send + 1\n  view\n    text `${send}`\n";
+    let src = "component A\n  state send = 0\n  action go\n    send = send + 1\n  view\n    text `${send}`\n";
     let file = parse(src).unwrap();
     let a = &file.components[0];
     assert_eq!(a.states[0].name, "send");

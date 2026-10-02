@@ -20,9 +20,9 @@ component App
   mutation changed as shape Feed
   derive feed = match changed { case some(m) => m, case none => initial }
   derive baked = peek ? length(initial.rows) : 0
-  action edit writes changed
+  action edit
     send changed = edit()
-  action look writes peek
+  action look
     peek = true
 
   view

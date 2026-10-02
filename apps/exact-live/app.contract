@@ -319,71 +319,71 @@ component ExactLive
   derive failedCount = failed0 + failed1 + failed2 + failed3 + failed4 + failed5 + failed6 + failed7
 
 
-  action showPane(value: string) writes pane, crewSheet
+  action showPane(value: string)
     if value == "rundown" or value == "runbook" or value == "crew"
       pane = value
       crewSheet = false
-  action toggleInspector writes inspector
+  action toggleInspector
     inspector = not inspector
-  action toggleSheet writes crewSheet
+  action toggleSheet
     crewSheet = not crewSheet
-  action snapSheet(height: number, velocity: number) writes sheetPx
+  action snapSheet(height: number, velocity: number)
     sheetPx = (height + velocity * 0.15 < 270 ? 180 : (height + velocity * 0.15 < 500 ? 360 : 640))
-  action chooseSheet(value: number) writes sheetPx
+  action chooseSheet(value: number)
     if value == 180 or value == 360 or value == 640
       sheetPx = value
-  action toggleReading writes readingNarrow
+  action toggleReading
     readingNarrow = not readingNarrow
-  action chooseBook(value: number) writes bookBytes
+  action chooseBook(value: number)
     if value == 0 or value == 1048576 or value == 4194304
       bookBytes = value
-  action chooseLoad(value: number) writes count, revision, running
+  action chooseLoad(value: number)
     if value == 0 or value == 100 or value == 1000 or value == 10000 or value == 100000
       count = value
       revision = 0
       running = false
-  action chooseBatch(value: number) writes batch, revision, running
+  action chooseBatch(value: number)
     if value == 1 or value == 8 or value == 32
       batch = value
       revision = 0
       running = false
-  action startSelected writes revision, running
+  action startSelected
     if count > 0
       revision = 0
       running = true
-  action startLive writes count, batch, revision, running, wave
+  action startLive
     count = 10000
     batch = 32
     revision = 0
     running = true
     if fixtureEnabled and pendingCount == 0 and not pending(wave)
       send wave = openWave(128, 0)
-  action pause writes running
+  action pause
     running = false
-  action tick writes revision, running
+  action tick
     if running
       running = revision < 119
       revision = min(120, revision + 1)
-  action editDraft(value) writes draft, draftTooLong
+  action editDraft(value)
     if length(value) <= 512
       draft = value
       draftTooLong = false
     else
       draftTooLong = true
-  action sendDraft writes echo, draft, replying
+  action sendDraft
     if not isEmpty(draft)
       echo = draft
       draft = ""
       replying = ""
-  action replyTo(id: string) writes replying
+  action replyTo(id: string)
     replying = id
-  action clearReply writes replying
+  action clearReply
     replying = ""
-  action command(op: string, id: string, n: number) writes changed
+  action command(op: string, id: string, n: number)
     send changed = galleryAction(op, id, n)
-  action dropRundown(item: string, before: option<string>) writes changed
+  action dropRundown(item: string, before: option<string>)
     send changed = galleryReorder(item, before, gallery.revision)
-  action resetScene writes changed, count, batch, revision, running, draft, echo, replying, draftTooLong, pane, crewSheet, sheetPx, bookBytes, readingNarrow
+  action resetScene
     send changed = galleryAction("reset", "", 0)
     count = 0
     batch = 32
@@ -398,12 +398,12 @@ component ExactLive
     sheetPx = 360
     bookBytes = 0
     readingNarrow = false
-  action attachFixture writes fixtureEnabled
+  action attachFixture
     fixtureEnabled = true
-  action startJobs writes wave
+  action startJobs
     if fixtureEnabled and pendingCount == 0 and not pending(wave)
       send wave = openWave(128, 0)
-  action releaseJobs writes fixture
+  action releaseJobs
     if waveId > 0
       send fixture = releaseWave(waveId)
   action reconnectEvents
@@ -675,18 +675,18 @@ component Viewer
   derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
   derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
 
-  action chooseZoom(value: number) writes zoom, panX, panY
+  action chooseZoom(value: number)
     if value == 1 or value == 2
       zoom = value
       panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
       panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
 
-  action resetPhoto writes zoom, panX, panY
+  action resetPhoto
     zoom = 1
     panX = 0
     panY = 0
 
-  action photoGeometry(bw: number, bh: number, pw: number, ph: number) writes boxWidth, boxHeight, portWidth, portHeight, panX, panY
+  action photoGeometry(bw: number, bh: number, pw: number, ph: number)
     if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
       boxWidth = bw
       boxHeight = bh
@@ -700,7 +700,7 @@ component Viewer
         panY = 0
 
   // A pinch's scale is adopted between Fit and 4× (LLP 1057.001 §4).
-  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes zoom, panX, panY
+  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     zoom = photoZoom(scale)
     panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, photoZoom(scale), portWidth) : 0
     panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, photoZoom(scale), portHeight) : 0

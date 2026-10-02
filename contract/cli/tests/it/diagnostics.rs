@@ -385,7 +385,7 @@ fn missing_component_props_report_the_whole_call_interface() {
         "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    text \"No instance\"\n";
     let root = app.write("app.contract", used_root);
     app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n    selected: bool\n    choose: action\n  inject\n    theme: string\n  view\n    button press=choose\n      text `${theme} ${title} ${count} ${selected}`\n");
-    let row = "use Card from \"./card.contract\"\ncomponent Row\n  state clicks = 0\n  action choose() writes clicks\n    clicks = clicks + 1\n  view\n    Card(ARGS)\n";
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  state clicks = 0\n  action choose()\n    clicks = clicks + 1\n  view\n    Card(ARGS)\n";
     for (root_source, id) in [
         (used_root, "syntax-missing-prop"),
         (unused_root, "type-missing-prop"),
@@ -868,7 +868,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
 
     for source in [
         "fn paints(n: number): number = n\nfn points(n: number): number = n\ncomponent App\n  view\n    text `${pints(1)}`\n".to_owned(),
-        "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
+        "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number)\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
         "component App\n  props\n    points: action\n  view\n    text `${pints(1)}`\n".to_owned(),
         "component App\n  view\n    text `${puch(1)}`\n".to_owned(), // push requires routes
         "component App\n  view\n    text `${zzz(1)}`\n".to_owned(),
@@ -888,7 +888,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
         contract::compile(&source.replace(typo, correct)).unwrap();
     }
-    let lifted_ambiguity = "fn paints(n: number): number = n\ncomponent App\n  view\n    Row()\ncomponent Row\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n";
+    let lifted_ambiguity = "fn paints(n: number): number = n\ncomponent App\n  view\n    Row()\ncomponent Row\n  state count = 0\n  action points(n: number)\n    count = n\n  view\n    text `${pints(1)}`\n";
     let error = contract::compile(lifted_ambiguity).unwrap_err();
     assert_eq!(error.id, "type-unknown-function");
     assert!(!error.message.contains("did you mean"), "{error}");
@@ -911,7 +911,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         contract::compile(&source.replace("pth(", "path(")).unwrap();
     }
     // A parameter shadows the similarly named action; it is not callable.
-    let source = "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  action invoke(points: number) writes count\n    count = pints(points)\n  view\n    button \"Run\" press=invoke(1)\n";
+    let source = "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number)\n    count = n\n  action invoke(points: number)\n    count = pints(points)\n  view\n    button \"Run\" press=invoke(1)\n";
     let error = contract::compile(source).unwrap_err();
     assert!(
         error.message.ends_with("; did you mean `paints`?"),
@@ -936,7 +936,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
 #[test]
 fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     let app = App::new("action-hints");
-    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    let action = "  state count = 0\n  action save\n    count = count + 1\n";
     for (typo, id) in [
         ("svae", "type-unknown-name"),
         ("sav()", "type-unknown-function"),
@@ -992,7 +992,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     for source in [
         format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
         format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
-        format!("component App\n{action}  action sale writes count\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
+        format!("component App\n{action}  action sale\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
         format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
         format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
         "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
@@ -1011,12 +1011,12 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
 #[test]
 fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers() {
     let app = App::new("forwarded-action-hints");
-    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    let action = "  state count = 0\n  action save\n    count = count + 1\n";
     for (source, typo) in [
         (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    Leaf(submit=commit)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Save\" press=submit\n"), "svae"),
         (format!("component App\n{action}  view\n    provide commit = svae\n      Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
-        ("component App\n  state count = 0\n  action save(value: number) writes count\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
-        (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
+        ("component App\n  state count = 0\n  action save(value: number)\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
+        (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
     ] {
         let path = app.write("app.contract", &source).canonicalize().unwrap();
         let error = contract::compile_path(&path).unwrap_err();
@@ -1036,7 +1036,7 @@ fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers
         line.replace_range(related.span.col as usize-1..related.span.end_col as usize-1, "save");
         contract::compile(&repaired.join("\n")).unwrap();
     }
-    let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
+    let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
     // Each child's call site is checked in its own scope, so each gets the
     // correction its own actions support, first `First`'s, then `Second`'s.
     let error = contract::compile(source).unwrap_err();
@@ -1061,7 +1061,7 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         ("path", "paht", ""),
         ("save", "svae", "fn save(): number = 1\n"),
     ] {
-        let declarations = format!("{global}component App\n  state count = 0\n  action {name} writes count\n    count = count + 1\n");
+        let declarations = format!("{global}component App\n  state count = 0\n  action {name}\n    count = count + 1\n");
         for view in [
             format!("  view\n    button \"Save\" press={typo}()\n"),
             format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
@@ -1322,7 +1322,7 @@ fn deep_views_are_refused_without_aborting_the_compiler() {
 #[test]
 fn scroll_payload_arity_is_a_diagnostic() {
     for params in ["x: number", "x: number, y: number"] {
-        let source = format!("component App\n  state n = 0\n  action onScroll({params}) writes n\n    n = x\n  view\n    scroll scroll=onScroll height=100\n      text \"hi\"\n");
+        let source = format!("component App\n  state n = 0\n  action onScroll({params})\n    n = x\n  view\n    scroll scroll=onScroll height=100\n      text \"hi\"\n");
         let result = contract::compile(&source);
         if params.contains(',') {
             result.unwrap();

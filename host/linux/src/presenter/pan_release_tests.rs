@@ -19,13 +19,13 @@ const SOURCE: &str = r#"component App
   state vy = 0
   state releases = 0
   state presses = 0
-  action moved(dx: number, dy: number) writes x
+  action moved(dx: number, dy: number)
     x = x + dx
-  action released(sx: number, sy: number) writes vx, vy, releases
+  action released(sx: number, sy: number)
     vx = sx
     vy = sy
     releases = releases + 1
-  action pressed writes presses
+  action pressed
     presses = presses + 1
   view
     column width=400 height=500

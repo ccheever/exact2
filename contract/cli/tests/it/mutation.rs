@@ -25,16 +25,16 @@ component App
   resource balance = balance(token) as shape Balance
   derive busy = pending(session)
 
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action setPassword(v) writes password
+  action setPassword(v)
     password = v
-  action submit writes session
+  action submit
     send session = login(who, password)
-  action logout writes session
+  action logout
     send session = logout(token)
     session = none
-  action paid writes who
+  action paid
     refresh balance
 
   view
@@ -488,7 +488,7 @@ fn the_language_refuses_what_it_should() {
 /// (LLP 1018 §4's `current`): the fixpoint waits for `?` to fill.
 #[test]
 fn a_derive_over_a_matched_record_types_in_any_order() {
-    let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go writes session\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
+    let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
     let plan = contract::compile(src).unwrap();
     assert_eq!(plan.derives.len(), 3);
     // And a field that never types is still refused, by name.
@@ -509,7 +509,7 @@ component App
   resource items = items(trigger) as shape list<Item>
   mutation effect as shape Effect
 
-  action go writes trigger, effect
+  action go
     send effect = effect()
     trigger = trigger + 1
     setScheme("dark")
@@ -601,11 +601,11 @@ component App
   resource writer = writer(clear) as shape Flag
   mutation session as shape Session
 
-  action submit writes session
+  action submit
     send session = login()
-  action logout writes session
+  action logout
     send session = logout()
-  action clearStore writes clear
+  action clearStore
     clear = true
 
   view
@@ -831,11 +831,11 @@ component App
   state greeted = ""
   state landings = 0
   mutation session as shape Session then signedIn
-  action submit writes session
+  action submit
     send session = login(who, "pw")
-  action quick writes session
+  action quick
     send session = greet(who)
-  action signedIn writes greeted, landings
+  action signedIn
     landings = landings + 1
     match session
       case some(s)
@@ -944,8 +944,8 @@ fn then_cannot_send_its_own_mutation_even_in_a_branch() {
         "    match session\n      case some(s)\n        send session = greet(s.username)\n      case none\n        greeted = \"?\"",
     ] {
         let src = THEN.replace(
-            "action signedIn writes greeted, landings",
-            "action signedIn writes greeted, landings, session",
+            "action signedIn",
+            "action signedIn",
         ).replace("    landings = landings + 1", body);
         let error = contract::compile(&src).unwrap_err();
         assert_eq!(error.id, "analyze-then-self-send");
@@ -953,8 +953,8 @@ fn then_cannot_send_its_own_mutation_even_in_a_branch() {
     // Clearing the answer is allowed; only sending can arm the action again.
     let src = THEN
         .replace(
-            "action signedIn writes greeted, landings",
-            "action signedIn writes greeted, landings, session",
+            "action signedIn",
+            "action signedIn",
         )
         .replace("    landings = landings + 1", "    session = none");
     contract::compile(&src).unwrap();

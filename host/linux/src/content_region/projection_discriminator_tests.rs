@@ -195,9 +195,9 @@ fn app(fractional: bool) -> String {
         r##"component App
   state top = {y}
   state text = "{text}"
-  action move writes top
+  action move
     top = {next}
-  action replaceAndMove writes text, top
+  action replaceAndMove
     text = "Candidate B must not supply retained source A pixels or hits."
     top = {next}
   view

@@ -77,11 +77,11 @@ component PresenceTimeline
   state moved = false
   state large = false
   state shown = true
-  action move writes moved
+  action move
     moved = not moved
-  action grow writes large
+  action grow
     large = not large
-  action hide writes shown
+  action hide
     shown = false
   view
     column testId="root" width=300 height=500
@@ -132,7 +132,7 @@ pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
   state missing = false
   state seenA = 0
   state seenB = 0
-  action read writes room, top, left, natural, sized, answered, missing
+  action read
     room = frame("bay").height
     top = frame("sheet").y
     left = frame("sheet").x
@@ -140,10 +140,10 @@ pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
     sized = frame("sheet").height
     answered = not frame("bay").unavailable and not measure("sheet").unavailable
     missing = frame("nowhere").unavailable
-  action first writes seenA, bayPx
+  action first
     seenA = frame("bay").height
     bayPx = bayPx + 100
-  action second writes seenB, bayPx
+  action second
     seenB = frame("bay").height
     bayPx = bayPx + 100
   task a mount

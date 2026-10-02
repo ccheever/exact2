@@ -166,7 +166,7 @@ fn properties_become_the_attributes_and_text_the_glue_gives_them() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column inert=true
@@ -239,7 +239,7 @@ component App
     let button_in_button = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId="outer"
@@ -262,7 +262,7 @@ fn a_buttons_containers_are_spans() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column
@@ -345,7 +345,7 @@ routes nav
   tab home "/"
     post "/post/:post"
 component App
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
@@ -374,7 +374,7 @@ fn a_head_is_the_pages_head_never_an_element() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column testId="page"

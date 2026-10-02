@@ -20,7 +20,7 @@ component Arrange
   resource rows = galleryRows(0, 0, true) as shape list<Photo>
   state last = "none"
   state drops = 0
-  action dropped(item: string, before: option<string>) writes last, drops
+  action dropped(item: string, before: option<string>)
     last = `${item} before ${match before { case some(b) => b, case none => "the end" }}`
     drops = drops + 1
   view

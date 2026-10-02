@@ -11,17 +11,17 @@ component PhotoEditor
   state edit = "scale 1.00× · rotation 0.0° · pan x 0.00 y 0.00 · crop x 0.00 y 0.00 w 1.00 h 1.00"
   state edits = 0
   state ready = false
-  action rotate writes turns
+  action rotate
     turns = turns + 1
-  action reset writes turns, resets
+  action reset
     turns = 0
     resets = resets + 1
-  action changed(value: string) writes edit
+  action changed(value: string)
     edit = value
-  action told(message: string) writes edits
+  action told(message: string)
     if message == "edited"
       edits = edits + 1
-  action loaded writes ready
+  action loaded
     ready = true
   view
     main testId="photo-editor-app" width="100%" height="100%" display="flex" flex-direction="column" background-color="#111318" color="#f2f3f5" font-family="system-ui"

@@ -113,23 +113,23 @@ component InteractionGallery
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
   resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
 
-  action chooseRendering(value: string) writes rendering
+  action chooseRendering(value: string)
     if value == "windowed" or value == "manual" or value == "eager"
       rendering = value
 
   // An action reads state as it was before it ran, so each stop is written
   // out where it is used.
-  action chooseSheet(value: number) writes sheetPx, sheetRead, sheetFull
+  action chooseSheet(value: number)
     sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
     sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
     sheetPx = sheetChoice(value, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull), sheetPx)
 
-  action snapSheet(height: number, velocity: number) writes sheetPx, sheetRead, sheetFull
+  action snapSheet(height: number, velocity: number)
     sheetFull = sheetFullOf(frame("sheet-bay"), sheetFull)
     sheetRead = sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead)
     sheetPx = sheetStop(height + velocity * 0.15, sheetReadOf(measure("reading-sheet"), sheetFullOf(frame("sheet-bay"), sheetFull), sheetRead), sheetFullOf(frame("sheet-bay"), sheetFull))
 
-  action command(op: string, id: string, n: number) writes changed, sheetPx
+  action command(op: string, id: string, n: number)
     if op == "reset" or op == "load"
       sheetPx = sheetRead
     send changed = galleryAction(op, id, n)
@@ -148,10 +148,10 @@ component InteractionGallery
         focus(`lift-${gallery.selected.id}`)
     if op == "delete"
       focus(`mode-${gallery.mode}`)
-  action dropArrange(item: string, before: option<string>) writes changed
+  action dropArrange(item: string, before: option<string>)
     send changed = galleryReorder(item, before, gallery.revision)
 
-  action edit(value) writes draft
+  action edit(value)
     if length(value) <= 512
       draft = value
 
@@ -316,7 +316,7 @@ component SwipeRow
   props
     n: number
   state kept = false
-  action keep writes kept
+  action keep
     kept = not kept
   view
     box testId=`swipe-row-${n}` timeline-scope="--swipe" width="100%" height=56 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=10 background-color=theme.wash
@@ -341,9 +341,9 @@ component CardDeck
   state panY = 0
   state dealt = 0
   state clipWidth = 0
-  action deckGeometry(bw: number, bh: number, pw: number, ph: number) writes clipWidth
+  action deckGeometry(bw: number, bh: number, pw: number, ph: number)
     clipWidth = pw
-  action releaseCard(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes panX, panY
+  action releaseCard(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     panX = 0
     panY = 0
     if x > 120 or vx > 800
@@ -352,7 +352,7 @@ component CardDeck
     if x < -120 or vx < -800
       panX = 0 - clipWidth - 60
       panY = y
-  action deal writes panX, panY, dealt
+  action deal
     panX = 0
     panY = 0
     dealt = dealt + 1
@@ -387,18 +387,18 @@ component Viewer
   derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
   derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
 
-  action chooseZoom(value: number) writes zoom, panX, panY
+  action chooseZoom(value: number)
     if value == 1 or value == 2
       zoom = value
       panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
       panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
 
-  action resetPhoto writes zoom, panX, panY
+  action resetPhoto
     zoom = 1
     panX = 0
     panY = 0
 
-  action photoGeometry(bw: number, bh: number, pw: number, ph: number) writes boxWidth, boxHeight, portWidth, portHeight, panX, panY
+  action photoGeometry(bw: number, bh: number, pw: number, ph: number)
     if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
       boxWidth = bw
       boxHeight = bh
@@ -413,7 +413,7 @@ component Viewer
 
   // A pinch's scale is adopted between Fit and 4× (LLP 1057.001 §4); Fit, 2× and
   // Center remain the controls that need no gesture.
-  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes zoom, panX, panY
+  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     zoom = photoZoom(scale)
     panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, photoZoom(scale), portWidth) : 0
     panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, photoZoom(scale), portHeight) : 0

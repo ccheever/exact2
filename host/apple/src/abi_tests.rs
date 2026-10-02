@@ -84,7 +84,7 @@ impl DataSource for StorageModule {
 #[test]
 fn pending_native_preparation_keeps_the_running_app_and_carries_later_input() {
     use std::sync::atomic::Ordering;
-    let bytes = contract::compile("component App\n  state count = 0\n  action increment writes count\n    count = count + 1\n  view\n    button press=increment testId=\"increment\"\n      text `${count}`\n").unwrap().encode();
+    let bytes = contract::compile("component App\n  state count = 0\n  action increment\n    count = count + 1\n  view\n    button press=increment testId=\"increment\"\n      text `${count}`\n").unwrap().encode();
     let source = StorageModule::default();
     let mut bridge = Bridge::new();
     bridge.boot(&bytes, source.clone(), Hooks::none(), 390.0, 844.0);
@@ -429,7 +429,7 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
             Ok(self.clone())
         }
     }
-    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start writes reply\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
+    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
     let calls = Arc::new(Mutex::new(0));
     let source = Held(calls.clone());
     let mut bridge = Bridge::new();
@@ -521,7 +521,7 @@ fn invalid_hold_property_preserves_status_and_other_presentations() {
     let bytes = contract::compile(
         r#"component App
   state count = 0
-  action tick writes count
+  action tick
     count = count + 1
   task clock mount
     every(100, tick)
@@ -567,7 +567,7 @@ fn height_release_abi_separates_synthesis_from_generation_checked_pointer_comple
     let bytes = contract::compile(
         r#"component App
   state height = 180
-  action release(value: number, velocity: number) writes height
+  action release(value: number, velocity: number)
     height = value
   view
     box id="sheet" height=height box-sizing="border-box" transition="height 200ms linear"
@@ -753,7 +753,7 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
     let bytes = contract::compile(
         r#"component App
   state x = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx + dy
   view
     box
@@ -802,12 +802,12 @@ fn pan_release_twenty_eight_reaches_the_action_and_refuses_bad_velocity() {
   state vx = 0
   state vy = 0
   state released = 0
-  action release(x: number, y: number) writes vx, vy, released
+  action release(x: number, y: number)
     vx = x
     vy = y
     released = released + 1
   state x = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx + dy
   view
     box testId="pan" pan=move panrelease=release
@@ -850,7 +850,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let bytes = contract::compile(
         r#"component App
   state text = "hello"
-  action edit(value: string) writes text
+  action edit(value: string)
     text = value
   view
     box

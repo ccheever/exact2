@@ -20,17 +20,17 @@ const APP: &str = r#"component App
   state count = 0
   state draft = ""
   state showing = true
-  action replace writes title, link
+  action replace
     title = "new source with changed action semantics"
     link = "https://new.example/"
-  action replaceAgain writes title, link
+  action replaceAgain
     title = "C newest source"
     link = "https://third.example/"
-  action hide writes showing
+  action hide
     showing = false
-  action activate writes count
+  action activate
     count = title == "old picture" ? 1 : 2
-  action edit(value) writes draft
+  action edit(value)
     draft = value
   view
     column width=400 height=500
@@ -451,7 +451,7 @@ fn malformed_region_scale_refuses_before_plan_fonts_or_worker_admission() {
 #[test]
 fn unsupported_region_query_preserves_previous_pixels_and_recovers() {
     let _service = crate::content_region::test_service();
-    let app = APP.replace("state showing = true", "state showing = true\n  state ownerScale = 1\n  action collapse writes ownerScale\n    ownerScale = 0\n  action restore writes ownerScale\n    ownerScale = 1")
+    let app = APP.replace("state showing = true", "state showing = true\n  state ownerScale = 1\n  action collapse\n    ownerScale = 0\n  action restore\n    ownerScale = 1")
         .replace("view id=\"owner\"", "view id=\"owner\" scale=ownerScale")
         .replace("button press=hide", "button press=collapse testId=\"collapse\" height=20\n        text \"collapse\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
@@ -496,7 +496,7 @@ fn unsupported_region_query_preserves_previous_pixels_and_recovers() {
 #[test]
 fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
     let _service = crate::content_region::test_service();
-    let app = APP.replace("state showing = true", "state showing = true\n  state inset = 0\n  action move writes inset\n    inset = 20000000\n  action restore writes inset\n    inset = 0")
+    let app = APP.replace("state showing = true", "state showing = true\n  state inset = 0\n  action move\n    inset = 20000000\n  action restore\n    inset = 0")
         .replace("view height=600", "view height=600 padding-top=inset")
         .replace("button press=hide", "button press=move testId=\"move\" height=20\n        text \"move\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
@@ -547,11 +547,11 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
         r#"component App
   state text = "{}"
   state showing = true
-  action shorten writes text
+  action shorten
     text = "Short paragraph."
-  action lengthen writes text
+  action lengthen
     text = "{tall}"
-  action toggle writes showing
+  action toggle
     showing = not showing
   view
     column width=400 height=500

@@ -24,11 +24,11 @@ component App
   state count = 0
   state disabled = false
   resource rows = rows() as shape list<string>
-  action edit(v: string) writes draft
+  action edit(v: string)
     draft = v
-  action block writes disabled
+  action block
     disabled = true
-  action receive(item: string, before: option<string>) writes dropped, count
+  action receive(item: string, before: option<string>)
     dropped = item
     count = count + 1
   view
@@ -681,7 +681,7 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
 }
 #[test]
 fn terminal_source_key_survives_grip_replacement_and_a_second_reconciliation() {
-    let source=SOURCE.replace("state count = 0","state count = 0\n  state grip = true\n  action removeGrip writes grip\n    grip = false")
+    let source=SOURCE.replace("state count = 0","state count = 0\n  state grip = true\n  action removeGrip\n    grip = false")
         .replace("column reorderFor=\"arrange\" disabled=disabled testId=`grip-${x}` height=20\n            text x",
             "column height=20\n            when grip\n              view reorderFor=\"arrange\" testId=`grip-${x}`\n            text `${x} ${disabled}`");
     let mut r = Runner::boot(
@@ -744,7 +744,7 @@ fn transfer_away_then_back_to_same_grip_is_not_owned_by_old_terminal() {
 fn beneath_empty_when_arms() -> String {
     let source = SOURCE.replace(
         "state disabled = false",
-        "state disabled = false\n  state shown = true\n  state windowed = true\n  action hide writes shown\n    shown = false",
+        "state disabled = false\n  state shown = true\n  state windowed = true\n  action hide\n    shown = false",
     );
     let (head, list) = source.split_once("      list").unwrap();
     let list = format!("      list{list}")

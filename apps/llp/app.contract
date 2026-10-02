@@ -132,27 +132,27 @@ component Llp
   // Opening a document and opening a corpus are the same event: a folder
   // becomes its lowest-numbered document, a file becomes itself, and the
   // index is the folder either one is in.
-  action openFile(value) writes asked, section
+  action openFile(value)
     asked = value
     section = -1
-  action search(value) writes query
+  action search(value)
     query = value
-  action clearSearch writes query
+  action clearSearch
     query = ""
     focus("search")
-  action showSection(at: number) writes section
+  action showSection(at: number)
     section = at
-  action showAll writes section
+  action showAll
     section = -1
-  action toggleOutline writes showOutline
+  action toggleOutline
     showOutline = not showOutline
-  action toggleIndex writes showIndex
+  action toggleIndex
     showIndex = not showIndex
-  action toggleNewest writes newest
+  action toggleNewest
     newest = not newest
-  action showOverlay(name: string) writes overlay
+  action showOverlay(name: string)
     overlay = overlay == name ? "" : name
-  action chooseScheme(name: string) writes scheme
+  action chooseScheme(name: string)
     scheme = name
     setScheme(name)
 

@@ -13,11 +13,11 @@ component KeyboardBar
   resource viewport = exactViewport() as shape Viewport
   state note = ""
   state focused = false
-  action setNote(value) writes note
+  action setNote(value)
     note = value
-  action focusIn writes focused
+  action focusIn
     focused = true
-  action focusOut writes focused
+  action focusOut
     focused = false
   action dismiss
     blur()

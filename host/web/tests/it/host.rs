@@ -83,7 +83,7 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     let plan = contract::compile(
         r##"component App
   state source = "symbol:search"
-  action change writes source
+  action change
     source = "symbol:unknown"
   view
     column font-size=22
@@ -113,7 +113,7 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
     let plan = contract::compile(
         r##"component App
   state saved = false
-  action toggle writes saved
+  action toggle
     saved = not saved
   view
     button press=toggle testId="toggle" aria-label="Save"
@@ -450,9 +450,9 @@ fn scroll_offsets_are_dom_properties_sent_only_when_their_bindings_change() {
         r#"component App
   state top = 0
   state note = ""
-  action bottom writes top
+  action bottom
     top = 1000000
-  action edit(value) writes note
+  action edit(value)
     note = value
   view
     column
@@ -488,7 +488,7 @@ fn textarea_preserves_multiline_values_through_the_change_seam() {
     let plan = contract::compile(
         r#"component App
   state note = ""
-  action edit(value) writes note
+  action edit(value)
     note = value
   view
     textarea value=note change=edit testId="note" height=200
@@ -523,7 +523,7 @@ fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
     let plan = contract::compile(
         r#"component App
   state locked = true
-  action unlock writes locked
+  action unlock
     locked = false
   view
     column
@@ -571,7 +571,7 @@ fn inert_is_a_boolean_dom_attribute_without_removing_its_subtree() {
     let plan = contract::compile(
         r#"component App
   state blocked = true
-  action flip writes blocked
+  action flip
     blocked = not blocked
   view
     column
@@ -620,7 +620,7 @@ fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
     let plan = contract::compile(
         r#"component App
   state saved = false
-  action save writes saved
+  action save
     saved = true
   view
     button press=save disabled=saved aria-keyshortcuts="Meta+S Control+S" testId="save"
@@ -649,9 +649,9 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     let plan = contract::compile(
         r#"component App
   state count = 1
-  action prepare writes count
+  action prepare
     count = 2
-  action confirm writes count
+  action confirm
     count = 0
   view
     column
@@ -723,7 +723,7 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action tick writes phase
+  action tick
     phase = phase + 1
   task clock mount
     every(100, tick)
@@ -772,7 +772,7 @@ fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
     let plan = contract::compile(
         r#"component App
   state enabled = false
-  action toggle writes enabled
+  action toggle
     enabled = not enabled
   view
     column
@@ -928,7 +928,7 @@ fn viewport_resize_and_a_due_timer_refusal_share_one_batch() {
 component App
   state count = 0
   resource viewport = exactViewport() as shape Viewport
-  action refuse writes count
+  action refuse
     count = 1 / 0
   task clock mount
     every(100, refuse)
@@ -1072,7 +1072,7 @@ fn a_theme_flip_restyles_each_touched_row_once() {
 component App
   state dark = false
   resource rows = rows() as shape list<Row>
-  action flip writes dark
+  action flip
     dark = !dark
   view
     column
@@ -1290,7 +1290,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
     let plan = contract::compile(
         r##"component App
   state pinned = false
-  action pin writes pinned
+  action pin
     pinned = not pinned
   view
     column
@@ -1411,7 +1411,7 @@ fn a_frame_task_fires_once_per_presented_frame() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
     at = now()
   task ticker mount
@@ -1450,7 +1450,7 @@ fn flex_and_grid_item_z_index_relayer_following_siblings() {
         let src = format!(
             r#"component App
   state flex = true
-  action toggle writes flex
+  action toggle
     flex = not flex
   view
     box display=(flex ? "{display}" : "block") testId="parent"

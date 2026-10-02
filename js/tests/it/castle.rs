@@ -29,23 +29,23 @@ component App
   mutation probe as shape Session
   derive busy = pending(session)
 
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action setPassword(v) writes password
+  action setPassword(v)
     password = v
-  action submit writes session
+  action submit
     send session = login(who, password)
-  action profile writes session
+  action profile
     send session = profile()
-  action logout writes session
+  action logout
     send session = logout()
-  action stuck writes probe
+  action stuck
     send probe = stuck()
-  action refused writes probe
+  action refused
     send probe = refused()
-  action refusedLater writes probe
+  action refusedLater
     send probe = refusedLater()
-  action parallel writes probe
+  action parallel
     send probe = parallel()
 
   view
@@ -281,7 +281,7 @@ fn a_socket_answer_is_a_stream_to_a_wss_url() {
 /// held, and a newer argument forgets the stream's call in the module.
 #[test]
 fn a_stream_answer_through_the_runner() {
-    let src = "component App\n  state since = \"0\"\n  resource feed = events(since) as shape string\n  action next writes since\n    since = \"9\"\n  view\n    text feed testId=\"feed\"\n";
+    let src = "component App\n  state since = \"0\"\n  resource feed = events(since) as shape string\n  action next\n    since = \"9\"\n  view\n    text feed testId=\"feed\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -554,7 +554,7 @@ component App
   mutation first as shape Session
   mutation second as shape Session
 
-  action both writes first, second
+  action both
     send first = profile()
     send second = profile()
 

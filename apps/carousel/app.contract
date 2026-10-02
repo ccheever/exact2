@@ -33,15 +33,15 @@ component Carousel
   resource posts = posts(200) as shape list<Post>
   state page = "strip"
   state feedTop = 0
-  action feedFar writes feedTop
+  action feedFar
     feedTop = 6000
-  action feedTopAgain writes feedTop
+  action feedTopAgain
     feedTop = 0
-  action showFeed writes page
+  action showFeed
     page = page == "feed" ? "strip" : "feed"
-  action far writes jump
+  action far
     jump = jump + 100000
-  action toggle writes eager
+  action toggle
     eager = not eager
   view
     main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#000000" font-family="system-ui"

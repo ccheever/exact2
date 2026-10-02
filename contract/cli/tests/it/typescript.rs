@@ -16,7 +16,7 @@ component App
   state query = ""
   resource items = search(query) as shape list<Item>
   mutation outcome as shape option<Item>
-  action save writes outcome
+  action save
     send outcome = save(query, true)
   view
     text `${length(items)}`

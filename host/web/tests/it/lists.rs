@@ -11,11 +11,11 @@ component App
   state skip = 0
   state jump = 0
   resource rows = rows(reverse, skip) as shape list<Item>
-  action reorder writes reverse
+  action reorder
     reverse = !reverse
-  action trim(n: number) writes skip
+  action trim(n: number)
     skip = n
-  action go(n: number) writes jump
+  action go(n: number)
     jump = n
   view
     list virtualized=true estimated-item-height=24 height=240 width=390 overflow-x="hidden" testId="list" scrollTop=jump
@@ -25,7 +25,7 @@ component Cell
   props
     item: Item
   state count = 0
-  action bump writes count
+  action bump
     count = count + 1
   view
     button press=bump testId=`row-${item.id}` height=24

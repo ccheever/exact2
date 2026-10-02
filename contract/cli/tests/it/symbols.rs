@@ -77,13 +77,13 @@ component App
   state choice = some("chosen")
   resource items = loadItems() as shape list<Item>
   mutation saved as shape Item
-  action edit(textValue: string) writes textValue
+  action edit(textValue: string)
     textValue = textValue
-  action save(item: Item) writes saved
+  action save(item: Item)
     send saved = saveItem(item)
     refresh items
     focus("entry")
-  action tick writes textValue
+  action tick
     textValue = "tick"
   task ticker mount
     every(1000, tick)

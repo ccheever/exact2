@@ -455,11 +455,11 @@ component App
   state shown = true
   resource rows = rows(reverse) as shape list<Row>
   derive total = length(rows)
-  action bump writes count
+  action bump
     count = count + 1
-  action reorder writes reverse
+  action reorder
     reverse = !reverse
-  action topology writes shown
+  action topology
     shown = !shown
   view
     column
@@ -885,15 +885,15 @@ component App
   state revision = 0
   state shown = true
   resource rows = rows(reverse, revision) as shape list<Row>
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action bump writes body
+  action bump
     body = body + 1
-  action reorder writes reverse
+  action reorder
     reverse = !reverse
-  action replace writes revision
+  action replace
     revision = revision + 1
-  action leave writes shown
+  action leave
     shown = false
   view
     column height=844 width=390

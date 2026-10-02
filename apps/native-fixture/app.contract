@@ -15,33 +15,33 @@ component NativeFixture
   state loads = 0
   state events = ""
   state received = ""
-  action bump writes count
+  action bump
     count = count + 1
-  action fire writes emit
+  action fire
     emit = emit + 1
-  action toggle writes shown
+  action toggle
     shown = not shown
-  action reject writes rejecting
+  action reject
     rejecting = not rejecting
-  action mode writes moded
+  action mode
     moded = not moded
-  action onLoad writes loads
+  action onLoad
     loads = loads + 1
-  action onPress writes events
+  action onPress
     events = events + "press;"
-  action onChange(v: string) writes events
+  action onChange(v: string)
     events = events + "change:" + v + ";"
-  action onHover(over: bool) writes events
+  action onHover(over: bool)
     events = events + "hover:" + toString(over) + ";"
-  action onFocus writes events
+  action onFocus
     events = events + "focus;"
-  action onBlur writes events
+  action onBlur
     events = events + "blur;"
-  action onKey(k: string) writes events
+  action onKey(k: string)
     events = events + "key:" + k + ";"
-  action onSubmit writes events
+  action onSubmit
     events = events + "submit;"
-  action onMessage(m: string) writes events, received
+  action onMessage(m: string)
     if includes(m, "props:")
       received = m
     else

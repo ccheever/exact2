@@ -76,7 +76,7 @@ fn a_provide_fills_an_inject_and_the_innermost_wins() {
 
 #[test]
 fn a_provided_value_may_be_state_and_follows_it() {
-    let src = "component App\n  state ink = \"#112233\"\n  action paint writes ink\n    ink = \"#00ff00\"\n  view\n    column testId=\"root\"\n      provide accent = ink\n        Label(text=\"x\")\ncomponent Label\n  props\n    text: string\n  inject\n    accent: string\n  view\n    text text color=accent testId=`label-${text}`\n";
+    let src = "component App\n  state ink = \"#112233\"\n  action paint\n    ink = \"#00ff00\"\n  view\n    column testId=\"root\"\n      provide accent = ink\n        Label(text=\"x\")\ncomponent Label\n  props\n    text: string\n  inject\n    accent: string\n  view\n    text text color=accent testId=`label-${text}`\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -98,7 +98,7 @@ fn a_provided_value_may_be_state_and_follows_it() {
 #[test]
 fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
     let source = |args: &str| {
-        format!("shape Todo\n  title: string\ncomponent App\n  resource todo = todo() as shape Todo\n  state count = 0\n  action pick writes count\n    count = 1\n  view\n    Row({args})\ncomponent Row\n  props\n    todo: Todo\n    onPick: action\n  view\n    button press=onPick\n      text todo.title\n")
+        format!("shape Todo\n  title: string\ncomponent App\n  resource todo = todo() as shape Todo\n  state count = 0\n  action pick\n    count = 1\n  view\n    Row({args})\ncomponent Row\n  props\n    todo: Todo\n    onPick: action\n  view\n    button press=onPick\n      text todo.title\n")
     };
     let error = contract::compile(&source("todo=todo, onPik=pick")).unwrap_err();
     assert_eq!(

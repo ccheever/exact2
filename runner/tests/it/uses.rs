@@ -32,7 +32,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     );
     assert!(spring.has(Capability::Motion));
     let swipe = used(
-        "component A\n  state n = 0\n  action swipe writes n\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
+        "component A\n  state n = 0\n  action swipe\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
     );
     assert!(swipe.has(Capability::Motion));
     assert!(
@@ -40,11 +40,11 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
         "a swipe holds a value but tracks no handle"
     );
     let pan = used(
-        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move\n",
+        "component A\n  state n = 0\n  action move(dx: number, dy: number)\n    n = n + dx\n  view\n    text \"a\" pan=move\n",
     );
     assert_eq!(pan, Uses::NONE, "a pan commits state; it holds nothing");
     let release = used(
-        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move panrelease=move\n",
+        "component A\n  state n = 0\n  action move(dx: number, dy: number)\n    n = n + dx\n  view\n    text \"a\" pan=move panrelease=move\n",
     );
     assert!(
         release.has(Capability::Motion) && !release.has(Capability::Drag),
@@ -104,7 +104,7 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert_eq!(date.to_string(), "format");
     // In an action's body, a derive, a callback and an inlined `fn` too.
     let action = used(
-        "component A\n  state s = \"\"\n  action set writes s\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
+        "component A\n  state s = \"\"\n  action set\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
     );
     assert!(action.has(Capability::Format));
     let callback = used(

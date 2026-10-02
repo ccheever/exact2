@@ -17,17 +17,17 @@ component App
   resource chats = chats() as shape list<Msg>
   resource feed = feed(page, token) as shape list<Msg>
 
-  action say(t: string) writes dm
+  action say(t: string)
     send dm = say(t)
-  action tap writes like
+  action tap
     send like = like()
-  action favor writes fav
+  action favor
     send fav = like()
-  action next writes page
+  action next
     page = page + 1
-  action relogin writes token
+  action relogin
     token = token == "a" ? "b" : "a"
-  action reload writes page
+  action reload
     refresh feed
 
   view

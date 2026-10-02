@@ -248,7 +248,7 @@ fn corpus_verb_sequences_run_through_compiled_actions_without_copying_expectatio
                 ("(url: string)", ", url")
             };
             source.push_str(&format!(
-                "  action {verb}{param} writes nav\n    nav = {verb}(nav{arg})\n"
+                "  action {verb}{param}\n    nav = {verb}(nav{arg})\n"
             ));
         }
         source.push_str("  view\n    text top(nav).url\n");
@@ -280,7 +280,7 @@ fn corpus_verb_sequences_run_through_compiled_actions_without_copying_expectatio
 
 #[test]
 fn route_diagnostics_and_dynamic_location_boundary() {
-    let base = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  action visit(id: string) writes nav\n    nav = push(nav, DEST)\n  view\n    text top(nav).url\n";
+    let base = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  action visit(id: string)\n    nav = push(nav, DEST)\n  view\n    text top(nav).url\n";
     for (expr, id) in [
         ("path(\"post\")", "route-unknown"),
         ("path(\"post\", id, id)", "route-unknown"),
@@ -383,7 +383,7 @@ fn imported_routes_cannot_claim_a_root_and_root_routes_survive_component_lifting
             "analyze-routes-not-root"
         );
     }
-    let child = "component Screen\n  props\n    entry: Entry\n  state draft = entry.url\n  action edit(value: string) writes draft\n    draft = value\n  view\n    input value=draft change=edit testId=`draft-${entry.id}`\n";
+    let child = "component Screen\n  props\n    entry: Entry\n  state draft = entry.url\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft change=edit testId=`draft-${entry.id}`\n";
     std::fs::write(dir.join("shared.contract"), child).unwrap();
     let source = SOURCE.replace(
         "          button id=\"back\" press=back",
@@ -423,9 +423,9 @@ fn ordinary_action_references_keep_precedence_and_router_first_arguments_select_
     post "/post/:post"
 component App
   state label = ""
-  action open(value: string) writes label
+  action open(value: string)
     label = value
-  action visit writes nav
+  action visit
     nav = push(nav, "/post/1")
   view
     main
@@ -455,9 +455,9 @@ component App
     post "/post/:post"
 component App
   state label = ""
-  action open(value: string) writes label
+  action open(value: string)
     label = value
-  action commit(value: Router) writes nav
+  action commit(value: Router)
     nav = value
   view
     Child(nav=nav, open=open, commit=commit)
@@ -557,7 +557,7 @@ fn router_roster_requires_routes_but_ordinary_shapes_and_actions_remain_availabl
     }
     contract::compile(&source.replace("EXPR", "value.label")).unwrap();
     contract::compile(&source.replace("EXPR", "encodeURIComponent(value.label)")).unwrap();
-    let source = "shape Router\n  label: string\ncomponent App\n  state label = \"\"\n  resource value = loadRouter() as shape Router\n  action open(value: Router) writes label\n    label = value.label\n  view\n    button press=open(value) testId=\"own\"\n      text \"Open\"\n";
+    let source = "shape Router\n  label: string\ncomponent App\n  state label = \"\"\n  resource value = loadRouter() as shape Router\n  action open(value: Router)\n    label = value.label\n  view\n    button press=open(value) testId=\"own\"\n      text \"Open\"\n";
     let mut r = boot(contract::compile(source).unwrap(), "/");
     let key = r.kernel().find_by_test_id("own")[0];
     let node = r.kernel().node_by_key(key).unwrap().id;
@@ -567,7 +567,7 @@ fn router_roster_requires_routes_but_ordinary_shapes_and_actions_remain_availabl
 
 #[test]
 fn numeric_path_parameters_use_javascript_exponent_boundaries() {
-    let source = "routes nav\n  home \"/\"\n    item \"/item/:item\"\ncomponent App\n  action visit(id: number) writes nav\n    nav = push(nav, path(\"item\", id))\n  view\n    text top(nav).url\n";
+    let source = "routes nav\n  home \"/\"\n    item \"/item/:item\"\ncomponent App\n  action visit(id: number)\n    nav = push(nav, path(\"item\", id))\n  view\n    text top(nav).url\n";
     let mut r = boot(contract::compile(source).unwrap(), "/");
     for (value, url, param) in [
         (1e21, "/item/1e%2B21", "1e+21"),
@@ -586,7 +586,7 @@ fn numeric_path_parameters_use_javascript_exponent_boundaries() {
 
 #[test]
 fn path_refuses_empty_and_dot_only_parameters_before_fallback_or_slot_writes() {
-    let source = "routes nav\n  home \"/\"\n    item \"/item/:item\"\n  notfound\ncomponent App\n  state marker = 0\n  action visit(id: string) writes nav, marker\n    marker = marker + 1\n    nav = push(nav, path(\"item\", id))\n  view\n    text top(nav).url\n";
+    let source = "routes nav\n  home \"/\"\n    item \"/item/:item\"\n  notfound\ncomponent App\n  state marker = 0\n  action visit(id: string)\n    marker = marker + 1\n    nav = push(nav, path(\"item\", id))\n  view\n    text top(nav).url\n";
     let mut r = boot(contract::compile(source).unwrap(), "/");
     r.take_router_change();
     let before = r.slot("nav").cloned();

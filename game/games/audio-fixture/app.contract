@@ -7,7 +7,7 @@ component AudioFixture
   state playing = false
   resource hud = exactSurface("world") as shape Hud
 
-  action play writes playing
+  action play
     playing = true
 
   view

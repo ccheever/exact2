@@ -85,10 +85,10 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
         r#"component App
   state first = 0
   resource rows = rows(first) as shape list<number>
-  action start writes first
+  action start
     if first > 0
       first = 0
-  action end writes first
+  action end
     if first < 12
       first = 12
   view
@@ -140,7 +140,7 @@ fn an_edge_before_activation_commits_and_activation_asks_once() {
   state next = 0
   resource answer = answer(next) as shape number
   resource rows = rows() as shape list<number>
-  action start writes next
+  action start
     next = next + 1
   view
     column
@@ -190,7 +190,7 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
         r#"component App
   state requested = 1000000
   resource rows = rows() as shape list<number>
-  action latest writes requested
+  action latest
     requested = requested + 1000
   view
     column
@@ -232,10 +232,10 @@ fn ordinary_scroll() -> Presenter<Rows> {
   state top = 300
   state left = 50
   state count = 0
-  action jump writes top, left
+  action jump
     top = top + 100
     left = left + 25
-  action other writes count
+  action other
     count = count + 1
   view
     column
@@ -302,9 +302,9 @@ fn ordinary_follow_end_tracks_growth_and_resize_only_while_at_the_end() {
         r#"component App
   state height = 500
   state port = 100
-  action grow writes height
+  action grow
     height = height + 200
-  action resize writes port
+  action resize
     port = 200
   view
     column
@@ -336,7 +336,7 @@ fn ordinary_hidden_overflow_scrolls_programmatically_and_acknowledges_pixels() {
     let mut p = boot_source(
         r#"component App
   state top = 300
-  action jump writes top
+  action jump
     top = 500
   view
     column
@@ -376,9 +376,9 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
   state top = 200
   state observed = 0
   state count = 0
-  action jump writes top
+  action jump
     top = top + 100
-  action moved(x, y) writes observed, count
+  action moved(x, y)
     observed = y
     count = count + 1
   view
@@ -422,14 +422,14 @@ fn ordinary_scroll_events_preserve_change_order_and_observe_prior_handler_writes
   state b = 0
   state order = ""
   state observed = 0
-  action moveA writes a
+  action moveA
     a = 100
-  action moveB writes b
+  action moveB
     b = 100
-  action observeA(x, y) writes order, b
+  action observeA(x, y)
     order = order + "A"
     b = 500
-  action observeB(x, y) writes order, observed
+  action observeB(x, y)
     order = order + "B"
     observed = y
   view
@@ -585,7 +585,7 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
         r#"component App
   state top = 0
   resource rows = rows() as shape list<number>
-  action moved(x, y) writes top
+  action moved(x, y)
     top = y
   view
     column
@@ -653,9 +653,9 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
         r#"component App
   state selected = "list"
   resource rows = rows() as shape list<number>
-  action away writes selected
+  action away
     selected = "away"
-  action back writes selected
+  action back
     selected = "list"
   view
     main navigationKey=selected navigationBack="back"
@@ -709,9 +709,9 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
   resource rows = rows() as shape list<number>
   state draft = ""
   state target = 180
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action grow writes target
+  action grow
     target = 420
   view
     box width="100%" height="100%"
@@ -789,7 +789,7 @@ fn strip(list_attrs: &str, card: &str) -> String {
     format!(
         r#"component App
   state jump = 0
-  action far writes jump
+  action far
     jump = jump + 50000
   resource rows = rows() as shape list<number>
   view

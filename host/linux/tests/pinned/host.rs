@@ -198,9 +198,9 @@ fn disabled_controls_refuse_pointer_and_text_input() {
     let source = r#"component Disabled
   state count = 0
   state value = "kept"
-  action press writes count
+  action press
     count = count + 1
-  action change(next: string) writes value
+  action change(next: string)
     value = next
   view
     column
@@ -232,7 +232,7 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     let plan = contract::compile(
         r#"component Picker
   state value = "kept"
-  action change(next: string) writes value
+  action change(next: string)
     value = next
   view
     column
@@ -614,7 +614,7 @@ shape Session
 component App
   mutation session as shape Session
   derive busy = pending(session)
-  action submit writes session
+  action submit
     send session = login()
   view
     column testId="app"
@@ -662,7 +662,7 @@ component App
 #[test]
 fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
     // @ref LLP 1038 D5/D8/D11 — first pixel and the Linux agent input path.
-    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string) writes nav\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
+    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
     let plan = contract::compile(source).unwrap().encode();
     let (host, error) = exact_linux::Host::boot_at(
         &plan,
@@ -730,9 +730,9 @@ fn closed_popovers_keep_their_tree_but_never_paint_or_intercept_input() {
         r#"component App
   state ordinary = 0
   state destructive = 0
-  action normal writes ordinary
+  action normal
     ordinary = ordinary + 1
-  action danger writes destructive
+  action danger
     destructive = destructive + 1
   view
     column
@@ -783,7 +783,7 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
     pin_font();
     let plan = contract::compile(r#"component App
   state count = 0
-  action recount writes count
+  action recount
     count = count + 1
   view
     column
@@ -847,7 +847,7 @@ fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
     pin_font();
     let plan = |label: &str| {
         contract::compile(&format!(
-            "component Test\n  state name = \"\"\n  action edit(v: string) writes name\n    name = v\n  view\n    column\n      button autofocus testId=\"play\"\n        text \"Play\"\n      input testId=\"name\" value=name change=edit\n      text \"{label}\"\n"
+            "component Test\n  state name = \"\"\n  action edit(v: string)\n    name = v\n  view\n    column\n      button autofocus testId=\"play\"\n        text \"Play\"\n      input testId=\"name\" value=name change=edit\n      text \"{label}\"\n"
         ))
         .unwrap()
         .encode()
@@ -873,7 +873,7 @@ fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
 fn covered_id_tap_refuses_without_dispatching_the_cover() {
     let source = r#"component Cover
   state count = 0
-  action press writes count
+  action press
     count = count + 1
   view
     box width=100 height=100
@@ -900,9 +900,9 @@ fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
         let source = format!(
             r#"component Nested
   state count = 0
-  action parent writes count
+  action parent
     count = count + 1
-  action child writes count
+  action child
     count = count + 10
   view
     button testId="parent" width=100 height=100 press=parent

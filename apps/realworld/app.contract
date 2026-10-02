@@ -153,57 +153,57 @@ component RealWorld
   resource favs = favorites() as shape list<Fav>
   resource follows = followings() as shape list<Follow>
 
-  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft
+  action go(url: string)
     page = 1
     tagInput = ""
     commentDraft = ""
     if includes(url, "/editor")
       editorSession = editorSession + 1
     nav = push(nav, url)
-  action back writes nav
+  action back
     nav = back(nav)
-  action followLink(url: string) writes nav, page
+  action followLink(url: string)
     page = 1
     nav = go(nav, url)
-  action showPage(n: number) writes page
+  action showPage(n: number)
     page = n
-  action login(email: string, password: string) writes auth
+  action login(email: string, password: string)
     send auth = login(email, password)
-  action register(username: string, email: string, password: string) writes auth
+  action register(username: string, email: string, password: string)
     send auth = register(username, email, password)
-  action saveSettings(image: string, username: string, bio: string, email: string, password: string) writes auth
+  action saveSettings(image: string, username: string, bio: string, email: string, password: string)
     send auth = saveSettings(image, username, bio, email, password)
-  action logout writes auth
+  action logout
     send auth = logout()
-  action favorite(target: string, on: bool, count: number) writes faved, nav
+  action favorite(target: string, on: bool, count: number)
     if me.signedIn
       send faved = favorite(target, on, count)
     else
       nav = push(nav, "/register")
-  action follow(name: string, on: bool) writes followed, nav
+  action follow(name: string, on: bool)
     if me.signedIn
       send followed = follow(name, on)
     else
       nav = push(nav, "/register")
-  action publish(target: string, title: string, description: string, body: string, tagList: list<string>) writes change
+  action publish(target: string, title: string, description: string, body: string, tagList: list<string>)
     send change = publish(target, title, description, body, tagList)
-  action deleteArticle(target: string) writes change
+  action deleteArticle(target: string)
     send change = deleteArticle(target)
-  action setComment(v: string) writes commentDraft
+  action setComment(v: string)
     commentDraft = v
-  action postComment(target: string) writes commented, commentDraft
+  action postComment(target: string)
     if commentDraft != ""
       send commented = addComment(target, commentDraft)
       commentDraft = ""
-  action setTagInput(v: string) writes tagInput
+  action setTagInput(v: string)
     tagInput = v
-  action tagKey(k: string) writes tagEdit, tagInput
+  action tagKey(k: string)
     if k == "Enter"
       send tagEdit = addTag(editorSession, editorTags, tagInput)
       tagInput = ""
-  action uncomment(target: string, id: string) writes commented
+  action uncomment(target: string, id: string)
     send commented = deleteComment(target, id)
-  action removeTag(tag: string) writes tagEdit
+  action removeTag(tag: string)
     send tagEdit = removeTag(editorSession, editorTags, tag)
   // A mutation's answer arrives after the action that sent it, and nothing
   // runs when it lands, so a tick looks for an unseen answer and redirects
@@ -214,7 +214,7 @@ component RealWorld
   // tab's first entry can only be its root, so a first visit's entry gives
   // up its query, and /login follows on the next tick: Back is the global
   // feed, never Your Feed again.
-  action settle writes nav, seenAuth, seenChange, loginNext
+  action settle
     if authStamp != seenAuth
       seenAuth = authStamp
       if authOk and (current.name == "login" or current.name == "register" or current.name == "settings")
@@ -642,11 +642,11 @@ component AuthPage
   state username = ""
   state email = ""
   state password = ""
-  action setUsername(v: string) writes username
+  action setUsername(v: string)
     username = v
-  action setEmail(v: string) writes email
+  action setEmail(v: string)
     email = v
-  action setPassword(v: string) writes password
+  action setPassword(v: string)
     password = v
   view
     column class=Container padding-top=24 align-items="center"
@@ -715,19 +715,19 @@ component SettingsPage
   derive shownName = (nameSet ? name: me.username)
   derive shownBio = (bioSet ? bio: me.bio)
   derive shownEmail = (emailSet ? email: me.email)
-  action setImage(v: string) writes image, imageSet
+  action setImage(v: string)
     imageSet = true
     image = v
-  action setName(v: string) writes name, nameSet
+  action setName(v: string)
     nameSet = true
     name = v
-  action setBio(v: string) writes bio, bioSet
+  action setBio(v: string)
     bioSet = true
     bio = v
-  action setEmail(v: string) writes email, emailSet
+  action setEmail(v: string)
     emailSet = true
     email = v
-  action setPassword(v: string) writes password
+  action setPassword(v: string)
     password = v
   view
     column class=Container padding-top=24 align-items="center"
@@ -814,13 +814,13 @@ component EditorPage
   derive shownTitle = (titleSet ? title: post.title)
   derive shownDescription = (descriptionSet ? description: post.description)
   derive shownBody = (bodySet ? body: post.body)
-  action setTitle(v: string) writes title, titleSet
+  action setTitle(v: string)
     titleSet = true
     title = v
-  action setDescription(v: string) writes description, descriptionSet
+  action setDescription(v: string)
     descriptionSet = true
     description = v
-  action setBody(v: string) writes body, bodySet
+  action setBody(v: string)
     bodySet = true
     body = v
   view

@@ -6,17 +6,17 @@ component Branch
   state submitted = 0
   state picked = none
   state seen = ""
-  action setQuery(v) writes query
+  action setQuery(v)
     query = v
-  action typed(k) writes query, submitted
+  action typed(k)
     if k == "Enter"
       submitted = submitted + 1
       query = ""
     else
       query = query + k
-  action pick(id) writes picked
+  action pick(id)
     picked = some(id)
-  action show writes seen
+  action show
     match picked
       case some(id)
         seen = id

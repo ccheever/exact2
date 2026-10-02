@@ -11,11 +11,11 @@ component Time
   resource time = exactTime() as shape Time
   state signup = false
   state last = ""
-  action flip writes signup
+  action flip
     signup = not signup
-  action register writes last
+  action register
     last = "register"
-  action login writes last
+  action login
     last = "login"
   view
     column testId="root" padding=10

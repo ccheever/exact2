@@ -76,78 +76,78 @@ component MarkdownStress
   resource theme = theme() as shape Theme
   resource doc = document(profile, size, revision, page, eager or windowed, single) as shape Document
 
-  action enableContentRegion writes contentRegion
+  action enableContentRegion
     contentRegion = true
 
   // Explicit native trial launch: cold generation starts before first layout.
-  action launchParagraph1MiB writes contentRegion, profile, size
+  action launchParagraph1MiB
     contentRegion = true
     profile = "paragraph"
     size = 1048576
-  action launchParagraph4MiB writes contentRegion, profile, size
+  action launchParagraph4MiB
     contentRegion = true
     profile = "paragraph"
     size = 4194304
 
-  action chooseProfile(value: string) writes profile, page, running, ticks
+  action chooseProfile(value: string)
     profile = value
     page = 0
     running = false
     ticks = 0
-  action chooseSize(value: number) writes size, page, running, ticks
+  action chooseSize(value: number)
     size = value
     page = 0
     running = false
     ticks = 0
-  action toggleEager writes eager, windowed, single, page, running
+  action toggleEager
     eager = not eager
     windowed = false
     single = false
     page = 0
     running = false
-  action toggleWindowed writes windowed, eager, single, page, running
+  action toggleWindowed
     windowed = not windowed
     eager = false
     single = false
     page = 0
     running = false
-  action toggleSingle writes single, eager, windowed, page, running
+  action toggleSingle
     single = not single
     eager = false
     windowed = false
     page = 0
     running = false
-  action nextPage writes page
+  action nextPage
     if doc.end < doc.totalBlocks
       page = page + 1
-  action previousPage writes page
+  action previousPage
     page = max(0, page - 1)
-  action firstPage writes page
+  action firstPage
     page = 0
-  action chooseWidth(value: bool) writes wide
+  action chooseWidth(value: bool)
     wide = value
-  action reparse writes revision, running
+  action reparse
     revision = min(1000, revision + 1)
     running = false
-  action start writes ticks, running
+  action start
     ticks = 0
     running = revision < 1000
-  action pause writes running
+  action pause
     running = false
-  action tick writes revision, ticks, running
+  action tick
     if running
       revision = min(1000, revision + 1)
       ticks = min(20, ticks + 1)
       running = ticks < 19 and revision < 999
-  action editMarkdown(value) writes editorText
+  action editMarkdown(value)
     editorText = value
-  action editDraft(value) writes draft, draftTooLong
+  action editDraft(value)
     if length(value) <= 512
       draft = value
       draftTooLong = false
     else
       draftTooLong = true
-  action reset writes profile, size, revision, page, eager, windowed, single, wide, running, ticks, draft, draftTooLong
+  action reset
     profile = "mixed"
     size = 16384
     revision = 0
@@ -361,7 +361,7 @@ component DocumentBody
   state unavailable = ""
   state linkOpen = false
   state linkUrl = ""
-  action selected(s) writes formats, mixed, currentLink, unavailable
+  action selected(s)
     formats = s.formats
     mixed = s.mixed
     currentLink = s.link
@@ -370,17 +370,17 @@ component DocumentBody
     format("markup-editor", name)
   action heading
     format("markup-editor", "heading", "2")
-  action openLink writes linkOpen, linkUrl
+  action openLink
     linkOpen = true
     linkUrl = currentLink
     focus("markup-link-url")
-  action linkChanged(value) writes linkUrl
+  action linkChanged(value)
     linkUrl = value
-  action applyLink writes linkOpen
+  action applyLink
     format("markup-editor", "link", linkUrl)
     linkOpen = false
     focus("markup-editor")
-  action cancelLink writes linkOpen
+  action cancelLink
     linkOpen = false
     focus("markup-editor")
   view

@@ -81,11 +81,11 @@ fn rejected_ordered_b_waits_for_held_a_and_c_cannot_bypass_b() {
   mutation first as shape number
   mutation second as shape number
   mutation third as shape number
-  action start writes first, second, third
+  action start
     send first = a()
     send second = b()
     send third = c()
-  action retry writes third
+  action retry
     send third = c()
   view
     column

@@ -22,21 +22,21 @@ component UpdateLab
   mutation rustResult as shape Probe
   mutation rustExecutorResult as shape Executor
 
-  action increment writes counter
+  action increment
     counter = counter + 1
-  action reset writes counter, note
+  action reset
     counter = 1
     note = "Keep this note through a reload"
-  action editNote(value) writes note
+  action editNote(value)
     note = value
-  action runTypescript writes tsResult
+  action runTypescript
     send tsResult = typescriptProbe(counter)
-  action runRust writes rustResult, rustExecutorResult
+  action runRust
     send rustResult = rustProbe(counter)
     send rustExecutorResult = rustExecutor()
-  action toggleLive writes live
+  action toggleLive
     live = not live
-  action sample writes tsResult, rustResult, rustExecutorResult
+  action sample
     if live
       send tsResult = typescriptProbe(counter)
       send rustResult = rustProbe(counter)

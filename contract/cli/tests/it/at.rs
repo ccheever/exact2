@@ -20,7 +20,7 @@ const SRC: &str = r#"
 component App
   state i = 1
   resource names = names() as shape list<string>
-  action go(n: number) writes i
+  action go(n: number)
     i = n
   view
     column

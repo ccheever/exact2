@@ -72,7 +72,7 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
 #[test]
 fn a_growing_box_starts_from_its_old_size_and_a_gained_row_animates_its_first_move() {
     let mut h = boot(
-        "component App\n  state on = false\n  action go writes on\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      column testId=\"card\" layout-transition=(on ? \"200ms linear\" : \"none\")\n        text \"Title\"\n        when on\n          view height=150\n",
+        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      column testId=\"card\" layout-transition=(on ? \"200ms linear\" : \"none\")\n        text \"Title\"\n        when on\n          view height=150\n",
     );
     let card = view(&h, "card");
     let before = h.kernel().node(card).unwrap().frame.height;
@@ -91,7 +91,7 @@ fn a_growing_box_starts_from_its_old_size_and_a_gained_row_animates_its_first_mo
 fn a_resize_retires_running_layout_before_the_next_tick() {
     for width in ["100", "\"100%\""] {
         let mut h = boot(&format!(
-            "component App\n  state moved = false\n  action move writes moved\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
+            "component App\n  state moved = false\n  action move\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
         ));
         let box_id = view(&h, "box");
         let move_id = view(&h, "move");
@@ -130,7 +130,7 @@ fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
     for clips in [true, false] {
         let overflow = if clips { " overflow=\"hidden\"" } else { "" };
         let source = format!(
-            "component App\n  state open = false\n  action toggle writes open\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" width=200 layout-transition=\"1000ms linear\" background-color=\"#0000ff\"{overflow}\n        view testId=\"title\" height=20 width=100 background-color=\"#ff0000\"\n        when open\n          view height=180 width=100 background-color=\"#00ff00\"\n"
+            "component App\n  state open = false\n  action toggle\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" width=200 layout-transition=\"1000ms linear\" background-color=\"#0000ff\"{overflow}\n        view testId=\"title\" height=20 width=100 background-color=\"#ff0000\"\n        when open\n          view height=180 width=100 background-color=\"#00ff00\"\n"
         );
         let plan = contract::compile(&source).unwrap().encode();
         let (mut p, _) = Presenter::boot_with(

@@ -14,9 +14,9 @@ use std::rc::Rc;
 const SOURCE: &str = "component App
   state n = 1
   state show = true
-  action bump writes n
+  action bump
     n = n + 1
-  action hide writes show
+  action hide
     show = false
   view
     column

@@ -127,7 +127,7 @@ fn a_later_declaration_wins_whether_shorthand_or_longhand_and_a_class_yields() {
 #[test]
 fn a_computed_border_color_splits_each_arm_and_currentcolor_follows_color() {
     let r = boot(
-        "component A\n  state on = false\n  action flip writes on\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" color=(on ? \"#00ff00\" : \"#ff0000\") border-color=(on ? \"#000000 currentcolor\" : \"currentcolor\") border-bottom-color=\"currentcolor\"\n",
+        "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" color=(on ? \"#00ff00\" : \"#ff0000\") border-color=(on ? \"#000000 currentcolor\" : \"currentcolor\") border-bottom-color=\"currentcolor\"\n",
     );
     let red = fixed("#ff0000");
     let green = fixed("#00ff00");

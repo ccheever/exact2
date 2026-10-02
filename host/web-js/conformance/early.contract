@@ -16,13 +16,13 @@ component Early
   state b = false
   state words = ""
   state pick = "one"
-  action toggleA(on: bool) writes a
+  action toggleA(on: bool)
     a = not a
-  action setB(value: bool) writes b
+  action setB(value: bool)
     b = value
-  action setWords(value: string) writes words
+  action setWords(value: string)
     words = value
-  action setPick(value: string) writes pick
+  action setPick(value: string)
     pick = value
   view
     column testId="root" padding=24 gap=12

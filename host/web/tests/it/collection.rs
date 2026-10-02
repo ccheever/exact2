@@ -35,11 +35,11 @@ component App
   state shown = true
   state rowHeight = 32
   state typed = ""
-  action edit(value) writes typed
+  action edit(value)
     typed = value
-  action grow writes rowHeight
+  action grow
     rowHeight = 64
-  action hide writes shown
+  action hide
     shown = not shown
   view
     column
@@ -169,7 +169,7 @@ component App
   state refused = false
   state reached = false
   resource rows = rows(refused) as shape list<Row>
-  action end writes refused, reached
+  action end
     refused = {refuse}
     reached = true
   view
@@ -263,10 +263,10 @@ component App
   state first = 0
   state ended = 0
   resource rows = rows(2) as shape list<Row>
-  action start writes first
+  action start
     if first > 0
       first = 0
-  action end writes ended, first
+  action end
     ended = ended + 1
     first = 6
   view
@@ -321,7 +321,7 @@ fn real_browser_authored_jump_builds_its_rows_before_it_moves() {
 component App
   resource rows = rows() as shape list<Row>
   state target = 0
-  action go writes target
+  action go
     target = 20000
   view
     column

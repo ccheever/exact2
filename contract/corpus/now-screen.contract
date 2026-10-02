@@ -19,11 +19,11 @@ component Now
   resource board = departures(selected) as shape list<Departure>
   derive count = length(board)
 
-  action selectStation(id) writes stationId
+  action selectStation(id)
     stationId = some(id)
-  action setQuery(q) writes query
+  action setQuery(q)
     query = q
-  action tick writes nowMs
+  action tick
     nowMs = now()
   action setDark(s: string)
     setScheme(s)

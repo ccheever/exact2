@@ -22,14 +22,14 @@ component Rows
   state scale = 1.5
   state positioned = false
   state flex = true
-  action paint writes positioned, flex
+  action paint
     positioned = not positioned
     flex = not flex
-  action reverse writes near
+  action reverse
     near = not near
-  action drop writes dropped
+  action drop
     dropped = not dropped
-  action grow writes scale
+  action grow
     scale = scale * 2
   view
     column testId="root" gap=4 padding=8
@@ -59,7 +59,7 @@ component Row
     name: string
   state count = 0
   derive label = `${name} × ${count}`
-  action bump writes count
+  action bump
     count = count + 1
   view
     button press=bump testId=`bump-${name}`

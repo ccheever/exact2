@@ -50,7 +50,7 @@ fn sweep(js: bool) {
         .replace("params(nav, \"person\")", "")
         .replace(
             "  state initialUrl",
-            "  state blurPresses = 0\n  action editorBlur writes blurPresses\n    blurPresses = blurPresses + 1\n  state initialUrl",
+            "  state blurPresses = 0\n  action editorBlur\n    blurPresses = blurPresses + 1\n  state initialUrl",
         )
         .replace(
             "  state initialUrl",
@@ -72,12 +72,12 @@ fn sweep(js: bool) {
             "          when e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
         )
         .replace(
-            "  action followLink(url: string) writes nav\n    nav = go(nav, url)",
-            "  action followLink(url: string) writes nav, navigatePresses\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink writes redirectLink\n    redirectLink = true\n  action refuseLink writes followEnabled\n    followEnabled = false",
+            "  action followLink(url: string)\n    nav = go(nav, url)",
+            "  action followLink(url: string)\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink\n    redirectLink = true\n  action refuseLink\n    followEnabled = false",
         )
         .replace(
-            "  action back writes nav\n    nav = back(nav)",
-            "  action back writes nav, backPresses\n    backPresses = backPresses + 1\n    if backReplacement\n      nav = replace(back(nav), \"/?from=back\")\n    else\n      nav = back(nav)\n  action replaceBack writes backReplacement\n    backReplacement = true\n  action refuseBack writes backEnabled\n    backEnabled = false",
+            "  action back\n    nav = back(nav)",
+            "  action back\n    backPresses = backPresses + 1\n    if backReplacement\n      nav = replace(back(nav), \"/?from=back\")\n    else\n      nav = back(nav)\n  action replaceBack\n    backReplacement = true\n  action refuseBack\n    backEnabled = false",
         )
         .replace(
             "          button id=\"back\"",

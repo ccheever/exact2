@@ -620,9 +620,9 @@ mod tests {
     fn repeated_pair_takeover_keeps_only_current_metadata_and_independent_end_survivor() {
         let source = r#"component App
   state calls = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes calls
+  action geometry(w: number, h: number, pw: number, ph: number)
     calls = calls + 1
-  action finish(x: number, y: number, s: number, vx: number, vy: number, vs: number) writes calls
+  action finish(x: number, y: number, s: number, vx: number, vy: number, vs: number)
     calls = calls + 1
   view
     column width=320 height=200 overflow="hidden" border-width=0 padding=0

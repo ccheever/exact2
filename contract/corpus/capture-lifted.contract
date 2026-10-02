@@ -10,7 +10,7 @@ component Child
   props
     step: number
   state count = 5
-  action bump writes count
+  action bump
     count = count + step
   view
     button press=bump testId="bump"

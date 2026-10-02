@@ -69,25 +69,25 @@ style Warm
 
 component Gallery
   state page = 1
-  action one writes page
+  action one
     page = 1
-  action two writes page
+  action two
     page = 2
-  action three writes page
+  action three
     page = 3
-  action four writes page
+  action four
     page = 4
-  action five writes page
+  action five
     page = 5
-  action six writes page
+  action six
     page = 6
-  action seven writes page
+  action seven
     page = 7
-  action eight writes page
+  action eight
     page = 8
-  action nine writes page
+  action nine
     page = 9
-  action ten writes page
+  action ten
     page = 10
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
@@ -357,7 +357,7 @@ component StageFive
 // centre lands on the element there; the agent's `tap fx-hit` is that tap.
 component StageSix
   state picked = "none"
-  action pick(which: string) writes picked
+  action pick(which: string)
     picked = which
   view
     // A disc under a veil that lets hits through, beside a backdrop.

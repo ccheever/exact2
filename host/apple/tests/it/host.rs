@@ -124,7 +124,7 @@ fn count(batch: &str, op: &str) -> usize {
 fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
     let src = r##"component Ink
   state changed = false
-  action toggle writes changed
+  action toggle
     changed = not changed
   view
     column color=(changed ? "light-dark(#123456, #abcdef)" : "light-dark(#000000, #ffffff)")
@@ -1160,7 +1160,7 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action tick writes phase
+  action tick
     phase = phase + 1
   task clock mount
     every(100, tick)
@@ -1210,9 +1210,9 @@ fn inherited_spelling_hint_updates_editors_and_returns_to_default() {
     let plan = contract::compile(
         r#"component App
   state hint = "false"
-  action enable writes hint
+  action enable
     hint = "true"
-  action reset writes hint
+  action reset
     hint = "invalid"
   view
     column spellcheck=hint
@@ -1271,7 +1271,7 @@ fn content_below_the_client_height_keeps_its_extent_and_changes() {
     let plan = contract::compile(
         r#"component Extent
   state large = false
-  action grow writes large
+  action grow
     large = true
   view
     column
@@ -1303,7 +1303,7 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action next writes phase
+  action next
     phase = phase + 1
   view
     column
@@ -1409,7 +1409,7 @@ fn a_frame_task_fires_once_per_presented_frame() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
     at = now()
   task ticker mount

@@ -35,7 +35,7 @@ keyframes drop
   to cy=30
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column
@@ -195,7 +195,7 @@ keyframes glow
   to background-color="#2563eb"
 component A
   state on = false
-  action go writes on
+  action go
     on = not on
   view
     column

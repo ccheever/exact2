@@ -3,7 +3,7 @@
 use std::{path::PathBuf, process::Command};
 
 fn root(binding: &str, children: &str) -> String {
-    format!("component App\n  state n = 0\n  action zero writes n\n    n = 0\n  action one(x: number) writes n\n    n = x\n  action two(x: number, y: number) writes n\n    n = x + y\n  view\n    {binding}\n{children}")
+    format!("component App\n  state n = 0\n  action zero\n    n = 0\n  action one(x: number)\n    n = x\n  action two(x: number, y: number)\n    n = x + y\n  view\n    {binding}\n{children}")
 }
 fn refusal(source: &str) -> contract::CompileError {
     let error = contract::compile(source).unwrap_err();
@@ -234,11 +234,11 @@ fn every_binding_is_checked_and_valid_lifted_child_actions_keep_their_arity() {
         "view\n      Button(callback=zero)\n      Button(callback=one)",
         BUTTON,
     ));
-    let children = format!("component Stateful\n  props\n    value: number\n  state n = 0\n  action local writes n\n    n = value\n  view\n    Button(callback=local)\n{BUTTON}");
+    let children = format!("component Stateful\n  props\n    value: number\n  state n = 0\n  action local\n    n = value\n  view\n    Button(callback=local)\n{BUTTON}");
     contract::compile(&root("Stateful(value=7)", &children)).unwrap();
     let invalid = children.replace(
-        "action local writes n",
-        "action local(extra: number) writes n",
+        "action local",
+        "action local(extra: number)",
     );
     refusal(&root("Stateful(value=7)", &invalid));
 }

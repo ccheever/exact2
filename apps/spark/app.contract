@@ -102,7 +102,7 @@ component Spark
   // with it, so it is already full size when the top one leaves.
   derive progress = unit(max(magnitude(x), 0 - y) / throwAt)
 
-  action drag(dx: number, dy: number) writes x, y, dragging
+  action drag(dx: number, dy: number)
     if index < count
       x = x + dx
       y = y + dy
@@ -110,7 +110,7 @@ component Spark
 
   // Every way a card leaves: a release (`panrelease` appends its velocity to
   // `forced` = 0) or a button (`forced` names the decision, velocity 0).
-  action settle(forced: number, vx: number, vy: number) writes index, x, y, dragging, photo, flungPhoto, flungY, stack, likes, matched
+  action settle(forced: number, vx: number, vy: number)
     dragging = false
     if index < count
       if forced == 0 and verdict(x, y, vx, vy, throwAt) == 0
@@ -129,7 +129,7 @@ component Spark
 
   // The last decision, taken back: its card, parked off-screen, becomes the
   // top again, and its transition brings it back in.
-  action undo writes index, stack, likes, matched, x, y, photo, dragging
+  action undo
     if index > 0
       likes = likes - (lastDir >= 2 ? 1 : 0)
       stack = floor(stack / 4)
@@ -140,7 +140,7 @@ component Spark
       photo = 0
       dragging = false
 
-  action restart writes index, stack, likes, matched, x, y, photo, dragging
+  action restart
     index = 0
     stack = 0
     likes = 0
@@ -150,12 +150,12 @@ component Spark
     photo = 0
     dragging = false
 
-  action keepSwiping writes matched
+  action keepSwiping
     matched = -1
 
-  action nextPhoto(total: number) writes photo
+  action nextPhoto(total: number)
     photo = min(photo + 1, total - 1)
-  action prevPhoto writes photo
+  action prevPhoto
     photo = max(photo - 1, 0)
 
   view

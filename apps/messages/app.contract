@@ -105,47 +105,47 @@ component Messages
 
   // Negative, changing requests clamp to the top on every explicit shift.
   // Latest restores end-following; an eager transcript has no retained anchor.
-  action shiftWindow(value: string) writes cursor, windowShift, timestampOffset, selectingText
+  action shiftWindow(value: string)
     cursor = value
     windowShift = windowShift + 1
     timestampOffset = 0
     selectingText = ""
-  action pageInbox(value: string) writes inboxCursor, inboxShift, swipedThread, inboxTop
+  action pageInbox(value: string)
     inboxCursor = value
     inboxShift = inboxShift + 1
     swipedThread = ""
     inboxTop = 0
-  action pageRecipients(value: string) writes recipientCursor, recipientShift
+  action pageRecipients(value: string)
     recipientCursor = value
     recipientShift = recipientShift + 1
-  action search(value) writes query, swipedThread, inboxCursor, inboxShift, inboxTop
+  action search(value)
     if value != query
       inboxCursor = ""
       inboxShift = inboxShift + 1
       inboxTop = 0
     query = value
     swipedThread = ""
-  action filterInbox(value: string) writes inboxMode, deletedSelection, deletedCursor, deletedShift, swipedThread
+  action filterInbox(value: string)
     inboxMode = value
     deletedSelection = ""
     deletedCursor = ""
     deletedShift = deletedShift + 1
     swipedThread = ""
-  action pageDeleted(value: string) writes deletedCursor, deletedShift
+  action pageDeleted(value: string)
     deletedCursor = value
     deletedShift = deletedShift + 1
-  action chooseDeleted(value: string) writes deletedSelection
+  action chooseDeleted(value: string)
     deletedSelection = value
-  action prepareRecovery writes recoveryTargets, recoveryCount
+  action prepareRecovery
     recoveryTargets = deletedInbox.targets
     recoveryCount = deletedInbox.count
-  action recoverDeleted writes change, deletedSelection
+  action recoverDeleted
     send change = recoverConversations(recoveryTargets, now())
     deletedSelection = ""
-  action permanentlyDelete writes change, deletedSelection
+  action permanentlyDelete
     send change = purgeConversations(recoveryTargets, now())
     deletedSelection = ""
-  action open(id: string, savedDraft: string, savedReply: string) writes nav, selected, change, draftText, draftThread, replyRoot, replyThread, swipedThread, composerEditing, timestampOffset, selectingText, cursor
+  action open(id: string, savedDraft: string, savedReply: string)
     cursor = ""
     selectingText = ""
     timestampOffset = 0
@@ -160,7 +160,7 @@ component Messages
       replyThread = id
       replyRoot = savedReply
       send change = markRead(id)
-  action back writes nav, selected, attachments, change, composerEditing, timestampOffset, selecting, selection, selectingText, cursor
+  action back
     cursor = ""
     selectingText = ""
     selecting = false
@@ -172,36 +172,36 @@ component Messages
     composerEditing = false
     selected = ""
     attachments = false
-  action timestampsScrolled(left: number, top: number) writes timestampOffset
+  action timestampsScrolled(left: number, top: number)
     timestampOffset = left
-  action inboxListScrolled(left: number, top: number) writes inboxTop
+  action inboxListScrolled(left: number, top: number)
     inboxTop = top
-  action inboxScrolled(id: string, left: number, top: number) writes swipedThread, swipeOffset
+  action inboxScrolled(id: string, left: number, top: number)
     if left < 69 or left > 71
       swipedThread = id
       swipeOffset = left
     if left == 70 and swipedThread == id
       swipedThread = ""
-  action muteThread(id: string) writes change, swipedThread
+  action muteThread(id: string)
     swipedThread = ""
     send change = muteConversation(id)
   // The details switch is controlled: it asks for a state, and only a
   // different one is sent (LLP 1069.001 D4).
-  action setThreadMuted(muted: bool) writes change
+  action setThreadMuted(muted: bool)
     if muted != chat.muted
       send change = muteConversation(thread)
-  action blockThread(value: bool) writes change
+  action blockThread(value: bool)
     send change = blockConversation(thread, value)
-  action readThread(id: string, unread: bool) writes change, swipedThread
+  action readThread(id: string, unread: bool)
     swipedThread = ""
     send change = setConversationUnread(id, unread)
-  action deleteThread(id: string) writes change, swipedThread
+  action deleteThread(id: string)
     swipedThread = ""
     send change = deleteConversation(id, now())
-  action write(value) writes draftText, draftThread
+  action write(value)
     draftThread = chatThread
     draftText = value
-  action sendDraft writes draftText, draftThread, change, attachments, cursor
+  action sendDraft
     cursor = ""
     if draft != ""
       send change = sendMessage(thread, draft, replying, ticks, now())
@@ -209,7 +209,7 @@ component Messages
       draftText = ""
       attachments = false
       focus("composer")
-  action select(id: string, body: string, outgoing: bool, emoji: string, tail: bool, root: string, group: bool, actions: bool) writes selected, selectedBody, selectedOutgoing, selectedReaction, selectedTail, selectedRoot, selectedGroup, selectedActions, selectedEditing, selectedMenuActions, selectedPicker, selectedPickerVisited, selectingText
+  action select(id: string, body: string, outgoing: bool, emoji: string, tail: bool, root: string, group: bool, actions: bool)
     selectingText = ""
     selected = id
     selectedBody = body
@@ -225,7 +225,7 @@ component Messages
     selectedEditing = composerEditing
     if actions
       focus("emoji-return")
-  action menuKey(value) writes selected, selectedPicker
+  action menuKey(value)
     if value == "Escape"
       if selectedPicker
         selectedPicker = false
@@ -237,86 +237,86 @@ component Messages
         selected = ""
         if (selectedActions or selectedPickerVisited) and selectedEditing
           focus("composer")
-  action showEmojiPicker writes selectedPicker, selectedPickerVisited, selectedMenuActions
+  action showEmojiPicker
     selectedPicker = true
     selectedPickerVisited = true
     selectedMenuActions = false
     focus("emoji-input")
-  action closeEmojiPicker writes selectedPicker
+  action closeEmojiPicker
     selectedPicker = false
     if not selectedActions and selectedEditing
       focus("composer")
     else
       focus("emoji-return")
-  action dismiss writes selected, attachments, selectedPicker
+  action dismiss
     selected = ""
     selectedPicker = false
     if (selectedActions or selectedPickerVisited) and selectedEditing
       focus("composer")
     attachments = false
-  action reaction(emoji: string) writes change, selected, selectedPicker
+  action reaction(emoji: string)
     send change = react(thread, selected, emoji)
     selected = ""
     selectedPicker = false
     if (selectedActions or selectedPickerVisited) and selectedEditing
       focus("composer")
-  action reply writes replyRoot, replyThread, selected
+  action reply
     replyThread = chatThread
     replyRoot = selectedRoot
     selected = ""
     focus("composer")
-  action copyMessage writes selected, selectedPicker
+  action copyMessage
     copyText(selectedBody)
     selected = ""
     selectedPicker = false
     if selectedEditing
       focus("composer")
-  action selectMessageText writes selected, selectedPicker, selectingText
+  action selectMessageText
     selectingText = selected
     selected = ""
     selectedPicker = false
     selectText("selected-message-text")
-  action finishTextSelection writes selectingText
+  action finishTextSelection
     selectingText = ""
-  action openReplies(id: string) writes replyRoot, replyThread
+  action openReplies(id: string)
     replyThread = chatThread
     replyRoot = id
     focus("composer")
-  action cancelReply writes replyRoot, replyThread
+  action cancelReply
     replyThread = chatThread
     replyRoot = ""
-  action more writes selecting, selection, selected, timestampOffset, attachments
+  action more
     selection = selected
     selecting = true
     selected = ""
     timestampOffset = 0
     attachments = false
     focus("selection-toolbar")
-  action chooseMessage(value: string) writes selection
+  action chooseMessage(value: string)
     selection = value
-  action cancelSelection writes selecting, selection
+  action cancelSelection
     selecting = false
     selection = ""
-  action selectionKey(value) writes selecting, selection
+  action selectionKey(value)
     if value == "Escape"
       selecting = false
       selection = ""
-  action deleteSelected writes change, selecting, selection
+  action deleteSelected
     send change = deleteMessages(thread, selection, now())
     selecting = false
     selection = ""
-  action composerFocus writes composerEditing, selectingText
+  action composerFocus
     composerEditing = true
     selectingText = ""
-  action composerBlur writes composerEditing
+  action composerBlur
     composerEditing = false
-  action showDetails writes nav, detailsEditing, selected, attachments, selectingText
+  action showDetails
     selectingText = ""
     detailsEditing = composerEditing
     selected = ""
     attachments = false
     nav = push(nav, path("details", thread))
-  action createContact writes nav, contactFirst, contactLast, contactCompany, contactPhone, contactEmail, contactNotes, contactPhoneShown, contactEmailShown
+  action createContact
     contactFirst = ""
     contactLast = ""
     contactCompany = ""
@@ -327,47 +327,47 @@ component Messages
     contactEmailShown = chat.contactKind == "email"
     nav = push(nav, path("newContact", thread))
     focus("contact-first")
-  action discardContact writes nav
+  action discardContact
     nav = back(nav)
-  action saveContact writes nav, change
+  action saveContact
     send change = createLocalContact(contactFirst, contactLast, contactCompany, contactPhone, contactEmail, contactNotes)
     nav = back(nav)
-  action writeContactFirst(value) writes contactFirst
+  action writeContactFirst(value)
     contactFirst = value
-  action writeContactLast(value) writes contactLast
+  action writeContactLast(value)
     contactLast = value
-  action writeContactCompany(value) writes contactCompany
+  action writeContactCompany(value)
     contactCompany = value
-  action writeContactPhone(value) writes contactPhone
+  action writeContactPhone(value)
     contactPhone = value
-  action writeContactEmail(value) writes contactEmail
+  action writeContactEmail(value)
     contactEmail = value
-  action writeContactNotes(value) writes contactNotes
+  action writeContactNotes(value)
     contactNotes = value
-  action addContactPhone writes contactPhoneShown
+  action addContactPhone
     contactPhoneShown = true
     focus("contact-phone")
-  action removeContactPhone writes contactPhoneShown, contactPhone
+  action removeContactPhone
     contactPhoneShown = false
     contactPhone = ""
-  action addContactEmail writes contactEmailShown
+  action addContactEmail
     contactEmailShown = true
     focus("contact-email")
-  action removeContactEmail writes contactEmailShown, contactEmail
+  action removeContactEmail
     contactEmailShown = false
     contactEmail = ""
-  action closeDetails writes nav
+  action closeDetails
     nav = back(nav)
     if detailsEditing
       focus("composer")
-  action showAttachments writes attachments
+  action showAttachments
     attachments = not attachments
-  action insert(value: string) writes draftText, draftThread, attachments
+  action insert(value: string)
     draftText = draft + value
     draftThread = chatThread
     attachments = false
     focus("composer")
-  action newMessage writes nav, recipientQuery, recipient, newDraft, showContacts, recipientSelection, swipedThread, recipientCursor, recipientShift
+  action newMessage
     recipientCursor = ""
     recipientShift = recipientShift + 1
     swipedThread = ""
@@ -378,7 +378,7 @@ component Messages
     newDraft = ""
     showContacts = false
     focus("recipient-search")
-  action forwardSelected writes nav, selecting, selection, recipientQuery, recipient, newDraft, showContacts, recipientSelection, recipientCursor, recipientShift
+  action forwardSelected
     if chat.selectionCount > 0
       recipientCursor = ""
       recipientShift = recipientShift + 1
@@ -391,9 +391,9 @@ component Messages
       recipient = ""
       showContacts = false
       focus("recipient-search")
-  action cancelNewMessage writes nav
+  action cancelNewMessage
     nav = back(nav)
-  action searchRecipient(value) writes recipientQuery, recipientSelection, recipient, recipientCursor, recipientShift
+  action searchRecipient(value)
     if value != recipientQuery
       recipientCursor = ""
       recipientShift = recipientShift + 1
@@ -401,7 +401,7 @@ component Messages
       recipient = recipientRemainder
     recipientQuery = value
     recipientSelection = ""
-  action chooseRecipient(id: string) writes recipient, recipientQuery, showContacts, recipientSelection, recipientCursor, recipientShift
+  action chooseRecipient(id: string)
     recipientCursor = ""
     recipientShift = recipientShift + 1
     recipientSelection = ""
@@ -409,12 +409,12 @@ component Messages
     recipientQuery = ""
     showContacts = false
     focus("new-composer")
-  action selectRecipient(id: string, remaining: string) writes recipientSelection, recipientRemainder
+  action selectRecipient(id: string, remaining: string)
     if recipientQuery == ""
       recipientSelection = id
       recipientRemainder = remaining
     focus("recipient-search")
-  action recipientKey(k: string) writes recipient, recipientQuery, recipientSelection, recipientRemainder, showContacts, recipientCursor, recipientShift
+  action recipientKey(k: string)
     if k == "Backspace" and recipientQuery == ""
       recipientCursor = ""
       recipientShift = recipientShift + 1
@@ -435,7 +435,7 @@ component Messages
       recipientSelection = ""
       showContacts = false
       focus("new-composer")
-  action clearRecipientSelection writes recipientSelection, recipient, recipientQuery, showContacts, recipientCursor, recipientShift
+  action clearRecipientSelection
     recipientSelection = ""
     if contacts.resolved != ""
       recipientCursor = ""
@@ -443,15 +443,15 @@ component Messages
       recipient = contacts.resolved
       recipientQuery = ""
       showContacts = false
-  action browseContacts writes showContacts, recipientSelection, recipientCursor, recipientShift
+  action browseContacts
     recipientCursor = ""
     recipientShift = recipientShift + 1
     recipientSelection = ""
     showContacts = not showContacts
     focus("recipient-search")
-  action writeNew(value) writes newDraft
+  action writeNew(value)
     newDraft = value
-  action sendNewMessage writes change, nav, draftText, draftThread, replyRoot, replyThread, newDraft, timestampOffset, cursor
+  action sendNewMessage
     cursor = ""
     timestampOffset = 0
     if contacts.canSend and trim(newDraft) != ""
@@ -467,19 +467,19 @@ component Messages
       focus("composer")
 
   // Fixture time is explicit and follows the same seekable clock on every host.
-  action tick writes ticks, change
+  action tick
     if pendingReplies
       ticks = ticks + 1
       send change = advanceReplies(ticks + 1, chatThread, now())
   task replies mount
     every(300, tick)
 
-  action synchronize writes change
+  action synchronize
     send change = syncMessages(now())
   task synchronization mount
     every(3000, synchronize)
 
-  action followLink(location: string) writes nav, change, draftThread, replyThread, selected, selecting, selection, selectingText, selectedPicker, composerEditing, detailsEditing, attachments, timestampOffset, swipedThread, cursor
+  action followLink(location: string)
     cursor = ""
     if chatThread != "" and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
       send change = saveDraft(chatThread, draft, replying)

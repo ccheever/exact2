@@ -16,19 +16,19 @@ const GRANTS: &str = "secret.keep dpop\n";
 const SRC: &str = r#"
 component App
   mutation result as shape string
-  action initKey writes result
+  action initKey
     send result = initKey()
-  action keypair writes result
+  action keypair
     send result = keypair()
-  action importSign writes result
+  action importSign
     send result = importSign("")
-  action roundTrip writes result
+  action roundTrip
     send result = roundTrip("")
-  action refusals writes result
+  action refusals
     send result = refusals()
-  action keep writes result
+  action keep
     send result = keep()
-  action kept writes result
+  action kept
     send result = kept()
   view
     column
