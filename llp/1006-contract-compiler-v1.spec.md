@@ -244,7 +244,26 @@ assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 some(x)` / `case none` blocks of statements, nested as deep as wanted, with no
 loops (a body still always terminates, LLP 1005 §2; `if` needs a bool,
 `type-condition`; the `match` binds its name as a local, as the inline form
-does); a parameter's type is written or
+does), and — since 2026-10-02, LLP 1035.005.000 D2 — `let name = expr`: an
+immutable local, evaluated once where it stands and read by the statements
+after it in its block and the blocks nested there (each `if`, `else` and
+`case` arm is a block, so two arms may each declare `word`). A local reads
+earlier locals and whatever else is legal at that site (a parameter, a
+`match` binding, `frame(id)`); writes still land together and reads still
+see the action's starting state, so `count = count + 1` then `let seen =
+count` binds the old count. A local is never reassigned
+(`type-let-reassign`), read before its line (`type-let-before-declaration`;
+a nested block reading a later `let` of an enclosing one included), declared
+twice in one block (`type-let-duplicate`), or spelled like a name already in
+scope — a state, derive, resource, mutation, action, prop, parameter or
+another local (`type-let-shadow`). `let` starts a statement only before a
+name, as `send` does: `let = x` assigns a state named `let`. A child's local
+is checked in the child's scope; lifted into the root (`name#N`) it may
+spell a root name the child never saw, and it is renamed apart (`x@k`) when
+a substituted expression mentions it. Lowering binds it
+(`BindLocal`) and drops it (`DropLocal`) where its block ends
+(`contract/lower/src/stmts.rs`); the plan format, the VM and the
+JavaScript runtime are unchanged. A parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
@@ -274,8 +293,26 @@ types, in a derive, a source argument, or an `each` list, is
 `type-cannot-infer` at the `[]`, and a state only `[]` initializes is
 refused as a state nothing writes; a list literal with items stays out,
 LLP 1017.003 D4), names, `a.b`, roster calls, `+ - * / %`, `== !=
-< <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
-{ case some(x) => a, case none => b }`.
+< <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, inline `match s
+{ case some(x) => a, case none => b }`, and records (LLP 1035.005.000 D3,
+2026-10-02). `Fields(title=v, body="", pinned=false)` builds a shape the app
+declares, naming every field once: none is defaulted
+(`type-record-missing` lists the missing ones), an unknown one is
+`type-record-unknown-field` (listing the shape's fields), a repeat
+`type-record-duplicate`, and a value of the wrong type `type-argument`.
+`Fields(base, title=v)` copies `base`, an expression of that shape, with the
+named fields replaced; the one positional argument comes first and is of
+the shape, or it is `type-record-base`. The result is the shape. It is
+written wherever an expression is: a state initializer, a derive, an action,
+a `let`, the view, a handler's argument, a `fn` body, a source's argument.
+The compiler's own shapes (`Router`, `Entry`, `Geometry`) are not built by
+hand, and a `fn` may not take a declared shape's name
+(`type-fn-shape-name`). Lowering emits the plan's existing `Record` opcode:
+a build pushes the values in declaration order; a copy binds its base once
+as a local and reads each kept field from it (`Field`). Equality is
+structural, as it was for records from sources. `contract fmt` keeps a named
+argument's `=` against its name (`empty(field=value)` too), as an
+attribute's.
 
 `includes(text, substring) -> bool` performs a case-sensitive literal substring
 search (the empty substring matches), as the web's `String.prototype.includes`
@@ -378,6 +415,11 @@ checked standalone. Roster calls are checked against the table's `params`/
 without constructing a merged type. Type inference uses `Ty::unify` wherever
 it needs the merged value. Function body checking borrows the resolved signature;
 only the parameter types entering the body's owned scope are cloned.
+Action bodies are `actions.rs` (`check_body`: block scopes, the `let` rules);
+record builds are `records.rs`, which lowering and `symbols` share for
+`is_record_call` and the base (LLP 1035.005.000 D2/D3). `contract symbols`
+defines a `let` as a `local` for its block and refers a build to its shape
+and each named argument to its field.
 
 Unknown written types retain `type-unknown` and their original token span. The
 message lists known named types: primitives and bare `action`, then declared
@@ -533,7 +575,8 @@ layout refusals; the measured ones are bake's, §3 Driver); a leaf tag with
 children, or a `text` holding anything
 but `text` runs, is `lower-leaf-children`); every expression through one assembler
 (`expr.rs`: `and`/`or` short-circuit through a local; inline `match` binds a
-local; a non-string template part gets `toString`). A template whose parts are
+local; a record build is `Record`, a copy binding its base as a local; a
+non-string template part gets `toString`). A template whose parts are
 all literal strings after component expansion emits one interned string, so a
 literal prefix passed to a component adds no runtime concatenation. Dynamic
 parts and non-string conversions retain their ordinary evaluation. Row order is source
@@ -570,6 +613,16 @@ and asserts the same behavior the hand-built test asserts (keyed reorder,
 `when` flip, timers, commands) — proven at both ends. `rejects.txt` holds one
 fixture per diagnostic id, each refused with exactly its id. The
 app itself is the integration fixture (`apps/caltrain/tests/app.rs`).
+
+`records.contract` (D3) and `let.contract` (D2) run on the runner in
+`contract/cli/tests/it/records.rs` and `locals.rs`: a record built in an
+initializer, a derive, a `fn`, an action, the view, a handler's argument and
+a source's argument, copied and compared; locals through branches, a `match`
+arm and a geometry read (one `frame` call), after a write, and in a lifted
+child action beside the root's names. Nine reject fixtures, one per new id.
+`host/web-js/conformance/records.contract` drives both features on the wasm
+runner and the JavaScript target. Every other root's plan is byte-identical
+(117 roots, 2026-10-02).
 
 Router rejects (LLP 1038 D2/D3) each have a same-named fixture in
 `rejects.txt`: `route-duplicate`, `route-shadowed`, `route-parent-param`,
