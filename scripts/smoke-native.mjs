@@ -230,6 +230,40 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       await s.type('dialog-input', { key: 'Escape', for: 10 }); await settle(s);
       dialogState = await s.state();
       check(dialogState.dialog == null && dialogState.focus.logical === dialogOpener && dialogState.slots.dialogValue === 'modal draft', 'macos native: Escape closes and releases safely, restores focus and preserves the draft');
+      const popoverTree = await s.tree();
+      const popover = byTestId(popoverTree, 'native-popover').id;
+      const search = byTestId(popoverTree, 'popover-search').id;
+      const popoverInput = byTestId(popoverTree, 'popover-input').id;
+      const bump = byTestId(popoverTree, 'bump').id;
+      check(byTestId(popoverTree, 'native-popover').open === false, 'macos popover: the closed form does not paint in agent mode');
+      const hiddenType = await s.carrier.ask({ op: 'type', id: search, text: 'forbidden' });
+      check(Boolean(hiddenType.error) && (await s.state()).slots.popoverSearch === '', 'macos popover: a closed field refuses input');
+      await s.tap('open-native-popover'); await settle(s);
+      let popoverState = await s.state();
+      check(popoverState.navigation.popover?.popover === popover && popoverState.focus.logical === search, 'macos popover: a target-only button opens the real form and autofocuses its search field');
+      await s.type('popover-search', 'find models'); await settle(s);
+      await s.type('popover-input', 'custom draft'); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.slots.popoverSearch === 'find models' && popoverState.slots.popoverValue === 'custom draft' && popoverState.focus.logical === popoverInput && popoverState.focus.responder === 'FixtureEditor', 'macos popover: both the ordinary field and native editor receive text');
+      await s.screenshot(resolve(shots ?? tmp, 'native-popover.png'));
+      await s.type('popover-search', { key: 'Tab' }); await settle(s);
+      check(await focus() === popoverInput, 'macos popover: Tab from the search field reaches the native editing descendant');
+      await s.type('popover-close', { key: 'Shift+Tab' }); await settle(s);
+      check(await focus() === popoverInput, 'macos popover: reverse Tab also reaches the native editing descendant');
+      await s.type('popover-close', { key: 'Tab' }); await settle(s);
+      check(await focus() === bump, 'macos popover: Tab returns to the page after the invoker');
+      await s.type('bump', { key: 'Escape', for: 10 }); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.navigation.popover == null && popoverState.focus.logical === bump, 'macos popover: Escape closes without stealing focus back from the page');
+      await s.tap('open-native-popover'); await settle(s);
+      check((await s.state()).slots.popoverValue === 'custom draft' && (await s.state()).slots.popoverSearch === 'find models', 'macos popover: reopening preserves both drafts');
+      const countBeforeDismiss = (await s.state()).slots.count;
+      await s.tap('bump'); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.navigation.popover == null && popoverState.slots.count === countBeforeDismiss + 1, 'macos popover: outside click dismisses and still activates its button');
+      await s.tap('open-native-popover'); await settle(s);
+      await s.tap('popover-close'); await settle(s);
+      check((await s.state()).navigation.popover == null && byTestId(await s.tree(), 'native-popover').open === false, 'macos popover: the hide-only button closes the form');
     }
     // A plan reload reuses the defined elements (web).
     if (host === 'web') {

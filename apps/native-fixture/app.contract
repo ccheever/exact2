@@ -7,6 +7,12 @@
 // drives it through the eight operations.
 
 component NativeFixture
+  state popoverValue = ""
+  state popoverSearch = ""
+  action popoverChange(v: string)
+    popoverValue = v
+  action searchChange(v: string)
+    popoverSearch = v
   state inputValue = ""
   state inputEvents = ""
   state inputCommands = 0
@@ -104,6 +110,7 @@ component NativeFixture
   view
     column testId="fixture" width="100%" height="100%" gap=8 padding=12 background-color="#ffffff" color="#111111" font-family="system-ui"
       row gap=6 flex-wrap="wrap"
+        button "Popover form" testId="open-native-popover" popovertarget="native-popover"
         button press=bump testId="bump" padding=6 background-color="#e5e7eb"
           text "Bump"
         button press=fire testId="fire" padding=6 background-color="#e5e7eb"
@@ -154,3 +161,7 @@ component NativeFixture
           exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
           button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
           button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
+      column id="native-popover" testId="native-popover" popover="auto" position="absolute" width=320 padding=16 gap=8 background-color="#ffffff" border-width=1 border-style="solid" border-color="#9ca3af"
+        input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
+        exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
+        button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"

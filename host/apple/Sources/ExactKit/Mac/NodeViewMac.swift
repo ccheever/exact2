@@ -152,13 +152,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
-            ancestor = view.superview
+            ancestor = presenter?.menus.parent(of: view) ?? view.superview
         }
         return false
     }
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
-        sequence(first: self as NSView, next: { $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+        sequence(first: self as NSView, next: { self.presenter?.menus.parent(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
     }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
@@ -178,7 +178,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || tabbable
     }
-    var pressable: Bool { handlers.contains("press") || (kind == "button" && props["commandfor"] != nil) }
+    var pressable: Bool { handlers.contains("press") || (kind == "button" && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
         kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
@@ -211,7 +211,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
         guard !disabled else { return }
-        if presenter?.dialogs.key(event) == true { return }
+        if presenter?.menus.key(event) == true || presenter?.dialogs.key(event) == true { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": presenter?.selection.selectAll(); return
