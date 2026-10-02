@@ -253,8 +253,8 @@ impl<D: DataSource> Presenter<D> {
                 // A native button: its title in its look's font, padded
                 // (LLP 1069.011 D6); Linux draws no symbol, which keeps the
                 // room the other hosts give it.
-                if kind == exact_kernel::ControlKind::Button {
-                    let face = kernel.button_face(id);
+                if node.props.str(PropId::Type) == Some("button") {
+                    let face = kernel.press_face(id).unwrap_or_default();
                     let (px, py) = crate::paint::control::button_padding(
                         crate::paint::control::button_look(&node),
                     );

@@ -87,6 +87,7 @@ extension NodeView {
         applyGradientLayer()
         setNeedsDisplay()
         #else
+        syncEllipticalClip()
         needsDisplay = true
         #endif
     }
@@ -148,7 +149,7 @@ extension NodeView {
         let target: CALayer?
         if let box = clipBox?.layer { target = box }
         else if let scroller { target = scroller }
-        else if clipsToBounds, hostLayer?.mask == nil || hostLayer?.mask === s.clip {
+        else if clipsToBounds, (clipPath == nil && boxFilter == nil) || hostLayer?.mask === s.clip {
             clipsToBounds = false
             s.clippedSelf = true
             target = hostLayer

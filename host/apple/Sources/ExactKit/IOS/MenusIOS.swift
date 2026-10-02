@@ -248,8 +248,8 @@ final class MenuHost {
         if source.handlers.contains("press") { presenter?.press(source.id) }
         guard confirmation == nil, eligible(source), live(pop), source.window != nil else { return false }
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
-        let actions = children.filter { $0.kind == "button" && $0.handlers.contains("press") }
-        let cancels = children.filter { $0.kind == "button" && !$0.handlers.contains("press") && closes($0, pop) }
+        let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
+        let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
         guard actions.count == 1, cancels.count == 1, let action = actions.first, let cancel = cancels.first,
               children.allSatisfy({ $0.kind == "text" || $0 === action || $0 === cancel }),
               [action, cancel].allSatisfy({ closes($0, pop) }),
@@ -260,7 +260,10 @@ final class MenuHost {
               !controller.isBeingDismissed, !controller.isBeingPresented else { return false }
         let owner = Confirmation(host: self, source: source, popover: pop, action: action,
                                  message: children.filter { $0.kind == "text" }.map(title(of:)).joined(separator: "\n"))
-        owner.alert.view.tintColor = action.color("text_color", .systemBlue)
+        // A native action's tint is its accent (LLP 1069.011.000 D5).
+        owner.alert.view.tintColor = action.isNativeButton
+            ? action.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
+            : action.color("text_color", .systemBlue)
         let actionStyle: UIAlertAction.Style = action.props["destructive"] == "true" ? .destructive : .default
         owner.alert.addAction(UIAlertAction(title: title(of: action), style: actionStyle) { [weak self, weak owner] _ in
             if let owner { self?.finish(owner, confirmed: true) }
@@ -284,12 +287,14 @@ final class MenuHost {
 
     /// The menu grammar, extracted (LLP 1021 D3): button rows become
     /// actions; any other row is a section boundary.
-    private func items(of pop: NodeView) -> [UIMenuElement] {
+    func items(of pop: NodeView) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
         for case let row as NodeView in pop.container.subviews {
             if row.handlers.contains("press") {
                 let id = row.id
-                let action = UIAction(title: title(of: row)) { [weak self] _ in
+                // A row's symbol is its item's image, custom or native (LLP 1069.011.000 D5).
+                let image = row.isButton ? row.face?.symbol.flatMap { UIImage(systemName: $0) } : nil
+                let action = UIAction(title: title(of: row), image: image) { [weak self] _ in
                     self?.presenter?.press(id)
                 }
                 if row.props["accessibilityChecked"] == "true" { action.state = .on }
@@ -307,6 +312,11 @@ final class MenuHost {
 
     private func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
+        // A native button's children are its face, not views: its title, else its label.
+        if v.isNativeButton { return v.face?.shown ?? "" }
+        // A custom button whose face fits shows it too: a symbol-only row its
+        // label (LLP 1069.011.000 D5); other content keeps its text.
+        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         return v.container.subviews
             .compactMap { ($0 as? NodeView).map(title(of:)) }
             .filter { !$0.isEmpty }

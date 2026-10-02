@@ -184,7 +184,7 @@ extension NodeView {
         guard let l = layer else { return }
         let sigma = materialView == nil && props["backgroundMaterial"] == nil ? max(0, number("backdrop_blur")) : 0
         guard sigma > 0 else {
-            if l.backgroundFilters != nil { l.backgroundFilters = nil }
+            if l.backgroundFilters != nil { l.backgroundFilters = nil; syncEllipticalClip() }
             return
         }
         if !layerUsesCoreImageFilters { layerUsesCoreImageFilters = true }
@@ -197,9 +197,10 @@ extension NodeView {
         // AppKit filters the backdrop only inside a masking layer; one
         // radius rides it (differing radii take their smallest).
         if !clipsToBounds { clipsToBounds = true }
-        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { CGFloat(number("border_radius_" + $0, number("border_radius"))) }
-        let radius = max(0, radii.min() ?? 0)
+        let radii = cornerSizes(in: bounds)
+        let radius = radii.allSatisfy { $0.width == $0.height } ? radii.map(\.width).min() ?? 0 : 0
         if l.cornerRadius != radius { l.cornerRadius = radius }
+        syncEllipticalClip()
     }
 }
 #endif

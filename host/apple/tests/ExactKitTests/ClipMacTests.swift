@@ -49,6 +49,23 @@ final class ClipMacTests: XCTestCase {
         XCTAssertEqual(n.layer?.cornerRadius ?? 0, 14, accuracy: 0.001, "the kernel's new size reduces it again")
     }
 
+    func testPercentageBackdropClipsAnEllipseAndFollowsResize() throws {
+        var style: NodeStyle = ["backdrop_blur": 4]
+        for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
+            style["border_radius_" + corner] = ["pct": 50]
+        }
+        let n = node("view", style)
+        n.frame.size = CGSize(width: 160, height: 80)
+        let mask = try XCTUnwrap(n.layer?.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 20, y: 5)))
+        XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 80, y: 5)))
+        n.frame.size = CGSize(width: 80, height: 160)
+        let resized = try XCTUnwrap(n.layer?.mask as? CAShapeLayer)
+        XCTAssertFalse(try XCTUnwrap(resized.path).contains(CGPoint(x: 5, y: 20)))
+        n.applyStyle([:])
+        XCTAssertNil(n.layer?.mask)
+    }
+
     func testAMaterialsRadiusIsReducedToo() {
         let n = node("view", ["border_radius_top_left": 100, "border_radius_top_right": 100,
                               "border_radius_bottom_right": 100, "border_radius_bottom_left": 100])

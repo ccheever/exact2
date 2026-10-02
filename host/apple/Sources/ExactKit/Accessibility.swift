@@ -7,10 +7,18 @@ import UIKit
 #endif
 
 extension NodeView {
+    /// A button: a custom one (`kind == "button"`) or a native one, under any
+    /// role (LLP 1069.011.000 D1).
+    var isButton: Bool { kind == "button" || isNativeButton }
+    /// Its face, as the kernel reads it (LLP 1069.011.000 D1); nil when the
+    /// presenter cannot read one.
+    var face: ButtonFace? { presenter?.buttonFace?(id) }
+
     var accessibleText: String {
         if let text = props["text"] { return text }
-        // A native button's children are its face, not views (LLP 1069.011 D5).
-        if isNativeButton { return nativeTitle ?? "" }
+        // A native button's children are its face, not views (LLP 1069.011 D5),
+        // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
+        if isNativeButton { return face?.title ?? "" }
         if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
         let children = container.subviews.compactMap { $0 as? NodeView }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
@@ -33,7 +41,7 @@ extension NodeView {
 
 /// What an authored tab shows as one segment of the system's segmented
 /// control (LLP 1035.001 D10): its one image, or its words.
-enum SegmentFace: Equatable { case image(NodeView), title(String) }
+enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String) }
 
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
@@ -42,6 +50,14 @@ extension NodeView {
     /// icon beside a label, a badge, or any other node keeps the authored
     /// rendering — the web's, where a role never changes what is drawn.
     var segmentFace: SegmentFace? {
+        // A native button's face, not views (LLP 1069.011.000 D4): a symbol
+        // alone (named by its label), or a title its label agrees with.
+        if isNativeButton {
+            guard let face, face.fits else { return nil }
+            if let symbol = face.symbol, face.title == nil { return .symbol(symbol) }
+            if let title = face.title, face.symbol == nil, (props["accessibilityLabel"] ?? title) == title { return .title(title) }
+            return nil
+        }
         let children = container.subviews.compactMap { $0 as? NodeView }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
@@ -210,7 +226,7 @@ extension Agent {
                 }
                 // The web's rule (glue.js: `button, a, [role=button]`): a button
                 // keeps its name under another role, as the Move stick's slider does.
-                if node.kind == "button" || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
+                if node.isButton || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
                     row["accessibleName"] = node.accessibleName
                 }
             }

@@ -14,6 +14,7 @@
 // the quadrilateral covers all of the corner's border. Sides that share a
 // colour are one clip, so no seam shows where they meet.
 import CoreGraphics
+import QuartzCore
 
 enum BorderPaint {
     /// Percentages use the border box's width and height independently.
@@ -28,6 +29,31 @@ enum BorderPaint {
             }
             return CGSize(width: length(rect.width + 2 * inset), height: length(rect.height + 2 * inset))
         }
+    }
+
+    /// A private material/media layer owns its mask. Keep the circular fast
+    /// path; percentages on non-square boxes need the resolved elliptical path.
+    @discardableResult
+    static func clip(_ layer: CALayer, in rect: CGRect, radii: [CGSize]) -> CGFloat {
+        let corners = reduced(radii, in: rect)
+        let first = corners[0]
+        let circular = first.width == first.height && corners.allSatisfy { $0 == first }
+        let radius = circular ? first.width : 0
+        layer.cornerRadius = radius
+        layer.masksToBounds = true
+        layer.mask = circular ? nil : ClipPath.mask(roundedRect(rect, corners))
+        return radius
+    }
+
+    /// A replaced element's content edge: reduce at the border edge first,
+    /// then remove each adjacent border/padding inset from that corner.
+    static func contentRadii(_ radii: [CGSize], outer: CGRect, inner: CGRect) -> [CGSize] {
+        let r = reduced(radii, in: outer)
+        let left = inner.minX - outer.minX, right = outer.maxX - inner.maxX
+        let top = inner.minY - outer.minY, bottom = outer.maxY - inner.maxY
+        return zip(r, [CGSize(width: left, height: top), CGSize(width: right, height: top),
+                       CGSize(width: right, height: bottom), CGSize(width: left, height: bottom)])
+            .map { CGSize(width: max(0, $0.width - $1.width), height: max(0, $0.height - $1.height)) }
     }
 
     /// Circle-to-cubic control distance for a quarter arc.

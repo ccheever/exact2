@@ -1423,6 +1423,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.

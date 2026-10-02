@@ -1,0 +1,33 @@
+// Synthetic conformance plan: a navigation root in a plan with no `routes`
+// (LLP 1038 D6). `main` is the root (its navigationKey and navigationBack),
+// its routes are its children with a navigationKey, and the one whose key is
+// the root's is selected. With no router, the covered route is still hidden
+// and inert after every commit, as the web host projects after every batch:
+// the screenshot shows the detail alone (the home route's filled box gone),
+// and a tap on the covered route's control is refused.
+component NavRoot
+  state depth = 1
+  state count = 0
+  action open
+    depth = 2
+  action back
+    depth = 1
+  action bump
+    count = count + 1
+  view
+    column testId="page" width="100%" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      text `${depth} · ${count}` testId="where"
+      button press=back testId="back"
+        text "back"
+      main navigationKey=`${depth}` navigationBack="back" testId="navigation" flex=1
+        column navigationKey="1" testId="route-home" padding=8 gap=4 height=120 background-color="#dbe4ff"
+          text "home"
+          button press=open testId="open"
+            text "open"
+          button press=bump testId="bump-home"
+            text "bump home"
+        when depth == 2
+          column navigationKey="2" testId="route-detail" padding=8 gap=4 background-color="#ffe4d6"
+            text "detail"
+            button press=bump testId="bump-detail"
+              text "bump detail"

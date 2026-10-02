@@ -680,6 +680,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropValue::Str(s) => s.clone(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
+            // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
+            PropValue::Float(f) if id == PropId::GlassGroup && *f == -1.0 => "auto".into(),
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {

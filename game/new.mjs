@@ -223,7 +223,8 @@ exact_web::host!(
   const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
   return `Created ${dir}
   ${run} web          the web dev loop
-  ${run} test         run app.test.contract on the web
+  ${run} test web     run app.test.contract (web, macos or ios)
+  ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac`;
 }
@@ -239,15 +240,17 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
+const [verb, ...rest] = process.argv.slice(2);
+const host = (verb === 'test' || verb === 'agent') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
   'web-build': ['host/web/build.mjs', '${name}'],
-  test: ['scripts/agent.mjs', 'web', '--app', '${name}', '--test', resolve(import.meta.dir, 'app.test.contract')],
+  test: ['scripts/agent.mjs', host, '--app', '${name}', '--test', resolve(import.meta.dir, 'app.test.contract')],
+  agent: ['scripts/agent.mjs', host, '--app', '${name}'],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
 };
-const [verb, ...rest] = process.argv.slice(2);
 if (!verbs[verb]) {
   console.error(\`Usage: bun exact.mjs <\${Object.keys(verbs).join('|')}> [arguments for that script]\`);
   process.exit(2);
@@ -277,6 +280,13 @@ function updateApp(dir, name) {
     : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
+  // An older app may predate the generated test command. Preserve authored
+  // tests; otherwise start with a boot check that assumes no app-specific IDs.
+  const test = resolve(dir, 'app.test.contract');
+  if (!existsSync(test)) writeFileSync(test, `// Add assertions for this app after its initial work settles.
+test "the app opens"
+  clock settle
+`);
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);

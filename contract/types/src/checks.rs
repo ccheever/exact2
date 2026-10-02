@@ -1167,7 +1167,60 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
     if shapes.style_attr.is_some_and(|style| style(&a.name)) {
         return style_value(&a.value, scope, shapes).map(|_| ());
     }
+    // @ref LLP 1053.000.000.000 D1 — `glassGroup` alone may put the literal
+    // `"auto"` beside numbers in a choice; lowering rewrites it to `-1`.
+    if a.name == "glassGroup" {
+        return glass_group_value(&a.value, scope, shapes).map(|_| ());
+    }
     infer(&a.value, scope, shapes).map(|_| ())
+}
+
+/// `glassGroup`'s value: a number, the literal `"auto"` (typed as the number
+/// it lowers to), or a choice between them, through a `let` a shared derive
+/// makes. A number beside a string a component's prop forwards is unknown
+/// here; lowering sees the value expanded, the forwarded `"auto"` a literal.
+fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    match e {
+        Expr::Str(s, _) if s == "auto" => Ok(Ty::Number),
+        Expr::Ternary(..) | Expr::Match { .. } => {
+            let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
+            let either = |a: &Ty, b: &Ty| {
+                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+            };
+            match ta.unify(&tb) {
+                Some(t) => Ok(t),
+                None if either(&ta, &tb) => Ok(Ty::Unknown),
+                None => Err(disagree(e, &ta, &tb)),
+            }
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let t = if spacing_tree(value) {
+                glass_group_value(value, scope, shapes)?
+            } else {
+                infer(value, scope, shapes)?
+            };
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(0), t)]);
+            glass_group_value(body, &inner, shapes)
+        }
+        _ => infer(e, scope, shapes),
+    }
+}
+
+/// Whether a value is a spacing as written: `"auto"`, a number, or a choice
+/// of them — so a `let` binding one is rewritten and one binding a condition
+/// is not.
+fn spacing_tree(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s == "auto",
+        Expr::Number(..) => true,
+        Expr::Unary(_, inner, _) => matches!(**inner, Expr::Number(..)),
+        Expr::Ternary(_, a, b, _) => spacing_tree(a) && spacing_tree(b),
+        Expr::Match { some, none, .. } => spacing_tree(some) && spacing_tree(none),
+        _ => false,
+    }
 }
 
 /// A style row is one CSS value space — a length or a keyword — so a style

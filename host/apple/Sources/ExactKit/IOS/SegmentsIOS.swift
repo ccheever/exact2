@@ -34,9 +34,21 @@ private final class ExactTabBar: UITabBar {
 private struct TabBarFace: Equatable {
     let symbol: String
     let title: String
+    /// Its accessible name: the tab's explicit label, else its title.
+    let label: String
     let tint: UIColor
 
     init?(_ tab: NodeView) {
+        // A native tab's face, from the kernel; its tint its accent
+        // (LLP 1069.011.000 D4).
+        if tab.isNativeButton {
+            guard let face = tab.face, face.fits, let symbol = face.symbol, let title = face.title else { return nil }
+            self.symbol = symbol
+            self.title = title
+            label = tab.props["accessibilityLabel"] ?? title
+            tint = tab.channels("accent_color").map { TextEngine.color($0) } ?? .label
+            return
+        }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
         guard children.count == 2,
               let image = children.first(where: { $0.kind == "image" }),
@@ -45,6 +57,7 @@ private struct TabBarFace: Equatable {
               !label.accessibleText.isEmpty else { return nil }
         self.symbol = image.props["symbolName"] ?? ""
         title = label.accessibleText
+        self.label = tab.props["accessibilityLabel"] ?? title
         tint = image.color("tint_color", .label)
     }
 }
@@ -90,7 +103,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     private func tabs(in owner: NodeView) -> [NodeView] {
         owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.kind == "button" && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
         }
     }
 
@@ -116,6 +129,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let identity: AnyObject = raster.map { $0 as AnyObject } ?? source ?? icon
             let size = CGSize(width: max(1, icon.bounds.width), height: max(1, icon.bounds.height))
             if let old = control.icons[index], old.source === identity, old.size == size, old.label == label { return }
+            // An image segment shows no title (a title-only face had set one).
+            if control.titleForSegment(at: index)?.isEmpty == false { control.setTitle(nil, forSegmentAt: index) }
             let image = UIGraphicsImageRenderer(size: size).image { _ in
                 guard let source else { return }
                 let ratio = min(size.width / source.size.width, size.height / source.size.height)
@@ -125,6 +140,15 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
             control.icons[index] = (identity, size, label)
+        } else if case .symbol(let name)? = tab.segmentFace {
+            // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
+            let size = CGSize(width: -1, height: -1)
+            if let old = control.icons[index], (old.source as? NSString) == name as NSString, old.label == label { return }
+            let image = UIImage(systemName: name) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+            if control.titleForSegment(at: index)?.isEmpty == false { control.setTitle(nil, forSegmentAt: index) }
+            image.accessibilityLabel = label
+            control.setImage(image, forSegmentAt: index)
+            control.icons[index] = (name as NSString, size, label)
         } else {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }
@@ -207,7 +231,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 return item
             }, animated: false)
         }
-        for (item, tab) in zip(bar.items ?? [], tabs) { item.isEnabled = !tab.disabled }
+        for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
+            item.isEnabled = !tab.disabled
+            // Its name is the tab's, as the hidden tab's was (astra's code review).
+            if item.accessibilityLabel != face.label { item.accessibilityLabel = face.label }
+        }
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" }
         let item = selected.flatMap { bar.items?[$0] }
         if bar.selectedItem !== item { bar.selectedItem = item }

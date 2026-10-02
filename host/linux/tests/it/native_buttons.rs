@@ -5,6 +5,7 @@
 use exact_linux::{presenter::PainterChoice, Presenter};
 use exact_runner::{DataError, DataSource, Value};
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -87,4 +88,57 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
         .unwrap_err()
         .contains("takes a press"));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// LLP 1069.011.000 D1: a native button is a button under a tab's role —
+/// Enter presses it, as it presses a custom tab.
+#[test]
+fn a_native_tab_presses_on_enter_as_a_button_does() {
+    let plan = contract::compile(
+        r#"component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    column align-items="flex-start"
+      text `pressed ${n}` testId="count"
+      row role="tablist" text-transform="uppercase"
+        button appearance="auto" role="tab" aria-selected=true press=go testId="tab"
+          text "Inbox"
+"#,
+    )
+    .unwrap();
+    let dir = std::env::temp_dir().join(format!("exact-native-tabs-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (400., 300.),
+        1.,
+        dir.clone(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let id = |p: &Presenter<NoData>, t: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let tab = id(&p, "tab");
+    p.type_key(tab, "Enter", "Enter", true, false).unwrap();
+    // A held key's repeats press it once, as a native `role="button"`'s do.
+    p.type_key(tab, "Enter", "Enter", true, true).unwrap();
+    p.type_key(tab, "Enter", "Enter", false, false).unwrap();
+    // Its name is its face's title, as painted (grok's code review).
+    let tree = exact_linux::agent::handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(tree.contains(r#""accessibleName":"INBOX""#), "{tree}");
+    let k = p.host().kernel();
+    let count = k.node(id(&p, "count")).unwrap();
+    let text: String = count
+        .text_runs()
+        .iter()
+        .map(|r| r.text.to_string())
+        .collect();
+    assert_eq!(text, "pressed 1");
+    let _ = std::fs::remove_dir_all(dir);
 }

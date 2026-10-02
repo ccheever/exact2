@@ -110,6 +110,7 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children
     /// only where the overflow clips.
     func applyBoxLayer() {
+        defer { syncEllipticalClip() }
         guard layerBoxEligible else { applyClipOnly(); return }
         let p = boxPlan
         applyBoxLayer(p)
@@ -184,9 +185,12 @@ extension NodeView {
     /// layer carries only the clip's radius, reduced as CSS reduces it.
     private func applyClipOnly() {
         guard let l = clipBox?.layer ?? layer else { return }
-        let radii = cornerRadii(in: bounds)
+        let radii = cornerSizes(in: bounds)
         let clips = clipsToBounds || clipBox != nil
-        let radius = clips && radii.allSatisfy({ abs($0 - radii[0]) < 0.01 }) ? radii[0] : 0
+        let first = radii[0]
+        let circular = radii.allSatisfy { abs($0.width - $0.height) < 0.01 && abs($0.width - first.width) < 0.01 }
+            && first.width <= min(bounds.width, bounds.height) / 2
+        let radius = clips && circular ? first.width : 0
         if l.cornerRadius != radius { l.cornerRadius = radius }
     }
 

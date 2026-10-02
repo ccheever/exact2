@@ -5,6 +5,7 @@ mod animation;
 mod canvas_defer;
 mod content_region;
 mod development;
+mod glass;
 mod height_drag;
 mod holds;
 mod host;

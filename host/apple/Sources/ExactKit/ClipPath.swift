@@ -41,3 +41,41 @@ enum ClipPath {
         return mask
     }
 }
+
+
+extension NodeView {
+    /// Four equal percentage radii can still be elliptical. Keep the declared
+    /// unequal-corner overflow fallback, but carry this equal outline alongside
+    /// clip-path instead of dropping it when CALayer's circular fast path fails.
+    private var ellipticalClip: CGPath? {
+        #if os(macOS)
+        let backdrop = layer?.backgroundFilters?.isEmpty == false
+        #else
+        let backdrop = false
+        #endif
+        guard clipsToBounds || clipBox != nil || backdrop else { return nil }
+        let sizes = cornerSizes(in: bounds)
+        guard let first = sizes.first, first.width != first.height,
+              sizes.allSatisfy({ $0 == first }) else { return nil }
+        return BorderPaint.roundedRect(bounds, sizes)
+    }
+
+    func resolvedClipMask() -> CALayer? {
+        let authored = ClipPath.mask(clipPath, clipRule)
+        guard clipBox == nil, let outline = ellipticalClip else { return authored }
+        let mask = ClipPath.mask(outline)
+        mask?.mask = authored
+        return mask
+    }
+
+    func syncEllipticalClip() {
+        guard surface == nil else { return }
+        #if os(macOS)
+        if boxFilter == nil { layer?.mask = resolvedClipMask() }
+        clipBox?.layer?.mask = ClipPath.mask(ellipticalClip)
+        #else
+        if boxFilter == nil { layer.mask = resolvedClipMask() }
+        clipBox?.layer.mask = ClipPath.mask(ellipticalClip)
+        #endif
+    }
+}

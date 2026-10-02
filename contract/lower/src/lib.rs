@@ -150,6 +150,8 @@ pub(crate) struct Lowerer<'a> {
     parent_positioned: bool,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
+    /// Whether the element being lowered is a popover's direct child.
+    pub(crate) popover_child: bool,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -249,6 +251,7 @@ fn lower_with_sites(
         svg_depth: 0,
         parent_positioned: true,
         button_context: None,
+        popover_child: false,
         host_transforms: Default::default(),
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
@@ -1016,9 +1019,16 @@ impl<'a> Lowerer<'a> {
                         .any(|(id, v)| *id == StyleId::PositionType && *v != "static");
                 let button_context = self.button_context;
                 self.button_context =
-                    controls::button_context(tag, expanded, control).or(button_context);
+                    controls::button_context(tag, control, self.popover_child).or(button_context);
+                // Whether the children lowered next are a popover's direct
+                // children, its rows (LLP 1069.011.000 D5).
+                let popover_child = std::mem::replace(
+                    &mut self.popover_child,
+                    expanded.iter().any(|a| a.name == "popover"),
+                );
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
                 self.button_context = button_context;
+                self.popover_child = popover_child;
                 self.parent_positioned = parent_positioned;
                 self.svg_depth -= enters as u32;
                 lowered
@@ -1264,8 +1274,15 @@ impl<'a> Lowerer<'a> {
                 });
             }
             tags::AttrTarget::Prop(prop) => {
-                let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
+                let glass;
+                let value = if prop == exact_kernel::PropId::GlassGroup {
+                    glass = values::glass_group(&a.value)?;
+                    &glass
+                } else {
+                    &a.value
+                };
+                let (code, ty) = self.typed_code(value, scope, locals)?;
+                values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,

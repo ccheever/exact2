@@ -38,8 +38,10 @@ extension ControlHost {
     }
 
     @objc func rangeReleased(_ slider: UISlider) {
+        // Cleared before the liveness check, so a slider whose row went
+        // mid-drag leaves nothing behind.
+        lastRange[UInt32(slider.tag)] = nil
         guard let (id, value) = reported(slider) else { return }
-        lastRange[id] = nil
         presenter.controlValue(id, value, input: false, change: true)
         if let owner = presenter.views[id] { configureRange(slider, owner, accent: slider.minimumTrackTintColor) }
     }

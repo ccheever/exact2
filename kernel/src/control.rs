@@ -214,16 +214,28 @@ pub struct Choice {
     pub disabled: bool,
 }
 
-/// A native button's face (LLP 1069.011 D5): its title and image, read from
-/// its children as a select's options are.
+/// A button's face (LLP 1069.011.000 D1): what every host projection shows
+/// of it — a toolbar item, a tab, a menu row, a swipe action, a shortcut —
+/// read live from its direct children, a custom `button` (`Pressable`) and a
+/// native one (`ControlKind::Button`) alike.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ButtonFace {
-    /// Its `text` child's text, white space collapsed.
+pub struct PressFace {
+    /// Its one `text` child's text, white space collapsed; a blank title is
+    /// none.
     pub title: Option<String>,
-    /// Its `image` child's symbol role (`send`, not `symbol:send`).
+    /// Its one `image` child's symbol (`send`, or `sf/paperplane` for an SF
+    /// Symbol by name), without `symbol:`.
     pub symbol: Option<String>,
+    /// Whether that image child is a raster instead (the projection keeps its
+    /// own path for it).
+    pub raster: bool,
     /// Whether the image comes before the title (the inline start).
     pub leading: bool,
+    /// Its `aria-label`.
+    pub label: Option<String>,
+    /// Whether its direct children are at most one `text` and one `image` and
+    /// nothing else; a native button always fits (LLP 1069.011 D5).
+    pub fits: bool,
 }
 
 /// Whether `node` is an `option`: a text node the `option` tag made.
@@ -268,36 +280,52 @@ impl Kernel {
             .collect()
     }
 
-    /// A native button's title and image from its children, live (a `when`
-    /// between them is read as it now stands); empty for any other node.
-    pub fn button_face(&self, view: ViewId) -> ButtonFace {
-        let mut face = ButtonFace::default();
-        let Some(button) = self.node(view) else {
-            return face;
-        };
-        if ControlKind::of(button.node_type, button.props) != Some(ControlKind::Button) {
-            return face;
+    /// A button's face (LLP 1069.011.000 D1), its children read as they now
+    /// stand (a `when` between them included); `None` for a node that is not
+    /// a custom or native button.
+    pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
+        let button = self.node(view)?;
+        let native = ControlKind::of(button.node_type, button.props) == Some(ControlKind::Button);
+        if !native && button.node_type != NodeType::Pressable {
+            return None;
         }
+        let mut face = PressFace {
+            label: button
+                .props
+                .str(PropId::AccessibilityLabel)
+                .map(str::to_owned),
+            fits: true,
+            ..PressFace::default()
+        };
+        let (mut texts, mut images) = (0, 0);
         for child in button.children().into_iter().filter_map(|id| self.node(id)) {
             match child.node_type {
-                NodeType::Text if face.title.is_none() => {
-                    let text: String = child.text_runs().iter().map(|r| &*r.text).collect();
-                    let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                    // A blank title shows nothing: it is no title.
-                    face.title = (!title.is_empty()).then_some(title);
+                NodeType::Text => {
+                    texts += 1;
+                    if texts == 1 {
+                        let text: String = child.text_runs().iter().map(|r| &*r.text).collect();
+                        let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                        // A blank title shows nothing: it is no title.
+                        face.title = (!title.is_empty()).then_some(title);
+                    }
                 }
-                NodeType::Image if face.symbol.is_none() => {
-                    face.symbol = child
-                        .props
-                        .str(PropId::ImageSource)
-                        .and_then(|s| s.strip_prefix("symbol:"))
-                        .map(str::to_owned);
-                    face.leading = face.title.is_none();
+                NodeType::Image => {
+                    images += 1;
+                    if images == 1 {
+                        let source = child.props.str(PropId::ImageSource);
+                        match source.and_then(|s| s.strip_prefix("symbol:")) {
+                            Some(symbol) => face.symbol = Some(symbol.to_owned()),
+                            None => face.raster = source.is_some_and(|s| !s.is_empty()),
+                        }
+                        // After a blank title it still leads: nothing is shown before it.
+                        face.leading = face.title.is_none();
+                    }
                 }
-                _ => {}
+                _ => face.fits = false,
             }
         }
-        face
+        face.fits &= texts <= 1 && images <= 1;
+        Some(face)
     }
 
     /// The option a select shows: the one whose value its `value` names;

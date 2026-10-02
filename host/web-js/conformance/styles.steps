@@ -2,6 +2,10 @@
 type title First title
 type body First body
 tap flip
+type title Blocked title
+type body Blocked body
+type locked Blocked static
+type unlocked Editable static
 tap widen
 tap flip
 type title Second title

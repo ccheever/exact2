@@ -415,38 +415,29 @@ pub(crate) fn native_tag() -> Tag {
     }
 }
 
-/// What an ancestor makes a place a native button may not be (LLP 1069.011
-/// D11), for the children of the element being lowered; `None` when it adds
-/// nothing.
+/// What makes a place one a native button may not be (LLP 1069.011.000
+/// D9), for the children of the element being lowered; `None` when it adds
+/// nothing. `menu_row` is whether that element is a popover's direct child —
+/// a menu row, which may be a native button but whose own children are not
+/// rows (a host makes a menu item of a popover's direct children only).
 pub(crate) fn button_context(
     tag: &str,
-    attrs: &[contract_syntax::Attr],
     control: Option<&str>,
+    menu_row: bool,
 ) -> Option<&'static str> {
-    let has = |name: &str| attrs.iter().any(|a| a.name == name);
-    match tag {
-        "canvas" => return Some("a `canvas`"),
-        "header" => return Some("a `header`"),
-        _ => {}
+    if tag == "canvas" {
+        return Some("a `canvas`");
     }
     if control == Some("button") {
         return Some("a native button");
     }
-    if has("toolbarPlacement") {
-        return Some("a toolbar (`toolbarPlacement`)");
+    // A projection makes one item of a custom button, whatever it holds (a
+    // toolbar's, a tab bar's): a native button inside one would be dropped.
+    if tag == "button" {
+        return Some("a custom `button`");
     }
-    if let Some(role) = attrs.iter().find(|a| a.name == "role") {
-        match literals(&role.value) {
-            Some(roles) if roles.contains(&"tablist") => return Some("a `tablist`"),
-            Some(_) => {}
-            None => return Some("an element whose `role` is bound (it could be a `tablist`)"),
-        }
-    }
-    if has("popover") {
-        return Some("a popover");
-    }
-    if has("swipeContent") || has("swipeLeading") || has("swipeTrailing") {
-        return Some("a swipe row");
+    if menu_row {
+        return Some("a menu row (a native button can be a popover's direct child, not below one)");
     }
     None
 }
@@ -499,6 +490,13 @@ const NATIVE_ROWS: &[StyleId] = &[
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
     matches!(p, P::Opacity | P::Translate | P::Scale | P::Rotate)
+}
+
+/// Whether `attrs` has `name` as the literal `value`.
+fn literal(attrs: &[contract_syntax::Attr], name: &str, value: &str) -> bool {
+    attrs
+        .iter()
+        .any(|a| a.name == name && matches!(&a.value, Expr::Str(v, _) if v == value))
 }
 
 /// Whether a value can be empty: a blank literal, `none`, or an arm of a
@@ -556,9 +554,13 @@ impl Lowerer<'_> {
             let name = a.name.as_str();
             let refuse = |id: &'static str, why: String| err(id, why, a.span);
             match name {
-                "popovertarget" | "commandfor" | "href" | "action" | "aria-keyshortcuts"
-                | "swipeContent" | "swipeLeading" | "swipeTrailing" | "swipeIndicator"
-                | "popover" | "toolbarPlacement" => {
+                // A menu's invoker is a custom button in this version (LLP 1069.011.000
+                // D5); a row that only closes its popover or dialog — a confirmation's
+                // action or cancel — is not an invoker.
+                "popovertarget" if literal(attrs, "popovertargetaction", "hide") => {}
+                "commandfor" if literal(attrs, "command", "close") => {}
+                "popovertarget" | "commandfor" | "href" | "action" | "swipeContent"
+                | "swipeLeading" | "swipeTrailing" | "swipeIndicator" | "popover" => {
                     return refuse(
                         "lower-button-context",
                         format!("a native button takes no `{name}` in this version: {alternative}"),
@@ -570,10 +572,20 @@ impl Lowerer<'_> {
                         "a native button's `type` is `\"button\"`: it is what makes it one".into(),
                     )
                 }
-                "role" if !matches!(&a.value, Expr::Str(v, _) if v == "button") => {
+                // Its fixed role yields to a tab's or a menu item's (LLP 1069.011.000 D4, D5).
+                "role"
+                    if !literals(&a.value).is_some_and(|roles| {
+                        roles.iter().all(|r| {
+                            matches!(
+                                *r,
+                                "button" | "tab" | "menuitem" | "menuitemcheckbox" | "menuitemradio"
+                            )
+                        })
+                    }) =>
+                {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button's role is `button`: {alternative}"),
+                        format!("a native button's role is `button`, `tab`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
                     )
                 }
                 "backgroundMaterial" | "glassGroup" => {

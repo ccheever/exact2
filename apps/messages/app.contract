@@ -282,10 +282,12 @@ component Messages
                               text "›" font-size=19 class=Secondary
                             text t.preview font-size=15 line-height="20px" class=Secondary line-clamp=2 text-align="left"
                         row width=130 height=86.667 flex-shrink=0 scroll-snap-align="start" padding-left=10 padding-right=10 gap=10 box-sizing="border-box" align-items="center"
-                          button press=inboxOperation("mute", t.id) id=`mute-${t.id}` testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") width=50 height=50 border-radius=25 background-color="#5856d6" justify-content="center" flex-shrink=0
-                            image "symbol:notifications" font-size=22 tint-color="#ffffff"
-                          button destructive=true press=inboxOperation("delete-thread", t.id) id=`delete-thread-${t.id}` testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` width=50 height=50 border-radius=25 background-color="#ff3b30" justify-content="center" flex-shrink=0
-                            image "symbol:delete" font-size=22 tint-color="#ffffff"
+                          // The platform's own buttons (LLP 1069.011.000 D6): on iOS the swipe's
+                          // actions, drawn from their symbols and accents; elsewhere filled circles.
+                          button appearance="auto" buttonStyle="filled" accent-color="#5856d6" press=inboxOperation("mute", t.id) id=`mute-${t.id}` testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") width=50 height=50 flex-shrink=0
+                            image "symbol:notifications"
+                          button appearance="auto" buttonStyle="filled" accent-color="#ff3b30" destructive=true press=inboxOperation("delete-thread", t.id) id=`delete-thread-${t.id}` testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` width=50 height=50 flex-shrink=0
+                            image "symbol:delete"
                 when length(data.threads) == 0
                   text "No Results" font-size=20 font-weight=600 text-align="center" margin-top=70
               text (data.connected ? "OpenRouter connected" : "AI connects through your Mac") font-size=11 class=Secondary text-align="center" padding=12

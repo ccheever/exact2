@@ -13,7 +13,12 @@ pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return false;
         }
-        if node.node_type == exact_kernel::NodeType::Pressable {
+        // A native button is a button: a press on it is its own, not an
+        // enclosing invoker's (LLP 1069.011.000 D9; it invokes no menu).
+        if node.node_type == exact_kernel::NodeType::Pressable
+            || exact_kernel::ControlKind::of(node.node_type, node.props)
+                == Some(exact_kernel::ControlKind::Button)
+        {
             return node.props.str(PropId::Popovertarget).is_some();
         }
         at = node.parent;

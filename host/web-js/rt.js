@@ -2,7 +2,7 @@ import { renderMarkup, reportPlace } from "./navigation.js";
 import { conforms, eq } from "./shape.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
-import { Docs, Head, head, markDocument } from "./document.js"; export { Head };
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
@@ -1465,9 +1465,10 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * the web host's own), and a popstate back as the navigation root's
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
+/** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
 export function router(slot, history) {
-  RouterSlot = slot; History = history;
-  history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
+  RouterSlot = slot; navigationRoots(history);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
@@ -1492,7 +1493,6 @@ export function router(slot, history) {
     const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
     Shown = r;
     history.apply({ top: top[0], url: top[2], removed });
-    queueMicrotask(() => history.project(document.getElementById("exact-root"), say));
   });
 }
 export const navigateTo = f => { Navigate = f; };

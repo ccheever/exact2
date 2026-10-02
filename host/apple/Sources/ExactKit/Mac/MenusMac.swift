@@ -75,6 +75,8 @@ final class MenuHost: NSObject {
             item.representedObject = NSNumber(value: row.id)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             item.isEnabled = row.props["disabled"] != "true"
+            // A row's symbol is its item's image, custom or native (LLP 1069.011.000 D5).
+            if row.isButton, let symbol = row.face?.symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
             menu.addItem(item)
         }
         return menu
@@ -89,6 +91,11 @@ final class MenuHost: NSObject {
 
     private func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
+        // A native button's children are its face, not views: its title, else its label.
+        if v.isNativeButton { return v.face?.shown ?? "" }
+        // A custom button whose face fits shows it too: a symbol-only row its
+        // label (LLP 1069.011.000 D5); other content keeps its text.
+        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         return v.container.subviews
             .compactMap { ($0 as? NodeView).map(title(of:)) }
             .filter { !$0.isEmpty }

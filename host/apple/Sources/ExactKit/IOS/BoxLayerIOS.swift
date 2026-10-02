@@ -124,6 +124,7 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children only
     /// where the overflow clips.
     func applyBoxLayer() {
+        defer { syncEllipticalClip() }
         let background = channels("background_color").map { TextEngine.color($0).cgColor }
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")

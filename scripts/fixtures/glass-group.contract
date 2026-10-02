@@ -2,7 +2,9 @@
 // stripes — two glass merging (row 1), apart past the spacing (3), a group
 // inside a group (5), paint order (7), a glass isolated by a fading box
 // (8) and by a clipping one (10), and a scroll on either side of a group
-// (11). The web and Linux draw each glass alone, as without a group (D1);
+// (11), and a group whose spacing is its gap (`glassGroup="auto"`, LLP
+// 1053.000.000.000: apart at rest, as Apple's spacing-equals-gap pattern
+// is). The web and Linux draw each glass alone, as without a group (D1);
 // Apple's pictures are compared by eye with §2.
 component GlassGroups
   view
@@ -67,3 +69,6 @@ component GlassGroups
             box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
             box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
             box width=140 height=56 flex-shrink=0 border-radius=28 backgroundMaterial="glass"
+      row testId="auto" position="absolute" left=40 top=660 glassGroup="auto" gap=8
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"
+        box width=140 height=56 border-radius=28 backgroundMaterial="glass"

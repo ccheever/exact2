@@ -448,13 +448,25 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
                     )
+                    // A native button is named as a button under any role (LLP 1069.011.000 D1).
+                    || exact_kernel::ControlKind::of(node.node_type, node.props)
+                        == Some(exact_kernel::ControlKind::Button)
                 {
-                    row["accessibleName"] = node
-                        .props
-                        .str(PropId::AccessibilityLabel)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| text(p, id))
-                        .into();
+                    let native = exact_kernel::ControlKind::of(node.node_type, node.props)
+                        == Some(exact_kernel::ControlKind::Button);
+                    // A native button's name is its label, else its face's
+                    // title as painted (LLP 1069.011.000 D1).
+                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
+                        Some(label) => label.to_owned(),
+                        None if native => p
+                            .host()
+                            .kernel()
+                            .press_face(id)
+                            .and_then(|f| f.title)
+                            .unwrap_or_default(),
+                        None => text(p, id),
+                    }
+                    .into();
                 }
             }
         }

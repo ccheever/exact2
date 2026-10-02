@@ -6,7 +6,7 @@ impl<D: DataSource> Host<D> {
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its
-    /// title, likewise: its face, read through `exact_button_face`
+    /// title, likewise: its face, read through `exact_press_face`
     /// (LLP 1069.011 D5).
     fn option_part(&self, id: ViewId) -> bool {
         let kernel = self.runner.kernel();

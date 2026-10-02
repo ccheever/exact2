@@ -436,10 +436,10 @@ final class Runtime {
     func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
-    /// A native button's title and symbol (LLP 1069.011 D5).
+    /// A button's face, custom or native (LLP 1069.011.000 D1).
     func buttonFace(_ view: UInt32) -> ButtonFace {
         return on(busy: ButtonFace()) {
-            let len = exact_button_face(rt, view)
+            let len = exact_press_face(rt, view)
             return ButtonFace(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
