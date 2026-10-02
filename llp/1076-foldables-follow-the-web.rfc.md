@@ -288,3 +288,71 @@ reported (`presenter.hingeReported`), then refuses on a device with a fold.
 **Open after this lane.** Rotation on the Duo (the beta's simulator
 decides); `apps/duo-lab`, `contract/corpus/segments.contract` and `smoke
 duo` (the sibling lane); linking the segment grammar by use.
+
+## As built (app half, 2026-10-02)
+
+Built on `lane/duo-app` from a74a8489b, before the core half (D2–D7) existed, against this
+document's names exactly; the integrator checks them against the core lane.
+
+- **`apps/duo-lab`** (D8), on the `canvas-gallery` template: `app.contract`, `app.json`
+  (`com.exact.duolab`, iPhone + iPad, a 951×669 macOS window), `app.ts` (every resource
+  generated deterministically: 24 items, 300 image rows over four PNGs copied from
+  `interaction-gallery` with their provenance, a ~3,000-word Markdown document, a
+  200-row feed), `apple/`, `web/`, `linux/`; workspace members and the conformance list
+  in `scripts/async.mjs`. Four `routes` tabs — `fold "/"`, `images "/images"`,
+  `reflow "/reflow"`, `combos "/combos"` with the pushed `note "/combos/note"`. The
+  Fold screen's shape is `Viewport { width, height, devicePosture,
+  horizontalViewportSegments, verticalViewportSegments }` over `exactViewport()`; with
+  `horizontalViewportSegments == 2` the list pane is `width="env(viewport-segment-width
+  0 0)"` and the detail pane `position="absolute" left="env(viewport-segment-left 1 0)"
+  width="env(viewport-segment-width 1 0)" height="100%"`, each inset by the safe areas on
+  its own side; otherwise one pane, the list above the detail; `selected` is shared. It
+  prints the facts as `fact-posture`, `fact-h`, `fact-v`, `fact-size`; the panes are
+  `pane-list` and `pane-detail`, the rows `item-<n>`, the detail `detail-title`; the tabs
+  `tab-fold|images|reflow|combos`; `image-list`, `document`, `reflow-scroll`,
+  `open-note`, `note-sheet`, `sheet-handle`, `note-title-input`, `note-textarea`,
+  `note-dismiss`, `note-back`, `draft-echo`. The root is `viewport-fit="cover"` with
+  `interactive-widget="resizes-content"`, so the sheet rides the keyboard.
+- **`bun scripts/smoke.mjs duo`** (D9): the dispatch in `scripts/smoke.mjs`, the suite in
+  `scripts/smoke-duo.mjs`, the helper at `scripts/duo/hinge_helper.c` (MIT,
+  artemnovichkov/hinge, attributed), compiled per run with the selected Xcode's simulator
+  SDK, ad-hoc signed, run by `simctl spawn`; the angle read back and both panels captured
+  by `devicectl`. Without `EXACT_SIM` naming an `iPhone Duo` on iOS ≥ 27.1 it prints
+  `duo: unsupported — …` and exits 0. The matrix is open 180°, book 130°, half 90°,
+  closed 0°, never rotated; at each pose the `insets` and `keyboard-bar` fixtures (cover
+  root, insets, keyboard, a fold while editing), the four screens (facts, panes on the
+  segments from `layout.env`'s `device-posture`, `horizontal-viewport-segments`,
+  `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
+  pushed screen with its sheet and keyboard across a fold) and the two-session host.
+  When the open pose does not report the recorded 951×669 inner panel, the panel sizes
+  and the segments are checked against what the device reports (see below).
+- **`contract/corpus/segments.contract`** and `contract/cli/tests/it/segments.rs`: all
+  six `env(viewport-segment-*)` variables on two panes, the facts as text; the test
+  builds it and asserts the one-segment stack. The two-segment case
+  (`Kernel::set_segments(2, 1, …)`, D3) is written into the test's doc comment for the
+  integrator, since the API did not exist here.
+
+**Pending the core lane.** The compiler refuses the three `env()` lengths
+(`lower-attr-value`), so duo-lab's three crates do not bake on this base, the segments
+test fails at compile, and the sweeps that compile every app and corpus file
+(`lint::the_element_lint_finds_nothing_in_any_app`,
+`fmt::every_corpus_file_and_app_round_trips_through_the_printer`,
+`incremental::every_app_plan_updates_incrementally_exactly_as_it_does_in_full`) fail with
+the same refusal; the bake will refuse the three fields next. The Fold checks of
+`smoke duo` fail with `undefined` for posture and segments. Everything else was verified
+with an uncommitted variant of the Fold screen (the three fields dropped, the segment
+lengths as `calc(50% ± 20px)`, two panes above 900 points): the three other screens on
+the iOS 27.0 iPhone 18 Pro simulator, macOS and the web (JS target), and the Duo matrix.
+
+**The Duo, as found on 2026-10-02.** The same simulator (Xcode 27.1 beta) no longer sits
+in the state LLP 1008 §9 recorded: `devicectl` reports `landscapeLeft`, the inner panel
+669×871 under an 80-pt strip, the cover 678×386 of a 678×466 screen, and `orientation
+set` is accepted and changes nothing, so the recorded 951×669 and the division's
+segments could not be asserted. A SpringBoard "Open in Exact2 Go?" prompt (another
+session's `openurl`) sat over the inner panel for the first run and held the keyboard; a
+SpringBoard restart cleared it. With it gone the insets, keyboard-bar, Images, Reflow
+and host checks passed at every pose; a later run saw no software keyboard anywhere,
+the Mac's `ConnectHardwareKeyboard` preference being on, and one session stopped
+answering `clock` for 120 s. Under the driver's `type`, a `textarea` takes text and
+focus but raises no keyboard on either simulator (an `input` does), which is why the
+sheet carries a title input beside its textarea.
