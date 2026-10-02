@@ -1,6 +1,7 @@
 # The iOS pointer backend and the driver expect Simulator.app, which Xcode 27 does not ship
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Device Hub calibrates against its captured simulator framebuffer; the real held-drag smoke passes on Xcode 27 (2026-10-02).
 **Systems:** Agent API, iOS simulator, host/apple/build.mjs
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -79,3 +80,28 @@ nobody is using.
 The same run found the iOS smoke failing at main since offscreen taps are
 refused (9e82bd496): on a phone's viewport the opened deck's middle is below
 the fold. The smoke scrolls it in, and back for the material buttons.
+
+## Closed (2026-10-02)
+
+Device Hub does not emit the hover used by Simulator.app. The driver now
+matches `simctl`'s framebuffer against a ScreenCaptureKit picture of the
+exact-name device window. It derives the scale and offset from those pixels,
+then includes the viewport's reported screen offset. No bezel dimensions or
+app-specific coordinates are assumed. Low-detail, ambiguous, changed and
+unmatched pictures refuse; Screen Recording permission is named when absent.
+
+A contact raises Device Hub through Accessibility and opens the device URL.
+Before each down or move the helper checks the window id, frame and topmost
+owner. Release uses the last successful desktop point even if geometry
+changes or a move fails, so a failed recalibration cannot leave the button
+held. Simulator.app retains its existing hover calibration.
+
+Built and driven on the dedicated `exact2-oct2-pointer` iPhone 18 Pro
+simulator (iOS 27.0, Xcode 27). `bun scripts/smoke.mjs ios --app-only` passes
+in 29.7 seconds, including a real down, 200-point drag with layout read while
+held (scroll exceeds 50 points), hold and up, and all three Contract tests.
+The smoke restores scroll through the still-visible scroll view, since the
+title used to initiate the drag is now offscreen. Unit tests verify two
+placements/scales and rejection of uniform, unrelated and duplicate images.
+The physical drive was at one window placement; replay at multiple physical
+placements and the broader Messages gesture cases remain LLP 1035.003 work.

@@ -705,7 +705,7 @@ try {
       const up = await s.pointer('up');
       check(up.delivery === 'platform' && !s.contact, 'the simulator contact was not released');
       const after = (await s.layout()).nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      if (after?.sy) await s.tap('station-name', { wheel: [0, -after.sy] });
+      if (after?.sy) await s.tap(after.id, { wheel: [0, -after.sy] });
     }
   }
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button

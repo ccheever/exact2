@@ -5,6 +5,85 @@
 // chunks, the filters, and the CRC. No dependency (rules/RULES.md: none).
 import { deflateSync, inflateSync } from 'node:zlib';
 
+/** Find a simulator framebuffer inside its window picture. No bezel constants:
+ * compare a spatially distributed set of contrasting pixels, then validate the
+ * whole interior. Uniform/ambiguous pictures refuse instead of inventing a map.
+ * Result coordinates are pixels of `window`, with uniform `scale` from `screen`.
+ * @ref LLP 1035.003 D3 — derive the desktop mapping from observed geometry. */
+export function locateScreen(window, screen) {
+  const rgb = (im, x, y) => {
+    const at = (Math.max(0, Math.min(im.height - 1, Math.round(y))) * im.width + Math.max(0, Math.min(im.width - 1, Math.round(x)))) * 4;
+    return [im.data[at], im.data[at + 1], im.data[at + 2]];
+  };
+  const points = [];
+  // In each tile, keep the most distinctive adjacent pair. A page that is
+  // mostly white must not match arbitrary white window chrome with low error.
+  const step = Math.max(2, Math.round(screen.width / 100));
+  for (let gy = 1; gy < 9; gy++) for (let gx = 1; gx < 6; gx++) {
+    let best = null;
+    for (let y = screen.height * gy / 10; y < screen.height * (gy + 1) / 10; y += step) {
+      for (let x = screen.width * gx / 7; x < screen.width * (gx + 1) / 7; x += step) {
+        const a = rgb(screen, x, y), b = rgb(screen, x + step, y + step);
+        const contrast = a.reduce((s, v, i) => s + Math.abs(v - b[i]), 0);
+        if (!best || contrast > best.contrast) best = { x, y, a, b, contrast };
+      }
+    }
+    if (best?.contrast > 90) points.push(best);
+  }
+  if (points.length < 8) return { error: 'the simulator picture has too little detail to calibrate safely' };
+  points.sort((a, b) => b.contrast - a.contrast);
+  const samples = points.slice(0, 24).flatMap(p => [{x:p.x, y:p.y, c:p.a}, {x:p.x+step, y:p.y+step, c:p.b}]);
+  const score = (x, y, scale, cutoff = Infinity) => {
+    let sum = 0;
+    for (const p of samples) {
+      const c = rgb(window, x + p.x * scale, y + p.y * scale);
+      for (let k = 0; k < 3; k++) sum += Math.abs(c[k] - p.c[k]);
+      if (sum > cutoff * samples.length * 3) return Infinity;
+    }
+    return sum / (samples.length * 3);
+  };
+  const maximum = Math.min(window.width / screen.width, window.height / screen.height);
+  let candidates = [];
+  // Retain several basins before pixel/subpixel refinement; thin text can
+  // make the best coarse sample differ from the best actual alignment.
+  let separation = 4;
+  const distance = (a,b) => Math.max(Math.abs(a.x-b.x), Math.abs(a.y-b.y),
+    Math.abs(a.x+screen.width*a.scale-b.x-screen.width*b.scale), Math.abs(a.y+screen.height*a.scale-b.y-screen.height*b.scale));
+  const keep = c => {
+    const near = candidates.findIndex(p => distance(c,p) < separation);
+    if (near >= 0) { if (c.error >= candidates[near].error) return; candidates.splice(near,1); }
+    candidates.push(c); candidates.sort((a,b) => a.error-b.error); candidates.length = Math.min(24,candidates.length);
+  };
+  for (let width = screen.width * maximum * 0.45; width <= screen.width * maximum; width += 2) {
+    const scale = width / screen.width, h = screen.height * scale;
+    for (let y = 0; y <= window.height - h; y += 3) for (let x = 0; x <= window.width - width; x += 3) {
+      const error = score(x, y, scale, candidates.length < 24 ? Infinity : candidates.at(-1).error);
+      if (candidates.length < 24 || error <= candidates.at(-1).error) keep({x,y,scale,error});
+    }
+  }
+  for (const delta of [1, 0.25]) {
+    const seeds = candidates; candidates = [];
+    separation = delta === 1 ? 3 : 1;
+    for (const seed of seeds) for (let dw=-2; dw<=2; dw++) for (let dy=-3;dy<=3;dy++) for (let dx=-3;dx<=3;dx++) {
+      const x=seed.x+dx*delta, y=seed.y+dy*delta, scale=seed.scale+dw*delta/screen.width;
+      if (x<0 || y<0 || x+screen.width*scale>window.width+1 || y+screen.height*scale>window.height+1) continue;
+      const error=score(x,y,scale,candidates.length < 24 ? Infinity : candidates.at(-1).error);
+      if (candidates.length<24 || error<=candidates.at(-1).error) keep({x,y,scale,error});
+    }
+  }
+  const best = candidates[0];
+  if (!best || best.error > 38) return { error: 'the simulator framebuffer does not match its window picture' };
+  if (candidates.some(c => distance(c,best)>3 && c.error<=best.error+3)) return { error: 'the simulator window picture has more than one plausible screen mapping' };
+  let total=0, count=0;
+  for (let gy=1;gy<20;gy++) for (let gx=1;gx<10;gx++) {
+    const x=screen.width*gx/10, y=screen.height*gy/20;
+    const a=rgb(screen,x,y), b=rgb(window,best.x+x*best.scale,best.y+y*best.scale);
+    for (let k=0;k<3;k++) {total+=Math.abs(a[k]-b[k]);count++;}
+  }
+  if (total/count > 15) return { error: 'the simulator picture changed or its window match is inconsistent' };
+  return { x: best.x, y: best.y, scale: best.scale, score: best.error };
+}
+
 /** {width, height, data: Uint8Array of RGBA} from a PNG buffer. */
 export function decodePng(buf) {
   const sig = [137, 80, 78, 71, 13, 10, 26, 10];
