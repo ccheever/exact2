@@ -1037,8 +1037,11 @@ final class Presenter {
         }
     }
 
-    /// The view that takes Tab for this node: an input's field, else itself.
-    private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
+    /// The same editing descendant takes explicit, sequential and modal focus.
+    func keyView(of v: NodeView) -> NSView {
+        if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
+        return v.textArea ?? v.field ?? v
+    }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
@@ -1094,6 +1097,7 @@ final class Presenter {
         let index = tabIndex(v)
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
+        if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
         if v.canBecomeKeyView { return true }
         return index > 0

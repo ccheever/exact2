@@ -158,6 +158,17 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       check((await s.state()).slots.inputEvents.split('focus;').length === 2, 'macos native: typing and keys preserve an existing editing session');
       const unsupported = await s.carrier.ask({ op: 'type', id: input, key: 'Meta+Q' });
       check(/does not support key/.test(unsupported.error ?? ''), 'macos native: unsupported key is an honest refusal');
+      await s.type('before-input', { key: 'Tab' }); await settle(s);
+      const tabbed = (await s.state()).focus;
+      check(tabbed.logical === input && tabbed.responder === 'FixtureEditor', `macos native: Tab reaches the module's editing descendant: ${JSON.stringify(tabbed)}`);
+      await s.type('native-input', { key: 'Meta+Shift+Enter' }); await settle(s);
+      check((await s.state()).slots.inputCommands === 1, 'macos native: declared commands run before the module input hook');
+      await s.type('native-input', { key: 'Meta+Shift+Enter', for: 10 }); await settle(s);
+      check((await s.state()).slots.inputCommands === 2, 'macos native: a held host command runs once and owns its release');
+      await s.type('native-input', { key: 'Meta++' }); await settle(s);
+      check((await s.state()).slots.inputCommands === 3, 'macos native: literal Plus reaches the same host shortcut router');
+      const typing = await s.carrier.ask({ op: 'type', id: input, key: 'c' });
+      check(/does not support key/.test(typing.error ?? '') && (await s.state()).slots.inputCommands === 3, 'macos native: bare character shortcuts stay with the editor');
       const passive = await s.carrier.ask({ op: 'type', id: plainId, text: 'no' });
       check(/refused focus/.test(passive.error ?? ''), 'macos native: a widget without a focus hook refuses input');
       await s.tap('blur-plain'); await settle(s);

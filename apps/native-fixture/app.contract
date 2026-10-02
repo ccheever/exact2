@@ -9,6 +9,9 @@
 component NativeFixture
   state inputValue = ""
   state inputEvents = ""
+  state inputCommands = 0
+  action inputCommand
+    inputCommands = inputCommands + 1
   state blocked = false
   state inputHidden = false
   state inputInert = false
@@ -136,4 +139,6 @@ component NativeFixture
           text "Blur wrapper"
       when shown
         column inert=inputInert display=(inputHidden ? "none" : "block")
+          button "Before input" testId="before-input"
           exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
+          button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"

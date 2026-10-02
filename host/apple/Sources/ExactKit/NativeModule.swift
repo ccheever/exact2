@@ -532,6 +532,9 @@ final class NativeViews {
         entry.props = props
         entry.state = "ready"
         entry.error = nil
+        #if os(macOS)
+        owner.presenter?.keyViewLoopStale = true
+        #endif
         made += 1
         measured?("native", CFAbsoluteTimeGetCurrent() - started)
         log("\(entry.name) #\(entry.id): ready")
@@ -601,6 +604,9 @@ final class NativeViews {
         var error = [UInt8](repeating: 0, count: 512)
         let json = Data(props.utf8)
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
+        #if os(macOS)
+        owner.presenter?.keyViewLoopStale = true
+        #endif
         if status == 0 {
             entry.props = props
             if entry.state == "error" { entry.state = "ready"; entry.error = nil }
@@ -645,14 +651,20 @@ final class NativeViews {
         return entry
     }
 
-    @discardableResult func focus(_ owner: NodeView) -> Bool {
+    /// One responder for explicit focus, sequential focus and dialog entry.
+    func focusTarget(_ owner: NodeView) -> NSView? {
         guard let entry = available(owner), let handle = entry.handle, let root = entry.view,
               let window = root.window, case .success(let table)? = NativeProcess.table,
-              let raw = table.focusTarget?(handle) else { return false }
+              let raw = table.focusTarget?(handle) else { return nil }
         let target = Unmanaged<NSView>.fromOpaque(raw).takeUnretainedValue()
         guard target === root || target.isDescendant(of: root), target.window === window,
               !target.isHiddenOrHasHiddenAncestor, target.acceptsFirstResponder,
-              (target as? NSControl)?.isEnabled != false else { return false }
+              (target as? NSControl)?.isEnabled != false else { return nil }
+        return target
+    }
+
+    @discardableResult func focus(_ owner: NodeView) -> Bool {
+        guard let target = focusTarget(owner), let window = target.window else { return false }
         if ownsFocus(in: target) { return true }
         return window.makeFirstResponder(target) && ownsFocus(in: target)
     }
@@ -723,6 +735,7 @@ final class NativeViews {
         if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
         #if os(macOS)
         // Retire a descendant/field editor before destroying its module instance.
+        entry.owner?.presenter?.keyViewLoopStale = true
         if ownsFocus(entry) { entry.view?.window?.makeFirstResponder(nil) }
         #endif
         entry.view?.removeFromSuperview()
