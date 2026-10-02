@@ -2,6 +2,7 @@ import { renderMarkup, reportPlace } from "./navigation.js";
 import { conforms, eq } from "./shape.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
+import { Docs, Head, head, markDocument } from "./document.js"; export { Head };
 // the JS target's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -191,16 +192,7 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); paintFlush(); for (const f of After) f(); }
-/** `<html data-scrolldocument>` while an element is the page's scroller
- * (LLP 1048.003 D4), which the shell's rule reads, as the web host's glue. */
-const Docs = new Set();
-let Marked = false;
-function markDocument() {
-  Marked = false;
-  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
-  document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
-}
+export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
 let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
@@ -964,24 +956,13 @@ function input() {
       velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) } });
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
-/** The page's `<head>` fields (LLP 1048.003 D1); a field bound to state
- * follows it while its head is in the tree. */
+/** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
+ * element in the tree, and its fields, the page's while it is the innermost
+ * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
-  // The head's node, as the kernel keeps it: an inert element in the tree.
   const t = document.createElement("template");
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
-  for (const [k, v] of Object.entries(fields)) effect(() => head(k, typeof v === "function" ? v() : v));
-}
-/** The head's fields as last set, for a renderer. */
-export const Head = {};
-function head(k, v) {
-  Head[k] = v;
-  if (k === "headTitle") document.title = v;
-  else if (k === "headDescription") {
-    let m = document.querySelector('meta[name="description"]');
-    if (!m) { m = document.createElement("meta"); m.name = "description"; document.head.append(m); }
-    m.content = v;
-  }
+  onEnd(head(t, fields, effect, After));
 }
 
 // ---------------------------------------------------------------- regions
