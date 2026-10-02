@@ -1261,8 +1261,15 @@ impl<'a> Lowerer<'a> {
                 });
             }
             tags::AttrTarget::Prop(prop) => {
-                let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
+                let glass;
+                let value = if prop == exact_kernel::PropId::GlassGroup {
+                    glass = values::glass_group(&a.value)?;
+                    &glass
+                } else {
+                    &a.value
+                };
+                let (code, ty) = self.typed_code(value, scope, locals)?;
+                values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,

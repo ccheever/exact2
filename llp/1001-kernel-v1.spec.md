@@ -842,7 +842,8 @@ material; this is a semantic floating-surface fallback, not pixel parity. Author
 children use the glass content view unless a scroll/canvas already owns their
 container. AppKit supplies appearance and accessibility adaptation. Glass grouping
 is the `glassGroup` prop (LLP 1053.000.000): its value is the spacing in
-points at which the subtree's glass merges, through `UIGlassContainerEffect`
+points at which the subtree's glass merges (or `"auto"`, the element's gap
+along its main axis, LLP 1053.000.000.000), through `UIGlassContainerEffect`
 or `NSGlassEffectContainerView` as the node's innermost view; it is
 layout-neutral and draws nothing on the web or Linux, and is refused beside a
 material, on a scroll or on a canvas. Declared deviations, measured: inside a

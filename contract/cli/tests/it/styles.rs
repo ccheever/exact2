@@ -568,6 +568,72 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
     );
 }
 
+/// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
+/// numbers (nested too), lowers to the reserved `-1`; every literal arm is a
+/// spacing from 0 to 10,000; any other string is refused.
+#[test]
+fn a_glass_group_may_take_its_spacing_from_its_gap() {
+    use exact_kernel::{PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state wide = true
+  action flip
+    wide = not wide
+  view
+    column
+      row testId="auto" glassGroup="auto" gap=8
+      row testId="choice" glassGroup=(wide ? "auto" : 12)
+      row testId="nested" glassGroup=(wide ? (wide ? 4 : "auto") : 12)
+      button testId="flip" press=flip
+        text "flip"
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let spacing = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .get(PropId::GlassGroup)
+            .cloned()
+    };
+    assert_eq!(spacing(&r, "auto"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(4.0)));
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(12.0)));
+    for (value, id, says) in [
+        ("\"wide\"", "lower-attr-value", "or `\"auto\"`"),
+        // Only the literal `"auto"` types as a spacing; another string in a choice disagrees.
+        (
+            "(w ? \"wide\" : 4)",
+            "type-branches",
+            "`string` and `number`",
+        ),
+        ("(w ? \"auto\" : -2)", "lower-attr-value", "from 0 to 10000"),
+        ("(w ? 20000 : 4)", "lower-attr-value", "from 0 to 10000"),
+    ] {
+        let source =
+            format!("component App\n  state w = true\n  view\n    box glassGroup={value}\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{value}: {error:?}");
+        assert!(error.message.contains(says), "{value}: {error:?}");
+    }
+}
+
 /// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
 /// makes no containing block, refused out of range and where a group cannot
 /// be: beside the element's own material, on a scroll, on a canvas.

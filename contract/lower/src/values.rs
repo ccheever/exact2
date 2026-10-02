@@ -17,6 +17,52 @@ fn literal_text(e: &Expr) -> String {
     }
 }
 
+/// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
+/// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
+/// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
+/// literal is refused.
+pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
+    match e {
+        Expr::Str(s, span) if s == "auto" => Ok(Expr::Number(-1.0, *span)),
+        Expr::Str(s, span) => err(
+            "lower-attr-value",
+            format!("`glassGroup` takes a spacing in points or `\"auto\"`; given `\"{s}\"`"),
+            *span,
+        ),
+        Expr::Ternary(c, a, b, span) => Ok(Expr::Ternary(
+            c.clone(),
+            Box::new(glass_group(a)?),
+            Box::new(glass_group(b)?),
+            *span,
+        )),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => Ok(Expr::Match {
+            subject: subject.clone(),
+            var: var.clone(),
+            some: Box::new(glass_group(some)?),
+            none: Box::new(glass_group(none)?),
+            span: *span,
+        }),
+        _ => {
+            if let Some(spacing) = numeric_literal(e) {
+                if !(0.0..=10_000.0).contains(&spacing) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`glassGroup` takes a spacing from 0 to 10000 points, or `\"auto\"`; given {spacing}"),
+                        e.span(),
+                    );
+                }
+            }
+            Ok(e.clone())
+        }
+    }
+}
+
 pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
     match e {
         Expr::Number(n, _) => Some(*n),
@@ -489,18 +535,6 @@ pub(crate) fn check_prop_value(
                         "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
                         exact_kernel::generated::MATERIALS.join(", ")
                     ),
-                    span,
-                );
-            }
-        }
-    }
-    // @ref LLP 1053.000.000 D1 — a glass group's spacing: 0 to 10,000 points.
-    if prop == PropId::GlassGroup {
-        if let Some(spacing) = numeric_literal(value) {
-            if !(0.0..=10_000.0).contains(&spacing) {
-                return err(
-                    "lower-attr-value",
-                    format!("`glassGroup` takes a spacing from 0 to 10000 points; given {spacing}"),
                     span,
                 );
             }

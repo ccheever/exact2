@@ -1167,7 +1167,25 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
     if shapes.style_attr.is_some_and(|style| style(&a.name)) {
         return style_value(&a.value, scope, shapes).map(|_| ());
     }
+    // @ref LLP 1053.000.000.000 D1 — `glassGroup` alone may put the literal
+    // `"auto"` beside numbers in a choice; lowering rewrites it to `-1`.
+    if a.name == "glassGroup" {
+        return glass_group_value(&a.value, scope, shapes).map(|_| ());
+    }
     infer(&a.value, scope, shapes).map(|_| ())
+}
+
+/// `glassGroup`'s value: a number, the literal `"auto"` (typed as the number
+/// it lowers to), or a choice between them.
+fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    match e {
+        Expr::Str(s, _) if s == "auto" => Ok(Ty::Number),
+        Expr::Ternary(..) | Expr::Match { .. } => {
+            let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
+            ta.unify(&tb).ok_or_else(|| disagree(e, &ta, &tb))
+        }
+        _ => infer(e, scope, shapes),
+    }
 }
 
 /// A style row is one CSS value space — a length or a keyword — so a style

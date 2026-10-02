@@ -1100,8 +1100,11 @@ impl Em<'_> {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;
                     // The plan stores editable; HTML exposes the inverse, readonly.
+                    // `glassGroup`'s reserved `-1` is `auto` (LLP 1053.000.000.000 D3).
                     let f = if prop == PropId::Editable {
                         format!("()=>!({f})()")
+                    } else if prop == PropId::GlassGroup {
+                        format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
                     } else {
                         f.clone()
                     };

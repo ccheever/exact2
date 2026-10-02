@@ -89,8 +89,13 @@ final class GlassGroups {
 
 extension NodeView {
     /// `glassGroup`'s spacing (D1): points, clamped to 0…10,000; nil when
-    /// absent or not finite.
+    /// absent or not finite. `auto` (LLP 1053.000.000.000 D2): the points the
+    /// Rust host resolved from the gap, from the style a gap change sends,
+    /// else from the props it sent with them.
     var glassGroupSpacing: CGFloat? {
+        if props["glassGroupAuto"] == "true", let value = style["glass_group_spacing"]?.number, value.isFinite {
+            return CGFloat(min(max(value, 0), 10_000))
+        }
         guard let raw = props["glassGroup"], let value = Double(raw), value.isFinite else { return nil }
         return CGFloat(min(max(value, 0), 10_000))
     }
@@ -159,6 +164,7 @@ extension NodeView {
     func glassAgentFields(_ native: inout [String: Any]) {
         if props["glassGroup"] != nil {
             var group: [String: Any] = ["spacing": Double(glassGroupSpacing ?? 0)]
+            if props["glassGroupAuto"] == "true" { group["auto"] = true }
             if glassGroupView != nil {
                 #if os(iOS)
                 group["drawn"] = "UIGlassContainerEffect"

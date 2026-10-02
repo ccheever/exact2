@@ -67,6 +67,23 @@ final class GlassGroupIOSTests: XCTestCase {
         XCTAssertEqual((native["glassGroup"] as? [String: Any])?["reason"] as? String, "spacing")
     }
 
+    /// LLP 1053.000.000.000 D2: an auto group's spacing is the points the
+    /// Rust host resolved — the props' at creation, then the style key a
+    /// gap change sends — and a number again when the prop is one.
+    func testAnAutoGroupTakesItsSpacingFromWhatTheHostResolved() throws {
+        let p = presenter(cluster(["glassGroup": "8", "glassGroupAuto": "true"]))
+        let group = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(spacing(group), 8)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "glass_group_spacing": 20.0]]]))
+        XCTAssertEqual(spacing(group), 20, "a gap change sends style, not props")
+        var native: [String: Any] = [:]
+        group.glassAgentFields(&native)
+        XCTAssertEqual((native["glassGroup"] as? [String: Any])?["auto"] as? Bool, true)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "12"], "clear": ["glassGroupAuto"]],
+                           ["op": "style", "id": 1, "style": ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]]]))
+        XCTAssertEqual(spacing(group), 12, "a number again")
+    }
+
     func testAClipBoxTakesTheGroupViewWithIt() throws {
         let p = presenter(cluster())
         let group = try XCTUnwrap(p.views[1]), view = try XCTUnwrap(group.glassGroupView)

@@ -486,3 +486,15 @@ fn the_page_scroller_is_marked_in_the_document() {
         "component A\n  state on = false\n  view\n    scroll document=on height=100\n      text \"a\"\n"
     ));
 }
+
+/// LLP 1053.000.000.000 D3: `glassGroup="auto"` is written as `auto`, not its
+/// reserved `-1`; a number as the number. Nothing draws it.
+#[test]
+fn an_auto_glass_group_is_written_as_auto() {
+    let doc = document(
+        "component App\n  view\n    column\n      row glassGroup=\"auto\" gap=8\n        box width=4 height=4\n      row glassGroup=12\n        box width=4 height=4\n",
+    );
+    assert!(doc.contains("glassGroup=\"auto\""), "{doc}");
+    assert!(doc.contains("glassGroup=\"12\""), "{doc}");
+    assert!(!doc.contains("glassGroup=\"-1\""), "{doc}");
+}

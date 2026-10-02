@@ -15,8 +15,8 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
-    Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
-    StyleValue,
+    Dimension, Env, NodeRef, NodeType, Overflow, PropId, PropValue, RowValue, StyleId, StyleMask,
+    StyleProps, StyleValue,
 };
 use exact_motion::Property;
 use std::fmt::Write as _;
@@ -587,7 +587,47 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
+    // string the host compares, so a gap, direction or display change sends it.
+    if let Some(points) = glass_auto_spacing(node) {
+        let head = format!("{{\"glass_group_spacing\":{}", num(points));
+        json = if json == "{}" {
+            head + "}"
+        } else {
+            head + "," + &json[1..]
+        };
+    }
     (json, skipped)
+}
+
+/// `glassGroup="auto"`'s spacing (LLP 1053.000.000.000 D2): the gap along the
+/// main axis in points — `column-gap` in a flex row, `row-gap` in a flex
+/// column, the smaller of the two in a grid, `0` otherwise — clamped to
+/// 0–10,000; `None` unless the prop is the reserved `-1`.
+pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
+    use exact_kernel::{Display, FlexDirection};
+    if !matches!(node.props.get(PropId::GlassGroup), Some(PropValue::Float(f)) if *f == -1.0) {
+        return None;
+    }
+    let s = node.style;
+    let gap = match s.display {
+        Display::Flex => match s.flex_direction {
+            FlexDirection::Row | FlexDirection::RowReverse => s.column_gap,
+            FlexDirection::Column | FlexDirection::ColumnReverse => s.row_gap,
+        },
+        Display::Grid => s.row_gap.min(s.column_gap),
+        _ => 0.0,
+    };
+    Some(gap.clamp(0.0, 10_000.0))
+}
+
+/// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
+/// `glassGroupAuto`, so a change to the prop sends them.
+pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap<String, String>) {
+    if let Some(points) = glass_auto_spacing(node) {
+        out.insert(PropId::GlassGroup.name().to_string(), num(points));
+        out.insert("glassGroupAuto".to_string(), "true".to_string());
+    }
 }
 
 /// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
