@@ -1,6 +1,6 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Open
+**Status:** Closed
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -44,3 +44,18 @@ failing run took 228.7 s at a load average near 100; the three that passed
 took 47 s each, minutes later, load near 40. So it is still there and shows
 under load; it had been closed as no longer reproducing after 13 passing
 runs at ad57fdc0. The probe above was not applied.
+
+## Fixed
+
+The hypothesis was correct. A batch can create a replacement surface after
+DOM reconciliation has disconnected the old canvas but before the old view's
+`destroy` operation runs. `surfaces` therefore still contained the retired
+entry, and `publishers` treated its name as live even though the same `live()`
+predicate used by input, records, and agent operations already rejected it.
+
+Surface creation now replaces a publisher that fails `live()`. Destruction of
+the stale entry cannot clear its replacement because destruction already
+checks publisher identity. A deterministic create-before-destroy test covers
+that ordering, while the existing test continues to require an error for two
+connected publishers. The JS target copies and uses the same `gpu-glue.js`, so
+the fix applies to both web targets.
