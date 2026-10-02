@@ -560,7 +560,7 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1076 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1077 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
 export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);

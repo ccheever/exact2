@@ -283,7 +283,7 @@ impl EnvRefusal {
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
             EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left or viewport-segment-width/height/top/left/bottom/right x y",
-            EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1076 D3; linked by use, LLP 1047 D2)",
+            EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1077 D3; linked by use, LLP 1047 D2)",
         }
     }
 }
@@ -306,7 +306,7 @@ struct Hooks {
 static LINKED: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();
 
 /// Link the viewport segment grammar, its resolution, CSS text and wire
-/// decode (LLP 1076 D3).
+/// decode (LLP 1077 D3).
 pub fn link() {
     let _ = LINKED.set(Hooks {
         term: segment_term,
@@ -331,7 +331,7 @@ pub(crate) fn resolve(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Di
 }
 
 /// A segment length as CSS-ENV-1's text, for a host whose browser resolves
-/// it (LLP 1076 D6); nothing when the grammar is not linked.
+/// it (LLP 1077 D6); nothing when the grammar is not linked.
 pub fn css(var: SegmentVar, x: u8, y: u8, plus: f32, out: &mut String) {
     if let Some(h) = LINKED.get() {
         (h.css)(var, x, y, plus, out);

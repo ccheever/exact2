@@ -76,7 +76,7 @@ pub struct Linked {
     /// CSS grid's grammar, validation and serialization: linked at [`link`]
     /// when any grid row is bound.
     pub grid: Option<fn()>,
-    /// `env(viewport-segment-*)`'s grammar (LLP 1076 D3): linked at [`link`].
+    /// `env(viewport-segment-*)`'s grammar (LLP 1077 D3): linked at [`link`].
     pub segments: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
@@ -303,7 +303,7 @@ mod tests {
         );
         let plain = contract::compile("component A\n  view\n    text \"b\"\n").unwrap();
         assert!(Host::boot(&plain.encode(), (), Default::default(), "/").is_ok());
-        // LLP 1076 D3: a segment length is linked by use; the fold's fields are the core's.
+        // LLP 1077 D3: a segment length is linked by use; the fold's fields are the core's.
         let segments = contract::compile(
             "component A\n  view\n    column width=\"env(viewport-segment-width 0 0)\"\n",
         )

@@ -75,7 +75,7 @@ pub enum Capability {
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
     Geometry,
-    /// `env(viewport-segment-*)` lengths (LLP 1076 D3): the segment grammar,
+    /// `env(viewport-segment-*)` lengths (LLP 1077 D3): the segment grammar,
     /// resolution and wire decode, for a plan whose strings name a segment.
     /// The fold's `exactViewport` fields are the core's.
     Segments,

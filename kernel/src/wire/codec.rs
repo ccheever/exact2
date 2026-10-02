@@ -176,7 +176,7 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
-            // Linked by use (LLP 1076 D3): unknown to an artifact whose plan names no segment.
+            // Linked by use (LLP 1077 D3): unknown to an artifact whose plan names no segment.
             8..=13 => {
                 let (x, y) = (self.u8()?, self.u8()?);
                 crate::style::env::decode(kind, value, x, y)

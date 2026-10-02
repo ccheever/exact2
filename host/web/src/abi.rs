@@ -35,7 +35,7 @@ pub struct Bridge<D: DataSource> {
     /// reported them (LLP 1061 D4): handed in with each boot and resize, so
     /// a dev restart boots under the current ones.
     preferences: exact_runner::Preferences,
-    /// The fold the page last reported (LLP 1076 D6), beside the preferences.
+    /// The fold the page last reported (LLP 1077 D6), beside the preferences.
     fold: exact_runner::Fold,
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
@@ -105,7 +105,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The page's facts as bits, for the next boot: the display preferences
     /// in bits 0–4 ([`exact_runner::Preferences::from_bits`]) and the fold
-    /// (LLP 1076 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
+    /// (LLP 1077 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
     /// three `exactViewport` fields.
@@ -931,7 +931,7 @@ impl<D: DataSource> Default for Bridge<D> {
     }
 }
 
-/// The fold in a facts word (LLP 1076 D6): bit 8 `folded`, bits 9–16 the
+/// The fold in a facts word (LLP 1077 D6): bit 8 `folded`, bits 9–16 the
 /// columns, 17–24 the rows, 0 reading as 1.
 fn fold_bits(bits: u32) -> exact_runner::Fold {
     exact_runner::Fold {
@@ -1127,7 +1127,7 @@ macro_rules! host {
         /// The viewport or the page's facts (bit 0 reduced motion, bit 1
         /// reduced transparency, bit 2 contrast more, bit 3 contrast less,
         /// bit 4 a dark system; bit 8 folded, bits 9–16 and 17–24 the
-        /// viewport segment columns and rows, LLP 1076 D6) changed; returns
+        /// viewport segment columns and rows, LLP 1077 D6) changed; returns
         /// the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {

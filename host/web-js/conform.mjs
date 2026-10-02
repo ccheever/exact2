@@ -628,7 +628,7 @@ const sdir = resolve(here, 'conformance');
 // A named target that is a fixture here — `conformance/<name>.contract`, or a
 // directory holding `app.contract` — is a synthetic plan, not an app:
 // `conform.mjs segments --linux` drives contract/corpus/segments.contract
-// (its link) on the data app's wasm root (LLP 1076 D9).
+// (its link) on the data app's wasm root (LLP 1077 D9).
 const fixtureFile = n => existsSync(resolve(sdir, n, 'app.contract')) ? `${n}/app.contract` : lstatSync(resolve(sdir, `${n}.contract`), { throwIfNoEntry: false }) ? `${n}.contract` : null;
 const fixtures = urls >= 0 ? [] : named.filter(n => fixtureFile(n));
 const apps = urls >= 0 || only ? [] : named.length ? named.filter(n => !fixtureFile(n)) : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
