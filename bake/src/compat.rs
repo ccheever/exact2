@@ -325,7 +325,7 @@ fn compatibility_with_trust(
         // is a binary change, never a bundle (LLP 1047 D8).
         "nativeModules": match contract::native::roster(manifest)? {
             tags if tags.is_empty() => Value::Null,
-            tags => json!({ "abi": 1, "tags": tags }),
+            tags => json!({ "appleAbi": 3, "webAbi": 1, "tags": tags }),
         },
         "icons": icons,
         "capabilities": {

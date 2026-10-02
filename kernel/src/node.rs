@@ -89,9 +89,12 @@ impl NodeType {
     /// Whether the node's size comes from a measure — text, a replaced
     /// element sized from its natural or default object size (a canvas's
     /// children then laid out in the measured box, Taffy patch 16), or a
-    /// form control whose size the platform decides (LLP 1069.001 D3).
+    /// form control whose size the platform decides (LLP 1069.001 D3), or a
+    /// native module reporting preferred content size (LLP 1024 D4).
     pub fn is_measured_leaf(self) -> bool {
-        self.is_text_leaf() || self.is_replaced() || self == NodeType::Control
+        self.is_text_leaf()
+            || self.is_replaced()
+            || matches!(self, NodeType::Control | NodeType::NativeView)
     }
 
     /// An image, video, `svg`, canvas or iframe: a replaced element, sized

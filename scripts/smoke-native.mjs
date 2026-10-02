@@ -66,6 +66,23 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const m = /native loading .*libexact_modules\.dylib (-?[\d.]+) ms after first pixel/.exec(lines);
       check(m && Number(m[1]) >= 0, `${host} native: the artifact loads after first pixel: ${m?.[0] ?? 'no load line'}`);
     }
+    // A module's natural content size uses ordinary CSS layout: decoration
+    // adds to the content box, growth moves a sibling, and clearing forgets it.
+    const dimensions = async () => {
+      const nodes = (await s.layout()).nodes;
+      return Object.fromEntries(['plain', 'absent', 'box'].map(id => [id, nodes.find(n => n.testId === id)]));
+    };
+    await settle(s);
+    const natural = await dimensions();
+    check(natural.plain?.w === 132 && natural.plain?.h === 44, `${host} native: preferred 120×32 plus padding/border: ${JSON.stringify(natural.plain)}`);
+    check(natural.box?.w === 120 && natural.box?.h === 80, `${host} native: authored dimensions override the reported preference`);
+    await s.tap('grow'); await settle(s);
+    const grown = await dimensions();
+    check(grown.plain?.h === 76 && grown.absent?.y - natural.absent?.y === 32, `${host} native: content growth moves the next sibling by 32`);
+    await s.tap('sizing'); await settle(s);
+    const cleared = await dimensions();
+    check(cleared.plain?.h === 12 && cleared.plain?.w === 12, `${host} native: clearing the preference leaves only padding/border`);
+    await s.tap('sizing'); await s.tap('grow'); await settle(s);
     // Props: the canonical aggregate the plan carries, and what the module got.
     const canonical = `{"count":"0","emit":"0","note":${JSON.stringify(NOTE)},"reject":"false","tint":"#2266ee"}`;
     check(byTestId(t, 'box')?.props.nativeViewProps === canonical, `${host} native: the plan's aggregate is sorted and escaped: ${byTestId(t, 'box')?.props.nativeViewProps}`);
@@ -106,6 +123,11 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     const box = await pixel(s, shot, 'box'), plain = await pixel(s, shot, 'plain'), absent = await pixel(s, shot, 'absent');
     check(near(box, '#2266ee'), `${host} native: the capture shows the fixture's colour: ${box}`);
     check(near(plain, '#11aa44'), `${host} native: the ordinary capture shows the plain box: ${plain}`);
+    const plainBounds = (await s.layout()).nodes.find(n => n.testId === 'plain');
+    const capture = decodePng(readFileSync(shot));
+    const scale = capture.width / (await s.screenshot(shot)).w;
+    const paddingPixel = (Math.round((plainBounds.y + plainBounds.h / 2) * scale) * capture.width + Math.round((plainBounds.x + 3) * scale)) * 4;
+    check(near(Array.from(capture.data.slice(paddingPixel, paddingPixel + 3)), '#ffffff'), `${host} native: module content leaves the authored padding visible`);
     check(near(absent, '#f3f4f6'), `${host} native: the missing factory leaves its empty box: ${absent}`);
     if (host !== 'web') {
       logs = await s.logs();
@@ -172,7 +194,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     writeFileSync(source, 'static const struct { unsigned major, size; const char *roster; void *f[7]; } t = { 1, 72, "{}", { 0 } };\nconst void *exact_native_abi(void) { return &t; }\n');
     const cc = spawnSync('xcrun', host === 'ios' ? ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', '-o', dylib, source] : ['clang', '-dynamiclib', '-o', dylib, source], { encoding: 'utf8' });
     check(cc.status === 0, `${host} native: the skewed artifact compiles: ${cc.stderr}`);
-    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 2/);
+    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 3/);
   }
   rmSync(tmp, { recursive: true, force: true });
   console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (the LLP 1024 D8 fixture)`);
