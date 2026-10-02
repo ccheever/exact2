@@ -178,7 +178,7 @@ final class NodePool {
     private func children(_ view: NodeView) -> [NodeView]? {
         guard view.scroll == nil, view.overlay == nil else { return nil }
         let container = view.container
-        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox }
+        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox || sub === view.glassGroupView || sub === view.glassSlot }
         if container !== view {
             guard view.subviews.allSatisfy({ own($0) || ($0 === container) }) else { return nil }
         }
@@ -441,6 +441,7 @@ extension NodeView {
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
+        if glassGroupView != nil { props["glassGroup"] = nil; syncGlassGroup() }
     }
     /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
     /// list's scroll, with its delegate detached while it resets.

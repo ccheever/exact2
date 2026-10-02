@@ -366,6 +366,26 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1053.000.000 D2: a glass group is the row's own view; parked, it
+    /// goes, and the next row's props make a new one.
+    func testAGroupRowPoolsWithANewGroupView() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8"]]) { $1 } : op
+        }, root: 10)
+        let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11])
+        let view = try XCTUnwrap(row.glassGroupView)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "8"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[20] === row, "the row pools")
+        let fresh = try XCTUnwrap(row.glassGroupView)
+        XCTAssertFalse(fresh === view)
+        XCTAssertNil(view.superview)
+        XCTAssertTrue(glyph.superview === fresh.contentView)
+    }
+
     func testAMaterialRowWithoutTheMaterialComesBackWithout() throws {
         let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
             i == 0 ? op.merging(["props": ["testId": "row-10", "backgroundMaterial": "glass"]]) { $1 } : op

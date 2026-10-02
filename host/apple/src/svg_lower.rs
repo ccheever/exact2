@@ -323,6 +323,9 @@ pub(crate) fn eligibility(
         let sampled = if paired
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
+            // A glass group ignores the opacity Core Animation plays between
+            // it and its glass; the host isolates on what it is told.
+            || (props.contains(&Property::Opacity) && in_glass_group(kernel, &n))
             // Drawn into an island's pixels, which Core Animation does not
             // animate (except a live filter picture on iOS).
             || (svg && in_picture(kernel, &n, box_motion))
@@ -412,6 +415,20 @@ fn circle_moves(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
 /// Whether a node is drawn into a filtered box's picture (CSS `filter` on
 /// a box, `BoxFilter` on Apple): it or a box above it has a filter, so its
 /// animations are sampled and each frame redraws the picture.
+/// Whether an element is inside a glass group (LLP 1053.000.000 D4): an
+/// ancestor, not itself, has `glassGroup`. The group's own opacity reaches
+/// its glass; a descendant's must come to the host as a value.
+fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    let mut up = n.parent;
+    while let Some(a) = up.and_then(|id| kernel.node(id)) {
+        if a.props.get(exact_kernel::PropId::GlassGroup).is_some() {
+            return true;
+        }
+        up = a.parent;
+    }
+    false
+}
+
 fn under_box_filter(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     let filtered =
         |a: &exact_kernel::NodeRef<'_>| !a.node_type.is_svg_element() && !a.style.filter.is_none();
