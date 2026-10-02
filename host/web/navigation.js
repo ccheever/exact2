@@ -7,7 +7,24 @@ let echo = null, pop = null, draining = false;
 const queue = [];
 const waiters = new Set();
 let root, navigate, log;
-const routesOf = nav => nav ? [...nav.children].filter(r => r.hasAttribute("navigationKey")) : [];
+const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
+// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
+// tablist's tabs name with aria-controls, in tab order (a tablist inside a
+// route is that route's). Each tab's stack is its panel's route rows, kept
+// mounted; without tabs the stack is the root's own rows.
+const panelsOf = nav => {
+  if (!nav) return [];
+  for (const list of nav.querySelectorAll('[role="tablist"]')) {
+    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+    const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
+      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel");
+    if (panels.length) return panels;
+  }
+  return [];
+};
+const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
@@ -164,10 +181,11 @@ export const navigation = {
   },
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
-      const routes = [...nav.children].filter(route => route.hasAttribute("navigationKey"));
-      const selected = routes.findIndex(route => route.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-      if (selected < 0) {
-        const key = nav.getAttribute("navigationKey");
+      const key = nav.getAttribute("navigationKey");
+      const panels = panelsOf(nav);
+      const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+      const at = stacks.findIndex(routes => routes.some(route => route.getAttribute("navigationKey") === key));
+      if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
           log(`navigationKey "${key}" matches no route; the stack is unchanged`);
@@ -175,18 +193,29 @@ export const navigation = {
         continue;
       }
       refused.delete(nav);
-      const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
-      for (const [index, route] of routes.entries()) {
-        const active = index === selected;
-        if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-        route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
-        route.inert = !active || !!route.authoredInert;
+      // Every tab but the selected one stays mounted, hidden and inert.
+      for (const [index, panel] of panels.entries()) {
+        const active = index === at;
+        if (!active && panel.contains(document.activeElement)) document.activeElement.blur();
+        panel.style.visibility = active ? "" : "hidden";
+        panel.inert = !active || !!panel.authoredInert;
+      }
+      for (const [stack, routes] of stacks.entries()) {
+        // The selected stack shows the route the root names; another keeps its top laid out.
+        const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        for (const [index, route] of routes.entries()) {
+          const active = index === selected;
+          if (!active && route.contains(document.activeElement)) document.activeElement.blur();
+          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          route.inert = !active || !!route.authoredInert;
+        }
       }
     }
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");
-    const routes = nav ? [...nav.children].filter((r) => r.hasAttribute("navigationKey")) : [];
+    const routes = routesOf(nav);
     const key = nav?.getAttribute("navigationKey") ?? null;
     const index = routes.findIndex((r) => r.getAttribute("navigationKey") === key);
     const selected = index >= 0 ? routes[index] : null;

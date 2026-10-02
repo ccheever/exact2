@@ -1,5 +1,6 @@
 //! A node's dynamic style rows as the compiler writes them (rt.js `S`,
-//! `Sm`), and where a node's static rows must be inline too.
+//! `Sm`), where a node's static rows must be inline too, and its bound
+//! `data-*` words.
 
 use super::Em;
 use crate::style;
@@ -355,4 +356,19 @@ pub(super) fn presence_decls(css: &mut String) -> String {
     }
     *css = kept;
     taken
+}
+
+impl Em<'_> {
+    /// A `markup="markdown"` text's source, built into spans (rt.js `md`).
+    pub(crate) fn markdown(&mut self, e: &str, f: &str) {
+        let md = self.uses.rt("md");
+        let _ = write!(self.out, "{md}({e},{f});");
+    }
+
+    /// A node's `data-*` words (LLP 1075.003 §3.3): one attribute per word,
+    /// re-derived when the bound object changes (`dataset.js`).
+    pub(crate) fn dataset(&mut self, e: &str, f: &str) {
+        let (effect, ds) = (self.uses.rt("effect"), self.uses.rt("ds"));
+        let _ = write!(self.out, "{effect}(()=>{ds}({e},({f})()));");
+    }
 }

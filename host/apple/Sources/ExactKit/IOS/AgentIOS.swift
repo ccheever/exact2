@@ -230,7 +230,7 @@ extension Agent {
             if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
             if let sv = v.scroll {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
-                n["sy"] = Agent.r2(sv.contentOffset.y)
+                n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in

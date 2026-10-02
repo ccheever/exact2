@@ -540,6 +540,13 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             );
             continue;
         }
+        // @ref LLP 1075.003 §3.3 — the app's words are real attributes.
+        if let (PropId::Dataset, PropValue::Str(json)) = (id, value) {
+            for (word, value) in dataset(json) {
+                out.insert(format!("data-{word}"), value);
+            }
+            continue;
+        }
         let text = match value {
             PropValue::Str(s) => s.clone(),
             PropValue::Bool(b) => b.to_string(),
@@ -560,6 +567,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityOrientation => "aria-orientation",
+            PropId::AccessibilityControls => "aria-controls",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
@@ -759,6 +767,60 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     out
 }
 
+/// A `dataset` row's pairs: the runner's object of strings (`NativeProps`,
+/// LLP 1024 §9), whose only escapes are JSON's for `"`, `\\` and control
+/// characters. Anything else yields what it parsed so far.
+pub fn dataset(json: &str) -> Vec<(String, String)> {
+    fn string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+        if chars.next()? != '"' {
+            return None;
+        }
+        let mut out = String::new();
+        loop {
+            match chars.next()? {
+                '"' => return Some(out),
+                '\\' => match chars.next()? {
+                    'n' => out.push('\n'),
+                    't' => out.push('\t'),
+                    'r' => out.push('\r'),
+                    'b' => out.push('\u{8}'),
+                    'f' => out.push('\u{c}'),
+                    'u' => {
+                        let hex: String = (0..4).filter_map(|_| chars.next()).collect();
+                        out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                    }
+                    c => out.push(c),
+                },
+                c => out.push(c),
+            }
+        }
+    }
+    let mut pairs = Vec::new();
+    let mut chars = json.trim().chars().peekable();
+    if chars.next() != Some('{') {
+        return pairs;
+    }
+    while let Some(&c) = chars.peek() {
+        match c {
+            '}' => break,
+            ',' | ' ' => {
+                chars.next();
+            }
+            _ => {
+                let Some(key) = string(&mut chars) else { break };
+                if chars.next() != Some(':') {
+                    break;
+                }
+                let Some(value) = string(&mut chars) else {
+                    break;
+                };
+                pairs.push((key, value));
+            }
+        }
+    }
+    pairs
+}
+
 #[cfg(test)]
 mod name_tests {
     #[test]
@@ -766,5 +828,144 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
+    }
+}
+
+#[cfg(test)]
+mod dataset_tests {
+    use exact_kernel::{NodeFacts, NodeType, PropId, PropKind, PropList, PropValue, StyleProps};
+
+    fn written(
+        node_type: NodeType,
+        prop: PropId,
+        value: PropValue,
+    ) -> super::SortedMap<String, String> {
+        let style = StyleProps::default();
+        let mut props = PropList::new();
+        props.set(prop, value);
+        super::props_of(&NodeFacts {
+            id: 1,
+            node_type,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        })
+    }
+
+    /// An SVG filter primitive's own prop: the compiler sets it only on an
+    /// `fe*` or `filter` element, which writes it under its own name.
+    fn svg_only(prop: PropId) -> bool {
+        let name = prop.name();
+        name.starts_with("pointsAt")
+            || name.starts_with("specular")
+            || name.ends_with("ChannelSelector")
+            || matches!(
+                name,
+                "amplitude"
+                    | "azimuth"
+                    | "baseFrequency"
+                    | "bias"
+                    | "diffuseConstant"
+                    | "divisor"
+                    | "edgeMode"
+                    | "elevation"
+                    | "exponent"
+                    | "filterUnits"
+                    | "in"
+                    | "in2"
+                    | "intercept"
+                    | "k1"
+                    | "k2"
+                    | "k3"
+                    | "k4"
+                    | "kernelMatrix"
+                    | "limitingConeAngle"
+                    | "mode"
+                    | "numOctaves"
+                    | "operator"
+                    | "order"
+                    | "preserveAlpha"
+                    | "primitiveUnits"
+                    | "result"
+                    | "seed"
+                    | "slope"
+                    | "stdDeviation"
+                    | "stitchTiles"
+                    | "surfaceScale"
+                    | "tableValues"
+                    | "targetX"
+                    | "targetY"
+                    | "values"
+            )
+    }
+
+    /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an
+    /// HTML element for a prop of its own is a word Contract refuses, so an
+    /// app's `data-*` never lands on one.
+    #[test]
+    fn every_data_name_the_host_writes_is_a_reserved_word() {
+        let kinds = [
+            NodeType::View,
+            NodeType::Text,
+            NodeType::Pressable,
+            NodeType::TextInput,
+            NodeType::Image,
+            NodeType::NativeView,
+            NodeType::ScrollView,
+            NodeType::List,
+            NodeType::Video,
+            NodeType::WebView,
+            NodeType::Canvas,
+            NodeType::Svg,
+            NodeType::Control,
+        ];
+        for prop in PropId::ALL {
+            if prop == PropId::Dataset || svg_only(prop) {
+                continue;
+            }
+            let value = match prop.kind() {
+                PropKind::Str => PropValue::Str("x".into()),
+                PropKind::Bool => PropValue::Bool(true),
+                PropKind::Int => PropValue::Int(1),
+                PropKind::Float => PropValue::Float(1.0),
+            };
+            for kind in kinds {
+                for name in written(kind, prop, value.clone()).keys() {
+                    if let Some(word) = name.strip_prefix("data-") {
+                        assert!(
+                            contract_lower::dataset::reserved(word),
+                            "`{name}` (from {}) is not reserved in contract/lower/src/dataset.rs",
+                            prop.name()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_dataset_is_one_attribute_per_word() {
+        let out = written(
+            NodeType::View,
+            PropId::Dataset,
+            PropValue::Str(r#"{"large-title":"Inbox","trailing":"compose"}"#.into()),
+        );
+        assert_eq!(
+            out.get("data-large-title").map(String::as_str),
+            Some("Inbox")
+        );
+        assert_eq!(
+            out.get("data-trailing").map(String::as_str),
+            Some("compose")
+        );
+        assert!(out.get("data-dataset").is_none());
+        assert_eq!(
+            super::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
+            vec![
+                ("a".into(), "q\"\\\t\u{1}".into()),
+                ("b".into(), String::new())
+            ]
+        );
     }
 }

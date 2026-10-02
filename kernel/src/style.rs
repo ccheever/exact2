@@ -248,6 +248,18 @@ impl Dimension {
         }
     }
 
+    /// This length plus `points`, resolved under `env`: what a host's
+    /// covered edge adds to an authored padding (LLP 1075.003 §3.5).
+    fn plus(self, env: &Env, points: f32) -> Dimension {
+        match self.resolve(env) {
+            Dimension::Auto => Dimension::Points(points),
+            Dimension::Points(v) => Dimension::Points(v + points),
+            Dimension::Percent(p) => Dimension::Calc(p, points),
+            Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
+            Dimension::Env(..) => unreachable!("resolved above"),
+        }
+    }
+
     fn to_taffy(self, env: &Env) -> taffy::style::Dimension {
         match self.resolve(env) {
             Dimension::Auto => auto(),
@@ -1385,6 +1397,21 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         if let Some((_, height)) = arena.intrinsic(slot) {
             s.min_size.height = length(height);
         }
+    }
+    // @ref LLP 1075.003 §3.5 — a native container's bars add to the padding
+    // of the route they cover; a box a bar replaces takes no space.
+    match arena.cover(slot) {
+        Some(crate::kernel::HostCover::Whole) => s.display = taffy::style::Display::None,
+        Some(crate::kernel::HostCover::Edges([top, right, bottom, left])) => {
+            let (style, env) = (arena.style(slot), arena.env());
+            s.padding = taffy::geometry::Rect {
+                top: style.padding_top.plus(env, top).to_lp(env),
+                right: style.padding_right.plus(env, right).to_lp(env),
+                bottom: style.padding_bottom.plus(env, bottom).to_lp(env),
+                left: style.padding_left.plus(env, left).to_lp(env),
+            };
+        }
+        None => {}
     }
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely
     // positioned box no positioned ancestor holds, on every host: a static

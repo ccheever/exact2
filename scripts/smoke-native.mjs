@@ -8,12 +8,14 @@
 // shows the boxes and the tokened snapshot answers (Apple); and the failure
 // family — missing artifact, missing factory, wrong ABI, refused props —
 // each yields its named status, an empty box, a log line and a running app.
+// Then the hooks (LLP 1075.003): data-* words, the authored header under the
+// agent, the hooks' journal on iOS, and a push and its Back.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { serveStatic } from '../host/web/serve.mjs';
+import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { decodePng } from './png.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -88,6 +90,56 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     st = await s.state();
     // (A browser's real pointer also hovers and focuses the element first.)
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
+    // The hooks (LLP 1075.003): the route's data-* words, the authored header
+    // under the agent (one presentation, LLP 1021 D4), the hooks' moments in
+    // the journal (iOS; macOS projects no routes), and a push and its Back.
+    t = await s.tree();
+    const words = host === 'web'
+      ? await s.carrier.evaluate(`JSON.stringify((({ menu, screen, transition, violate }) => ({ menu, screen, transition, violate }))(document.querySelector('[data-testid="route-home"]').dataset))`)
+      : byTestId(t, 'route-home')?.props.dataset;
+    check(words === '{"menu":"compose","screen":"home","transition":"false","violate":"false"}', `${host} native: the route carries its data-* words: ${words}`);
+    const header = (await s.layout()).nodes.find((n) => n.testId === 'header-home');
+    check(header?.h > 0, `${host} native: the agent sees the authored header: ${JSON.stringify(header)}`);
+    // `logs` reads on from where it last stopped: the journal is both reads.
+    logs = await s.logs();
+    const journal = `${lines}\n${logs.lines.join('\n')}`;
+    if (host === 'ios') {
+      check(/hook: connected/.test(journal) && /hook navigation #1: built[\s\S]*hook route \d+: built/.test(journal), `${host} native: a stack's hook runs before its routes': ${journal.split('\n').filter((l) => /hook/.test(l)).join(' | ')}`);
+    } else {
+      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs off iOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
+    }
+    await s.tap('compose-home'); await settle(s);
+    check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
+    await s.tap('detail'); await settle(s);
+    t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
+    await s.tap('scroll-80'); await settle(s);
+    const scrolled = (await s.layout()).nodes.find((n) => n.testId === 'list-detail');
+    check(scrolled?.sy === 80, `${host} native: scrollTop 80 is an offset of 80: ${JSON.stringify(scrolled)}`);
+    await s.tap('scroll-0'); await settle(s);
+    await s.tap('back'); await settle(s);
+    t = await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
+    if (host === 'ios') {
+      logs = await s.logs();
+      check(logs.lines.some((l) => /hook route \d+: ended/.test(l)), `${host} native: a popped route's hook hears routeEnded`);
+    }
+    // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
+    // (macOS projects no routes: there the sheet is its route, shown.)
+    const sheetShown = async () => host === 'macos' ? !!byTestId(await s.tree(), 'route-sheet') : (await s.state()).navigation?.presentation === 'modal';
+    await s.tap('sheet'); await settle(s);
+    check(await sheetShown(), `${host} native: the sheet is presented over the tabs`);
+    await s.tap('close-sheet'); await settle(s);
+    check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
+    // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
+    await s.tap('tab-second'); await settle(s); await s.clock('settle');
+    await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');
+    const offset = async () => (await s.layout()).nodes.find((n) => n.testId === 'list-second')?.sy;
+    const away = await offset();
+    await s.tap('tab-home'); await settle(s); await s.clock('settle');
+    await s.tap('tab-second'); await settle(s); await s.clock('settle');
+    const kept = await offset();
+    check(away > 0 && kept === away, `${host} native: a tab's scroll survives a switch: ${away} → ${kept}`);
+    await s.tap('tab-home'); await settle(s);
     // Refused props: named, the last accepted kept, the app still running.
     const before = st.slots.received;
     await s.tap('reject'); await settle(s);
@@ -154,7 +206,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const dir = resolve(tmp, name);
       cpSync(webDist, dir, { recursive: true });
       change(dir);
-      const server = createServer((req, res) => serveStatic(dir, req, res));
+      // A JS-target build's agent pieces are served as `serve.mjs` serves them.
+      const server = createServer((req, res) => jsTargetBuild(webDist) ? serveBuildTree(dir, req, res) : serveStatic(dir, req, res));
       return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() })));
     };
     const missing = await variant('missing', (dir) => rmSync(resolve(dir, 'modules'), { recursive: true, force: true }));

@@ -472,10 +472,11 @@ export function resolveApp(nameOrCrate) {
      * `modules/apple` that becomes `libexact_modules.dylib`, and the web
      * executor `modules/web/index.js`. Empty tags: the app has no module
      * views; its web executor may still answer `native.later` on the page
-     * (LLP 1067 D5). */
+     * (LLP 1067 D5), and its Swift still makes the artifact, for `later` and
+     * the hooks (LLP 1075.003 §3.2). */
     get modules() {
       const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
-      const under = (suffix) => tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith(suffix)).sort().map(f => resolve(apple, f)) : [];
+      const under = (suffix) => existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith(suffix)).sort().map(f => resolve(apple, f)) : [];
       // An `.xcframework` beside the Swift (a symlink is fine) is linked into
       // the module artifact: its slice for the build's platform, from its
       // Info.plist, gives the headers (`import <Module>`) and every static

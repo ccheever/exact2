@@ -24,7 +24,7 @@ extension ControlHost {
         if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
         guard let button = control as? UIButton else { return }
-        button.tintColor = accent
+        assign(button, \.tintColor, accent)
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu

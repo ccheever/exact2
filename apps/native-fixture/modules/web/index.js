@@ -6,7 +6,7 @@
 // back after `destroy` (the host must drop it). Neither box takes pointer
 // events of its own, so an agent tap lands on the element — the node.
 export const abi = 1;
-export const roster = { 'exact-fixture': { snapshot: true }, 'exact-plain': { snapshot: false } };
+export const roster = { 'exact-fixture': { snapshot: true }, 'exact-plain': { snapshot: false }, 'exact-screen': { snapshot: false } };
 
 const echo = (props) => 'props:' + JSON.stringify(Object.fromEntries(Object.entries(props).sort(([a], [b]) => (a < b ? -1 : 1))));
 
@@ -19,6 +19,8 @@ export function create(tag, element, json, event) {
   root.replaceChildren(box);
   const h = { tag, box, event, emit: props.emit ?? '0' };
   box.style.backgroundColor = props.tint ?? 'gray';
+  // The web's form of a native screen (LLP 1075.003 §3.6): its own element.
+  if (tag === 'exact-screen') { box.textContent = 'A native screen'; box.style.cssText += ';display:grid;place-items:center;background:#f2f2f7'; }
   if (tag === 'exact-fixture') { event(8, echo(props)); event(7); }
   return h;
 }

@@ -1145,9 +1145,9 @@ impl Em<'_> {
             self.paint_binding(node_type, b, &e, &f);
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
-                    let md = self.uses.rt("md");
-                    let _ = write!(self.out, "{md}({e},{f});");
+                    self.markdown(&e, &f)
                 }
+                BindingKind::Prop if b.id == PropId::Dataset as u16 => self.dataset(&e, &f),
                 BindingKind::Prop => {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;

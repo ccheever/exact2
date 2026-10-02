@@ -455,6 +455,25 @@ final class Runtime {
             return read(exact_intrinsics(rt, write(bytes)))
         }
     }
+    /// What native containers cover of boxes (LLP 1075.003 §3.5), under one
+    /// layout: `edges` add to a box's padding; `whole` lays it out as
+    /// `display: none`; nil clears.
+    func covers(_ covers: [(UInt32, HostCover?)]) -> Batch {
+        return on {
+            var bytes = Data(capacity: covers.count * 24)
+            for (view, cover) in covers {
+                let (kind, edges): (UInt32, [CGFloat]) = switch cover {
+                case .none: (0, [0, 0, 0, 0])
+                case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
+                case .whole?: (2, [0, 0, 0, 0])
+                }
+                for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
+                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+                }
+            }
+            return read(exact_host_covers(rt, write(bytes)))
+        }
+    }
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { on { read(exact_delivery_sync(rt)) } }
     /// The returned JSON is copied before the runtime output buffer is reused.

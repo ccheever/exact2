@@ -2,7 +2,9 @@
 //! artifact serves, declared in `app.json` as `"modules": ["tag", …]`. A
 //! module tag the roster does not name is `bake-unknown-module`, so a typo
 //! is a named diagnostic in the dev loop and in every build, never an empty
-//! box at runtime.
+//! box at runtime. Beside it, the app's `data-*` words (LLP 1075.003 Q2):
+//! `"data": ["word", …]`, from which the Apple build also writes the Swift
+//! module's typed keys; a word the list lacks is `bake-undeclared-data`.
 
 use super::{CompileError, Manifest};
 use contract_syntax::{File, Span};
@@ -27,8 +29,95 @@ pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// Every module tag in `file` against the roster of the app at `app_root`.
+/// The `data-*` words in `manifest`, each checked against HTML's spelling
+/// and the words a host already writes.
+pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
+    let Some(value) = manifest.json.get("data") else {
+        return Ok(Vec::new());
+    };
+    let words = value
+        .as_array()
+        .ok_or("app.json `data` is a list of data-* words, without the `data-`")?;
+    words
+        .iter()
+        .map(|word| match word.as_str() {
+            Some(w)
+                if contract_lower::dataset::is_word(w)
+                    && !contract_lower::dataset::reserved(w) =>
+            {
+                Ok(w.to_owned())
+            }
+            Some(w) if contract_lower::dataset::is_word(w) => Err(format!(
+                "app.json `data`: `{w}` is written by the web host on its own elements (LLP 1075.003 §3.3)"
+            )),
+            _ => Err(format!(
+                "app.json `data`: {word} is not a data-* word: lowercase words of letters and digits joined by `-`, without the `data-` (LLP 1075.003 Q2)"
+            )),
+        })
+        .collect()
+}
+
+/// Every module tag and `data-` word in `file` against what the app at
+/// `app_root` declares.
 pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
+    let mut errors = check_modules(file, app_root).err().unwrap_or_default();
+    errors.extend(check_data(file, app_root).err().unwrap_or_default());
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn check_data(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
+    let used = contract_lower::data_words(file);
+    if used.is_empty() {
+        return Ok(());
+    }
+    let refusal = |id: &str, message: String, span: Span| CompileError {
+        pass: "bake",
+        id: id.into(),
+        message,
+        span,
+        file: None,
+        related: Box::new([]),
+    };
+    let declared = Manifest::read(app_root)
+        .and_then(|m| data_words(&m))
+        .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?;
+    let mut seen = std::collections::BTreeSet::new();
+    let errors: Vec<CompileError> = used
+        .into_iter()
+        .filter(|(word, _)| {
+            contract_lower::dataset::is_word(word)
+                && !contract_lower::dataset::reserved(word)
+                && !declared.contains(word)
+                && seen.insert(word.clone())
+        })
+        .map(|(word, span)| {
+            let hint = contract_syntax::suggestion(&word, declared.iter().map(String::as_str))
+                .map(|n| format!("; did you mean `data-{n}`?"))
+                .unwrap_or_default();
+            let listed = if declared.is_empty() {
+                "the app declares no data-* words (app.json `data`)".to_owned()
+            } else {
+                format!("the app's words are {}", declared.join(", "))
+            };
+            refusal(
+                "bake-undeclared-data",
+                format!("`data-{word}` is not declared: {listed}{hint}"),
+                span,
+            )
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn check_modules(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
     let used = contract_lower::module_tags(file);
     if used.is_empty() {
         return Ok(());

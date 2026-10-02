@@ -11,7 +11,8 @@
     "id": "com.exact.nativefixture",
     "name": "Native Fixture"
   },
-  "modules": ["exact-fixture", "exact-plain", "exact-absent"],
+  "modules": ["exact-fixture", "exact-plain", "exact-absent", "exact-screen"],
+  "data": ["menu", "screen", "transition", "violate"],
   "host": {
     "ios": {
       "minimumOS": "17.0",

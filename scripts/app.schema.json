@@ -16,6 +16,14 @@
         "pattern": "^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$"
       }
     },
+    "data": {
+      "type": "array",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hooks on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,

@@ -16,12 +16,12 @@ extension ControlHost {
 
     func configureRange(_ slider: UISlider, _ owner: NodeView, accent: UIColor?) {
         let range = RangeSpec(owner.props)
-        slider.minimumValue = Float(range.min)
-        slider.maximumValue = Float(range.max)
-        slider.minimumTrackTintColor = accent
+        assign(slider, \.minimumValue, Float(range.min))
+        assign(slider, \.maximumValue, Float(range.max))
+        assign(slider, \.minimumTrackTintColor, accent)
         let shown = Float(range.shown(owner.props))
         if !slider.isTracking, slider.value != shown { slider.setValue(shown, animated: false) }
-        slider.accessibilityValue = RangeSpec.format(Double(shown))
+        assign(slider, \.accessibilityValue, RangeSpec.format(Double(shown)))
     }
 
     /// The value the slider reports: its position, snapped as HTML would.

@@ -63,6 +63,9 @@ pub struct NodeArena {
     /// Host intrinsic size: a replaced element's natural size or a projected
     /// tablist's native control size; `None` before measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
+    /// What a host container covers of a box (LLP 1075.003 §3.5): a few
+    /// route nodes at most, so by slot rather than a column.
+    covers: std::collections::BTreeMap<u32, crate::kernel::HostCover>,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -105,6 +108,7 @@ impl Clone for NodeArena {
             root_font_size_next: self.root_font_size_next,
             contents: self.contents.clone(),
             intrinsic: self.intrinsic.clone(),
+            covers: self.covers.clone(),
             taffy: self.taffy.clone(),
             is_root: self.is_root.clone(),
             free: self.free.clone(),
@@ -175,6 +179,7 @@ impl NodeArena {
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
+        self.covers.clear();
         self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
         self.by_local.clear();
@@ -742,6 +747,7 @@ impl NodeArena {
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
         self.intrinsic[s] = None;
+        self.covers.remove(&slot);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -853,6 +859,18 @@ impl NodeArena {
 
     pub(crate) fn set_intrinsic(&mut self, slot: u32, size: Option<(f32, f32)>) {
         self.intrinsic[slot as usize] = size;
+    }
+
+    /// What a host container covers of a box, when it has said.
+    pub fn cover(&self, slot: u32) -> Option<crate::kernel::HostCover> {
+        self.covers.get(&slot).copied()
+    }
+
+    pub(crate) fn set_cover(&mut self, slot: u32, cover: Option<crate::kernel::HostCover>) {
+        match cover {
+            Some(c) => self.covers.insert(slot, c),
+            None => self.covers.remove(&slot),
+        };
     }
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {

@@ -212,6 +212,19 @@ module artifact — with a photo-editor example as the consumer. Unblocks a
 platform widget without a host change or a new node type. Take: LLP 1024 §7's
 (§Components loses no line; `terminal` and friends stay out as built-in tags).
 
+**Expanded (Charlie Cheever, 2026-10-01: asked for LLP 1075.003 implemented,
+its recommended rulings):** native platform control on Apple: hooks on an
+app's module that receive Exact's own UIKit objects, `data-*` attributes
+declared in `app.json`, a public route-content seam, and Exact's own navigation
+bar and retained tab container built on it. James's app is the consumer, and
+`apps/native-fixture` the one in the repo. Unblocks reaching UIKit's navigation
+and tab containers without patching Exact. Take: new per-property UIKit rows
+and any SDK-wide binding generator wait behind it. One exception to "No public
+API stability": this surface (LLP 1075.003 §3.9) is named, and a break is one
+commit that changes the fixture and says what to change. Still refused: a
+deprecation window, native property names in Contract, and a JavaScript UI
+tier.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
@@ -509,7 +522,8 @@ This half matters more than the feature half.
 ## Deliberately worse
 
 - No backwards compatibility, at all, before 1.0.
-- No public API stability. Names change.
+- No public API stability. Names change. (One exception, LLP 1075.003's hook
+  surface: its breaks are deliberate, below.)
 - No migration guides.
 - Generated files are built, never committed.
 - Sparse prose. The code and the checks are the authority.

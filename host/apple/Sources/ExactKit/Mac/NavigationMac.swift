@@ -29,9 +29,14 @@ final class NavigationHost {
             }
         }
         for nav in presenter.carrying("navigationBack") {
-            let routes = nav.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
             let key = nav.props["navigationKey"] ?? ""
-            guard let prefix = NavigationRules.stack(routeKeys: routes.map { $0.props["navigationKey"] ?? "" }, selected: key) else {
+            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
+            let tabs = NavigationTabs.of(nav, presenter)
+            let (found, stacks) = tabs?.stacks(selecting: key) ?? {
+                let routes = NavigationTabs.routes(in: nav)
+                return (routes.contains { $0.props["navigationKey"] == key } ? 0 : nil, [routes])
+            }()
+            guard let at = found else {
                 if refused[nav.id] != key {
                     refused[nav.id] = key
                     presenter.session?.log("navigationKey \"\(key)\" matches no route; the stack is unchanged")
@@ -39,14 +44,20 @@ final class NavigationHost {
                 continue
             }
             refused.removeValue(forKey: nav.id)
-            let selected = prefix.upperBound - 1
-            let modal = routes[selected].props["navigationPresentation"] == "modal"
-            for (index, route) in routes.enumerated() {
-                let hidden = index != selected && !(modal && index == selected - 1)
-                let inert = index != selected
-                if route.isHidden != hidden || route.routeInert != inert { subtrees.insert(route.id) }
-                route.isHidden = hidden
-                route.routeInert = inert
+            func gate(_ node: NodeView, hidden: Bool, inert: Bool) {
+                if node.isHidden != hidden || node.routeInert != inert { subtrees.insert(node.id) }
+                node.isHidden = hidden
+                node.routeInert = inert
+            }
+            for (index, panel) in (tabs?.panels ?? []).enumerated() { gate(panel, hidden: index != at, inert: index != at) }
+            for (stack, routes) in stacks.enumerated() {
+                // The selected stack shows the route the root names; another
+                // keeps its top laid out under its hidden panel.
+                let selected = stack == at ? routes.firstIndex { $0.props["navigationKey"] == key } ?? 0 : routes.count - 1
+                let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
+                for (index, route) in routes.enumerated() {
+                    gate(route, hidden: index != selected && !(modal && index == selected - 1), inert: index != selected)
+                }
             }
         }
         // Reuse the presenter's ancestor inert gate for focus/input. AppKit's

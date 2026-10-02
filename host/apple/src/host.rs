@@ -29,6 +29,8 @@ mod arrange_tests;
 pub(crate) mod canvas2d;
 #[path = "content_region/host.rs"]
 mod content_region_host;
+#[path = "covers.rs"]
+mod covers;
 #[path = "height.rs"]
 mod height;
 #[path = "height_drag.rs"]

@@ -576,6 +576,24 @@
       "kind": "float"
     },
     {
+      "id": 216,
+      "name": "dataset",
+      "kind": "str",
+      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hook."
+    },
+    {
+      "id": 217,
+      "name": "navigationScroll",
+      "kind": "str",
+      "_comment": "@ref LLP 1075.003 §3.5: the HTML id of the route's content scroll view, resolved inside the route as its Back control is."
+    },
+    {
+      "id": 218,
+      "name": "accessibilityControls",
+      "kind": "str",
+      "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
+    },
+    {
       "id": 214,
       "name": "scrollRestoration",
       "kind": "str"

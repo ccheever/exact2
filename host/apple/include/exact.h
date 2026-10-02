@@ -436,6 +436,11 @@ uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float heig
 /* exact_intrinsic for several views under one layout: the input buffer's
  * first len bytes are LE records of (uint32 view, float width, float height). */
 uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
+/* What native containers cover of boxes (LLP 1075.003 §3.5) under one
+ * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
+ * 2 whole — float top, right, bottom, left). Edges add to the box's
+ * padding; a whole box is laid out as display: none. */
+uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);

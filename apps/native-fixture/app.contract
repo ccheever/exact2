@@ -1,10 +1,19 @@
-// The native-module fixture (LLP 1024 D8): the seam and nothing else. Three
-// module tags from the roster in app.json — `exact-fixture` (a coloured box
-// that takes the snapshot bit, fires every event on request, and rejects a
-// `reject` prop), `exact-plain` (a box the ordinary capture paints) and
-// `exact-absent` (in the roster, never in the artifact: its node reports the
-// missing factory). `bun scripts/smoke.mjs <web|macos> --app native-fixture`
-// drives it through the eight operations.
+// The native-module fixture (LLP 1024 D8, LLP 1075.003 §3.9): the seam and
+// nothing else. Three module tags from the roster in app.json —
+// `exact-fixture` (a coloured box that takes the snapshot bit, fires every
+// event on request, and rejects a `reject` prop), `exact-plain` (a box the
+// ordinary capture paints) and `exact-absent` (in the roster, never in the
+// artifact: its node reports the missing factory) — and the hooks: two
+// routes, a header-shaped one whose heading iOS lifts into its navigation
+// bar and one pushed over it, `data-*` words the module's hooks read, and
+// the scroll view the route names. `bun scripts/smoke.mjs <web|macos|ios>
+// --app native-fixture` drives it through the eight operations.
+
+routes nav
+  tab home "/"
+    detail "/detail"
+    sheet "/sheet"
+  tab second "/second"
 
 component NativeFixture
   state count = 0
@@ -46,21 +55,98 @@ component NativeFixture
       received = m
     else
       events = events + "message:" + m + ";"
+  state composed = 0
+  state violate = false
+  state transition = false
+  action compose writes composed
+    composed = composed + 1
+  action detail writes nav
+    nav = push(nav, "/detail")
+  action back writes nav
+    nav = back(nav)
+  action breakOwnership writes violate
+    violate = not violate
+  action customTransition writes transition
+    transition = not transition
+  state top = 0
+  action scrollTo(y: number) writes top
+    top = y
+  state draft = ""
+  action setDraft(text: string) writes draft
+    draft = text
+  action selectTab(name: string) writes nav
+    nav = select(nav, name)
+  action openSheet writes nav
+    nav = push(nav, "/sheet")
   view
-    column testId="fixture" width="100%" height="100%" gap=8 padding=12 background-color="#ffffff" color="#111111" font-family="system-ui"
-      row gap=6 flex-wrap="wrap"
-        button press=bump testId="bump" padding=6 background-color="#e5e7eb"
-          text "Bump"
-        button press=fire testId="fire" padding=6 background-color="#e5e7eb"
-          text "Fire"
-        button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
-          text (shown ? "Unmount" : "Mount")
-        button press=reject testId="reject" padding=6 background-color="#e5e7eb"
-          text "Reject"
-        button press=mode testId="mode" padding=6 background-color="#e5e7eb"
-          text "Mode"
-      text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
-      when shown
-        exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-      exact-plain testId="plain" width=120 height=60 tint="#11aa44"
-      exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
+      column testId="panels" flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : "list-detail") data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
+                  when e.name == "detail"
+                    button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
+                      image "symbol:back" width=20 height=20
+                  when e.name == "sheet"
+                    button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
+                      image "symbol:close" width=20 height=20
+                  text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                  button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
+                    image "symbol:compose" width=20 height=20
+                when e.name == "home"
+                  column testId="fixture" gap=8 padding=12
+                    row gap=6 flex-wrap="wrap"
+                      button press=detail testId="detail" padding=6 background-color="#e5e7eb"
+                        text "Detail"
+                      button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
+                        text "Transition"
+                      button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
+                        text "Sheet"
+                    text ("composed " + toString(composed)) testId="composed"
+                    row gap=6 flex-wrap="wrap"
+                      button press=bump testId="bump" padding=6 background-color="#e5e7eb"
+                        text "Bump"
+                      button press=fire testId="fire" padding=6 background-color="#e5e7eb"
+                        text "Fire"
+                      button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
+                        text (shown ? "Unmount" : "Mount")
+                      button press=reject testId="reject" padding=6 background-color="#e5e7eb"
+                        text "Reject"
+                      button press=mode testId="mode" padding=6 background-color="#e5e7eb"
+                        text "Mode"
+                    text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
+                    when shown
+                      exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+                    exact-plain testId="plain" width=120 height=60 tint="#11aa44"
+                    exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+                when e.name == "detail"
+                  row gap=6 padding=12 flex-shrink=0
+                    button press=breakOwnership testId="violate" padding=6 background-color="#e5e7eb"
+                      text "Violate"
+                    button press=scrollTo(80) testId="scroll-80" padding=6 background-color="#e5e7eb"
+                      text "Scroll 80"
+                    button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
+                      text "Scroll 0"
+                when e.name == "detail"
+                  scroll id="list-detail" testId="list-detail" flex=1 min-height=0 scrollTop=top
+                    column padding=12 gap=8
+                      text ("composed " + toString(composed)) testId="composed-detail"
+                      column testId="tall" height=1600 background-color="#f3f4f6"
+                when e.name == "second"
+                  scroll id="list-second" testId="list-second" flex=1 min-height=0
+                    column padding=12 gap=8
+                      input value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                      button press=bump testId="bump-second" padding=6 background-color="#e5e7eb"
+                        text "Bump"
+                      exact-screen testId="screen" width="100%" height=96
+                      text "Second" testId="second-top"
+                      column testId="tall-second" height=1600 background-color="#eef2ff"
+      row role="tablist" aria-label="Tabs" testId="tabs" flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
+          image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
+          text "Home" font-size=11
+        button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
+          image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
+          text "Second" font-size=11

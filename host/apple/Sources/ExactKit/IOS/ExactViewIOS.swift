@@ -145,7 +145,12 @@ public final class ExactView: UIView {
         let container = presenter.modals.coordinateView ?? self
         let safe = container.safeAreaInsets
         let cover = presenter.viewportFit == "cover"
-        var frame = cover ? container.bounds : container.bounds.inset(by: safe)
+        // A native container showing its bars takes the whole view, as
+        // UIKit's do: the bar's material reaches under the status bar. Its
+        // routes keep their content inside its safe area through covers
+        // (LLP 1075.003 §3.5); `env()` stays what the page authored.
+        let whole = cover || presenter.navigation.wantsWholeView
+        var frame = whole ? container.bounds : container.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
         if presenter.interactiveWidget == "resizes-content" {
             let top: CGFloat

@@ -323,6 +323,60 @@ struct Route {
 /// projection visits them, and takes each from the end.
 pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
+/// A navigation root's tabpanels (LLP 1075.003 §3.7): those its own
+/// tablist's tabs name with `aria-controls`, in tab order — `navigation.js`'s
+/// `panelsOf`. A tablist inside a route is that route's, never the root's.
+fn tab_panels<S: Source>(src: &S, children: &[ViewId]) -> Vec<ViewId> {
+    fn find<S: Source>(
+        src: &S,
+        ids: &[ViewId],
+        out: &mut Vec<ViewId>,
+        pred: &dyn Fn(&NodeFacts<'_>) -> bool,
+        stop: &dyn Fn(&NodeFacts<'_>) -> bool,
+    ) {
+        for id in ids {
+            let Some(f) = src.facts(*id) else { continue };
+            if pred(&f) {
+                out.push(*id);
+            }
+            if !stop(&f) {
+                find(src, &src.children(*id), out, pred, stop);
+            }
+        }
+    }
+    let role = |f: &NodeFacts<'_>, r: &str| f.props.str(PropId::AccessibilityRole) == Some(r);
+    let route = |f: &NodeFacts<'_>| f.props.str(PropId::NavigationKey).is_some();
+    let mut lists = Vec::new();
+    find(src, children, &mut lists, &|f| role(f, "tablist"), &|f| {
+        route(f) || role(f, "tablist")
+    });
+    let mut panels = Vec::new();
+    find(src, children, &mut panels, &|f| role(f, "tabpanel"), &route);
+    for list in lists {
+        let named: Vec<ViewId> = src
+            .children(list)
+            .iter()
+            .filter_map(|t| src.facts(*t))
+            .filter(|t| role(t, "tab"))
+            .filter_map(|t| {
+                t.props
+                    .str(PropId::AccessibilityControls)
+                    .map(str::to_owned)
+            })
+            .filter_map(|id| {
+                panels.iter().copied().find(|p| {
+                    src.facts(*p)
+                        .is_some_and(|f| f.props.str(PropId::Id) == Some(id.as_str()))
+                })
+            })
+            .collect();
+        if !named.is_empty() {
+            return named;
+        }
+    }
+    Vec::new()
+}
+
 struct Walk<'r, 'w, S: Source> {
     src: &'r S,
     computed: Option<Computed>,
@@ -604,36 +658,72 @@ impl<S: Source> Walk<'_, '_, S> {
         Ok(())
     }
 
-    /// Mark the routes under a navigation root as `navigation.project` does.
+    /// Mark the routes under a navigation root as `navigation.project` does:
+    /// with tabs (LLP 1075.003 §3.7), every panel but the selected one is
+    /// hidden and inert, and each stack shows its own route.
     fn route_children(&mut self, node: &NodeFacts<'_>, children: &[ViewId]) {
         if node.props.str(PropId::NavigationBack).is_none() {
             return;
         }
         let src = self.src;
         let key = node.props.str(PropId::NavigationKey);
-        let routes: Vec<NodeFacts<'_>> = children
-            .iter()
-            .filter_map(|c| src.facts(*c))
-            .filter(|c| c.props.str(PropId::NavigationKey).is_some())
-            .collect();
+        let routes_in = |ids: &[ViewId]| -> Vec<ViewId> {
+            ids.iter()
+                .copied()
+                .filter(|c| {
+                    src.facts(*c)
+                        .is_some_and(|f| f.props.str(PropId::NavigationKey).is_some())
+                })
+                .collect()
+        };
+        let panels = tab_panels(src, children);
+        let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
+            vec![routes_in(children)]
+        } else {
+            panels
+                .iter()
+                .map(|p| routes_in(&src.children(*p)))
+                .collect()
+        };
+        let named = |id: &ViewId| {
+            src.facts(*id)
+                .is_some_and(|f| f.props.str(PropId::NavigationKey) == key)
+        };
         // A key that names no route leaves the stack as it is.
-        let Some(selected) = routes
-            .iter()
-            .position(|r| r.props.str(PropId::NavigationKey) == key)
-        else {
+        let Some(at) = stacks.iter().position(|routes| routes.iter().any(named)) else {
             return;
         };
-        let modal = routes[selected].props.str(PropId::NavigationPresentation) == Some("modal");
-        for (index, route) in routes.iter().enumerate() {
-            let active = index == selected;
-            let shown = active || (modal && index + 1 == selected);
+        for (index, panel) in panels.iter().enumerate() {
+            let active = index == at;
             self.routes.insert(
-                route.id,
+                *panel,
                 Route {
-                    hidden: !shown,
+                    hidden: !active,
                     inert: !active,
                 },
             );
+        }
+        for (stack, routes) in stacks.iter().enumerate() {
+            let selected = if stack == at {
+                routes.iter().position(named).unwrap_or(0)
+            } else {
+                routes.len().saturating_sub(1)
+            };
+            let modal = routes
+                .get(selected)
+                .and_then(|r| src.facts(*r))
+                .is_some_and(|f| f.props.str(PropId::NavigationPresentation) == Some("modal"));
+            for (index, route) in routes.iter().enumerate() {
+                let active = index == selected;
+                let shown = active || (modal && index + 1 == selected);
+                self.routes.insert(
+                    *route,
+                    Route {
+                        hidden: !shown,
+                        inert: !active,
+                    },
+                );
+            }
         }
     }
 
