@@ -2,6 +2,11 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { fixture } from './surface.mjs';
 
+test('a connected registered publisher is duplicate even before the GPU gives it an id', async () => {
+  const f = await fixture({ duplicateDuringLoad: true });
+  assert.equal(f.diagnostics.filter(line => line.includes('duplicate live publisher')).length, 1);
+});
+
 test('player restore flushes its public record before reporting success', async () => {
   const f=await fixture();f.create(1);
   f.gpu.gpu_restore=id=>{f.publish(id,{restored:true});return true;};

@@ -1,6 +1,6 @@
 # The web smoke fails intermittently on 'surface glass: duplicate live publisher ignored'
 
-**Status:** Closed
+**Status:** Open — not reproduced in review round 2
 **Systems:** web host (GPU glue), smoke
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -45,17 +45,20 @@ took 47 s each, minutes later, load near 40. So it is still there and shows
 under load; it had been closed as no longer reproducing after 13 passing
 runs at ad57fdc0. The probe above was not applied.
 
-## Fixed
+## Review round 2 (2026-10-02)
 
-The hypothesis was correct. A batch can create a replacement surface after
-DOM reconciliation has disconnected the old canvas but before the old view's
-`destroy` operation runs. `surfaces` therefore still contained the retired
-entry, and `publishers` treated its name as live even though the same `live()`
-predicate used by input, records, and agent operations already rejected it.
+The earlier explanation was disproved: `emit_receipts` emits all destroys
+before any surface publication, so that batch cannot create before destroy.
+Also, the attempted `live()` check used a GPU object id; an id is still zero
+while the GPU module loads, so two genuinely connected publishers could be
+silently accepted during precisely the slow-load window implicated here.
 
-Surface creation now replaces a publisher that fails `live()`. Destruction of
-the stale entry cannot clear its replacement because destruction already
-checks publisher identity. A deterministic create-before-destroy test covers
-that ordering, while the existing test continues to require an error for two
-connected publishers. The JS target copies and uses the same `gpu-glue.js`, so
-the fix applies to both web targets.
+The duplicate check was instrumented with old/new view, connection,
+`surfaces` registration, host view registration, generation, id, and stack.
+Three sequential `bun scripts/smoke.mjs web` runs did not reach it. They
+failed only on the builder's existing DBus/WebGPU/screenshot and scroll-limit
+failures. The permanent predicate now replaces an old publisher only when its
+surface or host view is no longer registered, or its element is disconnected;
+it never uses the GPU id. A regression test queues two connected, registered
+publishers before GPU load and requires the duplicate diagnostic. The original
+intermittent cause remains unknown, so this issue is open.
