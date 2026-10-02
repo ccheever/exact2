@@ -65,7 +65,7 @@ function setup() {
   };
 }
 
-test('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
+bunTest('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
   const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
   const bytes = collectionBytes(feedback), view = new DataView(bytes.buffer);
   expect(bytes.length).toBe(104);
@@ -327,7 +327,7 @@ test('integer DOM end retains fractional measured extent in actual collection fe
 });
 // LLP 1050.000 stage 1: a limited fill, travel, and authored jumps that wait.
 const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(64, true), limit: d.getUint32(72, true) }; };
-test('fill wire carries velocity and a clamped limit; none means u32::MAX', () => {
+bunTest('fill wire carries velocity and a clamped limit; none means u32::MAX', () => {
   const facts = { view: 1, revision: '1', scroll_sequence: '0', offset: 0, port_cross: 1, port_main: 1, cross: 1, focus_view: null, interaction_view: null, measurements: [] };
   expect(fillWire([...collectionBytes(facts, { velocity: -2400.5, limit: 3 })])).toEqual({ velocity: -2400.5, limit: 3 });
   expect(fillWire([...collectionBytes(facts, { limit: 0 })])).toEqual({ velocity: 0, limit: 0 });
@@ -640,7 +640,7 @@ test('immediate left catch uses displayed release threshold and cancellation nev
   expect(result).toEqual([{caught:'100px',final:'100px',actions:1,cancels:0},{caught:'100px',final:'34px',actions:0,cancels:0},{caught:'100px',final:'100px',actions:0,cancels:1}]);
 });
 
-test('motion wire keeps the complete u64 serial and millisecond clock',()=>{
+bunTest('motion wire keeps the complete u64 serial and millisecond clock',()=>{
   const bytes=motionBytes({op:'release',token:'18446744073709551615',x:17,y:-4,now:1234.5}),d=new DataView(bytes.buffer);
   expect(bytes.length).toBe(48);expect(d.getBigUint64(16,true)).toBe(18446744073709551615n);
   expect(d.getFloat64(24,true)).toBe(17);expect(d.getFloat64(40,true)).toBe(1234.5);
@@ -674,7 +674,7 @@ test('signed swipe resistance and caught indicators stay continuous across both 
   expect(result.zero).toEqual([[0,0.5,0.5],[32,0.75,0.75],[64,1,1]]);
 });
 
-test('height wire preserves the appended discriminator and exact token', () => {
+bunTest('height wire preserves the appended discriminator and exact token', () => {
   const bytes=motionBytes({op:'begin',view:2,property:'height',token:'9007199254740993',x:400,now:100});
   const d=new DataView(bytes.buffer);
   expect(d.getUint32(12,true)).toBe(4);
@@ -818,7 +818,7 @@ test('begin reply binding retirement owns the adopted hold before synchronous ba
   expect(result).toEqual({cleared:'180px',held:0,cancels:1,late:0,actions:0,animations:1,pins:[9]});
 });
 
-test('photo pair packet preserves all seven u64 stamps and the complete terminal payload',()=>{
+bunTest('photo pair packet preserves all seven u64 stamps and the complete terminal payload',()=>{
   const fields={op:'transform-action',runtime:'9007199254741001',handleKey:'9007199254741003',targetKey:'9007199254741005',clipKey:'9007199254741007',geometrySequence:'9007199254741009',translateToken:'9007199254741011',scaleToken:'9007199254741013',values:[13.25,-7.5,1.375,30,-10,0],now:110};
   const bytes=motionBytes(fields),d=new DataView(bytes.buffer);
   expect(bytes.length).toBe(120);expect(d.getUint32(0,true)).toBe(2);expect(d.getUint32(4,true)).toBe(13);
@@ -1098,7 +1098,7 @@ test('Arrange real pointer catch, one drop, terminal C0 and retained pin until a
   expect(settled).toEqual({finished:1,pin:0,z:'auto'});
   await evaluate('f.arrange.reset()');
 });
-test('Arrange packet v3 preserves every u64 and every final wrapper sample',()=>{
+bunTest('Arrange packet v3 preserves every u64 and every final wrapper sample',()=>{
   const facts={op:'reorder-terminal',runtime:'18446744073709551615',handleKey:'9007199254740993',listKey:'9007199254740994',wrapperKey:'9007199254740995',rootKey:'9007199254740996',rowEpoch:'9007199254740997',token:'9007199254740998',revision:'9007199254740999',scrollSequence:'9007199254741000',scrollTop:1.25,portWidth:320,portHeight:200,rowWidth:300,totalExtent:1234.5,contentY:800,x:3,y:42,vx:-12,vy:99,now:150,rows:[{key:'9007199254740995',hold:'9007199254741001',value:[3,42]}]};
   const bytes=motionBytes(facts),d=new DataView(bytes.buffer);
   expect(bytes.length).toBe(208);expect(d.getUint32(0,true)).toBe(3);expect(d.getUint32(4,true)).toBe(17);
