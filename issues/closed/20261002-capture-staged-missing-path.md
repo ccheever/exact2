@@ -1,6 +1,7 @@
 # Source capture fails when a staged file is missing from the working tree, stopping metrics, smoke and deploy
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 28d617918.
 **Systems:** scripts/deploy.mjs capture, metrics, smoke, deploy
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

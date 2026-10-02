@@ -7,6 +7,55 @@
 // drives it through the eight operations.
 
 component NativeFixture
+  state inputValue = ""
+  state inputEvents = ""
+  state inputCommands = 0
+  action inputCommand
+    inputCommands = inputCommands + 1
+  state dialogValue = ""
+  state dialogCommands = 0
+  action dialogChange(v: string)
+    dialogValue = v
+  action dialogCommand
+    dialogCommands = dialogCommands + 1
+  state blocked = false
+  state inputHidden = false
+  state inputInert = false
+  state blockOnBlur = ""
+  action blurWrapper
+    blur("box")
+  action armDisabled
+    blockOnBlur = "disabled"
+  action armInert
+    blockOnBlur = "inert"
+  action restrictInput
+    if blockOnBlur == "disabled"
+      blocked = true
+    if blockOnBlur == "inert"
+      inputInert = true
+    blockOnBlur = ""
+  action focusInput
+    focus("native-input")
+  action blurInput
+    focus("native-input")
+    blur("native-input")
+  action blurPlain
+    focus("native-input")
+    blur("plain")
+  action blockInput
+    blocked = not blocked
+  action hideInput
+    inputHidden = not inputHidden
+  action inertInput
+    inputInert = not inputInert
+  action inputChange(v: string)
+    inputValue = v
+  action inputFocus
+    inputEvents = inputEvents + "focus;"
+  action inputBlur
+    inputEvents = inputEvents + "blur;"
+  action inputKey(k: string)
+    inputEvents = inputEvents + "key:" + k + ";"
   state expanded = false
   state natural = true
   action grow
@@ -72,6 +121,36 @@ component NativeFixture
           text "Toggle intrinsic size"
       text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
       when shown
-        exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-      exact-plain testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
+        exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+      exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
       exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+      row gap=4 flex-wrap="wrap"
+        button testId="focus-input" press=focusInput
+          text "Focus input"
+        button testId="blur-input" press=blurInput
+          text "Blur input"
+        button testId="blur-plain" press=blurPlain
+          text "Blur plain"
+        button testId="block-input" press=blockInput
+          text "Disable input"
+        button testId="hide-input" press=hideInput
+          text "Hide input"
+        button testId="inert-input" press=inertInput
+          text "Inert input"
+        button testId="disable-on-blur" press=armDisabled blur=restrictInput
+          text "Disable on blur"
+        button testId="inert-on-blur" press=armInert blur=restrictInput
+          text "Inert on blur"
+        button testId="blur-wrapper" press=blurWrapper retainFocus=true
+          text "Blur wrapper"
+      when shown
+        column inert=inputInert display=(inputHidden ? "none" : "block")
+          button "Before input" testId="before-input"
+          exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
+          button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
+      button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
+      dialog id="native-dialog" width=320 padding=16 closedby="any"
+        column gap=8
+          exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
+          button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
+          button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
