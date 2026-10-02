@@ -203,7 +203,7 @@ final class DialogHost {
         guard let dialog = active, event.window === dialog.window else { return false }
         if let window = dialog.window, !ownsFocus(window) { return false }
         // Composition owns Escape and Tab until the input method commits it.
-        if let editor = dialog.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
+        if (dialog.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return false }
         if event.keyCode == 53 {
             if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { close(dialog) }
             return true

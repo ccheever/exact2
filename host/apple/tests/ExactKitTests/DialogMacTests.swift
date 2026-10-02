@@ -262,6 +262,22 @@ final class DialogMacTests: XCTestCase {
         XCTAssertNil(p.dialogs.active)
     }
 
+    func testCustomInputClientKeepsCompositionKeys() {
+        let p = fixture()
+        let editor = MarkedInputClient(frame: NSRect(x: 10, y: 45, width: 200, height: 30))
+        p.views[3]!.container.addSubview(editor)
+        for code: UInt16 in [48, 53] {
+            p.dialogs.show(p.views[3]!)
+            XCTAssertTrue(window.makeFirstResponder(editor))
+            editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+            XCTAssertTrue(editor.hasMarkedText())
+            XCTAssertFalse(p.dialogs.key(key(code)), "custom NSTextInputClient composition must own Tab/Escape")
+            XCTAssertTrue(p.dialogs.active === p.views[3], "Escape must not dismiss during composition")
+            XCTAssertTrue(window.firstResponder === editor, "Tab must not move focus during composition")
+            editor.unmarkText()
+        }
+    }
+
     func testSelectAllAndTextPaintingFollowTheTopLayer() {
         let p = fixture()
         p.apply(wireBatch([
@@ -397,5 +413,21 @@ final class DialogMacTests: XCTestCase {
         XCTAssertFalse(p.viewport.subviews.contains { $0 is DialogBackdrop })
     }
 
+}
+
+private final class MarkedInputClient: NSView, NSTextInputClient {
+    private var marked = false
+    override var acceptsFirstResponder: Bool { true }
+    func insertText(_ string: Any, replacementRange: NSRange) {}
+    override func doCommand(by selector: Selector) {}
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) { marked = true }
+    func unmarkText() { marked = false }
+    func selectedRange() -> NSRange { NSRange(location: 1, length: 0) }
+    func markedRange() -> NSRange { NSRange(location: marked ? 0 : NSNotFound, length: marked ? 1 : 0) }
+    func hasMarkedText() -> Bool { marked }
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect { .zero }
+    func characterIndex(for point: NSPoint) -> Int { 0 }
 }
 #endif
