@@ -73,7 +73,7 @@ import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings, macDesignCompatible, COMPATIBLE_MAC_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -1029,3 +1029,21 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   assert.match(plain, /<key>ExactLaunchMode<\/key><string>navigate-existing<\/string>/);
   assert.doesNotMatch(plain, /CFBundleDocumentTypes/);
 });
+
+test('a macOS app records the SDK it is built with unless its manifest keeps the design before macOS 26', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-design-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Design', app: { id: 'com.example.design', name: 'Design' }, host: { macos: { minimumOS: '14.0', designRequiresCompatibility: true } } }));
+    const manifest = readManifest(dir, 'design');
+    const app = (macos) => ({ id: 'com.example.design', manifest: { host: { macos } } });
+    assert.equal(macDesignCompatible({ id: 'com.example.design', manifest }), true, 'the manifest field is read');
+    assert.equal(macDesignCompatible(app({ minimumOS: '14.0' })), false, 'absent: the SDK the app is built with');
+    assert.equal(COMPATIBLE_MAC_SDK, '15.0', 'the last SDK before the macOS 26 design');
+    // An app that needs macOS 26 has no earlier design to keep.
+    assert.throws(() => macDesignCompatible(app({ minimumOS: '26.0', designRequiresCompatibility: true })), /no earlier design/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Design', app: { id: 'com.example.design', name: 'Design' }, host: { macos: { designRequiresCompatibility: 'yes' } } }));
+    assert.throws(() => readManifest(dir, 'design'), /designRequiresCompatibility/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
