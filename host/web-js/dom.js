@@ -13,6 +13,8 @@ class Node {
   get nextSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) + 1] ?? null : null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
   append(...nodes) { for (const n of nodes) this.insertBefore(typeof n === 'string' ? new Text(n) : n, null); }
+  // The nodes as one fragment, then before the first child (rt.js `each`'s row fragments).
+  prepend(...nodes) { const f = new Fragment(); f.append(...nodes); this.insertBefore(f, this.firstChild); }
   insertBefore(n, ref) {
     const list = n.nodeType === 11 ? n.childNodes.splice(0) : [n];
     for (const x of list) { x.parentNode?.removeChild(x); x.parentNode = this; }
