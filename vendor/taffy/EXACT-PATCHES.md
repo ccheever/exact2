@@ -20,15 +20,16 @@ Cargo.lock, Cargo.toml.orig and packaging receipts are omitted as before.
 
 ## Upstream submission audit, 2026-10-02
 
-Audited DioxusLabs/taffy main `fb461a7826e49f488f31220744bf12227ffb580e`.
+Initial coverage audit: DioxusLabs/taffy main `fb461a7826e49f488f31220744bf12227ffb580e`.
+The final ratio submission also integrates main `22f941e19e05d1b29621703b4f3a9d96d7839886`.
 The vendored implementation is unchanged; a merged upstream change is not yet
 available to Exact until its dependency is refreshed and checked.
 
 | Patch | Current upstream coverage |
 | --- | --- |
-| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are submitted in [#1209](https://github.com/DioxusLabs/taffy/pull/1209), by `ccheever`; 16 new Chrome-generated variants, eight failing before the fix. |
+| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are merged in [#1209](https://github.com/DioxusLabs/taffy/pull/1209), by `ccheever`; 16 new Chrome-generated variants, eight failing before the fix. |
 | 11 | Missing sizing-mode and margin-collapse cache inputs are submitted in [#1210](https://github.com/DioxusLabs/taffy/pull/1210), by `ccheever`; three restyle regressions fail before the fix. The original percentage-parent-height regression already passes current main and is retained as a control, so no additional parent-height key change was submitted. |
-| 12 | **Still incomplete.** Existing [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`), [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), and [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`) cover portions of the ratio behavior, not the whole patch. See the open ticket for the stopped attempt and remaining cases. |
+| 12 | Submitted as [#1213](https://github.com/DioxusLabs/taffy/pull/1213), by `ccheever`, with 500 new Chrome-derived variants. Shared ratio resolution covers block/flex/grid/absolute/root paths, min/max transfer, content minima, percentage bases and content-box ratio semantics. Includes #1210 as a prerequisite and explicitly credits/reconciles overlaps with [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`) and [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`). |
 | 14 | Negative-margin contribution fixes are already submitted in [#1165](https://github.com/DioxusLabs/taffy/pull/1165) and its dependent [#1166](https://github.com/DioxusLabs/taffy/pull/1166), by `nicoburns`. The earlier [#1164](https://github.com/DioxusLabs/taffy/pull/1164) is merged. Of 32 Chrome variants, eight fail current main and all pass at #1166 head `6c6fcb15a80d58c2ce9f38139e6780df79b86dea`. |
 | 17 | The absolute-inset half is merged in [#1203](https://github.com/DioxusLabs/taffy/pull/1203). Replaced grid alignment is submitted in [#1158](https://github.com/DioxusLabs/taffy/pull/1158), by `nicoburns`, on top of #1157. The three natural-size grid probes fail on current main and pass at #1158's head. Ratio sizing remains tracked with patch 12. |
 | 18 | The shared out-of-flow solver and hoisting are merged in [#1194](https://github.com/DioxusLabs/taffy/pull/1194); the auto-margin inset condition is merged in [#1202](https://github.com/DioxusLabs/taffy/pull/1202). Negative block-axis auto margins and inset/static-position shrink-to-fit are covered by existing [#1206](https://github.com/DioxusLabs/taffy/pull/1206), by `nicoburns`. Ratio semantics remain tracked with patch 12. |
@@ -41,21 +42,18 @@ passes 520/528; the remaining eight are the negative-margin cases for patch 14.
 This excludes ratio cases from the claimed coverage. No duplicate PRs or
 comments were sent to the authors of existing work.
 
-A second, explicitly authorized three-attempt ratio pass fixed the initial four
-text-height regressions. Its green block/leaf/container/root checkpoint is
-`1dd031567648743b58e0da0a27bf2a76e26eb619` (6,600 passing tests, four ignored;
-148 new variants also rechecked against live Chrome). It overlaps #1184 and was
-not submitted as a competing partial fix. The broader final integration,
-unpublished `beddc94a86220e0264121c15d0a1bf07a0f3cf31`, includes #1210's cache fix
-as a prerequisite and passes 1,244 of 1,252 additional ratio probes, but still
-regresses four existing grid variants. Its three remaining shapes are vertical-
-writing grid text (40×20 expected, 40×100), an absolute ratio box's automatic
-inline minimum (100×50 expected, 50×50), and #1081's column container width
-(34 expected, 30; child size correct). All four box-sizing/direction variants
-fail for each shape: 7,842 pass, 12 fail, four ignored in the complete audit.
-The renewed fix limit is reached; patch 12 remains open with exact recovery
-instructions in `issues/20260930-taffy-patches-not-sent-upstream.md`. No vendored
-functionality changed during either submission pass.
+The final ratio submission is `da1fac00a19f2fb366c198f7ab16aa6ceac14785`:
+6,978 committed tests pass, four ignored (6,693 XML, 153 unit, 127 handwritten,
+five doctests). A broader audit passed 7,925 XML cases. Its 500 new XML variants
+come from 125 HTML fixtures; natural-ratio choice remains with the host, while
+`aspect_ratio_content_box` declares the chosen ratio's sizing box. Formatting,
+feature checks, gentest compilation, clippy (existing warnings only), and an
+independent exact-commit review passed. The authorized seven-round final pass
+resolved the earlier block, grid, absolute and column-flex regressions without
+changing browser expectations. See the completed submission record in
+`issues/closed/20260930-taffy-patches-not-sent-upstream.md`.
+The submission itself changes no vendored code; other ticket fixes below are
+recorded separately. Refreshing the vendor after upstream merges is still owed.
 
 ## Patch 1: used cross sizes and intrinsic cache entries — upstream
 
