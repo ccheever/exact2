@@ -526,8 +526,8 @@ macro_rules! host {
         /// A native button's title and symbol (LLP 1069.011 D5), JSON;
         /// returns its length.
         #[no_mangle]
-        pub extern "C" fn exact_button_face(rt: u32, view: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.button_face(view), |n| n)
+        pub extern "C" fn exact_press_face(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
         }
 
         /// A select's options and the one it shows (LLP 1069.001 D5), JSON;

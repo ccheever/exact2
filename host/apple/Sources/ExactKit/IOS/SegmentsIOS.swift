@@ -37,6 +37,15 @@ private struct TabBarFace: Equatable {
     let tint: UIColor
 
     init?(_ tab: NodeView) {
+        // A native tab's face, from the kernel; its tint its accent
+        // (LLP 1069.011.000 D4).
+        if tab.isNativeButton {
+            guard let face = tab.face, face.fits, let symbol = face.symbol, let title = face.title else { return nil }
+            self.symbol = symbol
+            self.title = title
+            tint = tab.channels("accent_color").map { TextEngine.color($0) } ?? .label
+            return
+        }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
         guard children.count == 2,
               let image = children.first(where: { $0.kind == "image" }),
@@ -90,7 +99,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     private func tabs(in owner: NodeView) -> [NodeView] {
         owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.kind == "button" && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
         }
     }
 
@@ -125,6 +134,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
             control.icons[index] = (identity, size, label)
+        } else if case .symbol(let name)? = tab.segmentFace {
+            // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
+            let size = CGSize(width: -1, height: -1)
+            if let old = control.icons[index], (old.source as? NSString) == name as NSString, old.label == label { return }
+            let image = UIImage(systemName: name) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+            image.accessibilityLabel = label
+            control.setImage(image, forSegmentAt: index)
+            control.icons[index] = (name as NSString, size, label)
         } else {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }

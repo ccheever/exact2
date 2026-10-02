@@ -456,6 +456,9 @@ impl<D: DataSource> Presenter<D> {
             n.props.bool(PropId::Disabled) != Some(true)
                 && (n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
+                    // A native button is a button under any role (LLP 1069.011.000 D1).
+                    || exact_kernel::ControlKind::of(n.node_type, n.props)
+                        == Some(exact_kernel::ControlKind::Button)
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")

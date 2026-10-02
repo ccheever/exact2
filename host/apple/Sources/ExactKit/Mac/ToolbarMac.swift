@@ -92,6 +92,20 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         node.container.subviews.compactMap { $0 as? NodeView }
     }
 
+    /// A native button's prominent style is a prominent item, tinted by its
+    /// `accent-color`, in the macOS 26 design; every other button, and every
+    /// button in the earlier design, is the plain bordered item (LLP
+    /// 1069.011.000 D2).
+    private func prominence(_ item: NSToolbarItem, _ node: NodeView, _ face: ButtonFace?) {
+        guard #available(macOS 26.0, *) else { return }
+        let prominent = LinkedDesign.liquidGlass
+            && ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
+        let style: NSToolbarItem.Style = prominent ? .prominent : .plain
+        if item.style != style { item.style = style }
+        let tint = prominent ? node.channels("accent_color").map { TextEngine.color($0) } : nil
+        if item.backgroundTintColor != tint { item.backgroundTintColor = tint }
+    }
+
     private func text(_ node: NodeView) -> String {
         if node.kind == "text" { return node.paragraphSpec().runs.map(\.text).joined() }
         return children(node).map(text).filter { !$0.isEmpty }.joined(separator: " ")
@@ -139,7 +153,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
         let declarations = children(next).filter { visible($0) }
-        let buttons = declarations.filter { $0.kind == "button" && $0.handlers.contains("press") }
+        let buttons = declarations.filter { $0.isButton && $0.handlers.contains("press") }
         let headings = declarations.filter { $0.kind == "text" && $0.props["accessibilityRole"] == "heading" }
         // The bounded initial shape: direct action buttons and one heading.
         // Unsupported content keeps the authored presentation, never vanishes.
@@ -167,11 +181,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             item.tag = Int(node.id)
             item.target = self; item.action = #selector(performItem(_:))
             item.autovalidates = true
-            let label = node.props["accessibilityLabel"] ?? text(node)
+            // A native button's children are its face, not views (LLP 1069.011.000 D1, D2).
+            let face = node.isNativeButton ? node.face : nil
+            let label = node.props["accessibilityLabel"] ?? face?.title ?? text(node)
             if item.label != label { item.label = label; item.paletteLabel = label; item.toolTip = label }
             let image = children(node).first { $0.kind == "image" }
             // Standard toolbar items own their image sizing, tint and glass.
-            let symbol = image?.props["symbolName"] ?? ""
+            let symbol = face?.symbol ?? image?.props["symbolName"] ?? ""
             if symbol.isEmpty {
                 if item.image !== image?.image { item.image = image?.image }
                 symbols.removeValue(forKey: node.id)
@@ -181,8 +197,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             }
             item.isBordered = true
             item.isNavigational = node.props["toolbarPlacement"] == "navigation"
+            prominence(item, node, face)
             // Text-bearing authored buttons remain labeled in icon-only mode.
-            let title = text(node)
+            let title = face.map { $0.title ?? "" } ?? text(node)
             if item.title != title { item.title = title }
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
             if item.isEnabled != enabled { item.isEnabled = enabled }

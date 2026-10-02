@@ -109,14 +109,21 @@ struct SelectMenu: Equatable {
     }
 }
 
-/// A native button's face and style (`exact_button_face`, LLP 1069.011 D2,
-/// D5): its title, its symbol as the platform names it, whether the symbol
-/// leads, and its `buttonStyles` row — each platform's draw, a `~` marking a
-/// stand-in.
+/// A button's face (`exact_press_face`, LLP 1069.011.000 D1), custom or
+/// native, as the kernel reads it from its children: its title, its symbol as
+/// the platform names it, whether its image is a raster instead, whether the
+/// image leads, its `aria-label`, whether its children fit (one text, one
+/// image, nothing else); and a native button's `buttonStyles` row (LLP
+/// 1069.011 D2) — each platform's draw, a `~` marking a stand-in.
 struct ButtonFace: Equatable {
+    /// Whether the node is a button at all; the rest is empty when not.
+    var button = true
     var title: String?
     var symbol: String?
+    var raster = false
     var leading = true
+    var label: String?
+    var fits = true
     var style = "bordered"
     var ios = "bordered"
     var iosBefore26 = "bordered"
@@ -126,15 +133,23 @@ struct ButtonFace: Equatable {
     init() {}
     init(json: Data) {
         guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
+        button = o["button"] as? Bool ?? true
         title = o["title"] as? String
         symbol = o["symbol"] as? String
+        raster = o["raster"] as? Bool ?? false
         leading = o["leading"] as? Bool ?? true
+        label = o["label"] as? String
+        fits = o["fits"] as? Bool ?? true
         style = o["style"] as? String ?? "bordered"
         ios = o["ios"] as? String ?? "bordered"
         iosBefore26 = o["iosBefore26"] as? String ?? "bordered"
         macos = o["macos"] as? String ?? "push"
         known = o["known"] as? Bool ?? true
     }
+
+    /// The text a platform entry shows (a menu row, a confirmation's action):
+    /// the title, else the label (a symbol-only button's).
+    var shown: String? { title ?? label }
 
     /// A platform name without its stand-in mark, and whether it had one.
     static func drawn(_ name: String) -> (name: String, standIn: Bool) {

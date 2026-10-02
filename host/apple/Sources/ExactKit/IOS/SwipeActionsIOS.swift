@@ -100,7 +100,11 @@ final class SwipeActionsHost {
         refusals = refusals.filter { presenter.views[$0.key] != nil }
     }
 
-    private func label(_ node: NodeView) -> String { node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? "" }
+    /// An action's name; a native button's is its label, else its title
+    /// (LLP 1069.011.000 D6).
+    private func label(_ node: NodeView) -> String {
+        node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? ""
+    }
     func ownsAction(_ id: UInt32) -> Bool { rows.values.contains { ($0.leading + $0.trailing).contains { $0.id == id } } }
     func actionView(_ id: UInt32) -> UIButton? {
         for row in rows.values {
@@ -176,7 +180,7 @@ final class SwipeActionsHost {
         }
         private func project() -> (UITableView, Cell) {
             if let table, let cell { return (table, cell) }
-            let table = UITableView(frame: owner.bounds, style: .plain)
+            let table = SwipeTable(frame: owner.bounds, style: .plain)
             let cell = Cell(style: .default, reuseIdentifier: nil)
             table.dataSource = self; table.delegate = self
             // Only the outer authored scroll container scrolls vertically.
@@ -318,8 +322,20 @@ final class SwipeActionsHost {
                     complete(true)
                     self.host.presenter.press(target.id)
                 }
-                action.backgroundColor = target.color("background_color", .systemBlue)
                 action.accessibilityLabel = host.label(target)
+                if target.isNativeButton {
+                    // A native action (LLP 1069.011.000 D6): its accent, or the
+                    // platform's colour (UIKit's red for destructive); its
+                    // symbol, recorded for discovery as a snapshot is.
+                    if let accent = target.channels("accent_color").map({ TextEngine.color($0) }) { action.backgroundColor = accent }
+                    else if !destructive { action.backgroundColor = .systemBlue }
+                    if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
+                        image.accessibilityLabel = host.label(target)
+                        images[target.id] = image; action.image = image
+                    } else { action.title = host.label(target) }
+                    return action
+                }
+                action.backgroundColor = target.color("background_color", .systemBlue)
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {
                     func display(_ view: UIView) { view.layer.displayIfNeeded(); for child in view.subviews { display(child) } }
                     display(glyph)
@@ -364,6 +380,10 @@ final class SwipeActionsHost {
                 return view.subviews.contains(where: hasImage)
             }
             func visit(_ view: UIView) {
+                // UIKit's rendered actions only: never the authored row, its
+                // body or its hidden actions, so a native body button labelled
+                // like an action is not taken for it (LLP 1069.011.000 D6).
+                if view is NodeView { return }
                 if visibleOnly && (view.isHidden || view.alpha <= 0.01) { return }
                 if let button = view as? UIButton,
                    (!visibleOnly || table.bounds.intersects(button.convert(button.bounds, to: table))),
@@ -374,6 +394,13 @@ final class SwipeActionsHost {
             guard matches.count == 1 else { return nil }
             return matches[0]
         }
+    }
+}
+/// The swipe row's table: a pan cancels a touch in a native button in the
+/// row's body, as it does a custom button's (LLP 1069.011.000 D6).
+private final class SwipeTable: UITableView {
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        view is NativeButtonIOS || super.touchesShouldCancel(in: view)
     }
 }
 #endif

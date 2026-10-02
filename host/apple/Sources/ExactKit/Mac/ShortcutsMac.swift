@@ -117,7 +117,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // Buttons that declare a chord, and the window toolbar's own.
         let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
-            $0.kind == "button" && $0.pressable && presenter.toolbar.visible($0)
+            $0.isButton && $0.pressable && presenter.toolbar.visible($0)
                 && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
         }
     }
@@ -154,6 +154,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
             item.title = title(view)
+            // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
+            item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil
             item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
             item.target = self
@@ -214,6 +216,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     private func title(_ view: NodeView) -> String {
         if let label = view.props["accessibilityLabel"] { return label }
+        // A native button's children are its face, not views (LLP 1069.011.000 D1).
+        if view.isNativeButton { return view.face?.title ?? "" }
         if view.kind == "text" { return view.paragraphSpec().runs.map(\.text).joined() }
         return view.container.subviews.compactMap { $0 as? NodeView }.map(title).filter { !$0.isEmpty }.joined(separator: " ")
     }

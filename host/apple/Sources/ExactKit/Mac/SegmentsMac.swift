@@ -32,7 +32,7 @@ final class SegmentHost {
 
     private func tabs(in owner: NodeView) -> [NodeView] {
         owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.kind == "button" && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
         }
     }
 
@@ -91,6 +91,14 @@ final class SegmentHost {
                     image.accessibilityDescription = tab.accessibleName
                     control.setImage(image, forSegment: index)
                     control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+                    control.setLabel("", forSegment: index)
+                    control.setToolTip(tab.accessibleName, forSegment: index)
+                } else if case .symbol(let name)? = tab.segmentFace {
+                    // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
+                    let image = NSImage(systemSymbolName: name, accessibilityDescription: tab.accessibleName)
+                        ?? NSImage(size: NSSize(width: 1, height: 1))
+                    image.accessibilityDescription = tab.accessibleName
+                    control.setImage(image, forSegment: index)
                     control.setLabel("", forSegment: index)
                     control.setToolTip(tab.accessibleName, forSegment: index)
                 } else {

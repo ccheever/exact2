@@ -120,12 +120,14 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 
-    /// A native button's face (`exact_button_face`, LLP 1069.011 D2, D5), as
-    /// JSON in the output buffer: `{"title","symbol","leading","style","ios",
-    /// "iosBefore26","macos","known"}` — the symbol as the platform names it,
-    /// the style's row of the `buttonStyles` table (`bordered` for a name not
-    /// in it). Not a batch: nothing changes.
-    pub fn button_face(&mut self, view: u32) -> u32 {
+    /// A button's face (`exact_press_face`, LLP 1069.011.000 D1; LLP 1069.011
+    /// D2, D5), custom or native, as JSON in the output buffer:
+    /// `{"button","title","symbol","raster","leading","label","fits","style",
+    /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
+    /// empty) for a node that is not a button, the symbol as the platform
+    /// names it, the style's row of the `buttonStyles` table (`bordered` for a
+    /// name not in it). Not a batch: nothing changes.
+    pub fn press_face(&mut self, view: u32) -> u32 {
         let quote = exact_runner::agent::quote;
         let (face, style) = self
             .host
@@ -140,12 +142,14 @@ impl<D: DataSource> Bridge<D> {
                             .map(str::to_owned)
                     })
                     .unwrap_or_else(|| "bordered".into());
-                (kernel.button_face(view), style)
+                (kernel.press_face(view), style)
             })
             .unwrap_or_default();
+        let button = face.is_some();
+        let face = face.unwrap_or_default();
         let row = exact_kernel::generated::button_style(&style);
         let drawn = row.or_else(|| exact_kernel::generated::button_style("bordered"));
-        let mut json = String::from("{\"title\":");
+        let mut json = format!("{{\"button\":{button},\"title\":");
         match &face.title {
             Some(t) => quote(t, &mut json),
             None => json.push_str("null"),
@@ -159,7 +163,15 @@ impl<D: DataSource> Bridge<D> {
             Some(apple) => quote(apple, &mut json),
             None => json.push_str("null"),
         }
-        json.push_str(&format!(",\"leading\":{},\"style\":", face.leading));
+        json.push_str(&format!(
+            ",\"raster\":{},\"leading\":{},\"fits\":{},\"label\":",
+            face.raster, face.leading, face.fits
+        ));
+        match &face.label {
+            Some(l) => quote(l, &mut json),
+            None => json.push_str("null"),
+        }
+        json.push_str(",\"style\":");
         quote(&style, &mut json);
         if let Some(d) = drawn {
             json.push_str(",\"ios\":");

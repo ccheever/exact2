@@ -448,6 +448,9 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
                     )
+                    // A native button is named as a button under any role (LLP 1069.011.000 D1).
+                    || exact_kernel::ControlKind::of(node.node_type, node.props)
+                        == Some(exact_kernel::ControlKind::Button)
                 {
                     row["accessibleName"] = node
                         .props

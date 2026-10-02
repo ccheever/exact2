@@ -3,7 +3,7 @@
 //! symbol `image` children its face, its style from `buttonStyles` — and
 //! everything Contract can see that the platform cannot draw is refused.
 
-use exact_kernel::{ButtonFace, Kernel, NodeType, PropId, PropValue};
+use exact_kernel::{Kernel, NodeType, PressFace, PropId, PropValue};
 use exact_runner::{DataError, DataSource, Event, Runner, RunnerError, Value};
 
 struct NoData;
@@ -74,16 +74,19 @@ fn its_face_is_its_children_read_live() {
     ));
     let b = view_of(&r, "b");
     assert_eq!(
-        r.kernel().button_face(b),
-        ButtonFace {
+        r.kernel().press_face(b).unwrap(),
+        PressFace {
             title: Some("Send".into()),
             symbol: Some("send".into()),
-            leading: true
+            raster: false,
+            leading: true,
+            label: None,
+            fits: true,
         }
     );
     r.dispatch(b, Event::Press).unwrap();
     assert_eq!(
-        r.kernel().button_face(b).title.as_deref(),
+        r.kernel().press_face(b).unwrap().title.as_deref(),
         Some("Sent again")
     );
     // A press is the button's; `input` and `change` are not its events.
@@ -251,18 +254,29 @@ fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
     }
 }
 
+/// LLP 1069.011.000: a native button is a tab, a toolbar item, a header's
+/// button, a menu row, a swipe action and a shortcut's button; it is not a
+/// menu's invoker, a link, a submit, below a menu row or in a canvas.
 #[test]
-fn it_is_refused_where_its_children_or_input_are_read_another_way() {
+fn it_goes_where_a_button_goes_but_invokes_no_menu() {
     for body in [
-        "row role=\"tablist\"\n  button appearance=\"auto\" press=go\n    text \"Tab\"",
-        "row role=(busy ? \"tablist\" : \"group\")\n  button appearance=\"auto\" press=go\n    text \"Tab\"",
+        "row role=\"tablist\"\n  button appearance=\"auto\" role=\"tab\" aria-selected=true press=go\n    text \"Tab\"",
+        "row role=(busy ? \"tablist\" : \"group\")\n  button appearance=\"auto\" role=(busy ? \"tab\" : \"button\") press=go\n    text \"Tab\"",
         "header\n  button appearance=\"auto\" press=go\n    text \"Back\"",
-        "row toolbarPlacement=\"top\"\n  button appearance=\"auto\" press=go\n    text \"Edit\"",
-        "button appearance=\"auto\" press=go popovertarget=\"menu\"\n  text \"More\"",
-        "button appearance=\"auto\" press=go href=\"/x\"\n  text \"Open\"",
-        "button appearance=\"auto\" press=go role=\"tab\"\n  text \"Tab\"",
-        "button appearance=\"auto\" press=go type=\"submit\"\n  text \"Go\"",
+        "row toolbarPlacement=\"window\" role=\"toolbar\"\n  button appearance=\"auto\" buttonStyle=\"filled\" toolbarPlacement=\"navigation\" press=go\n    text \"Edit\"",
         "button appearance=\"auto\" press=go aria-keyshortcuts=\"Meta+S\"\n  text \"Save\"",
+        "column id=\"menu\" popover=\"auto\" role=\"menu\"\n  button appearance=\"auto\" role=\"menuitem\" press=go\n    image \"symbol:send\"\n    text \"Send\"\n  when busy\n    button appearance=\"auto\" press=go\n      text \"Wait\"",
+        "scroll swipeContent=\"body\" swipeTrailing=\"mute\" overflow-x=\"scroll\" width=200 height=40\n  row id=\"body\" width=200 height=40\n    button appearance=\"auto\" press=go\n      text \"Open\"\n  button id=\"mute\" appearance=\"auto\" press=go aria-label=\"Mute\"\n    image \"symbol:send\"",
+    ] {
+        contract::compile(&app(body)).unwrap_or_else(|e| panic!("{body}: {e}"));
+    }
+    for body in [
+        "button appearance=\"auto\" press=go popovertarget=\"menu\"\n  text \"More\"",
+        "button appearance=\"auto\" press=go commandfor=\"menu\"\n  text \"More\"",
+        "button appearance=\"auto\" press=go href=\"/x\"\n  text \"Open\"",
+        "button appearance=\"auto\" press=go role=\"dialog\"\n  text \"Go\"",
+        "button appearance=\"auto\" press=go type=\"submit\"\n  text \"Go\"",
+        "column id=\"menu\" popover=\"auto\"\n  row\n    button appearance=\"auto\" press=go\n      text \"Deep\"",
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-context", "{body}: {message}");
@@ -271,4 +285,31 @@ fn it_is_refused_where_its_children_or_input_are_read_another_way() {
             "{body}: {message}"
         );
     }
+}
+
+/// LLP 1069.011.000 D1: every button has a face — a custom one read as a
+/// native one is — and only a button has one.
+#[test]
+fn every_button_has_a_face_custom_or_native() {
+    let r = boot(&app(
+        "button press=go testId=\"custom\" aria-label=\"Save it\"\n  image \"symbol:send\"\n  text \"Save\"\nbutton press=go testId=\"raster\"\n  image \"https://example.com/a.png\"\nbutton press=go testId=\"badged\"\n  text \"Inbox\"\n  box width=4 height=4\nbox testId=\"plain\" width=4 height=4",
+    ));
+    let face = |id: &str| r.kernel().press_face(view_of(&r, id));
+    assert_eq!(
+        face("custom"),
+        Some(PressFace {
+            title: Some("Save".into()),
+            symbol: Some("send".into()),
+            raster: false,
+            leading: true,
+            label: Some("Save it".into()),
+            fits: true,
+        })
+    );
+    let raster = face("raster").unwrap();
+    assert!(raster.raster && raster.symbol.is_none() && raster.fits);
+    let badged = face("badged").unwrap();
+    assert_eq!(badged.title.as_deref(), Some("Inbox"));
+    assert!(!badged.fits, "a box beside the title does not fit");
+    assert_eq!(face("plain"), None, "a box is not a button");
 }

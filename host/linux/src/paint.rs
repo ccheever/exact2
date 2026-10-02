@@ -1078,7 +1078,7 @@ impl Painter {
                 self.range_control(node, content, ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
-                let title = walk.scene.kernel.button_face(node.id).title;
+                let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
                 self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
             }
             NodeType::Control => control::paint(
