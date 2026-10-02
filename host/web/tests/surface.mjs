@@ -20,7 +20,7 @@ export async function fixture(options = {}) {
       }] };
     } }, send: batch => applyBatch(batch),
   };
-  const gpu = { default() {}, gpu_unload() { order.push("old unload"); }, gpu_load() { if (options.loadFail) throw new Error("initial load failed"); }, gpu_seekable() {}, gpu_shader_names: () => '[]', gpu_shaders_clear() {},
+  const gpu = { default() {}, gpu_unload() { order.push("old unload"); }, async gpu_load() { if (options.gpuLoad) return options.gpuLoad(); if (options.loadFail) throw new Error("initial load failed"); }, gpu_seekable() {}, gpu_shader_names: () => '[]', gpu_shaders_clear() {},
     gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
@@ -75,7 +75,7 @@ export async function fixture(options = {}) {
   if (options.pendingCount) {
     exact.generation=0; exact.pendingSurfaces=[];
     for(let id=1;id<=options.pendingCount;id++) {
-      const host=new Element('host');host.canvas=new Element();views.set(id,host);
+      const host=new Element('host');host.canvas=new Element();host.style.background=options.pendingBackground ?? "";views.set(id,host);
       exact.pendingSurfaces.push({id,name:`surface-${id}`,values:[],generation:0});
     }
   }

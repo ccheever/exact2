@@ -100,7 +100,7 @@ pub fn load(registry: &'static Registry) -> u32 {
             0
         }
         Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e);
+            ERROR.with(|s| *s.borrow_mut() = e.to_string());
             1
         }
     }
@@ -128,16 +128,18 @@ pub fn device_is_lost() -> bool {
 
 /// Recover the loaded module without replacing its surface table. JSON outcome.
 pub fn recover() -> String {
-    with(|m| crate::block_on(m.recover()))
-        .unwrap_or_else(|| Err("GPU module not loaded".into()))
-        .unwrap_or_else(|error| {
-            refuse(&error);
-            let quoted = json::strings(&[error]);
-            format!(
-                "{{\"status\":\"failed\",\"error\":{}}}",
-                &quoted[1..quoted.len() - 1]
-            )
-        })
+    let Some(result) = with(|m| crate::block_on(m.recover())) else {
+        refuse("GPU module not loaded");
+        return "{\"status\":\"failed\",\"code\":\"recovery\",\"error\":\"GPU module not loaded\"}"
+            .into();
+    };
+    match result {
+        Ok(report) => report,
+        Err(error) => {
+            refuse(error.message());
+            error.json()
+        }
+    }
 }
 
 /// Load surface ownership only; no adapter is requested.

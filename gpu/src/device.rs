@@ -1,20 +1,70 @@
 //! Shared device grants; optional diagnostics allocate only on request.
 //! @ref llp/1046.006.000-render-hooks.rfc.md#d6-inspection-and-budgets
 use crate::{wgpu, Gpu};
+use std::fmt;
+
+/// The device-creation stage that failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceFailureKind {
+    /// No adapter can satisfy the request.
+    NoAdapter,
+    /// An adapter exists but cannot create the requested device.
+    NoDevice,
+}
+
+impl DeviceFailureKind {
+    /// Stable host-facing recovery code.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::NoAdapter => "no-adapter",
+            Self::NoDevice => "no-device",
+        }
+    }
+}
+
+/// A typed adapter or device creation failure.
+#[derive(Debug)]
+pub struct DeviceFailure {
+    kind: DeviceFailureKind,
+    message: String,
+}
+
+impl DeviceFailure {
+    /// Which device-creation stage failed.
+    pub fn kind(&self) -> DeviceFailureKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for DeviceFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}: {}",
+            self.kind.code().replace('-', " "),
+            self.message
+        )
+    }
+}
+
+impl std::error::Error for DeviceFailure {}
 
 /// Create the device from the first adapter that can present, requesting
 /// supported capacities independently. Awaited by native and web loaders.
 pub async fn load_gpu(
     instance: wgpu::Instance,
     compatible: Option<&wgpu::Surface<'_>>,
-) -> Result<Gpu, String> {
+) -> Result<Gpu, DeviceFailure> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: compatible,
             ..Default::default()
         })
         .await
-        .map_err(|e| format!("no adapter: {e}"))?;
+        .map_err(|e| DeviceFailure {
+            kind: DeviceFailureKind::NoAdapter,
+            message: e.to_string(),
+        })?;
     let available = adapter.limits();
     let required_limits = requested_limits(available);
     let (device, queue) = adapter
@@ -25,7 +75,10 @@ pub async fn load_gpu(
             ..Default::default()
         })
         .await
-        .map_err(|e| format!("no device: {e}"))?;
+        .map_err(|e| DeviceFailure {
+            kind: DeviceFailureKind::NoDevice,
+            message: e.to_string(),
+        })?;
     Ok(Gpu {
         instance,
         adapter,

@@ -221,23 +221,78 @@ test('failed recovery removes clones and backs off instead of retrying each fram
   assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
 });
 
-test('a missing adapter is terminal for the loss episode and is reported once', async () => {
+test('a missing adapter leaves a settled fallback through dirty frames and agent settle', async () => {
   const f=await fixture();
   // This recovery test has no runner record consumer; keep creation local to
   // the GPU harness instead of entering glue.js's extracted batch fixture.
   f.gpu.gpu_published=()=>undefined;
-  const canvas=f.create(1).canvas;
-  let attempts=0;
-  f.gpu.gpu_render=()=>3;
-  f.gpu.gpu_recover=async()=>{attempts++;throw new Error('no adapter: no suitable graphics adapter found');};
+  const host=f.create(1), canvas=host.canvas;
+  host.style.background='#123456';
+  let attempts=0, renders=0, dirty=true;
+  f.gpu.gpu_dirty=()=>dirty;
+  f.gpu.gpu_render=()=>{renders++;dirty=false;return 0;};
+  f.frame();
+  const failure=Object.assign(new Error('no adapter: no suitable graphics adapter found'),{code:'no-adapter'});
+  f.gpu.gpu_recover=async()=>{attempts++;throw failure;};
   f.exact.gpu.deviceLost();
-  await new Promise(r=>setTimeout(r,150));
-  for(let i=0;i<10;i++) { f.frame(); f.exact.gpu.deviceLost(); }
   await new Promise(r=>setTimeout(r,0));
+  assert.equal(renders,1);
   assert.equal(attempts,1);
   assert.equal(f.exact.gpu.recovery.status,'no device');
   assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
   assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  dirty=true;
+  f.gpu.gpu_render=()=>{renders++;return 3;};
+  const started=performance.now();
+  f.frame();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.ok(performance.now()-started<100,'terminal settle must not spend its 2.5 s retry bound');
+  assert.equal(renders,1,'a terminal surface never renders again');
+  assert.deepEqual([canvas.width,canvas.height],[1,1],'a terminal frame never resizes the bitmap');
+  assert.equal(host.style.background,'#123456','the kernel-owned fallback box keeps its background');
+  assert.ok(canvas.isConnected,'the transparent surface leaf stays under fallback children');
+});
+
+test('the last bounded non-adapter failure enters fallback and logs the terminal transition', async () => {
+  const f=await fixture();
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  let attempts=0;
+  f.gpu.gpu_recover=async()=>{
+    attempts++;
+    throw Object.assign(new Error('no device: limits rejected'),{code:'no-device'});
+  };
+  f.exact.gpu.deviceLost();
+  await new Promise(r=>setTimeout(r,1700));
+  assert.equal(attempts,5);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,2,
+    'the first error and the later terminal transition are each reported once');
+  f.gpu.gpu_dirty=()=>true;
+  const started=performance.now();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.ok(performance.now()-started<100);
+});
+
+for (const [name, navigator] of [
+  ['navigator.gpu absent', {}],
+  ['requestAdapter returning null', {gpu:{requestAdapter:async()=>null}}],
+]) test(`${name} keeps the initial loader fallback settled`, async () => {
+  let loads=0;
+  const f=await fixture({pendingCount:1,pendingBackground:'#abcdef',gpuLoad:async()=>{
+    loads++;
+    if (!navigator.gpu) throw new Error('WebGPU is unavailable');
+    if (!await navigator.gpu.requestAdapter()) throw new Error('no adapter: requestAdapter returned null');
+  }});
+  const started=performance.now();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.ok(performance.now()-started<100);
+  assert.equal(loads,1);
+  const host=f.exact.views.get(1);
+  assert.equal(host.style.background,'#abcdef');
+  assert.ok(host.canvas.isConnected);
+  assert.ok(f.diagnostics.some(line=>line.includes('exact gpu:')));
 });
 
 
