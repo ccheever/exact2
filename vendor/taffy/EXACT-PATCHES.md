@@ -14,9 +14,32 @@
   when a published version provides it. The numbered inventory retains the
   history so a refresh cannot silently lose an Exact correction.
 
-All upstream evidence below refers to the supplied, unmodified 0.14.0 source,
-not to a moving network branch. The package's source is copied in full; examples,
+The original patch descriptions refer to the supplied, unmodified 0.14.0
+source. The dated upstream audit below separately records current upstream work. The package's source is copied in full; examples,
 Cargo.lock, Cargo.toml.orig and packaging receipts are omitted as before.
+
+## Upstream submission audit, 2026-10-02
+
+Audited DioxusLabs/taffy main `fb461a7826e49f488f31220744bf12227ffb580e`.
+The vendored implementation is unchanged; a merged upstream change is not yet
+available to Exact until its dependency is refreshed and checked.
+
+| Patch | Current upstream coverage |
+| --- | --- |
+| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are submitted in [#1209](https://github.com/DioxusLabs/taffy/pull/1209), by `ccheever`; 16 new Chrome-generated variants, eight failing before the fix. |
+| 11 | Missing sizing-mode and margin-collapse cache inputs are submitted in [#1210](https://github.com/DioxusLabs/taffy/pull/1210), by `ccheever`; three restyle regressions fail before the fix. The original percentage-parent-height regression already passes current main and is retained as a control, so no additional parent-height key change was submitted. |
+| 12 | **Still incomplete.** Existing [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`), [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), and [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`) cover portions of the ratio behavior, not the whole patch. See the open ticket for the stopped attempt and remaining cases. |
+| 14 | Negative-margin contribution fixes are already submitted in [#1165](https://github.com/DioxusLabs/taffy/pull/1165) and its dependent [#1166](https://github.com/DioxusLabs/taffy/pull/1166), by `nicoburns`. The earlier [#1164](https://github.com/DioxusLabs/taffy/pull/1164) is merged. Of 32 Chrome variants, eight fail current main and all pass at #1166 head `6c6fcb15a80d58c2ce9f38139e6780df79b86dea`. |
+| 17 | The absolute-inset half is merged in [#1203](https://github.com/DioxusLabs/taffy/pull/1203). Replaced grid alignment is submitted in [#1158](https://github.com/DioxusLabs/taffy/pull/1158), by `nicoburns`, on top of #1157. The three natural-size grid probes fail on current main and pass at #1158's head. Ratio sizing remains tracked with patch 12. |
+| 18 | The shared out-of-flow solver and hoisting are merged in [#1194](https://github.com/DioxusLabs/taffy/pull/1194); the auto-margin inset condition is merged in [#1202](https://github.com/DioxusLabs/taffy/pull/1202). Negative block-axis auto margins and inset/static-position shrink-to-fit are covered by existing [#1206](https://github.com/DioxusLabs/taffy/pull/1206), by `nicoburns`. Ratio semantics remain tracked with patch 12. |
+| 20 | Static positioning and containing-block hoisting are merged in [#1140](https://github.com/DioxusLabs/taffy/pull/1140) and #1194. Existing #1206 covers the remaining RTL static shrink-to-fit cases. Upstream owns the hoist record internally, so Exact's caller-maintained record/replay API is not proposed upstream. |
+
+Fresh coverage audit: 528 preserved Chrome XML probes of negative margins,
+absolute boxes, and static containing blocks pass 480/528 on current main.
+Applying #1206's source (`b0a6a1b3ec5447810184cd7103d140d843af381d`)
+passes 520/528; the remaining eight are the negative-margin cases for patch 14.
+This excludes ratio cases from the claimed coverage. No duplicate PRs or
+comments were sent to the authors of existing work.
 
 ## Patch 1: used cross sizes and intrinsic cache entries — upstream
 
