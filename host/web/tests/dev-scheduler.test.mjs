@@ -3,12 +3,148 @@ import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
-import {open} from '../../../scripts/agent.mjs';
+import {open, Cdp} from '../../../scripts/agent.mjs';
 import {compilerPaths, gpuModules, pendingBuildInputs} from '../../../scripts/app.mjs';
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
 const source = readFileSync(process.env.E2B_DEV_SOURCE || new URL('../dev.mjs', import.meta.url), 'utf8');
+
+test('the JS dev loop carries state by built logic revision and refreshes host facts', async () => {
+  // RealWorld has routes and text fields but no GPU surface. Keep this proof
+  // independent of an optional renderer: a failure then identifies the dev
+  // server, page reload, or CDP navigation instead of a wedged GPU adapter.
+  const appDir=resolve(new URL('../../../apps/realworld',import.meta.url).pathname),contract=resolve(appDir,'app.contract'),logic=resolve(appDir,'app.ts'),helper=resolve(appDir,'dev-reload-helper.ts');
+  const original=readFileSync(contract,'utf8'),originalLogic=readFileSync(logic,'utf8');
+  const withProbe=text=>text
+    .replace('component RealWorld\n','shape DevReloadAnswer\n  value: string\nshape DevReloadRow\n  id: string\nshape DevReloadPage\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n\ncomponent RealWorld\n  state reloadProbe = "fresh"\n  state rowProbe = "row fresh"\n')
+    .replace('  resource follows = followings() as shape list<Follow>\n','  resource follows = followings() as shape list<Follow>\n  resource devReloadAnswer = devReloadAnswer() as shape DevReloadAnswer\n  resource devReloadRows = devReloadRows() as shape list<DevReloadRow>\n  resource devReloadPage = exactPage() as shape DevReloadPage\n')
+    .replace('  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft\n','  action setReloadProbe(value) writes reloadProbe\n    reloadProbe = value\n  action setRowProbe(value) writes rowProbe\n    rowProbe = value\n  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft\n')
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n      text devReloadAnswer.value testId="reload-answer"\n      text `${devReloadPage.onLine}` testId="reload-page-online"\n      list virtualized=true height=80 width="100%" overflow-y="scroll" testId="reload-list"\n        each row in devReloadRows key=row.id\n          column width="100%"\n            input value=rowProbe input=setRowProbe testId=`row-probe-${row.id}` aria-label="Row reload probe"\n');
+  const withNumberProbe=text=>text
+    .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
+  const withLogic=text=>text
+    .replace("import type { Answer, Sources, Result } from './app.contract.d.ts';\n","import type { Answer, Sources, Result } from './app.contract.d.ts';\nimport { devReloadValue } from './dev-reload-helper';\n")
+    .replace('const sources: Sources = {\n',"const sources: Sources = {\n  devReloadAnswer: () => ({ value: devReloadValue() }),\n  devReloadRows: () => [{ id: 'one' }],\n");
+  const edited=text=>text.replace('          text "conduit"\n','          text "conduit carried"\n');
+  const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
+  let dev,drive,lines='',ready;
+  const brief=value=>JSON.stringify(value,(key,item)=>typeof item==='string'&&item.length>200?`${item.slice(0,200)}… (${item.length} chars)`:item);
+  const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`dev reload did not become observable: ${brief(last)}\n${lines.slice(-3000)}`)};
+  try {
+    writeFileSync(helper,"export const devReloadValue = () => 'before:' + Date.now();\n");
+    writeFileSync(logic,withLogic(originalLogic));
+    writeFileSync(contract,withProbe(original));
+    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:process.env,stdio:['ignore','pipe','pipe']});
+    ready=new Promise((ok,fail)=>{const take=d=>{lines+=d;for(const line of lines.split('\n'))if(line==='plan ready')return ok()};dev.stdout.on('data',take);dev.stderr.on('data',take);dev.once('error',fail);dev.once('exit',code=>fail(new Error(`dev loop exited ${code}: ${lines.slice(-2000)}`)))});
+    await Promise.race([ready,new Promise((_,fail)=>setTimeout(()=>fail(new Error(`dev loop did not start: ${lines.slice(-2000)}`)),120000))]);
+    drive=await open({host:'web',app:'realworld',url:`http://127.0.0.1:${port}/`});
+    await drive.tap('nav-register');
+    assert.ok((await drive.tree()).nodes.some(n=>n.props?.testId==='page-register'),'the route changed before the reload');
+    const stack=(await drive.state()).navigation.stack;
+    await drive.carrier.evaluate(`(()=>{const el=document.querySelector('[data-testid="reload-probe"]');el.value='x'.repeat(6*1024*1024);el.dispatchEvent(new Event('input',{bubbles:true}));return el.value.length})()`);
+    assert.equal(await drive.carrier.evaluate(`document.querySelector('[data-testid="reload-probe"]').value.length`),6*1024*1024);
+    await drive.clock('settle');
+    await waitFor(()=>drive.tree(),tree=>tree.nodes.some(n=>n.props?.testId==='row-probe-one'));
+    await drive.type('row-probe-one','focused row');
+    await drive.prefer({online:'false'});
+    await drive.clock('+123');
+    const before=await drive.state();
+    assert.equal(before.resources.devReloadPage.onLine,false);
+    assert.match(before.resources.devReloadAnswer.value,/^before:/);
+    writeFileSync(contract,edited(withProbe(original)));
+    await waitFor(()=>Promise.resolve(lines),text=>text.includes('edit → plan ready'));
+    let carried;try{carried=await waitFor(()=>drive.tree(),t=>t.nodes.some(n=>n.props?.text==='conduit carried'))}catch(error){error.message+=`\npage: ${JSON.stringify(drive.carrier.hostLines)}`;throw error}
+    const state=await drive.state(),probe=carried.nodes.find(n=>n.props?.testId==='row-probe-one');
+    assert.equal(await drive.carrier.evaluate(`document.querySelector('[data-testid="reload-probe"]').value.length`),6*1024*1024,'a checkpoint larger than sessionStorage survives');
+    assert.equal(state.slots.rowProbe,'focused row');
+    assert.equal(state.clock,123);
+    assert.ok(carried.nodes.some(n=>n.props?.testId==='page-register'),'the route stack survives the reload');
+    assert.deepEqual(state.navigation.stack,stack,'the complete route stack survives');
+    assert.equal(state.focus.logical,probe.id);
+    assert.deepEqual(state.resources.devReloadAnswer,before.resources.devReloadAnswer,'an ordinary settled answer is carried when emitted logic is identical');
+    assert.equal(state.resources.devReloadPage.onLine,true,'exactPage is read from the new document instead of the checkpoint');
+    writeFileSync(helper,"export const devReloadValue = () => 'after:' + Date.now();\n");
+    const changedLogic=await waitFor(()=>drive.state(),s=>s.resources.devReloadAnswer?.value?.startsWith('after:'));
+    assert.match(changedLogic.resources.devReloadAnswer.value,/^after:/,'an imported-helper edit changes the emitted logic digest and drops stale answers');
+    writeFileSync(contract,edited(withNumberProbe(original)));
+    await waitFor(()=>drive.state(),s=>s.slots.reloadProbe===7);
+    writeFileSync(contract,edited(original));
+    await waitFor(()=>drive.state(),s=>!('reloadProbe' in s.slots));
+    writeFileSync(contract,edited(withProbe(original)));
+    const fresh=await waitFor(()=>drive.state(),s=>s.slots.reloadProbe==='fresh');
+    assert.equal(fresh.slots.reloadProbe,'fresh','a slot absent from the intervening plan is not resurrected');
+  } finally {
+    writeFileSync(contract,original);
+    writeFileSync(logic,originalLogic);
+    if(existsSync(helper))unlinkSync(helper);
+    await drive?.close();
+    if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
+  }
+},180_000);
+test('the Caltrain JS dev loop keeps its station search across an app edit', async () => {
+  const contract=resolve(new URL('../../../apps/caltrain/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
+  const edited=original.replace('            text "Caltrain" font-size=13','            text "Caltrain reloaded" font-size=13');
+  const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
+  let dev,drive,lines='';
+  const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`Caltrain reload did not become observable: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
+  try {
+    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','caltrain','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:process.env,stdio:['ignore','pipe','pipe']});
+    const ready=new Promise((ok,fail)=>{const take=d=>{lines+=d;for(const line of lines.split('\n'))if(line==='plan ready')return ok()};dev.stdout.on('data',take);dev.stderr.on('data',take);dev.once('error',fail);dev.once('exit',code=>fail(new Error(`dev loop exited ${code}: ${lines.slice(-2000)}`)))});
+    await Promise.race([ready,new Promise((_,fail)=>setTimeout(()=>fail(new Error(`dev loop did not start: ${lines.slice(-2000)}`)),120000))]);
+    drive=await open({host:'web',app:'caltrain',url:`http://127.0.0.1:${port}/`});
+    await drive.tap('change-station');
+    await drive.type('station-search','Palo');
+    const before=await drive.state();
+    assert.equal(before.slots.screen,'stations');assert.equal(before.slots.query,'Palo');
+    writeFileSync(contract,edited);
+    const tree=await waitFor(()=>drive.tree(),t=>t.nodes.some(n=>n.props?.testId==='brand'&&n.props?.text==='Caltrain reloaded'));
+    const state=await drive.state(),search=tree.nodes.find(n=>n.props?.testId==='station-search');
+    assert.equal(state.slots.screen,'stations');assert.equal(state.slots.query,'Palo');assert.equal(state.focus.logical,search.id);
+  } finally {
+    writeFileSync(contract,original);
+    await drive?.close();
+    if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
+  }
+},180_000);
+test('a page whose first build failed reloads into the fixed build', async () => {
+  // The first build's error page has no runtime (`globalThis.exact` never
+  // exists), so its reload must not wait for one. Driven over a raw DevTools
+  // pipe: agent.mjs's open() waits for a runtime this page never has.
+  const chrome=process.env.CHROME;
+  if(!chrome||!existsSync(chrome)){console.warn('SKIP first-build error reload: CHROME names no browser');return;}
+  const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
+  const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
+  const profile=mkdtempSync(join(tmpdir(),'exact-dev-error-')),dist=mkdtempSync(join(tmpdir(),'exact-dev-error-dist-'));
+  let dev,browser,lines='';
+  const waitFor=async (read,accept,ms=60000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,50))}throw new Error(`not observed: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
+  try {
+    writeFileSync(contract,original+'\nthis is not Contract (\n');
+    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:{...process.env,EXACT_WEB_DIST:dist},stdio:['ignore','pipe','pipe']});
+    dev.stdout.on('data',d=>{lines+=d});dev.stderr.on('data',d=>{lines+=d});
+    const url=`http://127.0.0.1:${port}/`;
+    await waitFor(()=>fetch(url).then(r=>r.status),status=>status===200,180000);
+    browser=spawn(chrome,['--headless=new','--remote-debugging-pipe','--no-sandbox',`--user-data-dir=${profile}`,'--no-first-run','about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+    const cdp=new Cdp(browser.stdio[3],browser.stdio[4]);
+    const page=await waitFor(()=>cdp.send('Target.getTargets'),r=>r.targetInfos.some(t=>t.type==='page'),20000);
+    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:page.targetInfos.find(t=>t.type==='page').targetId,flatten:true});
+    const evaluate=expression=>cdp.send('Runtime.evaluate',{expression,returnByValue:true},sessionId).then(r=>r.result.value);
+    await cdp.send('Page.navigate',{url},sessionId);
+    await waitFor(()=>evaluate("document.readyState"),s=>s==='complete',20000);
+    assert.equal(await evaluate("typeof globalThis.exact"),'undefined','the first build failed, so the page has no runtime');
+    writeFileSync(contract,original);
+    await waitFor(()=>evaluate("typeof globalThis.exact==='object'&&!!document.getElementById('exact-root')"),up=>up===true,180000);
+  } finally {
+    writeFileSync(contract,original);
+    if(browser?.exitCode===null){browser.kill('SIGKILL');await new Promise(ok=>{const t=setTimeout(ok,2000);browser.once('exit',()=>{clearTimeout(t);ok()})})}
+    if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
+    rmSync(profile,{recursive:true,force:true});
+    rmSync(dist,{recursive:true,force:true});
+  }
+},420_000);
 test('static watcher follows immediate creation, in-place edits, and directory replacement', async () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-static-edits-'));
   const assets=join(dir,'assets'),outside=join(dir,'outside'),changes=[];

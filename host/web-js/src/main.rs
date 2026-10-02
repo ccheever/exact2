@@ -18,14 +18,19 @@ mod style;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites]";
+const USAGE: &str =
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]";
 
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
     // a Contract compiled here leaves its source map beside the plan.
     let all: Vec<String> = std::env::args().skip(1).collect();
     let sites = all.iter().any(|a| a == "--sites");
-    let args: Vec<String> = all.into_iter().filter(|a| a != "--sites").collect();
+    let dev_reload = all.iter().any(|a| a == "--dev-reload");
+    let args: Vec<String> = all
+        .into_iter()
+        .filter(|a| a != "--sites" && a != "--dev-reload")
+        .collect();
     let (input, out, dump) = match args.as_slice() {
         [cmd, input, o, out] if cmd == "js" && o == "-o" => (input, out, false),
         [cmd, input, o, out, d] if cmd == "js" && o == "-o" && d == "--dump" => (input, out, true),
@@ -78,7 +83,7 @@ fn main() -> ExitCode {
     if dump {
         emit::dump(&plan);
     }
-    match emit::emit(&plan, sites) {
+    match emit::emit(&plan, sites, dev_reload) {
         Ok(out_files) => {
             let dir = std::path::Path::new(out);
             if let Err(e) = std::fs::create_dir_all(dir) {

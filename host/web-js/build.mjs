@@ -14,6 +14,7 @@
 // adapter (`agent.js`, only under `?agent`) are separate files.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
@@ -33,6 +34,10 @@ const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 // sitemap) and head links carried, so the web root it publishes is the
 // wasm root's in everything but the program (LLP 1071 §7, delivery).
 const production = args.includes('--production');
+// Only host/web-js/dev.mjs asks for this: typed state checkpoint hooks that
+// ordinary and production builds neither emit nor link.
+const devReload = args.includes('--dev-reload');
+if (production && devReload) { console.error('--production and --dev-reload are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
@@ -50,6 +55,8 @@ const rust = !!manifest.rust?.module || bakes;
 // over another app's sources (`--data`) asks the Rust module only.
 const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
 const mixed = rust && ts;
+const appTs = resolve(appDir, 'app.ts');
+const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
@@ -62,7 +69,7 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit).
 const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug/exact-web-js');
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
-const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites'])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 for (const f of ['rt.js', 'shape.js', 'paint.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
@@ -83,6 +90,7 @@ const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').ma
 const files = existsSync(resolve(gen, 'files.flag'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
+  ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, resolvedLocale, Resources } from './rt.js';",
   ...(time ? [
@@ -97,6 +105,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
   "const start = () => {",
   "  const state = app();",
+  ...(devReload ? ["  finishDev();"] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources });",
   // The agent adapter, only when the agent drives the page.
   ...(production ? [] : ["  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
@@ -195,7 +204,20 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 {
   const { rolldown } = await import('rolldown');
   const b = await rolldown({ input: resolve(gen, 'main.js'), logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
-  await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js' });
+  // In a development reload build, put the TypeScript data module and every
+  // helper it imports in one chunk the page really loads. Its emitted bytes,
+  // rather than watcher filenames or source mtimes, are the logic revision.
+  const fromData = (id, getModuleInfo, seen = new Set()) => {
+    if (id === appTs) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return (getModuleInfo(id)?.importers ?? []).some(parent => fromData(parent, getModuleInfo, seen));
+  };
+  const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',
+    ...(devReload && ts ? { manualChunks: (id, { getModuleInfo }) => fromData(id, getModuleInfo) ? 'dev-data' : undefined } : {}) });
+  if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(appTs))) {
+    devLogic.push(['typescript', createHash('sha256').update(readFileSync(resolve(out, chunk.fileName))).digest('hex')]);
+  }
   await b.close();
 }
 
@@ -287,10 +309,12 @@ if (rust) {
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
   const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
+  if (devReload) devLogic.push(['rust', createHash('sha256').update(readFileSync(resolve(out, 'rust/wasm/app.module.wasm'))).digest('hex')]);
   moduleStorage = /^\s*(?:fs|sqlite)\./m.test(await moduleGrants(built));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
 }
+if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js): what host/web/build.mjs ships.
 if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
