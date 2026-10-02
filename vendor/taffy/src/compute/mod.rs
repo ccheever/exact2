@@ -154,6 +154,8 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
     let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, root, parent_size);
     let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
 
+    let available_space = available_space.maybe_sub(non_auto_margin.sum_axes());
+
     // Recursively compute node layout
     let mut output = tree.perform_child_layout(
         root,

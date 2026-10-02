@@ -288,14 +288,10 @@ impl AbsoluteBox {
         if given.width.is_none()
             && (self.ratio.is_none() || (given.height.is_none() && between_insets.height.is_none()))
             && between_insets.width.is_none() && !self.is_replaced {
-            let mut intrinsic = |width| tree.measure_child_size(
-                node, Size::NONE, parent_size,
-                Size { width, height: AvailableSpace::MaxContent },
-                sizing_mode, AbsoluteAxis::Horizontal, Line::FALSE,
-            );
-            let min = intrinsic(AvailableSpace::MinContent);
-            let max = intrinsic(AvailableSpace::MaxContent);
-            given.width = Some(inset_space.width.max(min).min(max));
+            given.width = Some(super::fit_content_width(
+                tree, node, Size::NONE, Size { width: true, height: true },
+                parent_size, inset_space.width, sizing_mode,
+            ));
         }
 
         let (size, min_size, max_size) = match self.ratio {

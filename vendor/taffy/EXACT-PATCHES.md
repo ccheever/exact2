@@ -773,3 +773,28 @@ height as a percentage basis in 15, the logical alignment keywords in 148).
 Patch 12 also resolves percentages against the ratio height while allowing the
 content minimum to enlarge the used height, and measures the automatic inline
 minimum for height-derived widths (block, flex, grid, absolute boxes and roots).
+
+
+## Patch 25: available space excludes the child's margins
+
+`LayoutInput::available_space` has one border-box convention. Parents subtract
+child margins; leaf and flex entries subtract only their padding and border.
+Flex intrinsic/cross-size probes, grid intrinsic probes and root layout supply
+that border-box space. Block and absolute callers already did. Flex cross-size
+limits use the child's margins, not the container's.
+
+An automatic non-stretched inline size also uses CSS fit-content's intrinsic
+min/available/max clamp in grid and column-flex layout, shared with the absolute
+solver. The width of wrapped ink does not replace the used width. Replaced and
+ratio-specific sizing retain their existing paths.
+
+**Held by** `browser_position::available_space_with_margins_matches_chrome`:
+28 literal-Chrome cases cover absolute and in-flow leaf/block/flex/grid shapes,
+short and unbreakable content, percentage/negative margins, padding and max-width.
+The original ticket's absolute example already matched after patch 18's explicit
+shrink-to-fit width; grid children still double-subtracted margins, and column
+flex children treated block/grid and leaf/flex widths differently.
+
+Both incremental/rehydrated/replayed layout differentials also pass 500 seeds
+each, 40 mutations per seed (2026-10-02); the larger loop was a temporary run,
+with the ordinary checked-in smoke counts restored afterward.

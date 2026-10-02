@@ -275,6 +275,14 @@ pub(super) fn align_and_position_item(
             return Some(grid_area_minus_item_margins_size.width);
         }
 
+        // A non-stretched automatic inline size is fit-content, even when
+        // its text wraps to an ink width smaller than the available width.
+        if size_style.width.is_auto() && !is_replaced && aspect_ratio.is_none() {
+            return Some(crate::compute::common::fit_content_width(
+                tree, node, Size::NONE, Size { width: true, height: true }, grid_area_size.map(Some),
+                grid_area_minus_item_margins_size.width, SizingMode::InherentSize,
+            ));
+        }
         None
     });
 
