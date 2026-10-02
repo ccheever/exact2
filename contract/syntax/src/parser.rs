@@ -810,22 +810,20 @@ impl Parser {
             }
             self.expect_punct(")")?;
         }
-        let mut writes = Vec::new();
+        // @ref LLP 1035.005.000 D1 — the body is the one statement of effects.
         if self.at_ident("writes") {
-            self.next();
-            loop {
-                writes.push(self.ident()?);
-                if !self.eat_punct(",") {
-                    break;
-                }
-            }
+            return self.err(
+                "syntax-writes-clause",
+                format!(
+                    "`{name}`'s effects are inferred from its body: delete the `writes` clause"
+                ),
+            );
         }
         self.newline()?;
         let body = self.block(|p| p.stmt())?;
         Ok(Action {
             name,
             params,
-            writes,
             body,
             span,
         })

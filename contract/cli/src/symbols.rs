@@ -15,6 +15,9 @@ struct Definition {
     span: Span,
     component: Option<String>,
     owner: Option<String>,
+    /// An action's inferred effects, in its component's slot order
+    /// (LLP 1035.005.000 D1): what `writes` used to restate.
+    writes: Option<Vec<String>>,
 }
 struct Reference {
     span: Span,
@@ -60,6 +63,7 @@ impl Graph {
             span,
             component: component.map(str::to_owned),
             owner: owner.map(str::to_owned),
+            writes: None,
         });
         if kind == "id" {
             self.ids.entry(name.into()).or_default().push(index);
@@ -178,6 +182,16 @@ fn write_symbol(
         out.extend_from_slice(b",\"owner\":");
         quote(out, owner);
     }
+    if let (None, Some(writes)) = (to, &definition.writes) {
+        out.extend_from_slice(b",\"writes\":[");
+        for (i, name) in writes.iter().enumerate() {
+            if i != 0 {
+                out.push(b',');
+            }
+            quote(out, name);
+        }
+        out.push(b']');
+    }
     out.push(b'}');
 }
 
@@ -291,7 +305,7 @@ impl<'a> Resolver<'a> {
             self.graph
                 .define("fn", &f.name, names.name(f.span), None, None);
         }
-        for c in &self.file.components {
+        for (ci, c) in self.file.components.iter().enumerate() {
             self.graph
                 .define("component", &c.name, names.name(c.span), None, None);
             let cn = Some(c.name.as_str());
@@ -324,9 +338,24 @@ impl<'a> Resolver<'a> {
                     None,
                 );
             }
+            let router = self.file.routes.as_ref().filter(|_| ci == 0);
+            let slots: Vec<&str> = router
+                .map(|r| r.slot.as_str())
+                .into_iter()
+                .chain(c.states.iter().map(|s| s.name.as_str()))
+                .chain(c.mutations.iter().map(|m| m.name.as_str()))
+                .collect();
             for action in &c.actions {
-                self.graph
-                    .define("action", &action.name, names.name(action.span), cn, None);
+                let at =
+                    self.graph
+                        .define("action", &action.name, names.name(action.span), cn, None);
+                let effects = action.effects();
+                let writes = slots
+                    .iter()
+                    .filter(|slot| effects.iter().any(|e| e.target == **slot))
+                    .map(|slot| (*slot).to_owned())
+                    .collect();
+                self.graph.definitions[at].writes = Some(writes);
             }
             for task in &c.tasks {
                 self.graph
@@ -528,9 +557,6 @@ impl<'a> Resolver<'a> {
             }
             for (ai, a) in c.actions.iter().enumerate() {
                 self.owner = Some(a.name.clone());
-                for (name, span) in &a.writes {
-                    self.name(name, *span);
-                }
                 for (pi, p) in a.params.iter().enumerate() {
                     if let Some(ty) = &p.ty {
                         self.ty(ty);

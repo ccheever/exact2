@@ -354,18 +354,26 @@ fn lower_with_sites(
             .collect::<Result<_, LowerError>>()?;
         let params_ref: Vec<(&str, TypesId)> =
             params.iter().map(|(n, t)| (n.as_str(), *t)).collect();
-        let writes: Vec<exact_plan::SlotsId> = a
-            .writes
+        // @ref LLP 1035.005.000 D1 — the VM's allowlist is exactly what the
+        // body assigns or sends through every branch, in slot order.
+        let mut writes: Vec<exact_plan::SlotsId> = a
+            .effects()
             .iter()
             .map(
-                |(w, _)| match root.states.iter().position(|s| &s.name == w) {
+                |e| match root.states.iter().position(|s| s.name == e.target) {
                     Some(si) => l.slots[si],
                     None => {
-                        l.mutation_slots[root.mutations.iter().position(|m| &m.name == w).unwrap()]
+                        l.mutation_slots[root
+                            .mutations
+                            .iter()
+                            .position(|m| m.name == e.target)
+                            .unwrap()]
                     }
                 },
             )
             .collect();
+        writes.sort_unstable_by_key(|slot| slot.0);
+        writes.dedup();
         let id = l.b.action(&a.name, &params_ref, &writes, placeholder);
         l.actions.push(id);
     }

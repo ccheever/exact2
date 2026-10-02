@@ -144,18 +144,12 @@ component Label
   view
     text accent
 ---
-== analyze-write-not-declared
+== syntax-writes-clause
+# An action's effects are inferred from its body (LLP 1035.005.000 D1).
+# Two spaces before `writes` keep the clause-removing rewrite off this one.
 component A
   state n = 1
-  action bump
-    n = n + 1
-  view
-    text "a"
----
-== analyze-writes-unknown-state
-component A
-  state n = 1
-  action bump writes m
+  action bump  writes n
     n = 2
   view
     text "a"
@@ -330,17 +324,6 @@ component Row
   view
     button press=press testId="r"
       text "r"
----
-== analyze-write-not-declared
-# A write inside a branch counts (LLP 1017 P2): `writes` covers the whole body.
-component A
-  state n = 0
-  state s = ""
-  action go(k) writes n
-    if k == "a"
-      s = k
-  view
-    input value=s change=go
 ---
 == type-condition
 component A

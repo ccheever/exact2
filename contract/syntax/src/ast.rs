@@ -432,19 +432,66 @@ pub struct Param {
     pub span: Span,
 }
 
-/// `action name(params) writes a, b` with a body of statements.
+/// `action name(params)` with a body of statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Action {
     /// Name.
     pub name: String,
     /// Parameters.
     pub params: Vec<Param>,
-    /// The `writes` list.
-    pub writes: Vec<(String, Span)>,
     /// Statements.
     pub body: Vec<Stmt>,
     /// Where.
     pub span: Span,
+}
+
+/// One slot an action body assigns (`x = …`) or sends (`send m = …`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Effect<'a> {
+    /// The state or mutation.
+    pub target: &'a str,
+    /// The statement.
+    pub span: Span,
+    /// `send`, not an assignment.
+    pub send: bool,
+}
+
+impl Action {
+    /// Every slot the body assigns or sends, through every branch of its
+    /// `if`s and `match`es, in statement order with repeats. An action's
+    /// effects are inferred, never declared (LLP 1035.005.000 D1).
+    pub fn effects(&self) -> Vec<Effect<'_>> {
+        fn walk<'a>(stmts: &'a [Stmt], out: &mut Vec<Effect<'a>>) {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Assign { target, span, .. } => out.push(Effect {
+                        target,
+                        span: *span,
+                        send: false,
+                    }),
+                    Stmt::Send { target, span, .. } => out.push(Effect {
+                        target,
+                        span: *span,
+                        send: true,
+                    }),
+                    Stmt::If {
+                        then, otherwise, ..
+                    } => {
+                        walk(then, out);
+                        walk(otherwise, out);
+                    }
+                    Stmt::Match { some, none, .. } => {
+                        walk(&some.1, out);
+                        walk(none, out);
+                    }
+                    Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.body, &mut out);
+        out
+    }
 }
 
 /// A statement in an action body.

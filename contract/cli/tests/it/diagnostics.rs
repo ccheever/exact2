@@ -628,131 +628,105 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
     assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
 }
 
+/// Each action's allowlist in the plan, as slot names, in plan order.
+fn plan_writes(plan: &exact_plan::Plan) -> Vec<(String, Vec<String>)> {
+    let name = |id: exact_plan::StrId| plan.strings[id.0 as usize].clone();
+    plan.actions
+        .iter()
+        .map(|a| {
+            let slots = (a.writes.start..a.writes.start + a.writes.len)
+                .map(|w| name(plan.slots[plan.writes[w as usize].slot.0 as usize].name))
+                .collect();
+            (name(a.name), slots)
+        })
+        .collect()
+}
+
+// @ref LLP 1035.005.000 D1 — effects are inferred; the clause is refused.
 #[test]
-fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
+fn an_imported_writes_clause_is_refused_at_its_token_and_symbols_show_the_inferred_effects() {
     let app = App::new("action-effects");
     let used = "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    column\n      Toggle()\n      Toggle()\n";
     let unused =
         "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
     let root = app.write("app.contract", used);
-    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        clicks = value + 1\n        touched = true\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
     for root_source in [used, unused] {
         app.write("app.contract", root_source);
-        for (writes, message, line, col, end_col) in [
-            ("", "`choose` has undeclared effects on `clicks`, `enabled`, `touched`; add these names to its `writes` declaration", 7, 7, 13),
-            (" writes clicks", "`choose` has undeclared effects on `enabled`, `touched`; add these names to its `writes` declaration", 9, 7, 14),
-            (" writes clicks, enabled", "`choose` writes `touched` but does not declare it: add `writes touched`", 13, 9, 16),
-        ] {
-            let path = app.write("lib/toggle.contract", &source.replace("WRITES", writes)).canonicalize().unwrap();
-            let expected = contract::compile_path(&root).unwrap_err();
-            assert_eq!(expected.id, "analyze-write-not-declared");
-            assert_eq!(expected.message, message);
-            let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]), 1);
-            same_error(&errors[0], &expected);
-            assert_eq!(errors[0]["file"], path.to_str().unwrap());
-            assert_eq!(errors[0]["line"], line);
-            assert_eq!(errors[0]["col"], col);
-            assert_eq!(errors[0]["end_col"], end_col);
-            assert!(!app.0.join("refused.plan").exists());
-            let human = app.run(&[root.to_str().unwrap()]);
-            assert_eq!(human.status.code(), Some(1));
-            assert!(String::from_utf8_lossy(&human.stderr).contains(message));
-        }
-        for (writes, id, message) in [
-            (
-                " writes enabled, enabled",
-                "analyze-writes-duplicate",
-                "`enabled` listed twice in `writes`",
-            ),
-            (
-                " writes absent",
-                "analyze-writes-unknown-state",
-                "`absent` in `writes` is not a state or a mutation; available writes: `clicks`, `enabled`, `touched`",
-            ),
-        ] {
-            app.write("lib/toggle.contract", &source.replace("WRITES", writes));
-            let error = contract::compile_path(&root).unwrap_err();
-            assert_eq!(error.id, id);
-            assert_eq!(error.message, message);
-        }
-        app.write(
-            "lib/toggle.contract",
-            &source.replace("WRITES", " writes enabled, clicks, touched"),
+        let path = app
+            .write(
+                "lib/toggle.contract",
+                &source.replace("WRITES", " writes clicks"),
+            )
+            .canonicalize()
+            .unwrap();
+        let expected = contract::compile_path(&root).unwrap_err();
+        assert_eq!(expected.id, "syntax-writes-clause");
+        assert_eq!(
+            expected.message,
+            "`choose`'s effects are inferred from its body: delete the `writes` clause"
         );
-        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
-    }
-}
-
-#[test]
-fn unknown_writes_report_all_names_and_choices_in_the_authored_component() {
-    let app = App::new("writes-choices");
-    let child = "component Row\n  props\n    label: string\n  state count = 0\n  state enabled = false\n  derive total = count + 1\n  action add(value: number) writes cuont, enabeld, cuont\n    count = count + value\n    enabled = true\n  view\n    button label press=add(1)\n";
-    for view in [
-        "      Row(label=\"a\")\n      Row(label=\"b\")\n",
-        "      text \"unused\"\n",
-    ] {
-        let root = app.write("app.contract", &format!("use Row from \"./lib/row.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  state parent = 0\n  view\n    column\n{view}"));
-        let path = app.write("lib/row.contract", child).canonicalize().unwrap();
-        let error = contract::compile_path(&root).unwrap_err();
-        assert_eq!(error.id, "analyze-writes-unknown-state");
-        assert_eq!(error.message, "`cuont`, `enabeld` in `writes` are not states or mutations; available writes: `count`, `enabled`");
         let errors = diagnostics(
             &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
             1,
         );
-        same_error(&errors[0], &error);
+        same_error(&errors[0], &expected);
         assert_eq!(errors[0]["file"], path.to_str().unwrap());
-        assert_eq!(errors[0]["line"], 7);
-        assert_eq!(errors[0]["col"], 36);
-        assert_eq!(errors[0]["end_col"], 41);
-        assert!(!app.0.join("refused.plan").exists());
-        let human = app.run(&[root.to_str().unwrap()]);
-        assert_eq!(human.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
-        app.write(
-            "lib/row.contract",
-            &child.replace("cuont, enabeld, cuont", "count, enabled"),
+        assert_eq!(
+            (
+                errors[0]["line"].as_u64(),
+                errors[0]["col"].as_u64(),
+                errors[0]["end_col"].as_u64()
+            ),
+            (Some(6), Some(19), Some(25))
         );
+        assert!(!app.0.join("refused.plan").exists());
+        app.write("lib/toggle.contract", &source.replace("WRITES", ""));
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+        let symbols: Value =
+            serde_json::from_str(&contract::symbols_json(&root, Some("choose")).unwrap()).unwrap();
+        let definitions = symbols["definitions"].as_array().unwrap();
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0]["kind"], "action");
+        assert_eq!(
+            definitions[0]["writes"],
+            serde_json::json!(["enabled", "clicks", "touched"])
+        );
+        assert!(symbols["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r.get("writes").is_none()));
     }
 }
 
 #[test]
-fn unknown_writes_choices_include_router_and_mutations_but_not_lifted_slots() {
-    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number) writes cuont, reslut, nva, reslut\n    count = value\n    send result = save()\n    nav = push(nav, \"/\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1)\ncomponent Child\n  state hidden = false\n  view\n    text \"child\"\n";
+fn a_child_action_cannot_write_its_parents_state() {
+    // What `writes` once caught is scope: a child names only its own slots.
+    let source = "component App\n  state parent = 0\n  view\n    column\n      Row()\ncomponent Row\n  state count = 0\n  action add\n    parent = count\n  view\n    button \"Add\" press=add\n";
     let error = contract::compile(source).unwrap_err();
-    assert_eq!(error.id, "analyze-writes-unknown-state");
-    assert_eq!(error.message, "`cuont`, `reslut`, `nva` in `writes` are not states or mutations; available writes: `count`, `nav`, `result`");
-    assert!(
-        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, result, nav"))
-            .is_ok()
-    );
-    let duplicate =
-        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, count, missing"))
-            .unwrap_err();
-    assert_eq!(duplicate.id, "analyze-writes-duplicate");
-    assert_eq!(duplicate.message, "`count` listed twice in `writes`");
-    let empty =
-        "component App\n  action noop writes missing\n  view\n    button \"Run\" press=noop\n";
-    let error = contract::compile(empty).unwrap_err();
-    assert_eq!(error.id, "analyze-writes-unknown-state");
-    assert_eq!(error.message, "`missing` in `writes` is not a state or a mutation; this component has no state or mutation slots");
-    assert!(contract::compile(&empty.replace(" writes missing", "")).is_ok());
+    assert_eq!(error.id, "type-assign-not-state");
+    assert_eq!(error.message, "`parent` is not a state or a mutation");
+    assert!(contract::compile(&source.replace("parent = count", "count = count + 1")).is_ok());
 }
 
 #[test]
-fn missing_effects_include_sends_and_do_not_repeat_targets() {
-    let source = "shape Reply\n  ok: bool\ncomponent App\n  state waiting = false\n  mutation result as shape Reply\n  action submitWRITES\n    send result = save()\n    waiting = true\n    if waiting\n      send result = save()\n  view\n    button press=submit\n      text \"Save\"\n";
-    for (writes, message) in [
-        ("", "`submit` has undeclared effects on `result`, `waiting`; add these names to its `writes` declaration"),
-        (" writes waiting", "`submit` sends `result` but does not declare it: add `writes result`"),
-        (" writes result", "`submit` writes `waiting` but does not declare it: add `writes waiting`"),
-    ] {
-        let error = contract::compile(&source.replace("WRITES", writes)).unwrap_err();
-        assert_eq!(error.id, "analyze-write-not-declared");
-        assert_eq!(error.message, message);
+fn the_plans_allowlist_is_every_slot_the_body_writes_or_sends_in_slot_order() {
+    // Router state, a send, a branch, a repeat; a lifted child's slots stay its own.
+    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  state waiting = false\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number)\n    send result = save()\n    count = value\n    if value > 1\n      nav = push(nav, \"/\")\n      send result = save()\n    else\n      count = 0\n  action idle\n    focus(\"save\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1) testId=\"save\"\ncomponent Child\n  state hidden = false\n  action hide\n    hidden = true\n  view\n    button \"child\" press=hide\n";
+    let writes = plan_writes(&contract::compile(source).unwrap());
+    let of = |name: &str| writes.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    assert_eq!(of("submit"), ["nav", "count", "result"]);
+    assert_eq!(of("idle"), Vec::<String>::new());
+    let hides: Vec<_> = writes
+        .iter()
+        .filter(|(n, _)| n != "submit" && n != "idle")
+        .collect();
+    assert_eq!(hides.len(), 2, "{writes:?}");
+    for (_, slots) in hides {
+        assert_eq!(slots.len(), 1, "{writes:?}");
+        assert!(slots[0].contains("hidden"), "{writes:?}");
     }
-    assert!(contract::compile(&source.replace("WRITES", " writes result, waiting")).is_ok());
 }
 
 #[test]

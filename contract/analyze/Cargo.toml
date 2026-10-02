@@ -5,7 +5,7 @@ name = "contract-analyze"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Contract analysis: writes checking, handler arity, component uses, derive cycles"
+description = "Contract analysis: handler arity, component uses, timer and then actions"
 publish = false
 
 [lib]

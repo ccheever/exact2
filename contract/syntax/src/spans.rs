@@ -101,7 +101,7 @@ structs! {
     Placeholder { source, args, span }
     MutationDecl { name, shape, refreshes, then, span }
     Param { name, ty, span }
-    Action { name, params, writes, body, span }
+    Action { name, params, body, span }
     Task { name, kind, timer, span }
     Attr { name, value, span }
 }

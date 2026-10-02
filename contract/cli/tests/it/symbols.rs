@@ -147,6 +147,20 @@ fn exact_ranges_cover_declarations_sources_locals_fields_and_ids() {
     let action = at_line(&graph, "tick", line(SOURCE, "every(1000"));
     assert_eq!(action.len(), 1);
     assert_eq!(target(&graph, action[0])["kind"], "action");
+    // An action's effects are inferred and shown on its definition
+    // (LLP 1035.005.000 D1); nothing else carries `writes`.
+    for (name, writes) in [
+        ("edit", vec!["textValue"]),
+        ("save", vec!["saved"]),
+        ("tick", vec!["textValue"]),
+    ] {
+        let action = definition(&graph, "action", name, None);
+        assert_eq!(action["writes"], serde_json::json!(writes));
+    }
+    assert!(refs(&graph).iter().all(|r| r.get("writes").is_none()));
+    assert!(defs(&graph)
+        .iter()
+        .all(|d| (d["kind"] == "action") == d.get("writes").is_some()));
 }
 
 #[test]

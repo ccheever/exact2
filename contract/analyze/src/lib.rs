@@ -1,21 +1,20 @@
 //! Analysis: what the types do not say.
 //!
-//! @ref LLP 1004 D2 (effect signatures, `writes` checking, region structure)
-//! / LLP 0508 §10.3 (actions as reducers with declared writes; research)
+//! @ref LLP 1004 D2 (effect signatures, region structure)
+//! / LLP 1035.005.000 D1 (an action's effects are inferred from its body)
 //!
 //! After types, a program can still be wrong in ways an implementer would
-//! otherwise discover at runtime: an action writing a slot it did not declare,
-//! a handler naming an action that does not exist or with the wrong number of
-//! curried arguments, or a `task` ticking an unknown action. Child actions
-//! declare effects on their own state (LLP 1017 P4c). Every rejection carries
-//! a stable id and a span.
+//! otherwise discover at runtime: a handler naming an action that does not
+//! exist or with the wrong number of curried arguments, a `task` ticking an
+//! unknown action, or a mutation's `then` sending that mutation. Every
+//! rejection carries a stable id and a span.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 mod arity;
 
-use contract_syntax::{Action, Component, Expr, File, Node, Span, Stmt};
+use contract_syntax::{Component, Expr, File, Node, Span};
 use contract_types::{Checked, Ref, Scope, Ty};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -200,14 +199,6 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
-        // Check authored actions once, not every lifted instance. Keep the
-        // resolved slots: the root's router state is implicit in the source.
-        let router = file
-            .routes
-            .as_ref()
-            .filter(|_| ci == 0)
-            .map(|r| r.slot.as_str());
-        check_actions(c, scoped, router, &mut errors);
         errors.extend(check_tasks(c).err());
         errors.extend(check_mutation_then(c).err());
         errors.extend(check_view(&c.view, &scope, file).err());
@@ -218,138 +209,6 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         Ok(Analysis {})
     } else {
         Err(errors)
-    }
-}
-
-fn check_actions(
-    component: &Component,
-    slots: &Component,
-    router: Option<&str>,
-    errors: &mut Vec<AnalyzeError>,
-) {
-    for a in &component.actions {
-        if let Err(e) = check_action(a, component, slots, router) {
-            errors.push(e);
-        }
-    }
-}
-
-fn check_action(
-    a: &Action,
-    component: &Component,
-    slots: &Component,
-    router: Option<&str>,
-) -> Result<(), AnalyzeError> {
-    {
-        let mut declared = BTreeSet::new();
-        for (w, span) in &a.writes {
-            if !writable(slots, w) {
-                return Err(unknown_writes(a, component, slots, router, *span));
-            }
-            if !declared.insert(w.clone()) {
-                return err(
-                    "analyze-writes-duplicate",
-                    format!("`{w}` listed twice in `writes`"),
-                    *span,
-                );
-            }
-        }
-        let mut targets = Vec::new();
-        writes_of(&a.body, &mut targets);
-        let mut missing = BTreeSet::new();
-        targets.retain(|(target, _, _)| !declared.contains(*target) && missing.insert(*target));
-        if let Some((target, span, how)) = targets.first() {
-            let message = if targets.len() == 1 {
-                format!(
-                    "`{}` {how} `{target}` but does not declare it: add `writes {target}`",
-                    a.name
-                )
-            } else {
-                let names = targets
-                    .iter()
-                    .map(|(target, _, _)| format!("`{target}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "`{}` has undeclared effects on {names}; add these names to its `writes` declaration",
-                    a.name
-                )
-            };
-            return err("analyze-write-not-declared", message, **span);
-        }
-    }
-    Ok(())
-}
-
-fn writable(slots: &Component, name: &str) -> bool {
-    slots.states.iter().any(|s| s.name == name) || slots.mutations.iter().any(|m| m.name == name)
-}
-
-// Only the refusal path constructs choices. The expanded root determines
-// membership, but its lifted child slots are not names the author can write.
-fn unknown_writes(
-    action: &Action,
-    component: &Component,
-    slots: &Component,
-    router: Option<&str>,
-    span: Span,
-) -> AnalyzeError {
-    let mut seen = BTreeSet::new();
-    let unknown = action
-        .writes
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .filter(|name| !writable(slots, name) && seen.insert(*name))
-        .map(|name| format!("`{name}`"))
-        .collect::<Vec<_>>();
-    let predicate = if unknown.len() == 1 {
-        "is not a state or a mutation"
-    } else {
-        "are not states or mutations"
-    };
-    let choices = component
-        .states
-        .iter()
-        .map(|s| s.name.as_str())
-        .chain(component.mutations.iter().map(|m| m.name.as_str()))
-        .chain(router)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(|name| format!("`{name}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let hint = if choices.is_empty() {
-        "this component has no state or mutation slots".to_owned()
-    } else {
-        format!("available writes: {choices}")
-    };
-    AnalyzeError {
-        id: "analyze-writes-unknown-state",
-        message: format!("{} in `writes` {predicate}; {hint}", unknown.join(", ")),
-        span,
-        related: Vec::new(),
-    }
-}
-
-/// Every slot an action body writes or sends, through every branch of its
-/// `if`s and `match`es (LLP 1017 P2): `writes` covers the whole body.
-fn writes_of<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a String, &'a Span, &'static str)>) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::Assign { target, span, .. } => out.push((target, span, "writes")),
-            Stmt::Send { target, span, .. } => out.push((target, span, "sends")),
-            Stmt::If {
-                then, otherwise, ..
-            } => {
-                writes_of(then, out);
-                writes_of(otherwise, out);
-            }
-            Stmt::Match { some, none, .. } => {
-                writes_of(&some.1, out);
-                writes_of(none, out);
-            }
-            Stmt::Command { .. } | Stmt::Refresh { .. } => {}
-        }
     }
 }
 
@@ -379,11 +238,10 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
                 *span,
             );
         }
-        let mut writes = Vec::new();
-        writes_of(&a.body, &mut writes);
-        if let Some((_, send, _)) = writes
+        if let Some(send) = a
+            .effects()
             .into_iter()
-            .find(|(target, _, kind)| **target == m.name && *kind == "sends")
+            .find(|e| e.send && e.target == m.name)
         {
             return err(
                 "analyze-then-self-send",
@@ -391,7 +249,7 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
                     "`{}` cannot send `{}`: it runs when that mutation answers",
                     a.name, m.name
                 ),
-                *send,
+                send.span,
             );
         }
     }

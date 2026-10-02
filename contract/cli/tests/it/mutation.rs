@@ -468,12 +468,6 @@ fn the_language_refuses_what_it_should() {
         let e = contract::compile(&SRC.replace(edit, with)).unwrap_err();
         assert!(format!("{e}").contains(id), "{e}");
     };
-    // A send needs its mutation in `writes`.
-    refuse(
-        "action submit writes session",
-        "action submit",
-        "analyze-write-not-declared",
-    );
     // `send` only to a mutation; `refresh` only a resource.
     refuse(
         "send session = login(who, password)",

@@ -454,13 +454,6 @@ fn inline_nodes(
                                 .map(|(param, _, _)| param.clone())
                                 .chain(a.params.iter().cloned())
                                 .collect(),
-                            writes: a
-                                .writes
-                                .iter()
-                                .map(|(w, sp)| {
-                                    (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
-                                })
-                                .collect(),
                             body: subst_stmts(&a.body, &mut Subst::new(&action_subst), &names),
                             span: a.span,
                         },

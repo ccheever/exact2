@@ -61,7 +61,7 @@ fn the_app_slice_parses_to_the_expected_tree() {
     assert_eq!(app.resources.len(), 1);
     assert!(matches!(app.resources[0].shape, TypeExpr::List(..)));
     assert_eq!(app.actions.len(), 2);
-    assert_eq!(app.actions[0].writes.len(), 2);
+    assert_eq!(app.actions[0].effects().len(), 2);
     assert!(
         matches!(app.actions[0].body[0], Stmt::Assign { ref target, .. } if target == "stationId")
     );
