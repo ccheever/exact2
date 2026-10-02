@@ -328,7 +328,11 @@ document's names exactly; the integrator checks them against the core lane.
   `horizontalViewportSegments == 2` the list pane is `width="env(viewport-segment-width
   0 0)"` and the detail pane `position="absolute" left="env(viewport-segment-left 1 0)"
   width="env(viewport-segment-width 1 0)" height="100%"`, each inset by the safe areas on
-  its own side; otherwise one pane, the list above the detail; `selected` is shared. It
+  its own side; with `verticalViewportSegments == 2` (the Duo's inner panel upright
+  reports a horizontal division) the list pane is `height="env(viewport-segment-height 0
+  0)"` and the detail pane `position="absolute" top="env(viewport-segment-top 0 1)"
+  height="env(viewport-segment-height 0 1)"`, full width; otherwise one pane, the list
+  above the detail; `selected` is shared. It
   prints the facts as `fact-posture`, `fact-h`, `fact-v`, `fact-size`; the panes are
   `pane-list` and `pane-detail`, the rows `item-<n>`, the detail `detail-title`; the tabs
   `tab-fold|images|reflow|combos`; `image-list`, `document`, `reflow-scroll`,
@@ -347,30 +351,58 @@ document's names exactly; the integrator checks them against the core lane.
   `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
   pushed screen with its sheet and keyboard across a fold) and the two-session host.
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
-  and the segments are checked against what the device reports (see below).
-- **`contract/corpus/segments.contract`** and `contract/cli/tests/it/segments.rs`: all
-  six `env(viewport-segment-*)` variables on two panes, the facts as text; the test
-  builds it and asserts the one-segment stack. The two-segment case
-  (`Kernel::set_segments(2, 1, …)`, D3) is written into the test's doc comment for the
-  integrator, since the API did not exist here.
+  and the segments are checked against what the device reports (see below); the panes
+  are checked against the two rects `layout.env` reports, whichever axis the device
+  splits. It refuses a duo-lab bundle linked against an SDK before iOS 27.1 by name: such
+  a build finds neither UIKit 27.1 class and reports flat, so the Duo run needs
+  `DEVELOPER_DIR` at the 27.1 beta for `build.mjs --ios duo-lab` too. Failures print as
+  they happen, and a missed live fold update is retried with a second hinge move and
+  reported as a miss either way.
+- **`contract/corpus/segments.contract`** and `contract/cli/tests/it/segments.rs`: the
+  facts as text; the list pane on segment (0, 0) and the detail pane on (1, 0), each by
+  its segment's `top`, `left`, `width` and `height`; a marker on segment (0, 0)'s
+  bottom-right corner through `calc(env(viewport-segment-right 0 0) - 4px)` and
+  `-bottom`, since those two are a segment's edges from the viewport's left and top (a
+  DOMRect's, the core half's choice) and not CSS insets. The test boots the fixture,
+  asserts the bake's one-segment stack, then drives `Runner::set_fold` and
+  `Kernel::set_segments(2, 1, …)` through the Duo's division — `pane-list` at (0, 0,
+  455.5, 669), `pane-detail` at (495.5, 0, 455.5, 669), the corner at (451.5, 665, 8, 8)
+  — a grid of one under a fold that still says two (the rows' initial values: each
+  absolute pane shrinks to nothing at the flex container's start), and flat again.
 
-**Pending the core lane.** The compiler refuses the three `env()` lengths
-(`lower-attr-value`), so duo-lab's three crates do not bake on this base, the segments
-test fails at compile, and the sweeps that compile every app and corpus file
-(`lint::the_element_lint_finds_nothing_in_any_app`,
-`fmt::every_corpus_file_and_app_round_trips_through_the_printer`,
-`incremental::every_app_plan_updates_incrementally_exactly_as_it_does_in_full`) fail with
-the same refusal; the bake will refuse the three fields next. The Fold checks of
-`smoke duo` fail with `undefined` for posture and segments. Everything else was verified
-with an uncommitted variant of the Fold screen (the three fields dropped, the segment
-lengths as `calc(50% ± 20px)`, two panes above 900 points): the three other screens on
-the iOS 27.0 iPhone 18 Pro simulator, macOS and the web (JS target), and the Duo matrix.
+**Before the rebase onto the core lane** (a74a8489b): the compiler refused the three
+`env()` lengths, so the app's crates did not bake, the segments test and the sweeps over
+every app and corpus file failed with that refusal, and `smoke duo`'s Fold checks saw
+`undefined`; the three other screens were verified with an uncommitted variant of the
+Fold screen on the iOS 27.0 iPhone 18 Pro simulator, macOS and the web (JS target).
+After it (67bbc982a), the bake admits everything and the committed source is what runs.
 
 **The Duo, as found on 2026-10-02.** The same simulator (Xcode 27.1 beta) no longer sits
-in the state LLP 1008 §9 recorded: `devicectl` reports `landscapeLeft`, the inner panel
-669×871 under an 80-pt strip, the cover 678×386 of a 678×466 screen, and `orientation
-set` is accepted and changes nothing, so the recorded 951×669 and the division's
-segments could not be asserted. A SpringBoard "Open in Exact2 Go?" prompt (another
+in the state LLP 1008 §9 recorded: `devicectl` reports `landscapeLeft` and `orientation
+set` is accepted and changes nothing; a 27.1-linked cover plan gets the inner panel
+upright, 669×951 with insets top 82 and bottom 34, the cover 678×466 with left 84 (a
+27.0-linked one gets a 669×871 window under an 80-pt strip and no fold), so the recorded
+951×669 and the division's columns could not be asserted. At 130° and 90° the division
+is a horizontal band: `posture folded`, `1×2`, `[[0,0,669,455.5],[0,495.5,669,455.5]]`
+in the cover viewport (the two-session host's 331-pt panes see
+`[[0,0,669,277.5],[0,317.5,669,13.83]]`), and the Fold screen puts its panes on them.
+A session that launched flat sometimes never hears the hinge move (every pose of one
+whole run stayed `continuous` while a fresh launch at 130°, and the next session, saw
+the fold within 1.5 s) — `UIHingeInteraction`'s delivery, D5's side; the smoke now says
+which it saw. An `input` in the pushed note route is UIKit's first responder
+(`native.firstResponder true`, `RouteController`) but its keyboard never shows and the
+inset stays 0, while the same input in the non-pushed `insets` and `keyboard-bar` plans
+raises it; twice the app stopped answering `clock` for 120 s at the closed pose after
+that typing — both the host's to look at. The last run of the day (82a3a6766, 27.1
+builds): the Fold screen passed every check at every pose — `continuous 1×1 []` at 180°
+and 0°, `folded 1×2 [[0,0,669,455.5],[0,495.5,669,455.5]]` at 130° and 90° with the
+panes on the rects and the selection kept — and the simulator turned to its wide panel
+mid-run (`951×669`, `2×1 [[0,0,455.5,669],[495.5,0,455.5,669]]` from the Reflow screen
+on, the two-session host's panes `[[0,0,455.5,217.33],[495.5,0,287.5,217.33]]`), which
+the axis-agnostic checks took in stride; Images, Reflow and the host passed; its 28
+failures were all the software keyboard not rising (the Mac-wide hardware-keyboard
+state had flipped again; the run before, with it off, passed every `input` keyboard
+check and failed only the pushed-route one above). A SpringBoard "Open in Exact2 Go?" prompt (another
 session's `openurl`) sat over the inner panel for the first run and held the keyboard; a
 SpringBoard restart cleared it. With it gone the insets, keyboard-bar, Images, Reflow
 and host checks passed at every pose; a later run saw no software keyboard anywhere,
