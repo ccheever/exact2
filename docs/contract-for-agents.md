@@ -65,7 +65,7 @@ For the implementation, the relevant authorities are:
 | Commands and argument checks | [`types/checks.rs`](../contract/types/src/checks.rs) |
 | Event payloads and arities | [`analyze/lib.rs`](../contract/analyze/src/lib.rs) |
 | Imports and file boundaries | [`cli/sources.rs`](../contract/cli/src/sources.rs) |
-| CLI flags and output | [`cli/main.rs`](../contract/cli/src/main.rs), [`cli/build.rs`](../contract/cli/src/build.rs) |
+| CLI flags and output | [`cli/main.rs`](../contract/cli/src/main.rs), [`cli/build.rs`](../contract/cli/src/build.rs), [`cli/lib.rs`](../contract/cli/src/lib.rs) (diagnostic JSON) |
 
 The useful design context is [LLP 1006](../llp/1006-contract-compiler-v1.spec.md),
 [1017.000](../llp/1017.000-contract-v1-1.spec.md), and
@@ -117,7 +117,7 @@ compile complete examples, parse authored tests, and check local links.
 | --- | --- | --- |
 | `use Name from "./file.contract"` | File | Local import inside the app boundary |
 | `shape Name` | File | Finite record with typed fields |
-| `fn name(arg: T): U = expr` | File | Pure nonrecursive expression function |
+| `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
 | `style Name` | File | Literal style attributes |
 | `keyframes Name` | File | Constant animation frames |
 | `font "Family" = "path.ttf"` | File | Bundled family; block form supports faces |
@@ -164,11 +164,12 @@ calls and expressions without creating an indentation block.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.
 - `fn` parameters and return types are explicit. Its body is one expression over
-  parameters and admitted pure calls, without component-state capture or recursion.
-  Pass an app value in; do not invent an ambient reference.
-- `t("key", placeholder=value)` and `empty(field=value)` are special named-argument
-  forms. Named record/component arguments do not mean every ordinary function
-  accepts named arguments.
+  its parameters and standard calls (including `now()`), without component-state
+  capture or recursion. Pass an app value in; do not invent an ambient reference.
+- Named arguments belong to component uses, record constructors,
+  `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
+  and the commands `share(…)` and `scrollIntoView(…)`. Every other function takes
+  positional arguments.
 
 For the full roster and special calls, see
 [standard functions and intrinsics](contract-grammar.md#standard-functions-and-intrinsics).
@@ -214,7 +215,8 @@ refused. Avoid unnecessary state that can be calculated from existing values.
 ## Composition and lifetime
 
 The first component is the root. Each component use is `Name(prop=value, …)`.
-Supply every required prop once. An `action` prop can receive a reference with
+Supply every declared prop exactly once; props have no defaults (pass `none` for
+an option). An `action` prop can receive a reference with
 captured arguments; the eventual event payload is appended at invocation.
 
 Children may hold state, derives, and actions. They cannot declare resources,
@@ -250,16 +252,19 @@ Choose the mechanism from its lifetime:
 | React once to a settled mutation | `mutation … then actionName` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` |
-| Initial resource fallback | `else empty(field=constant)` or `else source(args)` |
+| Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
 `none`. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. Assigning a mutation forgets its in-flight reply. `refreshes` refreshes
-at send and settlement. `then` is parameterless, runs after settlement as a new
-commit, and cannot send its own mutation. Do not mistake the scheduling boundary
+request. Assigning a mutation forgets its in-flight reply. `refreshes` re-reads
+its resources when the mutation is sent (an answer the source gives at once shows
+immediately) and forces them again when the reply lands. `then` is parameterless,
+runs once at the host's next clock advance as a new commit, reads the latest
+answer, does not run for a failure that brought no answer, and cannot send its
+own mutation. Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
 A failed resource retains its value or placeholder, with `pending=false` and
@@ -305,11 +310,15 @@ class-string composition. A style branch can mix a number and a CSS keyword in
 a property's admitted value space; this does not add general union types.
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
-lists, use `virtualized=true`, one direct keyed `each`, and one flow root per row.
-Vertical collections are block flow with a height constraint. Horizontal ones
-are fixed-height flex rows, without wrapping or reverse flow; use the axis's
-estimate property. Only the supported one-level nesting is admitted. Do not
-revive the removed legacy `item-height` windowing mechanism.
+lists, use `list virtualized=true` (no other tag takes it), one direct keyed
+`each`, and one flow root per row. A vertical list needs `height`, `max-height`
+or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
+literal `display="flex"` and a literal positive `height`, takes
+`estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
+nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
+`reorderdrop`. Lists nest one level deep; an inner vertical list needs a literal
+`height` or `max-height`. Do not revive the removed legacy `item-height`
+windowing mechanism.
 
 A native button is an explicit `button appearance="auto"` after class merging;
 an ordinary button remains an authored `appearance="none"` pressable. The switch
@@ -345,8 +354,10 @@ optional rendering/activation policies. `notfound` is a bare fallback. Do not
 redeclare the implicit router state with `state`.
 
 Assign the results of `open`, `push`, `replace`, `go`, `select`, or `back` to that
-router state. Use `path("route", args…)` to construct checked locations; direct
-location templates are refused. A route's parameter fields are strings, with
+router state. Use `path("route", args…)` to construct checked locations. A
+template literal as a location is refused (`route-template`) and a string literal
+is checked against the table, but any other computed string is not checked, so
+always build locations with `path()`. A route's parameter fields are strings, with
 empty strings for absent fields. `select` takes a tab name, not a URL.
 
 `each entry in stack(nav) key=entry.id` gives retained screens their identities.
@@ -365,30 +376,35 @@ streaming, or deployment correctness from a client-only screenshot.
 
 A root task has one `every(ms, action)`, `after(ms, action)`, or
 `every(frame, action)` entry. The action is parameterless. Millisecond intervals
-are positive integers. The frame form has no delta-time argument and does not
+are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
 
-`now()` is the host's epoch-millisecond clock. A read does not itself schedule a
-future render. Use a timer if a displayed value must keep changing without other
+`now()` is the runner's clock in milliseconds since boot (the driver's clock under
+the agent), not a date. For the date, read the reserved `exactTime` source and add
+`time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
-which require optional capabilities. `spring()`, exit animation, layout
-transitions, and presentation timelines have specific documented behavior;
+which require optional capabilities. `spring(…)` (a `transition` timing
+function), `exit-animation`, `layout-transition`, and presentation timelines have
+specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable`. `frame` reads the last layout's untransformed
+`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's untransformed
 border box in root space; `measure` reads an auto-height hypothetical layout.
 Neither is a computed style binding to run every render.
 
-SVG uses SVG names, with native `foreignObject` explicitly unsupported. Canvas 2D
-calls live in a data module, and GPU/game surfaces in their optional module.
-A hyphenated native tag needs the app's native schema and implementation. Do not
+SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
+refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
+live in a data module, and GPU/game surfaces in their optional module. A
+hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
+others) and implemented by the module; its attributes pass through unchecked. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
-`exactSurface`) with checked shapes. Use dimensions, media preferences, page facts,
+`exactSurface`, `exactTime`); the bake refuses a declared field the source does
+not have. Use dimensions, media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
 inform authored policy; the engine does not automatically remove all motion.
 
@@ -399,7 +415,8 @@ functions accept a narrow set of literal formats; app wording is an app `fn`.
 ## Inspection and testing
 
 Build diagnostics include stable ids and original file ranges. Locations are
-1-based line/byte-column coordinates, with exclusive end columns. Honor related
+1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
+manifest error has no range (line and columns 0). Honor related
 locations when an error crosses a child prop, injected action, or imported file.
 Do not use a character index as a byte offset in Unicode source.
 
@@ -409,7 +426,8 @@ cargo run -q -p contract -- symbols path/to/app.contract --name save
 cargo run -q -p contract -- build path/to/app.contract -o /tmp/app.plan --map
 ```
 
-The source map is separate from the plan and keyed by its digest. Use it only for
+The source map (`<plan>.map.json`, beside the plan) is separate from the plan and
+keyed by its digest. Use it only for
 the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
@@ -429,8 +447,10 @@ test "an action uses its computed next value"
   expect state doubled == 2
 ```
 
-This test goes with the complete example above. The allowed steps are `tap`,
-`type`, `clock`, `screenshot`, and `expect tree|text|state`; not every interactive
+This test goes with the complete example above. The steps are `tap "id" [hover]`,
+`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
+`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`,
+and `expect state name == <number|string|bool|none|[]>`. Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 
@@ -449,7 +469,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
 | `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
 | `[a, b]` / `{ title: value }` | Source/list transform / declared record constructor |
-| `{...old, title: value}` | `Fields(old, title=value)` |
+| `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
