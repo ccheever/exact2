@@ -242,10 +242,13 @@ fn positionals_after_named_attributes_stay_on_the_elements_head() {
 
 #[test]
 fn send_as_a_name_and_the_send_statement_both_round_trip() {
-    // `send` spaces like any other name: `who` beside it gets the same treatment.
+    // `send` spaces like any other name: `who` beside it gets the same
+    // treatment. A named argument's `=` stays against its name, in a call as
+    // at a use (LLP 1035.005.000 D3: `Shape(field=value)`).
     let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
-    let expected = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
-    assert_eq!(preserved(src), expected);
+    assert_eq!(preserved(src), src);
+    let spaced = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
+    assert_eq!(preserved(&spaced), src);
 }
 
 #[test]

@@ -250,15 +250,30 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
 
 /// A child action's body, its names substituted: assignment targets renamed
 /// with `names`, expressions through `s` (props, injects, renamed states
-/// and actions, derives as expressions).
+/// and actions, derives as expressions). A `let` binds for the rest of its
+/// block (LLP 1035.005.000 D2) and is renamed apart, as a `match` binding
+/// is, when a replacement mentions its name.
 pub(super) fn subst_stmts(
     stmts: &[Stmt],
     s: &mut Subst<'_, Expr>,
     names: &BTreeMap<String, String>,
 ) -> Vec<Stmt> {
-    stmts
+    let mut lets = 0;
+    let out = stmts
         .iter()
-        .map(|st| match st {
+        .enumerate()
+        .map(|(i, st)| match st {
+            Stmt::Let { name, expr, span } => {
+                let expr = subst_expr(expr, s);
+                let rest = &stmts[i + 1..];
+                let name = s.enter(name, &|n| rest.iter().any(|st| stmt_occurs(st, n)));
+                lets += 1;
+                Stmt::Let {
+                    name,
+                    expr,
+                    span: *span,
+                }
+            }
             Stmt::Assign { target, expr, span } => Stmt::Assign {
                 target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
                 expr: subst_expr(expr, s),
@@ -316,7 +331,11 @@ pub(super) fn subst_stmts(
                 }
             }
         })
-        .collect()
+        .collect();
+    for _ in 0..lets {
+        s.leave();
+    }
+    out
 }
 
 /// Add the names free in `e` (a call's head included: substitution
@@ -425,6 +444,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
 fn stmt_occurs(st: &Stmt, name: &str) -> bool {
     match st {
         Stmt::Assign { target, expr, .. } => target == name || occurs(expr, name),
+        Stmt::Let { name: n, expr, .. } => n == name || occurs(expr, name),
         Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
             args.iter().any(|a| occurs(a, name))
         }

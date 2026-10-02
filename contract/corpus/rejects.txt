@@ -1080,3 +1080,85 @@ component A
   view
     button press=size
       text toString(h)
+---
+== type-record-missing
+# LLP 1035.005.000 D3: a record names every field; none is defaulted.
+shape Fields
+  title: string
+  pinned: bool
+component A
+  derive f = Fields(title="a")
+  view
+    text f.title
+---
+== type-record-unknown-field
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", body="b")
+  view
+    text f.title
+---
+== type-record-duplicate
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", title="b")
+  view
+    text f.title
+---
+== type-record-base
+# A copy's one positional argument is the record it copies, of its shape.
+shape Fields
+  title: string
+component A
+  state name = "a"
+  derive f = Fields(name, title="b")
+  view
+    text f.title
+---
+== type-fn-shape-name
+# `Fields(…)` builds the shape, so no `fn` takes its name.
+shape Fields
+  title: string
+fn Fields(title: string): string = title
+component A
+  view
+    text "a"
+---
+== type-let-shadow
+# LLP 1035.005.000 D2: a `let` never shadows a name in scope.
+component A
+  state n = 0
+  action go
+    let n = 1
+  view
+    text "a"
+---
+== type-let-duplicate
+component A
+  state n = 0
+  action go
+    let a = 1
+    let a = 2
+    n = a
+  view
+    text "a"
+---
+== type-let-reassign
+component A
+  state n = 0
+  action go
+    let a = 1
+    a = 2
+  view
+    text "a"
+---
+== type-let-before-declaration
+component A
+  state n = 0
+  action go
+    n = a
+    let a = 1
+  view
+    text "a"

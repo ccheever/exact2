@@ -4,8 +4,7 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, Stmt, TemplatePart,
-    TypeExpr,
+    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, TemplatePart, TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -922,173 +921,43 @@ fn into_view_args(
     Ok(())
 }
 
-/// Check an action body's statements through every branch (LLP 1017 P2).
-/// Check each statement, recording a refusal and moving on to the next.
-pub(super) fn check_stmts(
-    stmts: &[Stmt],
+/// A host command's name and arguments (`name(args)` in an action body).
+pub(super) fn check_command(
+    name: &str,
+    args: &[Expr],
     scope: &Scope,
-    c: &Component,
-    ct: &mut ComponentTypes,
     shapes: &Shapes,
-    sink: &mut Sink,
-) {
-    for stmt in stmts {
-        let checked = check_stmt(stmt, scope, c, ct, shapes, sink);
-        sink.keep_unit(checked);
-    }
-}
-
-fn check_stmt(
-    stmt: &Stmt,
-    scope: &Scope,
-    c: &Component,
-    ct: &mut ComponentTypes,
-    shapes: &Shapes,
-    sink: &mut Sink,
+    span: Span,
 ) -> Result<(), TypeError> {
-    {
-        match stmt {
-            Stmt::Assign { target, expr, span } => {
-                let Some(si) = c.states.iter().position(|s| &s.name == target) else {
-                    // A mutation's slot may be assigned (`session = none`);
-                    // its type is `option<T>` and is never inferred from here.
-                    if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
-                        let t = infer(expr, scope, shapes)?;
-                        let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
-                        if !can_unify(&mt, &t) {
-                            return err(
-                                "type-assign",
-                                format!("`{target}` is `{mt}`, cannot assign `{t}`"),
-                                *span,
-                            );
-                        }
-                        return Ok(());
-                    }
-                    return err(
-                        "type-assign-not-state",
-                        format!("`{target}` is not a state or a mutation"),
-                        *span,
-                    );
-                };
-                let t = infer(expr, scope, shapes)?;
-                match ct.slots[si].unify(&t) {
-                    Some(u) => ct.slots[si] = u,
-                    None => {
-                        return err(
-                            "type-assign",
-                            format!("`{target}` is `{}`, cannot assign `{t}`", ct.slots[si]),
-                            *span,
-                        )
-                    }
-                }
-            }
-            Stmt::Command { name, args, span } => {
-                if !HOST_COMMANDS.contains(&name.as_str()) {
-                    let message = match scope.lookup(name) {
-                        Some((Ref::Action(_), Ty::Action(_))) => format!(
-                            "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
-                        ),
-                        Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                            "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
-                        ),
-                        _ => format!(
-                            "`{name}` is not a host command; the hosts answer {}",
-                            HOST_COMMANDS.join(", ")
-                        ),
-                    };
-                    return err("type-unknown-command", message, *span);
-                }
-                if name == "share" {
-                    return share_args(args, scope, shapes, *span);
-                }
-                if name == "saveFile" {
-                    return save_file_args(args, scope, shapes, *span);
-                }
-                if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
-                    return picker_args(name, args, scope, shapes, *span);
-                }
-                if name == "scrollIntoView" {
-                    return into_view_args(args, scope, shapes, *span);
-                }
-                for arg in args {
-                    infer(arg, scope, shapes)?;
-                }
-            }
-            Stmt::Send {
-                target,
-                source,
-                args,
-                span,
-                ..
-            } => {
-                if !c.mutations.iter().any(|m| &m.name == target) {
-                    return err(
-                        "type-send-not-mutation",
-                        format!(
-                            "`{target}` is not a mutation: declare `mutation {target} as shape T`"
-                        ),
-                        *span,
-                    );
-                }
-                let mut params = Vec::with_capacity(args.len());
-                for arg in args {
-                    params.push(crate::source_argument(arg, source, scope, shapes)?);
-                }
-                let mi = c
-                    .mutations
-                    .iter()
-                    .position(|m| &m.name == target)
-                    .expect("checked above");
-                let result = ct.mutations[mi].clone();
-                crate::record_source(ct, source, params, result, *span)?;
-            }
-            Stmt::Refresh { target, span } => {
-                if !c.resources.iter().any(|r| &r.name == target) {
-                    return err(
-                        "type-refresh-not-resource",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                }
-            }
-            Stmt::If {
-                cond,
-                then,
-                otherwise,
-                ..
-            } => {
-                match infer(cond, scope, shapes) {
-                    Ok(Ty::Bool) => {}
-                    Ok(_) => sink.push(TypeError {
-                        id: "type-condition",
-                        message: "`if` needs a bool".into(),
-                        span: cond.span(),
-                    }),
-                    Err(e) => sink.push(e),
-                }
-                check_stmts(then, scope, c, ct, shapes, sink);
-                check_stmts(otherwise, scope, c, ct, shapes, sink);
-            }
-            Stmt::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let ts = infer(subject, scope, shapes)?;
-                let Ty::Option(inner) = ts else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ts}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner_scope = scope.clone();
-                inner_scope.push(vec![(some.0.clone(), Ref::Local(0), (*inner).clone())]);
-                check_stmts(&some.1, &inner_scope, c, ct, shapes, sink);
-                check_stmts(none, scope, c, ct, shapes, sink);
-            }
-        }
+    if !HOST_COMMANDS.contains(&name) {
+        let message = match scope.lookup(name) {
+            Some((Ref::Action(_), Ty::Action(_))) => format!(
+                "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
+            ),
+            Some((Ref::Prop(_), Ty::Action(_))) => format!(
+                "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
+            ),
+            _ => format!(
+                "`{name}` is not a host command; the hosts answer {}",
+                HOST_COMMANDS.join(", ")
+            ),
+        };
+        return err("type-unknown-command", message, span);
+    }
+    if name == "share" {
+        return share_args(args, scope, shapes, span);
+    }
+    if name == "saveFile" {
+        return save_file_args(args, scope, shapes, span);
+    }
+    if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
+        return picker_args(name, args, scope, shapes, span);
+    }
+    if name == "scrollIntoView" {
+        return into_view_args(args, scope, shapes, span);
+    }
+    for arg in args {
+        infer(arg, scope, shapes)?;
     }
     Ok(())
 }

@@ -336,7 +336,7 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
     fn stmts<'a>(body: &'a [Stmt], out: &mut BTreeSet<&'a str>) {
         for st in body {
             match st {
-                Stmt::Assign { expr: e, .. } => expr(e, out),
+                Stmt::Assign { expr: e, .. } | Stmt::Let { expr: e, .. } => expr(e, out),
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
                     args.iter().for_each(|a| expr(a, out))
                 }

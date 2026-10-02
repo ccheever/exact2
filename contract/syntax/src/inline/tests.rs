@@ -293,3 +293,57 @@ fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
         "{shared} shared, {traps} traps"
     );
 }
+
+/// A statement `let` (LLP 1035.005.000 D2) binds for the rest of its block:
+/// a replacement that mentions its name renames it apart there, and the
+/// statements before it and after its block keep the outer name.
+#[test]
+fn a_statement_let_is_renamed_apart_from_a_replacement_for_the_rest_of_its_block() {
+    use super::subst::{subst_stmts, Subst};
+    use crate::ast::Stmt;
+    let s = Span::default();
+    let id = |n: &str| Expr::Ident(n.into(), s);
+    let assign = |target: &str, expr: Expr| Stmt::Assign {
+        target: target.into(),
+        expr,
+        span: s,
+    };
+    let add = |a: Expr, b: Expr| Expr::Binary(BinOp::Add, Box::new(a), Box::new(b), s);
+    // `x = b; if c { let a = 1; x = a + b }; x = a`, with `b` replaced by the
+    // parent's `a`.
+    let body = vec![
+        assign("x", id("b")),
+        Stmt::If {
+            cond: id("c"),
+            then: vec![
+                Stmt::Let {
+                    name: "a".into(),
+                    expr: Expr::Number(1.0, s),
+                    span: s,
+                },
+                assign("x", add(id("a"), id("b"))),
+            ],
+            otherwise: Vec::new(),
+            span: s,
+        },
+        assign("x", id("a")),
+    ];
+    let map = BTreeMap::from([("b".to_owned(), id("a"))]);
+    let out = subst_stmts(&body, &mut Subst::new(&map), &BTreeMap::new());
+    let Stmt::If { then, .. } = &out[1] else {
+        panic!("{out:?}")
+    };
+    assert_eq!(
+        then,
+        &vec![
+            Stmt::Let {
+                name: "a@1".into(),
+                expr: Expr::Number(1.0, s),
+                span: s,
+            },
+            assign("x", add(id("a@1"), id("a"))),
+        ]
+    );
+    assert_eq!(out[0], assign("x", id("a")));
+    assert_eq!(out[2], assign("x", id("a")));
+}

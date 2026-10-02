@@ -269,6 +269,9 @@ pub(crate) fn compile(
                 };
                 return Ok(Ty::Bool);
             }
+            if contract_types::records::is_record_call(name, &l.types.shapes) {
+                return record(l, asm, name, args, scope, locals);
+            }
             if let Some((f, shared)) = l.fns.get(name.as_str()).copied() {
                 // A `fn` (LLP 1017 P5), expanded here: each argument bound
                 // as a local, the body compiled in a scope of the parameters
@@ -473,6 +476,63 @@ pub(crate) fn compile(
             )
         }
     })
+}
+
+/// `Shape(field=expr, …)` or `Shape(base, field=expr, …)` (LLP 1035.005.000
+/// D3), checked already: each field's value in declaration order, then
+/// `Record`. A copy binds its base once as a local and reads each field it
+/// keeps from there.
+fn record(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    shape: &str,
+    args: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let fields: Vec<String> = l.types.shapes.map[shape]
+        .iter()
+        .map(|(f, _)| f.clone())
+        .collect();
+    let base = match contract_types::records::base(args) {
+        Some(b) => {
+            compile(l, asm, b, scope, locals)?;
+            asm.bind_local();
+            *locals += 1;
+            Some(*locals - 1)
+        }
+        None => None,
+    };
+    for (i, field) in fields.iter().enumerate() {
+        let named = args.iter().find_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == field => Some(value.as_ref()),
+            _ => None,
+        });
+        match (named, base) {
+            (Some(value), _) => {
+                compile(l, asm, value, scope, locals)?;
+            }
+            (None, Some(local)) => {
+                asm.load_local(local);
+                asm.field(i as u16);
+            }
+            (None, None) => {
+                return err(
+                    "lower-record-field",
+                    format!("`{shape}(…)` has no `{field}`"),
+                    args.first().map(Expr::span).unwrap_or_default(),
+                )
+            }
+        }
+    }
+    let ty = Ty::Record(shape.to_owned());
+    let id = l.ty_id(&ty)?;
+    asm.record(id);
+    if base.is_some() {
+        *locals -= 1;
+        asm.drop_local();
+    }
+    Ok(ty)
 }
 
 /// `map(list, callback)` or `filter(list, callback)` (LLP 1017.003 D5):

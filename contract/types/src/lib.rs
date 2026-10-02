@@ -17,12 +17,14 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod actions;
 mod checks;
 mod component;
 mod geometry;
 mod lists;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
+pub mod records;
 pub mod routes;
 mod selection;
 /// The strings call and the tables it is checked against (LLP 1060).
@@ -271,6 +273,9 @@ pub struct Shapes {
     pub routes: Option<exact_route::Table>,
     /// Shape name → fields in order.
     pub map: BTreeMap<String, Vec<(String, Ty)>>,
+    /// The shapes the app declares, which `Shape(field=…)` builds
+    /// (LLP 1035.005.000 D3); the compiler's own are left out.
+    pub declared: std::collections::BTreeSet<String>,
     /// `fn` name → (parameter types, result type) (LLP 1017 P5).
     pub fns: BTreeMap<String, (Vec<Ty>, Ty)>,
     /// Which attribute names set style rows (lowering's table): their
@@ -754,6 +759,9 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     ),
                 };
             }
+            if records::is_record_call(name, shapes) {
+                return records::infer_record(name, args, *span, scope, shapes);
+            }
             if let Some((params, ret)) = shapes.fns.get(name) {
                 // A `fn` (LLP 1017 P5): typed like a roster call.
                 if args.len() != params.len() {
@@ -1040,6 +1048,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             );
         }
         shapes.map.insert(s.name.clone(), Vec::new());
+        shapes.declared.insert(s.name.clone());
     }
     check_shape_cycles(file, &shapes)?;
     for s in &file.shapes {
@@ -1060,6 +1069,17 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 format!(
                     "`fn {}` has the roster's name; a roster entry is the framework's — pick another",
                     f.name
+                ),
+                f.span,
+            );
+        }
+        // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
+        if shapes.declared.contains(&f.name) {
+            return err(
+                "type-fn-shape-name",
+                format!(
+                    "`fn {}` has a shape's name, and `{}(field=…)` builds that shape: pick another",
+                    f.name, f.name
                 ),
                 f.span,
             );

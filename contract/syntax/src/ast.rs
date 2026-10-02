@@ -490,7 +490,7 @@ impl Action {
                         walk(&some.1, out);
                         walk(none, out);
                     }
-                    Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+                    Stmt::Command { .. } | Stmt::Refresh { .. } | Stmt::Let { .. } => {}
                 }
             }
         }
@@ -503,6 +503,16 @@ impl Action {
 /// A statement in an action body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    /// `let name = expr` (LLP 1035.005.000 D2): an immutable local, read by
+    /// the statements after it in its block and the blocks nested there.
+    Let {
+        /// The local.
+        name: String,
+        /// Its value, evaluated once where the statement stands.
+        expr: Expr,
+        /// The name.
+        span: Span,
+    },
     /// `slot = expr`.
     Assign {
         /// The slot.

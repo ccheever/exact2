@@ -401,3 +401,25 @@ fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
     assert_eq!(a.states[0].name, "send");
     assert!(matches!(&a.actions[0].body[0], Stmt::Assign { target, .. } if target == "send"));
 }
+
+#[test]
+fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_arguments() {
+    // LLP 1035.005.000 D2 and D3.
+    let src = "component A\n  state let = 0\n  action go\n    let next = F(base, title=\"a\")\n    if next.pinned\n      let word = \"b\"\n    let = 1\n  view\n    text \"a\"\n";
+    let file = parse(src).unwrap();
+    let body = &file.components[0].actions[0].body;
+    assert!(
+        matches!(&body[0], Stmt::Let { name, expr: Expr::Call(shape, args, _), span }
+        if name == "next" && shape == "F" && (span.line, span.col) == (4, 9)
+            && matches!(&args[0], Expr::Ident(b, _) if b == "base")
+            && matches!(&args[1], Expr::NamedArg(f, _, _) if f == "title"))
+    );
+    assert!(matches!(&body[1], Stmt::If { then, .. }
+        if matches!(&then[0], Stmt::Let { name, .. } if name == "word")));
+    assert!(matches!(&body[2], Stmt::Assign { target, .. } if target == "let"));
+    let e =
+        parse("component A\n  action go\n    let view = 1\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-name", "{e:?}");
+    let e = parse("component A\n  action go\n    let a 1\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected", "{e:?}");
+}

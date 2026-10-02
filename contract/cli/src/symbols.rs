@@ -593,8 +593,17 @@ impl<'a> Resolver<'a> {
         self.component = None;
     }
     fn stmts(&mut self, stmts: &[Stmt]) {
+        let mut lets = 0;
         for stmt in stmts {
             match stmt {
+                // A `let` reads as a local through the rest of its block
+                // (LLP 1035.005.000 D2).
+                Stmt::Let { name, expr, span } => {
+                    self.expr(expr);
+                    let ty = self.infer(expr);
+                    self.local("local", name, *span, ty);
+                    lets += 1;
+                }
                 Stmt::Assign { target, expr, span } => {
                     self.target(&["state", "mutation"], target, *span);
                     self.expr(expr);
@@ -651,6 +660,9 @@ impl<'a> Resolver<'a> {
                     self.stmts(none);
                 }
             }
+        }
+        for _ in 0..lets {
+            self.pop_local();
         }
     }
     fn nodes(&mut self, nodes: &[Node]) {
@@ -790,7 +802,16 @@ impl<'a> Resolver<'a> {
                 }
             }
             Expr::Call(name, args, span) => {
-                if self.types.shapes.fns.contains_key(name) {
+                if contract_types::records::is_record_call(name, &self.types.shapes) {
+                    // `Shape(field=…)` (LLP 1035.005.000 D3): the shape and
+                    // each field it names.
+                    self.refer("shape", name, *span, None, None);
+                    for arg in args {
+                        if let Expr::NamedArg(field, _, at) = arg {
+                            self.refer("field", field, *at, None, Some(name));
+                        }
+                    }
+                } else if self.types.shapes.fns.contains_key(name) {
                     self.refer("fn", name, *span, None, None);
                 } else if name == "path" {
                     if let Some(Expr::Str(route, span)) = args.first() {

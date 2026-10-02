@@ -525,3 +525,34 @@ fn route_paths_and_router_slot_offsets_follow_the_type_checker() {
         .any(|r| r["kind"] == "fn" && r["name"] == "path"));
     assert!(refs(&graph).iter().all(|r| r["kind"] != "route"));
 }
+
+#[test]
+fn a_let_is_a_local_for_its_block_and_a_record_names_its_shape_and_fields() {
+    // LLP 1035.005.000 D2 and D3.
+    let fixture = Fixture::new("let-records");
+    let graph = fixture.query(
+        "shape F\n  title: string\n  done: bool\ncomponent App\n  state f = F(title=\"a\", done=false)\n  action go\n    let next = F(f, done=true)\n    f = next\n  view\n    text f.title\n",
+    );
+    let local = definition(&graph, "local", "next", Some("go"));
+    assert_eq!(
+        (local["line"].as_u64(), local["col"].as_u64()),
+        (Some(7), Some(9))
+    );
+    let reads = at_line(&graph, "next", 8);
+    assert_eq!(reads.len(), 1);
+    assert_eq!(target(&graph, reads[0]), local);
+    let shape = definition(&graph, "shape", "F", None);
+    for line in [5, 7] {
+        let uses = at_line(&graph, "F", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), shape);
+        assert_eq!(spelling(uses[0]), "F");
+    }
+    let done = definition(&graph, "field", "done", Some("F"));
+    for line in [5, 7] {
+        let uses = at_line(&graph, "done", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), done);
+        assert_eq!(spelling(uses[0]), "done");
+    }
+}

@@ -3,7 +3,7 @@
 //! handler call sites, action bodies, then the view.
 
 use super::{
-    checks::{check_stmts, check_view, infer_owned_state_initializers},
+    checks::{check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{Component, Expr, Node, Span, TemplatePart};
@@ -229,7 +229,9 @@ pub(crate) fn check_component(
                     .collect(),
             );
             scope.enter_action();
-            check_stmts(&a.body, &scope, c, &mut ct, shapes, report);
+            // A lifted child action is `name#N` (LLP 1017 P4c).
+            let lifted = a.name.contains('#');
+            crate::actions::check_body(&a.body, &scope, lifted, c, &mut ct, shapes, report);
         }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against

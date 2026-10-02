@@ -144,6 +144,18 @@ impl<'a> Layout<'a> {
     }
 
     fn file(&mut self, file: &File) {
+        // A named argument's `=` stays against its name, as an attribute's
+        // does: `Fields(base, title=value)`, `empty(field=value)`. Only a
+        // call's arguments put a name and `=` after `(` or `,`.
+        let ordinary: Vec<&Token> = self.tokens.iter().filter(|t| ordinary(t)).collect();
+        for w in ordinary.windows(3) {
+            if matches!(w[0].kind, TokenKind::Punct("(" | ","))
+                && matches!(w[1].kind, TokenKind::Ident(_))
+                && w[2].kind == TokenKind::Punct("=")
+            {
+                self.attributes.insert(w[1].span);
+            }
+        }
         for route in file.routes.iter().flat_map(|r| &r.rows) {
             self.attributes.extend(route.fields.iter().map(|a| a.span));
         }

@@ -941,6 +941,16 @@ impl Parser {
             self.newline()?;
             return Ok(Stmt::Refresh { target, span });
         }
+        // @ref LLP 1035.005.000 D2 — `let` starts a statement only before a
+        // name, as `send` does; `let = x` assigns a state named `let`.
+        if self.at_ident("let") && matches!(self.peek2(), TokenKind::Ident(_)) {
+            self.next();
+            let (name, span) = self.ident()?;
+            self.expect_punct("=")?;
+            let expr = self.expr()?;
+            self.newline()?;
+            return Ok(Stmt::Let { name, expr, span });
+        }
         let (name, span) = self.ident()?;
         if self.eat_punct("=") {
             let expr = self.expr()?;
@@ -958,7 +968,7 @@ impl Parser {
         }
         self.err(
             "syntax-expected-statement",
-            "expected `slot = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
+            "expected `slot = expr`, `let name = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
         )
     }
 

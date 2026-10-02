@@ -126,7 +126,7 @@ record_variants! {
 }
 record_variants! {
     Stmt {
-        Assign { target, expr, span }, Command { name, args, span },
+        Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
     }
