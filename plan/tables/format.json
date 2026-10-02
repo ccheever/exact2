@@ -492,6 +492,11 @@
           "_comment": "@ref LLP 1048.003 D5: when a rendered page's runtime loads; inferred when undeclared."
         },
         {
+          "name": "paint",
+          "codec": "enum:PaintPolicy",
+          "_comment": "@ref LLP 1048.005: what a served page's reader sees first; `settled` (undeclared) is the settled page, `boot` the boot document, sent before any answer, then the settled page."
+        },
+        {
           "name": "pages",
           "codec": "str",
           "_comment": "@ref LLP 1048.000 D2, LLP 1048.003 D5: the source that lists a parameterized route's pages \u2014 the values of its one parameter, a list<string> \u2014 for the build to render and the server's sitemap to name. Empty: none."
@@ -567,6 +572,10 @@
       "idle",
       "never",
       "interaction"
+    ],
+    "PaintPolicy": [
+      "settled",
+      "boot"
     ],
     "StackMemberKind": [
       "family",

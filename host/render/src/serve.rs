@@ -1440,12 +1440,15 @@ fn csp(grants: &str, dist: &Path) -> String {
     // A document's one inline script, the host's capture script, likewise.
     use sha2::{Digest, Sha256};
     let hash = |bytes: &[u8]| exact_data::envelope::base64(&Sha256::digest(bytes));
-    // The JavaScript runtime's capture script too (LLP 1071): its pages carry that one.
+    // The JavaScript runtime's capture script too (LLP 1071): its pages carry
+    // that one; and the script a boot document's page removes it with (LLP
+    // 1048.005).
     let mut scripts = format!(
-        "'self' 'wasm-unsafe-eval' 'sha256-{}' 'sha256-{}' 'sha256-{}'",
+        "'self' 'wasm-unsafe-eval' 'sha256-{}' 'sha256-{}' 'sha256-{}' 'sha256-{}'",
         hash(crate::page::capture().as_bytes()),
         hash(crate::page::capture_js().as_bytes()),
-        hash(crate::page::scroll_document_js().as_bytes())
+        hash(crate::page::scroll_document_js().as_bytes()),
+        hash(crate::direct::boot_swap_js().as_bytes())
     );
     for file in ["module-prelude.js", "app.js"] {
         if let Ok(bytes) = std::fs::read(dist.join(file)) {

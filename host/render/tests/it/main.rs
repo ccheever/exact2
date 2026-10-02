@@ -10,6 +10,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+mod boot;
 mod direct;
 mod overload;
 mod serve;

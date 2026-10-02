@@ -31,8 +31,8 @@
 //   compares its state and not its tree), and the comparison stops at the
 //   first step the Linux host has no delivery for (a pointer gesture, a
 //   wheel, a list's `into`, the browser's history) or that `LINUX_APART` names.
-import { spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer, request } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,6 +147,10 @@ async function target(t, report) {
   const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
+  // A route that paints its boot document first is checked as its server
+  // serves it: a press and an edit on the boot document (below). Its data
+  // app's module is not swapped under a wasm page (a paired generation).
+  if (t.contract && /\bpaint=boot\b/.test(readFileSync(t.contract, 'utf8'))) return bootPress(t, report, fail, resolve(out, 'dist', t.name));
   const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve(out, 'dist', t.name))]);
   await drive(t, report, fail, dir, ws, js);
   // A page rendered at build that loads its script at the first input: the
@@ -330,6 +334,82 @@ async function activation(t, report, fail, url) {
     fail(step, e.message.split('\n')[0]);
   } finally {
     await S?.close?.();
+  }
+}
+
+// ---------------------------------------------------------------- the boot document (LLP 1048.005)
+// A route with `paint=boot`, served by its data app's render entry: the
+// reader presses a button and types in a field on the boot document, before
+// the settled page arrives (a pass-through holds everything after the boot
+// document for HOLD ms); once the runtime has adopted the settled page,
+// state holds both, the field its text, and the page one root.
+const HOLD = 1500;
+async function bootPress(t, report, fail, dist) {
+  const step = 'boot press';
+  const bin = `${t.app}-render`;
+  const at = [['linux', `${t.app}-linux`], ['web', `${t.app}-web`]].find(([dir]) => existsSync(resolve(root, 'apps', t.app, dir, 'src/bin', `${bin}.rs`)));
+  if (!at) return fail(step, `${t.app} has no ${bin} entry to serve the page`);
+  const b = spawnSync('cargo', ['build', '--release', '-q', '-p', at[1], '--bin', bin], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+  if (b.status !== 0) return fail(step, `${bin}: ${b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
+  const server = spawn(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'release', bin), ['--serve', dist, '--port', '0'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  let proxy, S;
+  try {
+    const inner = await new Promise((ok, no) => {
+      let seen = '';
+      server.stdout.on('data', d => { seen += d; const m = /serving http:\/\/127\.0\.0\.1:(\d+)\//.exec(seen); if (m) ok(Number(m[1])); });
+      server.on('exit', code => no(new Error(`${bin} exited ${code}`)));
+    });
+    // Everything from the style that hides the boot document waits HOLD ms.
+    const MARK = '<style>#exact-root[data-boot]';
+    proxy = createServer((req, res) => {
+      const up = request({ host: '127.0.0.1', port: inner, path: req.url, method: req.method, headers: { ...req.headers, 'accept-encoding': 'identity' } }, r => {
+        const headers = { ...r.headers }; delete headers['content-length']; delete headers['transfer-encoding']; delete headers.connection;
+        res.writeHead(r.statusCode, headers);
+        let seen = Buffer.alloc(0), sent = 0, held = null;
+        r.on('data', d => {
+          if (held) return held.push(d);
+          seen = Buffer.concat([seen, d]);
+          const at = seen.indexOf(MARK);
+          if (at < 0) { sent = seen.length; return res.write(d); }
+          res.write(seen.subarray(sent, at));
+          held = [seen.subarray(at)];
+          setTimeout(() => { for (const c of held) res.write(c); held.done = true; if (held.ended) res.end(); }, HOLD);
+        });
+        r.on('end', () => { if (!held || held.done) res.end(); else held.ended = true; });
+      });
+      up.on('error', () => res.destroy());
+      req.pipe(up);
+    });
+    const port = await new Promise(ok => proxy.listen(0, '127.0.0.1', () => ok(proxy.address().port)));
+    const url = `http://127.0.0.1:${port}/`;
+    S = await open({ host: 'web', app: t.app, url });
+    const ev = S.carrier.evaluate;
+    await ev(`location.href = ${JSON.stringify(url)}`).catch(() => {});
+    const q = id => `document.querySelector('#exact-root[data-boot] [data-testid="${id}"]')`;
+    let pressed = null;
+    for (const end = Date.now() + 15000; !pressed && Date.now() < end; await new Promise(z => setTimeout(z, 25))) {
+      pressed = await ev(`(() => { const b = ${q('boot-bump')}, w = ${q('boot-words')};
+        if (!b || !w || location.search) return null;
+        if (document.querySelector('#exact-root:not([data-boot])')) return 'late';
+        b.click(); w.focus(); w.value = 'early'; for (const k of ['input', 'change']) w.dispatchEvent(new Event(k, { bubbles: true }));
+        return 'pressed'; })()`).catch(() => null);
+    }
+    if (pressed !== 'pressed') return fail(step, pressed === 'late' ? 'the settled page arrived before the boot document could be pressed' : 'no boot document with boot-bump and boot-words');
+    let got = null;
+    for (const end = Date.now() + 15000; Date.now() < end; await new Promise(z => setTimeout(z, 50))) {
+      got = await ev(`(() => { const r = document.querySelectorAll('#exact-root'), s = document.querySelector('[data-testid="boot-state"]');
+        return r.length === 1 && r[0].dataset.bootMs != null && s ? [s.textContent, document.querySelector('[data-testid="boot-words"]').value, document.activeElement?.dataset.testid ?? '', r.length, document.title].join('|') : null; })()`).catch(() => null);
+      if (got && got.startsWith('1 early|')) break;
+    }
+    const want = '1 early|early|boot-words|1|';
+    if (!got?.startsWith(want)) fail(step, `after adoption: ${got}, not ${want}… (state|field|focus|roots|title)`);
+    report.steps.push({ target: t.name, step, differences: got?.startsWith(want) ? 0 : 1 });
+  } catch (e) {
+    fail(step, e.message.split('\n')[0]);
+  } finally {
+    await S?.close?.();
+    proxy?.close();
+    server.kill();
   }
 }
 

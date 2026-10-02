@@ -326,6 +326,7 @@ impl PlanBuilder {
             notfound,
             render: RenderPolicy::Client,
             activate: ActivatePolicy::Inferred,
+            paint: PaintPolicy::Settled,
             pages: StrId(0),
             pages_args: Bytes { offset: 0, len: 0 },
         });
@@ -345,17 +346,20 @@ impl PlanBuilder {
         row.pages_args = args;
     }
 
-    /// A route's declared render and activation policies (LLP 1048.003 D5);
-    /// a route declares neither is `client`, activation inferred.
+    /// A route's declared render, activation and first-paint policies (LLP
+    /// 1048.003 D5, LLP 1048.005); a route declares none is `client`,
+    /// activation inferred, painted settled.
     pub fn set_route_policy(
         &mut self,
         id: RoutesId,
         render: RenderPolicy,
         activate: ActivatePolicy,
+        paint: PaintPolicy,
     ) {
         let row = &mut self.plan.routes[id.0 as usize];
         row.render = render;
         row.activate = activate;
+        row.paint = paint;
     }
 
     /// The root slot filled with the launch location. @ref LLP 1038 D2/D5.
