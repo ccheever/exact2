@@ -296,3 +296,43 @@ component A
         "{later}"
     );
 }
+
+/// LLP 1053.000.000 D4: an opacity animation still lowered when a group is
+/// above it (a group set after it started) is switched to sampling by the
+/// pass over every running animation, and its Core Animation spec withdrawn.
+#[test]
+fn a_lowered_opacity_animation_under_a_group_is_switched_to_sampling() {
+    let app = r##"keyframes dim
+  from opacity=1
+  to opacity=0.2
+component A
+  state on = false
+  action go writes on
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      row glassGroup=12
+        box testId="grouped" width=40 height=40 backgroundMaterial="glass" animation=(on ? "dim 1s linear infinite" : "none")
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let view = id(&host, "grouped");
+    let node = exact_kernel::motion::motion_node(host.runner.kernel().node(view).unwrap().key);
+    host.engine.set_node_sampled(node, false);
+    assert_eq!(
+        svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine),
+        [view]
+    );
+    assert!(host.engine.node_sampled(node));
+    assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
+}

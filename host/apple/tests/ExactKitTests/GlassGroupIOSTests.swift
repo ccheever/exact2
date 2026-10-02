@@ -162,6 +162,40 @@ final class GlassGroupIOSTests: XCTestCase {
         XCTAssertTrue(field.isFirstResponder, "removed")
     }
 
+    /// Review fix: a clip box coming and going under a group moves the
+    /// children through the focus helper too.
+    func testFocusSurvivesAClipBoxComingAndGoing() throws {
+        let p = presenter(box(1, ["glassGroup": "8"], w: 200) + box(2, kind: "input", w: 160) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let group = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(p.views[2]?.field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        let shadowed: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "overflow_x": "hidden", "overflow_y": "hidden",
+                                       "shadow_color": [0, 0, 0, 255], "shadow_opacity": 0.5, "shadow_offset": [0.0, 2.0], "shadow_radius": 4.0]
+        p.apply(wireBatch([["op": "style", "id": 1, "style": shadowed]]))
+        XCTAssertNotNil(group.clipBox)
+        XCTAssertTrue(field.isFirstResponder, "into the clip box")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]]]))
+        XCTAssertNil(group.clipBox)
+        XCTAssertTrue(field.isFirstResponder, "out of it")
+    }
+
+    /// Review fix: a glass inside an isolated glass answers to that glass's
+    /// container, so a clip between them isolates it too.
+    func testAGlassInsideAnIsolatedGlassIsIsolatedByItsOwnPath() throws {
+        let p = presenter(box(1, ["glassGroup": "12"], w: 200) + box(2, w: 120) + box(3, ["backgroundMaterial": "glass"], w: 120)
+            + box(4, w: 40) + box(5, ["backgroundMaterial": "glass"], w: 80)
+            + [["op": "children", "id": 4, "ids": [5]], ["op": "children", "id": 3, "ids": [4]], ["op": "children", "id": 2, "ids": [3]],
+               ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+               ["op": "present", "id": 2, "property": "opacity", "x": 0.5, "y": 0.0, "w": 0.0, "h": 0.0],
+               ["op": "style", "id": 4, "style": ["overflow_x": "hidden", "overflow_y": "hidden", "text_color": [0, 0, 0, 255]]]])
+        let outer = try XCTUnwrap(p.views[3]), inner = try XCTUnwrap(p.views[5])
+        XCTAssertNotNil(outer.glassSlot?.effect, "the outer glass's path fades")
+        XCTAssertNotNil(inner.glassSlot?.effect, "the inner glass's path to the outer's container clips")
+        var native: [String: Any] = [:]
+        inner.glassAgentFields(&native)
+        XCTAssertEqual(native["glassGroupOf"] as? String, "#1", "its group, past the isolation")
+        XCTAssertEqual(native["isolated"] as? [String], ["clip"])
+    }
+
     func testAFlatLeafFollowsItsParentIntoTheGroup() throws {
         let leaf: [[String: Any]] = [["op": "create", "id": 6, "kind": "view",
                                       "style": ["width": 3.0, "height": 20.0, "background_color": [0, 122, 255, 255], "text_color": [0, 0, 0, 255]]],

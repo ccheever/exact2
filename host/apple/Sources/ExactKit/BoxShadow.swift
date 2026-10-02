@@ -137,12 +137,16 @@ extension NodeView {
             box.wantsLayer = true
             #endif
             box.clipsToBounds = true
-            for child in subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); box.addSubview(child) }
-            addSubview(box)
+            GlassGroups.moving(in: self) {
+                for child in subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); box.addSubview(child) }
+                addSubview(box)
+            }
             clipBox = box
         } else if !wanted, let box = clipBox {
-            for child in box.subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); addSubview(child) }
-            box.removeFromSuperview()
+            GlassGroups.moving(in: self) {
+                for child in box.subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); addSubview(child) }
+                box.removeFromSuperview()
+            }
             clipBox = nil
         }
     }

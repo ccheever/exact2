@@ -114,6 +114,40 @@ final class GlassGroupMacTests: XCTestCase {
         XCTAssertTrue(editing(), "the group gone")
     }
 
+    /// Review fix: a clip box coming and going under a group keeps the field
+    /// being edited.
+    func testAFieldKeepsFocusThroughAClipBox() throws {
+        let p = presenter(box(1, ["glassGroup": "8"], w: 200) + box(2, kind: "input", w: 160) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let group = try XCTUnwrap(p.views[1]), field = try XCTUnwrap(p.views[2]?.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        func editing() -> Bool { (window.firstResponder as? NSTextView)?.delegate as? NSTextField === field }
+        let shadowed: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "overflow_x": "hidden", "overflow_y": "hidden",
+                                       "shadow_color": [0, 0, 0, 255], "shadow_opacity": 0.5, "shadow_offset": [0.0, 2.0], "shadow_radius": 4.0]
+        p.apply(wireBatch([["op": "style", "id": 1, "style": shadowed]]))
+        XCTAssertNotNil(group.clipBox)
+        XCTAssertTrue(editing(), "into the clip box")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]]]))
+        XCTAssertNil(group.clipBox)
+        XCTAssertTrue(editing(), "out of it")
+    }
+
+    /// Review fix: a glass inside an isolated glass answers to that glass's
+    /// isolation container, so a clip between them isolates it too.
+    func testAGlassInsideAnIsolatedGlassIsIsolatedByItsOwnPath() throws {
+        let p = presenter(box(1, ["glassGroup": "12"], w: 200) + box(2, w: 120) + box(3, ["backgroundMaterial": "glass"], w: 120)
+            + box(4, w: 40) + box(5, ["backgroundMaterial": "glass"], w: 80)
+            + [["op": "children", "id": 4, "ids": [5]], ["op": "children", "id": 3, "ids": [4]], ["op": "children", "id": 2, "ids": [3]],
+               ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+               ["op": "present", "id": 2, "property": "opacity", "x": 0.5, "y": 0.0, "w": 0.0, "h": 0.0],
+               ["op": "style", "id": 4, "style": ["overflow_x": "hidden", "overflow_y": "hidden", "text_color": [0, 0, 0, 255]]]])
+        let outer = try XCTUnwrap(p.views[3]), inner = try XCTUnwrap(p.views[5])
+        XCTAssertNotNil(outer.glassIsolation, "the outer glass's path fades")
+        XCTAssertNotNil(inner.glassIsolation, "the inner glass's path to the outer's container clips")
+        var native: [String: Any] = [:]
+        inner.glassAgentFields(&native)
+        XCTAssertEqual(native["glassGroupOf"] as? String, "#1", "its group, past the isolation")
+    }
+
     func testTheGroupViewIsNeverAHitTarget() throws {
         let p = presenter(cluster())
         let group = try XCTUnwrap(p.views[1]), parent = try XCTUnwrap(group.superview)

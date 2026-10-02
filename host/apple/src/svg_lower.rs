@@ -412,9 +412,6 @@ fn circle_moves(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
         && !served(&s.stroke)
 }
 
-/// Whether a node is drawn into a filtered box's picture (CSS `filter` on
-/// a box, `BoxFilter` on Apple): it or a box above it has a filter, so its
-/// animations are sampled and each frame redraws the picture.
 /// Whether an element is inside a glass group (LLP 1053.000.000 D4): an
 /// ancestor, not itself, has `glassGroup`. The group's own opacity reaches
 /// its glass; a descendant's must come to the host as a value.
@@ -429,6 +426,44 @@ fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     false
 }
 
+/// LLP 1053.000.000 D4: every running opacity animation inside a glass
+/// group is sampled, not only the ones a commit touched, so a group set on
+/// an ancestor after the animation started reaches it too. Returns the views
+/// whose Core Animation specs must be withdrawn. A node that leaves every
+/// group stays sampled: its pixels are right, at a little more work.
+pub(crate) fn glass_sampling(kernel: &Kernel, engine: &mut Engine) -> Vec<exact_kernel::ViewId> {
+    let lowered: Vec<u64> = engine
+        .animated_nodes()
+        .filter(|&node| {
+            !engine.node_sampled(node)
+                && engine.animation_plays(node).iter().any(|play| {
+                    play.animation
+                        .keyframes
+                        .properties()
+                        .into_iter()
+                        .any(|p| p == Property::Opacity)
+                })
+        })
+        .collect();
+    let mut switched = Vec::new();
+    for node in lowered {
+        let key = NodeKey {
+            index: node as u32,
+            generation: (node >> 32) as u32,
+        };
+        if let Some(n) = kernel.node_by_key(key) {
+            if in_glass_group(kernel, &n) {
+                engine.set_node_sampled(node, true);
+                switched.push(n.id);
+            }
+        }
+    }
+    switched
+}
+
+/// Whether a node is drawn into a filtered box's picture (CSS `filter` on
+/// a box, `BoxFilter` on Apple): it or a box above it has a filter, so its
+/// animations are sampled and each frame redraws the picture.
 fn under_box_filter(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     let filtered =
         |a: &exact_kernel::NodeRef<'_>| !a.node_type.is_svg_element() && !a.style.filter.is_none();

@@ -1095,15 +1095,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             sv.contentInsetAdjustmentBehavior = .never
             sv.delegate = self
             sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
-            addSubview(sv)
+            GlassGroups.moving(in: self) {
+                for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+                addSubview(sv)
+            }
             scroll = sv
             updateRefresh()
         }
         if !scrolls, let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
-            sv.removeFromSuperview()
+            GlassGroups.moving(in: self) {
+                for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+                sv.removeFromSuperview()
+            }
             scroll = nil
         }
         scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal

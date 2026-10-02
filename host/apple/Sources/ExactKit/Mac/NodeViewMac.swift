@@ -1056,15 +1056,19 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sv.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
             sv.autoresizingMask = [.width, .height]
-            for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
-            addSubview(sv)
+            GlassGroups.moving(in: self) {
+                for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+                addSubview(sv)
+            }
             scroll = sv
             presenter?.scrollers.insert(id)
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
-            sv.removeFromSuperview()
+            GlassGroups.moving(in: self) {
+                for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
+                sv.removeFromSuperview()
+            }
             scroll = nil
             presenter?.scrollers.remove(id)
         }

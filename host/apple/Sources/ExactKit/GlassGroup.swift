@@ -28,13 +28,21 @@ final class GlassGroups {
     private var active = false
     private static var noted = Set<String>()
 
-    /// Each glass, joined to its group or isolated by its path. Nothing to
-    /// do in a presenter that has never had a group.
+    /// Each glass, joined to its group or isolated by its path. A glass
+    /// inside another glass answers to that one's isolation, so the pass
+    /// repeats while anything changed (a few rounds at most). Nothing to do
+    /// in a presenter that has never had a group.
     func reconcile() {
         let live = groups.count > 0
         guard live || active else { return }
         active = live
-        for node in glass.allObjects { node.reconcileGlass() }
+        for _ in 0..<3 {
+            var changed = false
+            for node in glass.allObjects {
+                if node.reconcileGlass() { changed = true }
+            }
+            if !changed { return }
+        }
     }
 
     /// Says once why a `glassGroup` draws no group (D6).
@@ -104,17 +112,20 @@ extension NodeView {
         return nil
     }
 
-    /// The group a glass node is in, and what on its path there the
+    /// The nearest glass container above a glass node — its group, or the
+    /// isolation of a glass it is inside — and what on its path there the
     /// platform would not honour (D4): opacity below 1 or a mask on any view
     /// from the node up, clipping on any view above it (its own bounds hold
-    /// its glass). Hidden views and transforms are honoured.
-    func glassPath() -> (group: NodeView?, reasons: [String]) {
+    /// its glass), and a canvas's overlay, whose alpha the capture changes
+    /// between batches. Hidden views and transforms are honoured.
+    func glassPath() -> (container: NodeView?, reasons: [String]) {
         var reasons: [String] = []
         func note(_ r: String) { if !reasons.contains(r) { reasons.append(r) } }
         var view: GlassPlatformView? = self
         while let v = view {
             #if os(iOS)
             if let group = v.superview as? GlassGroupView { return (group.owner, reasons) }
+            if let slot = v.superview as? GlassSlot, slot.effect != nil { return (slot.superview as? NodeView, reasons) }
             if v.alpha < 1 { note("opacity") }
             if v.layer.mask != nil { note("mask") }
             if v !== self, v.clipsToBounds || v.layer.masksToBounds { note("clip") }
@@ -122,11 +133,26 @@ extension NodeView {
             if #available(macOS 26.0, *), let group = v.superview as? GlassGroupView { return (group.owner, reasons) }
             if v.alphaValue < 1 { note("opacity") }
             if v.layer?.mask != nil { note("mask") }
-            if v !== self, v.clipsToBounds || v.layer?.masksToBounds == true { note("clip") }
+            if v !== self, v is NSClipView || v.clipsToBounds || v.layer?.masksToBounds == true { note("clip") }
             #endif
+            if v !== self, (v.superview as? NodeView)?.overlay === v { note("canvas") }
             view = v.superview
         }
         return (nil, [])
+    }
+
+    /// The group a glass is in, past any isolation (D7).
+    func nearestGlassGroup() -> NodeView? {
+        var view = superview
+        while let v = view {
+            #if os(iOS)
+            if let group = v as? GlassGroupView { return group.owner }
+            #else
+            if #available(macOS 26.0, *), let group = v as? GlassGroupView, !(group is GlassIsolationView) { return group.owner }
+            #endif
+            view = v.superview
+        }
+        return nil
     }
 
     /// D7: what `layout <node>` says of a group and of a grouped glass.
@@ -145,10 +171,9 @@ extension NodeView {
             }
             native["glassGroup"] = group
         }
-        guard Materials.glass(props["backgroundMaterial"]) else { return }
-        let (group, reasons) = glassPath()
-        guard let group else { return }
+        guard Materials.glass(props["backgroundMaterial"]), let group = nearestGlassGroup() else { return }
         native["glassGroupOf"] = "#\(group.id)"
+        let (_, reasons) = glassPath()
         if !reasons.isEmpty { native["isolated"] = reasons }
     }
 }
@@ -244,12 +269,13 @@ extension NodeView {
     /// Joined to its group or isolated from it by its path (D4). The slot is
     /// made when the glass is first found in a group, normally in the batch
     /// that mounts it, and then only its effect changes.
-    func reconcileGlass() {
-        guard Materials.glass(materialKind), let material = materialView, #available(iOS 26.0, *) else { return }
-        let (group, reasons) = glassPath()
-        guard group != nil else {
-            if let slot = glassSlot, slot.effect != nil { slot.effect = nil }
-            return
+    @discardableResult func reconcileGlass() -> Bool {
+        guard Materials.glass(materialKind), let material = materialView, #available(iOS 26.0, *) else { return false }
+        let (container, reasons) = glassPath()
+        guard container != nil else {
+            guard let slot = glassSlot, slot.effect != nil else { return false }
+            slot.effect = nil
+            return true
         }
         let slot = glassSlot ?? {
             let made = GlassSlot(effect: nil)
@@ -263,14 +289,16 @@ extension NodeView {
             return made
         }()
         let isolated = !reasons.isEmpty
-        if (slot.effect != nil) != isolated { slot.effect = isolated ? UIGlassContainerEffect() : nil }
+        guard (slot.effect != nil) != isolated else { return false }
+        slot.effect = isolated ? UIGlassContainerEffect() : nil
+        return true
     }
 }
 #else
 /// The node's group view on macOS (D2): AppKit's container, innermost,
 /// never a hit target.
 @available(macOS 26.0, *)
-final class GlassGroupView: NSGlassEffectContainerView {
+class GlassGroupView: NSGlassEffectContainerView {
     weak var owner: NodeView?
     var appliedSpacing: CGFloat = -1
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -282,6 +310,11 @@ final class GlassGroupView: NSGlassEffectContainerView {
         return nil
     }
 }
+
+/// An isolated glass's own container (D4): a group of one, owned by the
+/// glass, which a glass inside it answers to; never a node's group.
+@available(macOS 26.0, *)
+final class GlassIsolationView: GlassGroupView {}
 
 /// A group's or an isolation's content view: flipped like the node, and
 /// never a hit target itself.
@@ -375,13 +408,14 @@ extension NodeView {
 
     /// Joined to its group or isolated from it by its path (D4): AppKit has
     /// no effect-less container, so the glass moves into one and back.
-    func reconcileGlass() {
-        guard Materials.glass(props["backgroundMaterial"]), let material = materialView, #available(macOS 26.0, *) else { return }
-        let (group, reasons) = glassPath()
-        let isolated = group != nil && !reasons.isEmpty
-        guard isolated != (glassIsolation != nil) else { return }
-        guard isolated else { return releaseGlassIsolation() }
-        let made = GlassGroupView(frame: bounds)
+    @discardableResult func reconcileGlass() -> Bool {
+        guard Materials.glass(props["backgroundMaterial"]), let material = materialView, #available(macOS 26.0, *) else { return false }
+        let (container, reasons) = glassPath()
+        let isolated = container != nil && !reasons.isEmpty
+        guard isolated != (glassIsolation != nil) else { return false }
+        guard isolated else { releaseGlassIsolation(); return true }
+        let made = GlassIsolationView(frame: bounds)
+        made.owner = self
         made.spacing = 0
         made.autoresizingMask = [.width, .height]
         made.setAccessibilityElement(false)
@@ -393,6 +427,7 @@ extension NodeView {
             content.addSubview(material)
         }
         glassIsolation = made
+        return true
     }
 }
 #endif
