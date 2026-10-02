@@ -117,7 +117,7 @@ pub fn check_surface_arguments(
                     walk(children, declared)?;
                 }
                 Node::Use { children, .. } => walk(children, declared)?,
-                Node::Provide { body, .. } | Node::Each { body, .. } => walk(body, declared)?,
+                Node::Each { body, .. } => walk(body, declared)?,
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -362,7 +362,6 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
     for n in nodes {
         match n {
-            Node::Provide { body, .. } => check_view(body, scope, file)?,
             Node::Children { .. } => {}
             Node::Element {
                 attrs, children, ..
@@ -537,9 +536,7 @@ fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
                 }
                 check_controls(children, in_canvas || tag == "canvas")?;
             }
-            Node::Provide { body, .. } | Node::Each { body, .. } => {
-                check_controls(body, in_canvas)?
-            }
+            Node::Each { body, .. } => check_controls(body, in_canvas)?,
             Node::When {
                 then, otherwise, ..
             } => {

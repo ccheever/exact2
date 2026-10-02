@@ -1007,9 +1007,9 @@ impl<'a> Lowerer<'a> {
                 format!("component `{name}` was not inlined"),
                 *span,
             ),
-            Node::Provide { span, .. } | Node::Children { span } => err(
+            Node::Children { span } => err(
                 "lower-uninlined-use",
-                "`provide` and `children` are inlined away before lowering",
+                "`children` is inlined away before lowering",
                 *span,
             ),
             Node::When {

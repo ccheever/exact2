@@ -87,18 +87,19 @@ component App
     textValue = "tick"
   task ticker mount
     every(1000, tick)
+  provide
+    accent = "#fff"
   view
-    provide accent = "#fff"
-      column navigationBack="entry"
-        input id="entry" testId="entry-test" value=textValue change=edit
-        each item in items key=item.id
-          Row(item=item, onPick=save)
-        match choice
-          case some(textValue)
-            text textValue
-          case none
-            text textValue
-        text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
+    column navigationBack="entry"
+      input id="entry" testId="entry-test" value=textValue change=edit
+      each item in items key=item.id
+        Row(item=item, onPick=save)
+      match choice
+        case some(textValue)
+          text textValue
+        case none
+          text textValue
+      text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
 component Row
   props
     item: Item
@@ -171,7 +172,7 @@ fn parameters_and_branch_bindings_shadow_reads_but_never_assignment_targets() {
     assert_eq!(both.len(), 2);
     assert_eq!(target(&graph, both[0])["kind"], "state");
     assert_eq!(target(&graph, both[1])["kind"], "parameter");
-    let local_line = line(SOURCE, "            text textValue");
+    let local_line = line(SOURCE, "          text textValue");
     let some = at_line(&graph, "textValue", local_line);
     let none = at_line(&graph, "textValue", local_line + 2);
     assert_eq!(target(&graph, some[0])["kind"], "local");

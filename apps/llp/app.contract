@@ -168,80 +168,81 @@ component Llp
   // 1069.010 D6).
   derive title = index.project != "" ? `LLP — ${index.project}` : "LLP"
 
+  provide
+    theme
   view
-    provide theme = theme
-      main testId="llp-main" width="100%" height="100%" background-color=theme.page
-        head title=title
-        column width="100%" height="100%"
-          header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
-            row gap=8 align-items="center" width="100%"
-              Chip(label="Files", on=showIndex, press=toggleIndex, testId="index-toggle")
-              // The node every open route ends at: ⌘O, a Finder double-click,
-              // `llpview llp/`, a followed cross-reference, a sidebar row.
-              input value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
-              input value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
-              when searching
-                button press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
-                  text `${index.shown} of ${index.total}` font-size=12 color=theme.softInk
-              Chip(label="Outline", on=showOutline, press=toggleOutline, testId="outline-toggle")
-              // Appearance: system, light, dark — the icons exact1's blog used
-              // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
-              // to PNG because an Exact `image` is a raster asset (LLP 1011)
-              // and the Apple host decodes through ImageIO, which has no SVG.
-              // Following the system is the absence of an override, not a
-              // third appearance, on every host.
-              SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
-              SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
-              SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
-          when doc.failed
-            row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
-              text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
-              text doc.message font-size=12 color=theme.warnInk testId="open-message"
-          // `min-height: 0` is what lets the panes below scroll rather than
-          // grow: a flex item's default `min-height: auto` is its content, so
-          // a row holding a 4,000-point document is 4,000 points tall and the
-          // window merely clips it. The web has the same rule and the same fix.
-          row flex=1 min-height=0 width="100%"
-            // The corpus, in number order, sub-documents under their parents.
-            when showIndex
-              column width=300 height="100%" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge
-                // What changes the list, above the list. Outside the scroll,
-                // so they stay put while it moves: a filter you have to
-                // scroll back up to reach is a filter you stop using.
-                //
-                // The declared working sets (rules/RULES.md): `llp/current`
-                // is the documents in hand, `llp/foundation` the orientation
-                // kernel. Pressing the one that is on clears it.
-                row gap=6 padding=8 padding-bottom=6 width="100%" box-sizing="border-box" align-items="center"
-                  Chip(label="current", on=(overlay == "current"), press=showOverlay("current"), testId="overlay-current")
-                  Chip(label="foundation", on=(overlay == "foundation"), press=showOverlay("foundation"), testId="overlay-foundation")
-                  // The end of a corpus is where the new documents are.
-                  Chip(label="newest", on=newest, press=toggleNewest, testId="order-toggle")
-                scroll flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain" testId="index"
-                  column width="100%" box-sizing="border-box" padding=8 padding-top=0 gap=1
-                    when isEmpty(index.entries)
-                      view padding=10
-                        text "No documents here" font-size=12 color=theme.softInk testId="index-empty"
-                    each e in index.entries key=e.id
-                      IndexRow(entry=e, open=openFile, searching=searching)
-            scroll flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document"
-              column width="100%" align-items="center" padding-top=24 padding-bottom=72
-                column width="100%" max-width=720 padding-left=32 padding-right=32 box-sizing="border-box" gap=2
-                  DocHeader(doc=doc, sectioned=sectioned, all=showAll)
-                  each b in doc.blocks key=b.id
-                    Blocks(block=b)
-            when showOutline and hasOutline
-              scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-left-style="solid" border-left-width=1 border-color=theme.edge testId="outline"
-                column width="100%" box-sizing="border-box" padding=10 gap=1
-                  button press=showAll aria-label="The whole document" testId="outline-all" width="100%"
-                    when sectioned
-                      view width="100%" box-sizing="border-box" padding=6 border-radius=6
-                        text "Whole document" font-size=12 color=theme.softInk
-                    else
-                      view width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=theme.pill
-                        text "Whole document" font-size=12 font-weight=700 color=theme.pillInk
-                  each h in doc.outline key=h.id
-                    OutlineRow(heading=h, show=showSection)
+    main testId="llp-main" width="100%" height="100%" background-color=theme.page
+      head title=title
+      column width="100%" height="100%"
+        header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
+          row gap=8 align-items="center" width="100%"
+            Chip(label="Files", on=showIndex, press=toggleIndex, testId="index-toggle")
+            // The node every open route ends at: ⌘O, a Finder double-click,
+            // `llpview llp/`, a followed cross-reference, a sidebar row.
+            input value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
+            input value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
+            when searching
+              button press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
+                text `${index.shown} of ${index.total}` font-size=12 color=theme.softInk
+            Chip(label="Outline", on=showOutline, press=toggleOutline, testId="outline-toggle")
+            // Appearance: system, light, dark — the icons exact1's blog used
+            // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
+            // to PNG because an Exact `image` is a raster asset (LLP 1011)
+            // and the Apple host decodes through ImageIO, which has no SVG.
+            // Following the system is the absence of an override, not a
+            // third appearance, on every host.
+            SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
+        when doc.failed
+          row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
+            text doc.message font-size=12 color=theme.warnInk testId="open-message"
+        // `min-height: 0` is what lets the panes below scroll rather than
+        // grow: a flex item's default `min-height: auto` is its content, so
+        // a row holding a 4,000-point document is 4,000 points tall and the
+        // window merely clips it. The web has the same rule and the same fix.
+        row flex=1 min-height=0 width="100%"
+          // The corpus, in number order, sub-documents under their parents.
+          when showIndex
+            column width=300 height="100%" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge
+              // What changes the list, above the list. Outside the scroll,
+              // so they stay put while it moves: a filter you have to
+              // scroll back up to reach is a filter you stop using.
+              //
+              // The declared working sets (rules/RULES.md): `llp/current`
+              // is the documents in hand, `llp/foundation` the orientation
+              // kernel. Pressing the one that is on clears it.
+              row gap=6 padding=8 padding-bottom=6 width="100%" box-sizing="border-box" align-items="center"
+                Chip(label="current", on=(overlay == "current"), press=showOverlay("current"), testId="overlay-current")
+                Chip(label="foundation", on=(overlay == "foundation"), press=showOverlay("foundation"), testId="overlay-foundation")
+                // The end of a corpus is where the new documents are.
+                Chip(label="newest", on=newest, press=toggleNewest, testId="order-toggle")
+              scroll flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain" testId="index"
+                column width="100%" box-sizing="border-box" padding=8 padding-top=0 gap=1
+                  when isEmpty(index.entries)
+                    view padding=10
+                      text "No documents here" font-size=12 color=theme.softInk testId="index-empty"
+                  each e in index.entries key=e.id
+                    IndexRow(entry=e, open=openFile, searching=searching)
+          scroll flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document"
+            column width="100%" align-items="center" padding-top=24 padding-bottom=72
+              column width="100%" max-width=720 padding-left=32 padding-right=32 box-sizing="border-box" gap=2
+                DocHeader(doc=doc, sectioned=sectioned, all=showAll)
+                each b in doc.blocks key=b.id
+                  Blocks(block=b)
+          when showOutline and hasOutline
+            scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-left-style="solid" border-left-width=1 border-color=theme.edge testId="outline"
+              column width="100%" box-sizing="border-box" padding=10 gap=1
+                button press=showAll aria-label="The whole document" testId="outline-all" width="100%"
+                  when sectioned
+                    view width="100%" box-sizing="border-box" padding=6 border-radius=6
+                      text "Whole document" font-size=12 color=theme.softInk
+                  else
+                    view width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=theme.pill
+                      text "Whole document" font-size=12 font-weight=700 color=theme.pillInk
+                each h in doc.outline key=h.id
+                  OutlineRow(heading=h, show=showSection)
 
 // What is open, and the way back out of a single section.
 component DocHeader

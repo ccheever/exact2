@@ -6,8 +6,9 @@
 //! real call site through a prop) and lowering run on the same expansion.
 //!
 //! LLP 1017 P4a/P4b live here too: an `inject` is filled from the nearest
-//! enclosing `provide` on the way down (the compiler's context — no runtime
-//! lookup, a missing provider a refusal), and a `slot` component's
+//! enclosing component's `provide` section on the way down (the compiler's
+//! context — no runtime lookup, a missing provider a refusal; LLP
+//! 1035.005.000 D9), and a `slot` component's
 //! `children` node is replaced by the nodes indented under its use, inlined
 //! in the *use site's* scope.
 
@@ -124,6 +125,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         name: source.name.clone(),
         props: source.props.clone(),
         injects: source.injects.clone(),
+        provides: source.provides.clone(),
         slot: source.slot,
         states: source.states.clone(),
         derives: source.derives.clone(),
@@ -172,8 +174,12 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         },
     };
     let none = BTreeMap::new();
-    let view = inline_nodes(&file.components[0].view, &mut Subst::new(&none), &mut ctx)
-        .unwrap_or_default();
+    let mut subst = Subst::new(&none);
+    for b in &source.provides {
+        ctx.provides
+            .push((b.name.clone(), subst_expr(&b.expr, &mut subst)));
+    }
+    let view = inline_nodes(&source.view, &mut subst, &mut ctx).unwrap_or_default();
     root.view = view;
     let mut owners = vec![None; root.states.len()];
     let mut state_instances = if capture_sites {
@@ -214,8 +220,8 @@ struct Ctx<'a> {
     file: &'a File,
     counter: &'a mut u32,
     depth: u32,
-    /// `provide`s in force, outermost first, each already substituted into
-    /// the scope it was written in.
+    /// Provided bindings in force, outermost component first, each already
+    /// substituted into the scope of the component that provides it.
     provides: Vec<(String, Expr)>,
     /// The nodes that fill `children` here: `Some` inside a `slot`
     /// component's view (possibly empty), `None` elsewhere.
@@ -302,16 +308,17 @@ fn inline_nodes(
                             .map(|p| format!("`{}`", p.name))
                             .collect::<Vec<_>>()
                             .join(", ");
-                        let scopes = missing
+                        let bindings = missing
                             .iter()
-                            .map(|p| format!("`provide {} = …`", p.name))
+                            .map(|p| format!("`{} = …`", p.name))
                             .collect::<Vec<_>>()
                             .join(", ");
-                        let message = if missing.len() == 1 {
-                            format!("`{name}` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
-                        } else {
-                            format!("`{name}` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
-                        };
+                        let them = if missing.len() == 1 { "it" } else { "them" };
+                        let message = format!(
+                            "`{name}` injects {names}, and no component above this use provides {them}: \
+                             in this component or one that uses it, write a `provide` section with \
+                             {bindings} indented under it"
+                        );
                         ctx.refuse("syntax-missing-provide", message, *span);
                         child_subst.insert(p.name.clone(), absent(*span));
                         continue;
@@ -479,20 +486,20 @@ fn inline_nodes(
                 let renamed = rename_nodes(&c.view, &BTreeMap::new(), n);
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
                 let outer_instance = std::mem::replace(&mut ctx.instance, instance);
+                // The child's `provide` section covers its whole view, after
+                // the fill took the use site's (LLP 1035.005.000 D9).
+                let outer_provides = ctx.provides.len();
+                for b in &c.provides {
+                    ctx.provides
+                        .push((b.name.clone(), subst_expr(&b.expr, &mut child)));
+                }
                 ctx.depth += 1;
                 let body = inline_nodes(&renamed, &mut child, ctx);
                 ctx.depth -= 1;
+                ctx.provides.truncate(outer_provides);
                 ctx.fill = outer_fill;
                 ctx.instance = outer_instance;
                 out.extend(body?);
-            }
-            Node::Provide {
-                name, expr, body, ..
-            } => {
-                ctx.provides.push((name.clone(), subst_expr(expr, subst)));
-                let inner = inline_nodes(body, subst, ctx);
-                ctx.provides.pop();
-                out.extend(inner?);
             }
             Node::Children { span } => match &ctx.fill {
                 Some(fill) => out.extend(fill.iter().cloned()),
@@ -620,17 +627,6 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                     })
                     .collect(),
                 children: rename_nodes(children, map, n),
-                span: *span,
-            },
-            Node::Provide {
-                name,
-                expr,
-                body,
-                span,
-            } => Node::Provide {
-                name: name.clone(),
-                expr: renamed_locals(expr, map),
-                body: rename_nodes(body, map, n),
                 span: *span,
             },
             Node::Children { span } => Node::Children { span: *span },

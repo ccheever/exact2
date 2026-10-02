@@ -414,118 +414,119 @@ component ExactLive
   task liveProducer mount
     every(250, tick)
 
+  provide
+    theme
   view
-    provide theme = theme
-      main testId="exact-live" width="100%" height="100%" min-height=0 display="flex" flex-direction="column" overflow="hidden" box-sizing="border-box" viewport-fit="cover" interactive-widget="resizes-content" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color=theme.page color=theme.ink
-        column flex-shrink=0 padding=16 gap=12 border-bottom-width=1 border-color=theme.edge
-          row align-items="center" gap=10
-            text "exact / live" font-size=22 font-weight=700 letter-spacing=-0.8 color=theme.accent
-            when wide
-              text "FIELD NOTES  /  001" font-size=10 letter-spacing=1 color=theme.muted flex=1
-            else
-              box flex=1
-            when running
-              button press=pause testId="pause-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.wash
-                text "Pause" font-size=12 color=theme.accent
-            else
-              button press=startLive testId="start-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.accent
-                text "Go live" font-size=12 color=theme.page
-            button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.card
-              text "•••" color=theme.ink
-          row align-items="center" gap=6
-            PaneButton(name="rundown", label="Rundown", selected=pane, choose=showPane)
-            PaneButton(name="runbook", label="Runbook", selected=pane, choose=showPane)
-            when not wide
-              PaneButton(name="crew", label="Crew", selected=pane, choose=showPane)
-            when wide
-              text (count == 0 ? "A six-scene launch" : `${history.materialized} supplied · ${history.changed} changed`) flex=1 font-size=11 color=theme.muted text-align="right"
-        when inspector
-          scroll max-height=230 flex-shrink=0 background-color=theme.wash testId="workload-controls"
-            column padding=14 gap=10
-              text "Explicit workload · not a frame-rate meter" font-size=14 font-weight=600
-              row gap=6 flex-wrap="wrap"
-                LoadButton(n=0, label="Curated", selected=count, choose=chooseLoad)
-                LoadButton(n=100, label="100 messages", selected=count, choose=chooseLoad)
-                LoadButton(n=1000, label="1,000 messages", selected=count, choose=chooseLoad)
-                LoadButton(n=10000, label="10,000 messages", selected=count, choose=chooseLoad)
-                LoadButton(n=100000, label="100,000 messages", selected=count, choose=chooseLoad)
-                LoadButton(n=1, label="Change 1", selected=batch, choose=chooseBatch)
-                LoadButton(n=8, label="Change 8", selected=batch, choose=chooseBatch)
-                LoadButton(n=32, label="Change 32", selected=batch, choose=chooseBatch)
-                button press=startSelected disabled=(count == 0 or running) testId="start-selected" padding=8 border-width=0 border-radius=6 background-color=theme.card
-                  text "Run selected load" font-size=12 color=theme.accent
-              text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=11 color=theme.muted
-              row gap=6 flex-wrap="wrap"
-                LoadButton(n=0, label="Curated runbook", selected=bookBytes, choose=chooseBook)
-                LoadButton(n=1048576, label="1MiB paragraph", selected=bookBytes, choose=chooseBook)
-                LoadButton(n=4194304, label="4MiB paragraph", selected=bookBytes, choose=chooseBook)
-              text "Large runbooks retain the full source. Ordinary rich-text layout can block or exhaust memory, especially on phone. No cold-region guarantee here." font-size=11 color=theme.muted
-              row gap=6 flex-wrap="wrap"
-                button press=command("load", "", 100) testId="rundown-100" padding=8 border-width=0 border-radius=6
-                  text "100 studies" font-size=12
-                button press=command("load", "", 1000) testId="rundown-1000" padding=8 border-width=0 border-radius=6
-                  text "1,000 studies" font-size=12
-                button press=command("load", "", 25000) testId="rundown-25000" padding=8 border-width=0 border-radius=6
-                  text "25,000 studies" font-size=12
-                button press=resetScene testId="reset-scene" padding=8 border-width=0 border-radius=6
-                  text "Reset scene" font-size=12
-              row gap=6 flex-wrap="wrap"
-                button press=attachFixture disabled=fixtureEnabled testId="attach-fixture" padding=8 border-width=0 border-radius=6
-                  text "Attach desktop fixture" font-size=12
-                button press=startJobs disabled=(not fixtureEnabled or pendingCount > 0 or pending(wave)) testId="start-jobs" padding=8 border-width=0 border-radius=6
-                  text "Request 128 jobs" font-size=12
-                button press=releaseJobs disabled=(waveId == 0 or pending(fixture)) testId="release-jobs" padding=8 border-width=0 border-radius=6
-                  text "Release held jobs" font-size=12
-              text "Fixture uses desktop loopback; not phone networking. Pause stops future transcript ticks; existing requests continue. Reset scene retains the current job wave." font-size=11 color=theme.muted
-        box position="relative" flex=1 min-height=0 width="100%" overflow="hidden"
+    main testId="exact-live" width="100%" height="100%" min-height=0 display="flex" flex-direction="column" overflow="hidden" box-sizing="border-box" viewport-fit="cover" interactive-widget="resizes-content" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color=theme.page color=theme.ink
+      column flex-shrink=0 padding=16 gap=12 border-bottom-width=1 border-color=theme.edge
+        row align-items="center" gap=10
+          text "exact / live" font-size=22 font-weight=700 letter-spacing=-0.8 color=theme.accent
           when wide
-            row width="100%" height="100%" min-height=0 gap=0 testId="desktop-workspace"
-              column flex=1 min-width=0 min-height=0 height="100%"
-                when pane == "runbook"
-                  RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
-                else
-                  RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
-              column width=360 height="100%" min-height=0 flex-shrink=0 border-left-width=1 border-color=theme.edge
-                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+            text "FIELD NOTES  /  001" font-size=10 letter-spacing=1 color=theme.muted flex=1
           else
-            column width="100%" height="100%" min-height=0 testId="phone-workspace"
-              when pane == "crew"
-                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+            box flex=1
+          when running
+            button press=pause testId="pause-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.wash
+              text "Pause" font-size=12 color=theme.accent
+          else
+            button press=startLive testId="start-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.accent
+              text "Go live" font-size=12 color=theme.page
+          button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.card
+            text "•••" color=theme.ink
+        row align-items="center" gap=6
+          PaneButton(name="rundown", label="Rundown", selected=pane, choose=showPane)
+          PaneButton(name="runbook", label="Runbook", selected=pane, choose=showPane)
+          when not wide
+            PaneButton(name="crew", label="Crew", selected=pane, choose=showPane)
+          when wide
+            text (count == 0 ? "A six-scene launch" : `${history.materialized} supplied · ${history.changed} changed`) flex=1 font-size=11 color=theme.muted text-align="right"
+      when inspector
+        scroll max-height=230 flex-shrink=0 background-color=theme.wash testId="workload-controls"
+          column padding=14 gap=10
+            text "Explicit workload · not a frame-rate meter" font-size=14 font-weight=600
+            row gap=6 flex-wrap="wrap"
+              LoadButton(n=0, label="Curated", selected=count, choose=chooseLoad)
+              LoadButton(n=100, label="100 messages", selected=count, choose=chooseLoad)
+              LoadButton(n=1000, label="1,000 messages", selected=count, choose=chooseLoad)
+              LoadButton(n=10000, label="10,000 messages", selected=count, choose=chooseLoad)
+              LoadButton(n=100000, label="100,000 messages", selected=count, choose=chooseLoad)
+              LoadButton(n=1, label="Change 1", selected=batch, choose=chooseBatch)
+              LoadButton(n=8, label="Change 8", selected=batch, choose=chooseBatch)
+              LoadButton(n=32, label="Change 32", selected=batch, choose=chooseBatch)
+              button press=startSelected disabled=(count == 0 or running) testId="start-selected" padding=8 border-width=0 border-radius=6 background-color=theme.card
+                text "Run selected load" font-size=12 color=theme.accent
+            text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=11 color=theme.muted
+            row gap=6 flex-wrap="wrap"
+              LoadButton(n=0, label="Curated runbook", selected=bookBytes, choose=chooseBook)
+              LoadButton(n=1048576, label="1MiB paragraph", selected=bookBytes, choose=chooseBook)
+              LoadButton(n=4194304, label="4MiB paragraph", selected=bookBytes, choose=chooseBook)
+            text "Large runbooks retain the full source. Ordinary rich-text layout can block or exhaust memory, especially on phone. No cold-region guarantee here." font-size=11 color=theme.muted
+            row gap=6 flex-wrap="wrap"
+              button press=command("load", "", 100) testId="rundown-100" padding=8 border-width=0 border-radius=6
+                text "100 studies" font-size=12
+              button press=command("load", "", 1000) testId="rundown-1000" padding=8 border-width=0 border-radius=6
+                text "1,000 studies" font-size=12
+              button press=command("load", "", 25000) testId="rundown-25000" padding=8 border-width=0 border-radius=6
+                text "25,000 studies" font-size=12
+              button press=resetScene testId="reset-scene" padding=8 border-width=0 border-radius=6
+                text "Reset scene" font-size=12
+            row gap=6 flex-wrap="wrap"
+              button press=attachFixture disabled=fixtureEnabled testId="attach-fixture" padding=8 border-width=0 border-radius=6
+                text "Attach desktop fixture" font-size=12
+              button press=startJobs disabled=(not fixtureEnabled or pendingCount > 0 or pending(wave)) testId="start-jobs" padding=8 border-width=0 border-radius=6
+                text "Request 128 jobs" font-size=12
+              button press=releaseJobs disabled=(waveId == 0 or pending(fixture)) testId="release-jobs" padding=8 border-width=0 border-radius=6
+                text "Release held jobs" font-size=12
+            text "Fixture uses desktop loopback; not phone networking. Pause stops future transcript ticks; existing requests continue. Reset scene retains the current job wave." font-size=11 color=theme.muted
+      box position="relative" flex=1 min-height=0 width="100%" overflow="hidden"
+        when wide
+          row width="100%" height="100%" min-height=0 gap=0 testId="desktop-workspace"
+            column flex=1 min-width=0 min-height=0 height="100%"
+              when pane == "runbook"
+                RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
               else
-                when pane == "runbook"
-                  RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
-                else
-                  RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
-                button press=toggleSheet testId="open-crew-sheet" height=44 justify-content="center" flex-shrink=0 border-width=0 background-color=theme.wash
-                  text "Open crew notes ↑" font-size=13 color=theme.accent
-            when crewSheet and pane != "crew"
-              column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
-                row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
-                  box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
-                    text "──  Crew notes" font-size=13 color=theme.muted
-                  button press=chooseSheet(180) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-peek"
-                    text "Peek" font-size=11
-                  button press=chooseSheet(360) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-read"
-                    text "Read" font-size=11
-                  button press=chooseSheet(640) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-full"
-                    text "Full" font-size=11
-                  button press=toggleSheet min-height=44 justify-content="center" padding=8 border-width=0 testId="close-crew-sheet"
-                    text "Close" font-size=11
-                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
-        column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
-          text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=11 color=theme.muted
-          when waveId > 0
-            row gap=8 align-items="center" flex-wrap="wrap"
-              text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=11 color=theme.muted
-              button press=reconnectEvents disabled=(jobLog.status == "live") testId="reconnect-events" padding=4 border-width=0 border-radius=6
-                text "Reconnect" font-size=11
-            text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=10 color=theme.muted
-            row gap=8 align-items="center" flex-wrap="wrap"
-              text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} frames · ${jobFeed.messages} messages · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} re-asks`) testId="job-frames" font-size=10 color=theme.muted
-              button press=reconnectFrames disabled=(jobFeed.status == "live") testId="reconnect-frames" padding=4 border-width=0 border-radius=6
-                text "Reconnect" font-size=11
-          when fixtureMessage != ""
-            text fixtureMessage testId="fixture-status" font-size=10 color=theme.muted
+                RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
+            column width=360 height="100%" min-height=0 flex-shrink=0 border-left-width=1 border-color=theme.edge
+              CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+        else
+          column width="100%" height="100%" min-height=0 testId="phone-workspace"
+            when pane == "crew"
+              CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+            else
+              when pane == "runbook"
+                RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
+              else
+                RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
+              button press=toggleSheet testId="open-crew-sheet" height=44 justify-content="center" flex-shrink=0 border-width=0 background-color=theme.wash
+                text "Open crew notes ↑" font-size=13 color=theme.accent
+          when crewSheet and pane != "crew"
+            column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
+              row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
+                box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
+                  text "──  Crew notes" font-size=13 color=theme.muted
+                button press=chooseSheet(180) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-peek"
+                  text "Peek" font-size=11
+                button press=chooseSheet(360) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-read"
+                  text "Read" font-size=11
+                button press=chooseSheet(640) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-full"
+                  text "Full" font-size=11
+                button press=toggleSheet min-height=44 justify-content="center" padding=8 border-width=0 testId="close-crew-sheet"
+                  text "Close" font-size=11
+              CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+      column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
+        text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=11 color=theme.muted
+        when waveId > 0
+          row gap=8 align-items="center" flex-wrap="wrap"
+            text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=11 color=theme.muted
+            button press=reconnectEvents disabled=(jobLog.status == "live") testId="reconnect-events" padding=4 border-width=0 border-radius=6
+              text "Reconnect" font-size=11
+          text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=10 color=theme.muted
+          row gap=8 align-items="center" flex-wrap="wrap"
+            text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} frames · ${jobFeed.messages} messages · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} re-asks`) testId="job-frames" font-size=10 color=theme.muted
+            button press=reconnectFrames disabled=(jobFeed.status == "live") testId="reconnect-frames" padding=4 border-width=0 border-radius=6
+              text "Reconnect" font-size=11
+        when fixtureMessage != ""
+          text fixtureMessage testId="fixture-status" font-size=10 color=theme.muted
 
 component PaneButton
   inject

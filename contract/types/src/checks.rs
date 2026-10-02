@@ -4,7 +4,8 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart, TypeExpr,
+    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, Stmt, TemplatePart,
+    TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -462,7 +463,6 @@ fn collect_owner_scopes(
             Node::Element { children, .. } | Node::Use { children, .. } => {
                 collect_owner_scopes(children, scope, shapes, scopes)?;
             }
-            Node::Provide { body, .. } => collect_owner_scopes(body, scope, shapes, scopes)?,
             Node::Children { .. } => {}
             Node::When {
                 then, otherwise, ..
@@ -517,20 +517,34 @@ fn collect_owner_scopes(
     Ok(())
 }
 
+/// A slot's fill, checked where `children` stands with its caller's scope
+/// and providers (LLP 1035.005.000 D9: the slot's own section does not
+/// reach it).
 #[derive(Clone)]
 struct Fill {
     nodes: Vec<Node>,
     scope: Scope,
+    provides: Vec<(String, Ty, Span)>,
 }
 
-/// Check the concrete provider path to every inject after component typing.
+/// Check the concrete provider path to every inject after component typing:
+/// `provides` is the root's `provide` section, `scope` its scope.
 pub(super) fn check_injects(
     nodes: &[Node],
+    provides: &[Binding],
     scope: &Scope,
     types: &Types,
     file: &File,
 ) -> Result<(), TypeError> {
-    check_inject_nodes(nodes, scope, types, file, &mut Vec::new(), None, 0)
+    let mut provided = Vec::new();
+    for b in provides {
+        provided.push((
+            b.name.clone(),
+            infer(&b.expr, scope, &types.shapes)?,
+            b.span,
+        ));
+    }
+    check_inject_nodes(nodes, scope, types, file, &mut provided, None, 0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -595,8 +609,14 @@ fn check_inject_nodes(
                 let child_fill = target_c.slot.then(|| Fill {
                     nodes: children.clone(),
                     scope: scope.clone(),
+                    provides: provides.clone(),
                 });
-                check_inject_nodes(
+                let outer = provides.len();
+                for b in &target_c.provides {
+                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
+                    provides.push((b.name.clone(), got, b.span));
+                }
+                let checked = check_inject_nodes(
                     &target_c.view,
                     &target_scope,
                     types,
@@ -604,17 +624,9 @@ fn check_inject_nodes(
                     provides,
                     child_fill.as_ref(),
                     depth + 1,
-                )?;
-            }
-            Node::Provide {
-                name,
-                expr,
-                body,
-                span,
-            } => {
-                provides.push((name.clone(), infer(expr, scope, &types.shapes)?, *span));
-                check_inject_nodes(body, scope, types, file, provides, fill, depth)?;
-                provides.pop();
+                );
+                provides.truncate(outer);
+                checked?;
             }
             Node::Children { .. } => {
                 if let Some(fill) = fill {
@@ -623,7 +635,7 @@ fn check_inject_nodes(
                         &fill.scope,
                         types,
                         file,
-                        provides,
+                        &mut fill.provides.clone(),
                         None,
                         depth,
                     )?;
@@ -1087,10 +1099,6 @@ fn check_stmt(
 pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &mut Sink) {
     for n in nodes {
         match n {
-            Node::Provide { expr, body, .. } => {
-                sink.keep(infer(expr, scope, shapes));
-                check_view(body, scope, shapes, sink);
-            }
             Node::Children { .. } => {}
             Node::Element {
                 tag,

@@ -93,7 +93,6 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     walk(children, errors);
                 }
                 Node::Use { children, .. } => walk(children, errors),
-                Node::Provide { body, .. } => walk(body, errors),
                 Node::When {
                     then, otherwise, ..
                 } => {

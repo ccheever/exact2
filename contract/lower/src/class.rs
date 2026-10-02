@@ -110,7 +110,7 @@ impl Lowerer<'_> {
                     || self.may_hold_absolute(children)
             }
             Node::Use { .. } | Node::Children { .. } => true,
-            Node::Provide { body, .. } | Node::Each { body, .. } => self.may_hold_absolute(body),
+            Node::Each { body, .. } => self.may_hold_absolute(body),
             Node::When {
                 then, otherwise, ..
             } => self.may_hold_absolute(then) || self.may_hold_absolute(otherwise),

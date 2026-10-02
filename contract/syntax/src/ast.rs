@@ -324,8 +324,14 @@ pub struct Component {
     /// `props` (empty for the root).
     pub props: Vec<Param>,
     /// `inject` declarations: typed names a use site does not pass — the
-    /// nearest enclosing `provide name = expr` fills them (LLP 1017 P4a).
+    /// nearest enclosing component's `provide` section fills them (LLP 1017
+    /// P4a, LLP 1035.005.000 D9).
     pub injects: Vec<Param>,
+    /// The `provide` section (LLP 1035.005.000 D9): each binding fills the
+    /// same-named `inject` of every component used in this component's view,
+    /// unless a nearer component's section provides it too. A bare name is
+    /// `name = name`; the span is the name's.
+    pub provides: Vec<Binding>,
     /// Whether the component declares `slot`: the nodes indented under a use
     /// of it fill its `children` node (LLP 1017 P4b).
     pub slot: bool,
@@ -618,19 +624,6 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `provide name = expr` with children: every component used below that
-    /// declares `inject name` reads `expr`, the innermost `provide` winning;
-    /// the compiler fills it at inlining — no runtime lookup (LLP 1017 P4a).
-    Provide {
-        /// The provided name.
-        name: String,
-        /// The value, an expression in the providing scope.
-        expr: Expr,
-        /// The subtree it covers.
-        body: Vec<Node>,
-        /// Where.
-        span: Span,
-    },
     /// `children` — where a `slot` component's use puts the nodes indented
     /// under it (LLP 1017 P4b).
     Children {
@@ -687,7 +680,6 @@ impl Node {
         match self {
             Node::Element { span, .. }
             | Node::Use { span, .. }
-            | Node::Provide { span, .. }
             | Node::Children { span }
             | Node::When { span, .. }
             | Node::Each { span, .. }

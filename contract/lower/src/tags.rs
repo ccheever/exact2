@@ -1361,7 +1361,6 @@ pub(crate) fn host_transform_recipients(
                     collect(lower, otherwise, parent, repeated, boxes);
                 }
                 Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
-                Node::Provide { body, .. } => collect(lower, body, parent, repeated, boxes),
                 Node::Match { some, none, .. } => {
                     collect(lower, &some.1, parent, repeated, boxes);
                     collect(lower, none, parent, repeated, boxes);

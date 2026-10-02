@@ -253,7 +253,7 @@ impl<'a> Layout<'a> {
                     self.header(*span, args, true, None);
                     self.nodes(children);
                 }
-                Node::Provide { body, .. } | Node::Each { body, .. } => self.nodes(body),
+                Node::Each { body, .. } => self.nodes(body),
                 Node::When {
                     then, otherwise, ..
                 } => {

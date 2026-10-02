@@ -602,6 +602,7 @@ impl Parser {
             name,
             props: Vec::new(),
             injects: Vec::new(),
+            provides: Vec::new(),
             slot: false,
             states: Vec::new(),
             derives: Vec::new(),
@@ -628,7 +629,7 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(w.as_str(), "props" | "inject" | "slot" | "view") {
+                    if matches!(w.as_str(), "props" | "inject" | "provide" | "slot" | "view") {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -655,6 +656,29 @@ impl Parser {
                             } else {
                                 c.injects = list;
                             }
+                        }
+                        // @ref LLP 1035.005.000 D9 — one binding per line; a
+                        // bare name provides the in-scope value of that name.
+                        "provide" => {
+                            self.next();
+                            self.newline()?;
+                            let mut provides: Vec<Binding> = Vec::new();
+                            for b in self.block(|p| {
+                                let (name, span) = p.field_name()?;
+                                let expr = if p.eat_punct("=") {
+                                    p.expr()?
+                                } else {
+                                    Expr::Ident(name.clone(), span)
+                                };
+                                p.newline()?;
+                                Ok(Binding { name, expr, span })
+                            })? {
+                                if let Some(first) = provides.iter().find(|p| p.name == b.name) {
+                                    return duplicate("provided name", &b.name, b.span, first.span);
+                                }
+                                provides.push(b);
+                            }
+                            c.provides = provides;
                         }
                         "slot" => {
                             self.next();
@@ -1030,19 +1054,22 @@ impl Parser {
             );
         }
         match word.as_str() {
+            // @ref LLP 1035.005.000 D9 — `provide` is a component section;
+            // the nested view form, whose scope was its subtree, is gone.
             "provide" => {
-                self.next();
-                let name = self.named_ident(span)?;
-                self.expect_punct("=")?;
-                let expr = self.expr()?;
-                self.newline()?;
-                let body = self.block(|p| p.node())?;
-                Ok(Node::Provide {
-                    name,
-                    expr,
-                    body,
-                    span,
-                })
+                let name = match self.peek2() {
+                    TokenKind::Ident(name) => name.clone(),
+                    _ => "name".into(),
+                };
+                self.err(
+                    "syntax-provide-in-view",
+                    format!(
+                        "`provide` is a component section, not a view node: write `provide` \
+                         beside `props` and `inject`, with `{name} = …` (or `{name}` alone, \
+                         for the value of that name) indented under it; it reaches the \
+                         component's whole view"
+                    ),
+                )
             }
             "children" => {
                 self.next();

@@ -59,7 +59,12 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
     for source in [
         source.clone(),
         source
-            .replace("      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          Screen(entry=e, data=data, save=save)", "      provide data = data\n        provide save = save\n          each e in stack(nav) key=e.id\n            column navigationKey=`${e.id}`\n              Screen(entry=e)")
+            .replace("Screen(entry=e, data=data, save=save)", "Screen(entry=e)")
+            // Bare names provide the values of those names (LLP 1035.005.000 D9).
+            .replace(
+                "  view\n    main",
+                "  provide\n    data\n    save\n  view\n    main",
+            )
             .replace("    data: App", "  inject\n    data: App"),
     ] {
         let plan = contract::compile(&source).unwrap();
@@ -84,7 +89,10 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         )
         .unwrap();
         r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
-        assert_eq!(r.data_ref().saved, [Value::str("Alice"), Value::str("Edited Alice")]);
+        assert_eq!(
+            r.data_ref().saved,
+            [Value::str("Alice"), Value::str("Edited Alice")]
+        );
     }
     let invalid = source.replace("editingProfile = false", "editingProfile = 0");
     let error = contract::compile(&invalid).unwrap_err();

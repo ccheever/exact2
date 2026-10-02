@@ -164,73 +164,74 @@ component MarkdownStress
   task producer mount
     every(1000, tick)
 
+  provide
+    theme
   view
-    provide theme = theme
-      main testId="markdown-stress" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color=theme.page color=theme.ink
-        column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color=theme.chrome
-          row gap=10 align-items="center" flex-wrap="wrap"
-            text "Markdown stress" font-size=22 font-weight=700 color=theme.strongInk
-            text "LLP 1041 · synthetic documents" font-size=12 color=theme.softInk
-            button press=reset testId="reset" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text "Reset" font-size=12 color=theme.ink
-          row gap=6 align-items="center" flex-wrap="wrap"
-            ProfileButton(name="mixed", label="Mixed", chosen=profile, choose=chooseProfile)
-            ProfileButton(name="paragraph", label="One long paragraph", chosen=profile, choose=chooseProfile)
-            ProfileButton(name="code", label="One code block", chosen=profile, choose=chooseProfile)
-            ProfileButton(name="table", label="Giant table", chosen=profile, choose=chooseProfile)
-            ProfileButton(name="blocks", label="Many blocks", chosen=profile, choose=chooseProfile)
-          row gap=6 align-items="center" flex-wrap="wrap"
-            text "Source budget" font-size=12 color=theme.ink
-            SizeButton(n=16384, label="16 KiB", chosen=size, choose=chooseSize)
-            SizeButton(n=262144, label="256 KiB", chosen=size, choose=chooseSize)
-            SizeButton(n=1048576, label="1 MiB", chosen=size, choose=chooseSize)
-            SizeButton(n=4194304, label="4 MiB", chosen=size, choose=chooseSize)
-            button press=toggleEager testId="toggle-eager" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text (eager ? "Use manual page" : "Render ALL blocks") font-size=12 color=theme.ink
-            button press=toggleWindowed testId="toggle-windowed" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text (windowed ? "Use manual page" : "Window full document") font-size=12 color=theme.ink
-            button press=toggleSingle testId="toggle-single" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text (single ? "Use manual page" : "One markup node") font-size=12 color=theme.ink
-          row gap=6 align-items="center" flex-wrap="wrap"
-            button press=chooseWidth(false) testId="width-narrow" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text "640 px column" font-size=12 color=theme.ink
-            button press=chooseWidth(true) testId="width-wide" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text "1200 px column" font-size=12 color=theme.ink
-            button press=reparse testId="reparse" padding=6 background-color=theme.control border-width=0 border-radius=6
-              text "Parse again" font-size=12 color=theme.ink
-            when running
-              button press=pause testId="pause" padding=6 background-color=theme.control border-width=0 border-radius=6
-                text "Pause" font-size=12 color=theme.ink
+    main testId="markdown-stress" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color=theme.page color=theme.ink
+      column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color=theme.chrome
+        row gap=10 align-items="center" flex-wrap="wrap"
+          text "Markdown stress" font-size=22 font-weight=700 color=theme.strongInk
+          text "LLP 1041 · synthetic documents" font-size=12 color=theme.softInk
+          button press=reset testId="reset" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text "Reset" font-size=12 color=theme.ink
+        row gap=6 align-items="center" flex-wrap="wrap"
+          ProfileButton(name="mixed", label="Mixed", chosen=profile, choose=chooseProfile)
+          ProfileButton(name="paragraph", label="One long paragraph", chosen=profile, choose=chooseProfile)
+          ProfileButton(name="code", label="One code block", chosen=profile, choose=chooseProfile)
+          ProfileButton(name="table", label="Giant table", chosen=profile, choose=chooseProfile)
+          ProfileButton(name="blocks", label="Many blocks", chosen=profile, choose=chooseProfile)
+        row gap=6 align-items="center" flex-wrap="wrap"
+          text "Source budget" font-size=12 color=theme.ink
+          SizeButton(n=16384, label="16 KiB", chosen=size, choose=chooseSize)
+          SizeButton(n=262144, label="256 KiB", chosen=size, choose=chooseSize)
+          SizeButton(n=1048576, label="1 MiB", chosen=size, choose=chooseSize)
+          SizeButton(n=4194304, label="4 MiB", chosen=size, choose=chooseSize)
+          button press=toggleEager testId="toggle-eager" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text (eager ? "Use manual page" : "Render ALL blocks") font-size=12 color=theme.ink
+          button press=toggleWindowed testId="toggle-windowed" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text (windowed ? "Use manual page" : "Window full document") font-size=12 color=theme.ink
+          button press=toggleSingle testId="toggle-single" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text (single ? "Use manual page" : "One markup node") font-size=12 color=theme.ink
+        row gap=6 align-items="center" flex-wrap="wrap"
+          button press=chooseWidth(false) testId="width-narrow" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text "640 px column" font-size=12 color=theme.ink
+          button press=chooseWidth(true) testId="width-wide" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text "1200 px column" font-size=12 color=theme.ink
+          button press=reparse testId="reparse" padding=6 background-color=theme.control border-width=0 border-radius=6
+            text "Parse again" font-size=12 color=theme.ink
+          when running
+            button press=pause testId="pause" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "Pause" font-size=12 color=theme.ink
+          else
+            button press=start testId="start" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "20 reparses at 1 Hz" font-size=12 color=theme.ink
+        text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} supplied blocks · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color=theme.ink
+        text `${doc.largestBlock} text bytes in largest block · ${wide ? "1200" : "640"} px column · ${running ? "reparsing" : "paused"}` testId="load-stats" font-size=12 color=theme.softInk
+        text (single ? "ONE NODE: the whole source as one text markup=\"markdown\" node; the host styles it (LLP 1045 D4)." : windowed ? "WINDOWED: complete parsed document; only nearby blocks mounted. One giant block remains giant." : eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color=theme.warnInk
+      when not eager and not windowed
+        row flex-shrink=0 padding=6 gap=8 flex-wrap="wrap" align-items="center" background-color=theme.chrome
+          button press=previousPage testId="previous-page" padding=6 background-color=theme.control border-width=0
+            text "Previous 40" font-size=12 color=theme.ink
+          button press=nextPage testId="next-page" padding=6 background-color=theme.control border-width=0
+            text "Next 40" font-size=12 color=theme.ink
+          button press=firstPage testId="first-page" padding=6 background-color=theme.control border-width=0
+            text "First page" font-size=12 color=theme.ink
+          text `${doc.first + 1}–${doc.end} of ${doc.totalBlocks}` testId="page-range" font-size=12 color=theme.softInk
+      when contentRegion
+        view id="markdown-region-owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+          view id="markdown-region-content" width="100%" height="100%" display="flex" flex-direction="column"
+            when pending(doc)
+              text `Generating ${profile} · ${size} byte budget…` testId="region-source-pending" font-size=14 color=theme.ink
             else
-              button press=start testId="start" padding=6 background-color=theme.control border-width=0 border-radius=6
-                text "20 reparses at 1 Hz" font-size=12 color=theme.ink
-          text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} supplied blocks · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color=theme.ink
-          text `${doc.largestBlock} text bytes in largest block · ${wide ? "1200" : "640"} px column · ${running ? "reparsing" : "paused"}` testId="load-stats" font-size=12 color=theme.softInk
-          text (single ? "ONE NODE: the whole source as one text markup=\"markdown\" node; the host styles it (LLP 1045 D4)." : windowed ? "WINDOWED: complete parsed document; only nearby blocks mounted. One giant block remains giant." : eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color=theme.warnInk
-        when not eager and not windowed
-          row flex-shrink=0 padding=6 gap=8 flex-wrap="wrap" align-items="center" background-color=theme.chrome
-            button press=previousPage testId="previous-page" padding=6 background-color=theme.control border-width=0
-              text "Previous 40" font-size=12 color=theme.ink
-            button press=nextPage testId="next-page" padding=6 background-color=theme.control border-width=0
-              text "Next 40" font-size=12 color=theme.ink
-            button press=firstPage testId="first-page" padding=6 background-color=theme.control border-width=0
-              text "First page" font-size=12 color=theme.ink
-            text `${doc.first + 1}–${doc.end} of ${doc.totalBlocks}` testId="page-range" font-size=12 color=theme.softInk
-        when contentRegion
-          view id="markdown-region-owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
-            view id="markdown-region-content" width="100%" height="100%" display="flex" flex-direction="column"
-              when pending(doc)
-                text `Generating ${profile} · ${size} byte budget…` testId="region-source-pending" font-size=14 color=theme.ink
-              else
-                DocumentBody(doc=doc, windowed=windowed, single=single, wide=wide, editorText=editorText, editMarkdown=editMarkdown)
-            text "Preparing exact content…" id="markdown-region-pending" position="absolute" font-size=14 color=theme.ink
-        else
-          DocumentBody(doc=doc, windowed=windowed, single=single, wide=wide, editorText=editorText, editMarkdown=editMarkdown)
-        column flex-shrink=0 padding=10 gap=4 width="100%" box-sizing="border-box" background-color=theme.chrome
-          input value=draft input=editDraft testId="stress-input" aria-label="Type while Markdown reflows" placeholder="Type while scrolling, reparsing or resizing…" width="100%" box-sizing="border-box" padding=8 border-width=1 border-color=theme.fieldEdge background-color=theme.field color=theme.ink font-size=14
-          text draft testId="stress-echo" font-size=12 color=theme.ink
-          when draftTooLong
-            text "Input limited to 512 Unicode characters; previous text retained." font-size=11 color=theme.warnInk
+              DocumentBody(doc=doc, windowed=windowed, single=single, wide=wide, editorText=editorText, editMarkdown=editMarkdown)
+          text "Preparing exact content…" id="markdown-region-pending" position="absolute" font-size=14 color=theme.ink
+      else
+        DocumentBody(doc=doc, windowed=windowed, single=single, wide=wide, editorText=editorText, editMarkdown=editMarkdown)
+      column flex-shrink=0 padding=10 gap=4 width="100%" box-sizing="border-box" background-color=theme.chrome
+        input value=draft input=editDraft testId="stress-input" aria-label="Type while Markdown reflows" placeholder="Type while scrolling, reparsing or resizing…" width="100%" box-sizing="border-box" padding=8 border-width=1 border-color=theme.fieldEdge background-color=theme.field color=theme.ink font-size=14
+        text draft testId="stress-echo" font-size=12 color=theme.ink
+        when draftTooLong
+          text "Input limited to 512 Unicode characters; previous text retained." font-size=11 color=theme.warnInk
 
 component ProfileButton
   inject

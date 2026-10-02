@@ -5,6 +5,14 @@ use std::{path::PathBuf, process::Command};
 fn root(binding: &str, children: &str) -> String {
     format!("component App\n  state n = 0\n  action zero\n    n = 0\n  action one(x: number)\n    n = x\n  action two(x: number, y: number)\n    n = x + y\n  view\n    {binding}\n{children}")
 }
+/// The root with a `provide` section (LLP 1035.005.000 D9) over `view`.
+fn provided(provide: &str, view: &str, children: &str) -> String {
+    root(view, children).replacen(
+        "  view\n",
+        &format!("  provide\n    {provide}\n  view\n"),
+        1,
+    )
+}
 fn refusal(source: &str) -> contract::CompileError {
     let error = contract::compile(source).unwrap_err();
     assert_eq!(error.id, "analyze-action-arity", "{error}");
@@ -57,43 +65,48 @@ fn incompatible_invocations_are_rejected_even_in_an_unused_component() {
 
 #[test]
 fn injected_requirements_cross_wrappers_and_use_the_nearest_provider() {
-    let children = "component Wrap\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
-    refusal(&root("provide callback = one\n      Wrap()", children));
-    contract::compile(&root("provide callback = zero\n      Wrap()", children)).unwrap();
-    contract::compile(&root(
-        "provide callback = one\n      provide callback = zero\n        Wrap()",
-        children,
-    ))
-    .unwrap();
-    let error = refusal(&root(
-        "provide callback = zero\n      provide callback = one\n        Wrap()",
-        children,
-    ));
-    assert_eq!(error.related[1].span.line, 11);
+    let children = |wrap: &str| {
+        format!("component Wrap\n  state m = 0\n  action idle\n    m = 0\n  action single(x: number)\n    m = x\n{wrap}  view\n    Plain()\ncomponent Plain\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n")
+    };
+    let plain = children("");
+    refusal(&provided("callback = one", "Wrap()", &plain));
+    contract::compile(&provided("callback = zero", "Wrap()", &plain)).unwrap();
+    // A nearer component's section shadows an outer one's (LLP 1035.005.000 D9).
+    let inner = |value: &str| children(&format!("  provide\n    callback = {value}\n"));
+    contract::compile(&provided("callback = one", "Wrap()", &inner("idle"))).unwrap();
+    let error = refusal(&provided("callback = zero", "Wrap()", &inner("single")));
+    assert_eq!(error.related[1].span.line, 20);
 }
 
 #[test]
 fn providers_can_forward_action_props_and_curry_them() {
-    let children = "component Wrap\n  props\n    callback: action\n  view\n    provide callback = callback(1)\n      Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    let children = "component Wrap\n  props\n    callback: action\n  provide\n    callback = callback(1)\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
     contract::compile(&root("Wrap(callback=one)", children)).unwrap();
     refusal(&root("Wrap(callback=two)", children));
     let children =
         "component Wrap\n  inject\n    callback: action\n  view\n    Button(callback=callback(1))\n"
             .to_owned() + BUTTON;
-    contract::compile(&root("provide callback = one\n      Wrap()", &children)).unwrap();
-    refusal(&root("provide callback = two\n      Wrap()", &children));
+    contract::compile(&provided("callback = one", "Wrap()", &children)).unwrap();
+    refusal(&provided("callback = two", "Wrap()", &children));
+    // A bare name provides the value of that name: an injected action is
+    // forwarded unchanged.
+    let forward = "component Wrap\n  inject\n    callback: action\n  provide\n    callback\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    contract::compile(&provided("callback = zero", "Wrap()", forward)).unwrap();
+    refusal(&provided("callback = one", "Wrap()", forward));
 }
 
 #[test]
 fn slot_fills_keep_the_callers_provider_context() {
-    let children = "component Slot\n  slot\n  action local\n    focus(\"nothing\")\n  view\n    provide callback = local\n      children\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
-    // The slot's inner provider must not rescue the caller's mismatched fill.
-    refusal(&root(
-        "provide callback = one\n      Slot()\n        Injected()",
+    let children = "component Slot\n  slot\n  action local\n    focus(\"nothing\")\n  provide\n    callback = local\n  view\n    children\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    // The slot's own section must not rescue the caller's mismatched fill.
+    refusal(&provided(
+        "callback = one",
+        "Slot()\n      Injected()",
         children,
     ));
-    contract::compile(&root(
-        "provide callback = zero\n      Slot()\n        Injected()",
+    contract::compile(&provided(
+        "callback = zero",
+        "Slot()\n      Injected()",
         children,
     ))
     .unwrap();

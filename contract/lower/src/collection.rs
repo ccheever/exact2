@@ -187,7 +187,7 @@ impl Lowerer<'_> {
                     self.check_nested(&some.1, inner)?;
                     self.check_nested(none, inner)?;
                 }
-                Node::Each { body, .. } | Node::Provide { body, .. } => {
+                Node::Each { body, .. } => {
                     self.check_nested(body, inner)?;
                 }
                 Node::Use { children, .. } => self.check_nested(children, inner)?,

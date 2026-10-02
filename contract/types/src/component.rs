@@ -330,8 +330,15 @@ pub(crate) fn check_component(
             }
         }
     }
-    // The view types.
+    // A child's `provide` section and the view type. The expanded root's
+    // section is checked with its uses (`check_root`), after the expansion,
+    // so a provided value is refused where a child reads it (LLP 1006 §3).
     let scope = types.component_scope(c, &ct);
+    if owners.is_none() {
+        for b in &c.provides {
+            sink.keep(infer(&b.expr, &scope, shapes));
+        }
+    }
     check_view(&c.view, &scope, shapes, sink);
     for t in &c.tasks {
         match infer(&t.timer.0, &scope, shapes) {
@@ -374,7 +381,6 @@ fn refine_params_from_view(
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
-            Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
             Node::Children { .. } => {}
             Node::Element {
                 tag,

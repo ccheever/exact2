@@ -381,10 +381,6 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
                     args.iter().for_each(|a| expr(&a.value, out));
                     nodes(children, out);
                 }
-                Node::Provide { expr: e, body, .. } => {
-                    expr(e, out);
-                    nodes(body, out);
-                }
                 Node::When {
                     cond,
                     then,
@@ -418,8 +414,8 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
     }
     let mut out = BTreeSet::new();
     nodes(&c.view, &mut out);
-    for s in &c.states {
-        expr(&s.expr, &mut out);
+    for b in c.states.iter().chain(&c.provides) {
+        expr(&b.expr, &mut out);
     }
     for a in &c.actions {
         stmts(&a.body, &mut out);

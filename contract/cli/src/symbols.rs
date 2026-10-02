@@ -398,7 +398,7 @@ impl<'a> Resolver<'a> {
                     self.ids(children, component);
                 }
                 Node::Use { children, .. } => self.ids(children, component),
-                Node::Provide { body, .. } | Node::Each { body, .. } => self.ids(body, component),
+                Node::Each { body, .. } => self.ids(body, component),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -581,6 +581,13 @@ impl<'a> Resolver<'a> {
                 self.expr(&t.timer.0);
                 self.name(&t.timer.1, self.file.names.name(t.timer.2));
             }
+            // A provided name is a declaration; its value reads the
+            // component's scope (a bare name reads the name it spells).
+            for b in &c.provides {
+                self.graph
+                    .define("provide", &b.name, b.span, Some(c.name.as_str()), None);
+                self.expr(&b.expr);
+            }
             self.nodes(&c.view);
         }
         self.component = None;
@@ -675,22 +682,6 @@ impl<'a> Resolver<'a> {
                         self.expr(&a.value);
                     }
                     self.nodes(children);
-                }
-                Node::Provide {
-                    name,
-                    expr,
-                    body,
-                    span,
-                } => {
-                    self.graph.define(
-                        "provide",
-                        name,
-                        self.file.names.name(*span),
-                        self.component.map(|c| c.name.as_str()),
-                        None,
-                    );
-                    self.expr(expr);
-                    self.nodes(body);
                 }
                 Node::Children { .. } => {}
                 Node::When {
@@ -974,20 +965,6 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
                 Node::Element { children, .. } | Node::Use { children, .. } => {
                     view(file, c, children, span, shadowed, context)
                 }
-                Node::Provide { expr, body, .. } => {
-                    if context.provider
-                        && expr.span() == span
-                        && expression_name(expr) == Some(context.refused)
-                    {
-                        let locals: Vec<_> = shadowed.iter().map(String::as_str).collect();
-                        return Some((
-                            context.refused.to_owned(),
-                            suggestion(file, c, context.refused, &locals, false, context.call)
-                                .map(str::to_owned),
-                        ));
-                    }
-                    view(file, c, body, span, shadowed, context)
-                }
                 Node::Each {
                     var, index, body, ..
                 } => {
@@ -1016,6 +993,22 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         }
         None
     }
+    // A provided value is written in the component's `provide` section,
+    // where no view local shadows an action (LLP 1035.005.000 D9).
+    fn provided(
+        file: &File,
+        c: &Component,
+        span: Span,
+        context: HintContext<'_>,
+    ) -> Option<(String, Option<String>)> {
+        let b = c.provides.iter().find(|b| b.expr.span() == span)?;
+        (context.provider && expression_name(&b.expr) == Some(context.refused)).then(|| {
+            (
+                context.refused.to_owned(),
+                suggestion(file, c, context.refused, &[], false, context.call).map(str::to_owned),
+            )
+        })
+    }
     fn expression_name(expr: &Expr) -> Option<&str> {
         match expr {
             Expr::Ident(name, _) | Expr::Call(name, _, _) => Some(name),
@@ -1029,7 +1022,7 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
                 Node::Element { children, .. } | Node::Use { children, .. } => {
                     walk(children, visit)
                 }
-                Node::Provide { body, .. } | Node::Each { body, .. } => walk(body, visit),
+                Node::Each { body, .. } => walk(body, visit),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -1044,71 +1037,46 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
             }
         }
     }
-    fn authored_expr(nodes: &[Node], span: Span) -> Option<&Expr> {
+    fn authored_expr(c: &Component, span: Span) -> Option<&Expr> {
+        if let Some(b) = c.provides.iter().find(|b| b.expr.span() == span) {
+            return Some(&b.expr);
+        }
         let mut found = None;
-        walk(nodes, &mut |node| match node {
-            Node::Element { attrs, .. } | Node::Use { args: attrs, .. } => {
+        walk(&c.view, &mut |node| {
+            if let Node::Element { attrs, .. } | Node::Use { args: attrs, .. } = node {
                 if let Some(a) = attrs.iter().find(|a| a.value.span() == span) {
                     found = Some(&a.value);
                 }
             }
-            Node::Provide { expr, .. } if expr.span() == span => found = Some(expr),
-            _ => {}
         });
         found
     }
+    /// What the use at `use_span` in `c`'s view is given for `name`: its
+    /// argument, or for an inject `c`'s own provided value (a section covers
+    /// the whole view, LLP 1035.005.000 D9).
     fn supplied<'a>(
-        nodes: &'a [Node],
+        c: &'a Component,
         use_span: Span,
         name: &str,
         inject: bool,
-        providers: &mut Vec<(&'a str, &'a Expr)>,
     ) -> Option<&'a Expr> {
-        for node in nodes {
-            if let Node::Use { args, span, .. } = node {
+        let mut args = None;
+        walk(&c.view, &mut |node| {
+            if let Node::Use {
+                args: given, span, ..
+            } = node
+            {
                 if *span == use_span {
-                    return if inject {
-                        providers
-                            .iter()
-                            .rev()
-                            .find(|(n, _)| *n == name)
-                            .map(|(_, expr)| *expr)
-                    } else {
-                        args.iter().find(|a| a.name == name).map(|a| &a.value)
-                    };
+                    args = Some(given);
                 }
             }
-            let found = match node {
-                Node::Element { children, .. } | Node::Use { children, .. } => {
-                    supplied(children, use_span, name, inject, providers)
-                }
-                Node::Provide {
-                    name: key,
-                    expr,
-                    body,
-                    ..
-                } => {
-                    providers.push((key, expr));
-                    let found = supplied(body, use_span, name, inject, providers);
-                    providers.pop();
-                    found
-                }
-                Node::Each { body, .. } => supplied(body, use_span, name, inject, providers),
-                Node::When {
-                    then, otherwise, ..
-                } => supplied(then, use_span, name, inject, providers)
-                    .or_else(|| supplied(otherwise, use_span, name, inject, providers)),
-                Node::Match { some, none, .. } => {
-                    supplied(&some.1, use_span, name, inject, providers)
-                        .or_else(|| supplied(none, use_span, name, inject, providers))
-                }
-                Node::Children { .. } => None,
-            };
-            if found.is_some() {
-                return found;
-            }
+        });
+        let args = args?;
+        if inject {
+            c.provides.iter().find(|b| b.name == name).map(|b| &b.expr)
+        } else {
+            args.iter().find(|a| a.name == name).map(|a| &a.value)
         }
-        None
     }
     fn origin(
         file: &File,
@@ -1120,7 +1088,7 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         loop {
             let site = &instances[instance as usize];
             let c = file.components.iter().find(|c| c.name == site.component)?;
-            let expr = authored_expr(&c.view, span)?;
+            let expr = authored_expr(c, span)?;
             let name = expression_name(expr)?;
             let inject = c.injects.iter().any(|p| p.name == name);
             if name == refused && !inject && !c.props.iter().any(|p| p.name == name) {
@@ -1137,7 +1105,7 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
                     .components
                     .iter()
                     .find(|c| c.name == instances[parent as usize].component)?;
-                if let Some(expr) = supplied(&c.view, site.span, name, inject, &mut Vec::new()) {
+                if let Some(expr) = supplied(c, site.span, name, inject) {
                     instance = parent;
                     span = expr.span();
                     break;
@@ -1211,17 +1179,13 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
                     .iter()
                     .find(|c| c.name == expanded.instances[owner as usize].component)
                     .unwrap();
-                let Some((_, Some(candidate))) = view(
-                    file,
-                    c,
-                    &c.view,
-                    span,
-                    &mut Vec::new(),
-                    HintContext {
-                        provider: true,
-                        ..context
-                    },
-                ) else {
+                let context = HintContext {
+                    provider: true,
+                    ..context
+                };
+                let Some((_, Some(candidate))) = provided(file, c, span, context)
+                    .or_else(|| view(file, c, &c.view, span, &mut Vec::new(), context))
+                else {
                     return error;
                 };
                 resolved.push((span, candidate));

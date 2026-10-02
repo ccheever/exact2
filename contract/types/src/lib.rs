@@ -1248,7 +1248,16 @@ fn check_root(
     let scope = types.component_scope(&expanded.root, &types.components[0]);
     let root = &file.components[0];
     uses::check_uses(&root.view, &scope, types, file, sink);
-    sink.keep_unit(check_injects(&root.view, &scope, types, file));
+    for b in &root.provides {
+        sink.keep(infer(&b.expr, &scope, &types.shapes));
+    }
+    sink.keep_unit(check_injects(
+        &root.view,
+        &root.provides,
+        &scope,
+        types,
+        file,
+    ));
 }
 
 /// Refusals are first checked against the call sites that lead to them: a

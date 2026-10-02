@@ -247,3 +247,11 @@ fn send_as_a_name_and_the_send_statement_both_round_trip() {
     let expected = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
     assert_eq!(preserved(src), expected);
 }
+
+#[test]
+fn a_provide_section_spaces_like_bindings() {
+    // LLP 1035.005.000 D9: a bare name stays bare; a binding spaces like a state's.
+    let src = "component A\n  state a = 1\n  provide\n    // the value itself\n    a\n    b   =   a+1\n  view\n    text \"x\"\n";
+    let expected = src.replace("b   =   a+1", "b = a + 1");
+    assert_eq!(preserved(src), expected);
+}

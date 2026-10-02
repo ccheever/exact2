@@ -380,7 +380,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
 #[test]
 fn missing_component_props_report_the_whole_call_interface() {
     let app = App::new("missing-props");
-    let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Light\"\n      Row()\n";
+    let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  provide\n    theme = \"Light\"\n  view\n    Row()\n";
     let unused_root =
         "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    text \"No instance\"\n";
     let root = app.write("app.contract", used_root);
@@ -563,7 +563,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
     let app = App::new("unknown-props");
     let root = app.write("app.contract", "");
     app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n  inject\n    theme: string\n  view\n    text `${theme} ${title} ${count}`\n");
-    let row = "use Card from \"./card.contract\"\ncomponent Row\n  view\n    provide theme = \"Light\"\n      Card(ARGS)\n";
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  provide\n    theme = \"Light\"\n  view\n    Card(ARGS)\n";
     for view in ["Row()", "text \"Unused import\""] {
         app.write(
             "app.contract",
@@ -592,7 +592,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
             assert_eq!(expected.id, "type-unknown-prop");
             assert_eq!(expected.message, message);
             let first = extra.split('=').next().unwrap();
-            let col = source.lines().nth(4).unwrap().find(first).unwrap() + 1;
+            let col = source.lines().nth(5).unwrap().find(first).unwrap() + 1;
             let errors = diagnostics(
                 &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
                 1,
@@ -600,7 +600,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
             assert_eq!(errors.len(), 1);
             same_error(&errors[0], &expected);
             assert_eq!(errors[0]["file"], path.to_str().unwrap());
-            assert_eq!(errors[0]["line"], 5);
+            assert_eq!(errors[0]["line"], 6);
             assert_eq!(errors[0]["col"], col);
             assert_eq!(errors[0]["end_col"], col + first.len());
             assert!(!app.0.join("refused.plan").exists());
@@ -732,8 +732,10 @@ fn the_plans_allowlist_is_every_slot_the_body_writes_or_sends_in_slot_order() {
 #[test]
 fn missing_providers_report_every_absent_inject_on_the_use_path() {
     let app = App::new("missing-provides");
-    // A provider in a sibling branch cannot satisfy the component use.
-    let root = app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+    // A sibling component's `provide` section cannot satisfy the use
+    // (LLP 1035.005.000 D9: a section covers its own component's view).
+    let sibling = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      Other()\n      Row()\ncomponent Other\n  provide\n    locale = \"Sibling\"\n  view\n    text \"Other branch\"\n";
+    let root = app.write("app.contract", sibling);
     app.write("lib/card.contract", "component Card\n  inject\n    theme: string\n    locale: string\n    density: number\n  view\n    text `${theme} ${locale} ${density}`\n");
     for (providers, missing) in [
         (vec![], vec!["theme", "locale", "density"]),
@@ -742,18 +744,16 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
             vec!["locale = \"en\"", "theme = \"Light\""],
             vec!["density"],
         ),
-        (
-            vec!["theme = 1", "theme = \"Night\""],
-            vec!["locale", "density"],
-        ),
+        (vec!["theme = \"Night\""], vec!["locale", "density"]),
     ] {
-        let mut source = "use Card from \"./card.contract\"\ncomponent Row\n  view\n".to_owned();
-        let mut indent = "    ".to_owned();
-        for provider in &providers {
-            source.push_str(&format!("{indent}provide {provider}\n"));
-            indent.push_str("  ");
+        let mut source = "use Card from \"./card.contract\"\ncomponent Row\n".to_owned();
+        if !providers.is_empty() {
+            source.push_str("  provide\n");
+            for provider in &providers {
+                source.push_str(&format!("    {provider}\n"));
+            }
         }
-        source.push_str(&format!("{indent}Card()\n"));
+        source.push_str("  view\n    Card()\n");
         let path = app
             .write("lib/row.contract", &source)
             .canonicalize()
@@ -763,16 +763,13 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
             .map(|name| format!("`{name}`"))
             .collect::<Vec<_>>()
             .join(", ");
-        let scopes = missing
+        let bindings = missing
             .iter()
-            .map(|name| format!("`provide {name} = …`"))
+            .map(|name| format!("`{name} = …`"))
             .collect::<Vec<_>>()
             .join(", ");
-        let message = if missing.len() == 1 {
-            format!("`Card` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
-        } else {
-            format!("`Card` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
-        };
+        let them = if missing.len() == 1 { "it" } else { "them" };
+        let message = format!("`Card` injects {names}, and no component above this use provides {them}: in this component or one that uses it, write a `provide` section with {bindings} indented under it");
         let expected = contract::compile_path(&root).unwrap_err();
         assert_eq!(expected.id, "syntax-missing-provide");
         assert_eq!(expected.message, message);
@@ -783,18 +780,23 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
         assert_eq!(errors.len(), 1);
         same_error(&errors[0], &expected);
         assert_eq!(errors[0]["file"], path.to_str().unwrap());
-        assert_eq!(errors[0]["line"], 4 + providers.len());
-        assert_eq!(errors[0]["col"], indent.len() + 1);
-        assert_eq!(errors[0]["end_col"], indent.len() + 5);
+        let section = if providers.is_empty() {
+            0
+        } else {
+            1 + providers.len()
+        };
+        assert_eq!(errors[0]["line"], 4 + section);
+        assert_eq!(errors[0]["col"], 5);
+        assert_eq!(errors[0]["end_col"], 9);
         assert!(!app.0.join("refused.plan").exists());
         let human = app.run(&[root.to_str().unwrap()]);
         assert_eq!(human.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&human.stderr).contains(&message));
-        // Repair all reported names at the caller. Nearer providers in Row
-        // remain authoritative, including the correctly typed inner shadow.
-        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Outer\"\n      provide locale = \"en\"\n        provide density = 1\n          Row()\n");
+        // Repair all reported names at the caller. Row's own section stays
+        // authoritative for what it provides.
+        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  provide\n    theme = \"Outer\"\n    locale = \"en\"\n    density = 1\n  view\n    Row()\n");
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
-        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+        app.write("app.contract", sibling);
     }
     // An unused component can still require providers from its future caller.
     app.write(
@@ -978,7 +980,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     for (source, typo, correct) in [
         (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit\n"), "svae", "save"),
         (format!("component App\n{action}  view\n    Row(commit=save)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=comimt\n"), "comimt", "commit"),
-        (format!("component App\n{action}  view\n    provide commit = save\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
+        (format!("component App\n{action}  provide\n    commit = save\n  view\n    Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
         (format!("component App\n{action}  view\n    Row()\n      button \"Save\" press=svae\ncomponent Row\n  slot\n  view\n    column\n      children\n"), "svae", "save"),
         (format!("component App\n{action}  task timer mount\n    every(1000, svae)\n  view\n    text toString(count)\n"), "svae", "save"),
     ] {
@@ -1014,7 +1016,7 @@ fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers
     let action = "  state count = 0\n  action save\n    count = count + 1\n";
     for (source, typo) in [
         (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    Leaf(submit=commit)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Save\" press=submit\n"), "svae"),
-        (format!("component App\n{action}  view\n    provide commit = svae\n      Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
+        (format!("component App\n{action}  provide\n    commit = svae\n  view\n    Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
         ("component App\n  state count = 0\n  action save(value: number)\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
         (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
     ] {
@@ -1067,7 +1069,7 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         for view in [
             format!("  view\n    button \"Save\" press={typo}()\n"),
             format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
-            format!("  view\n    provide commit = {typo}\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
+            format!("  provide\n    commit = {typo}\n  view\n    Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
         ] {
             let error = contract::compile(&format!("{declarations}{view}")).unwrap_err();
             assert_eq!(error.id, "type-unknown-function", "{error}");

@@ -122,9 +122,10 @@ component B
 ---
 == type-duplicate-name
 component A
+  provide
+    x = "provided"
   view
-    provide x = "provided"
-      B(x="prop")
+    B(x="prop")
 component B
   props
     x: string
@@ -135,9 +136,10 @@ component B
 ---
 == type-provide
 component A
+  provide
+    accent = 1
   view
-    provide accent = 1
-      Label()
+    Label()
 component Label
   inject
     accent: string
@@ -315,9 +317,10 @@ component A
   state n = ""
   action pick(id: string)
     n = id
+  provide
+    press = pick
   view
-    provide press = pick
-      Row()
+    Row()
 component Row
   inject
     press: action
@@ -407,6 +410,19 @@ component Label
     accent: string
   view
     text text color=accent
+---
+== syntax-provide-in-view
+# `provide` is a component section (LLP 1035.005.000 D9).
+component App
+  view
+    column
+      provide accent = "#fff"
+        Label()
+component Label
+  inject
+    accent: string
+  view
+    text accent
 ---
 == syntax-no-slot
 component App
