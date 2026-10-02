@@ -55,7 +55,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
-pub use control::{Choice, ControlKind, Range};
+pub use control::{ButtonFace, Choice, ControlKind, Range};
 pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };

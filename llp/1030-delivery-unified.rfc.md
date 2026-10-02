@@ -158,6 +158,21 @@ a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
 the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
 
+**The macOS design (2026-10-02):** AppKit draws its macOS 26 design (Liquid
+Glass bezels, new control metrics) by the SDK the executable records in
+`LC_BUILD_VERSION`, not the SDK it compiled against. SwiftPM's link drives clang
+with `--sysroot`, from which clang reads no SDK version, so every Exact macOS app
+had recorded its deployment target (`sdk 14.0`) and drawn as on macOS 14; the
+build now passes `-isysroot` to the linker driver, as the iOS build already did,
+and refuses an executable whose recorded SDK is not the one meant. An app that
+wants the earlier design says `host.macos.designRequiresCompatibility: true`:
+macOS 27 ignores Apple's `UIDesignRequiresCompatibility` key (probed on 27.0.1:
+the key is read, the new design drawn), so the link records the macOS 15 SDK,
+the last before the new design, which also turns off every other AppKit
+behaviour keyed on a later SDK; App Store Connect requires uploads built with a
+recent SDK and reads the recorded one. An app whose `minimumOS` is 26 or later
+cannot ask for it.
+
 ### D3a — The compatibility id: the cohort a bundle is safe for
 
 LLP 1026 D9's runtime version — kernel schema, format, module ABI,

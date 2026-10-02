@@ -532,7 +532,7 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
-        match self {
+        let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
@@ -554,7 +554,21 @@ impl StyleValue {
                 style,
                 expected: "number, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
             }),
+        }?;
+        if matches!(
+            style,
+            StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft
+        ) && matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0)
+        {
+            return Err(StyleValueError::WrongKind {
+                style,
+                expected: "nonnegative length or percentage",
+            });
         }
+        Ok(value)
     }
 
     /// A colour as a row holds it. `light-dark(a, b)` is the one text a

@@ -27,6 +27,11 @@ impl<D: DataSource> Presenter<D> {
         }
         // @ref LLP 1069.001 D9 — a select's value, as a choice sets it.
         if node.node_type == NodeType::Control {
+            if node.props.str(PropId::Type) == Some("button") {
+                return Err(format!(
+                    "view {id} is a button: it takes a press, not a value"
+                ));
+            }
             return self.set_control_value(id, text);
         }
         if node.node_type != NodeType::TextInput {

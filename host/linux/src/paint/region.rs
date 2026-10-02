@@ -629,11 +629,17 @@ impl<'a> Replay<'a> {
                             .padding
                             .into_iter()
                             .chain(n.paint.widths)
-                            .chain(n.paint.radii)
-                            .all(f32::is_finite);
+                            .all(f32::is_finite)
+                        && n.paint
+                            .radii
+                            .into_iter()
+                            .all(exact_kernel::Dimension::is_finite);
                     n.paint.emit(&geometry, |shape, _| {
-                        finite &=
-                            finite_rect(shape.rect) && shape.radii.into_iter().all(f32::is_finite);
+                        finite &= finite_rect(shape.rect)
+                            && shape
+                                .radii
+                                .into_iter()
+                                .all(|(x, y)| x.is_finite() && y.is_finite());
                     });
                     if let Payload::Image(image, fit, _) = &n.payload {
                         finite &= object_fit(image.natural(), *fit, c).is_none_or(finite_rect);

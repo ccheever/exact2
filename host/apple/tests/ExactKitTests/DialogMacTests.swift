@@ -129,6 +129,35 @@ final class DialogMacTests: XCTestCase {
         p.press(2)
         XCTAssertNil(p.dialogs.active)
     }
+    func testNativeButtonsKeepTheirFocusOrderAndRespectModalInputBlocking() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "control", "props": ["type": "button"], "style": ["appearance": "auto"]],
+            ["op": "create", "id": 8, "kind": "control", "props": ["type": "button"], "handlers": ["press"], "style": ["appearance": "auto"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7]],
+            ["op": "children", "id": 1, "ids": [2, 3, 8]],
+            ["op": "frame", "id": 7, "x": 100, "y": 80, "w": 100, "h": 30],
+            ["op": "frame", "id": 8, "x": 100, "y": 10, "w": 100, "h": 30],
+        ]))
+        let inside = try XCTUnwrap(p.views[7])
+        let background = try XCTUnwrap(p.controls.controls[8] as? NativeButtonMac)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(2)
+        XCTAssertTrue(inside.acceptsFirstResponder, "a native button without handlers remains a focus stop")
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === p.views[5])
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === inside)
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === p.views[4]?.field?.currentEditor())
+        background.performClick(nil)
+        XCTAssertTrue(pressed.isEmpty, "native activation behind a modal stays blocked")
+        p.dialogs.close(p.views[3]!)
+        background.performClick(nil)
+        XCTAssertEqual(pressed, [8], "native activation resumes after the modal closes")
+    }
+
     func testNativeMenuActionsRemainAvailableWithoutAModal() {
         let p = fixture()
         let menu = NodeView(id: 20, kind: "view", presenter: p)

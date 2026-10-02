@@ -5,11 +5,12 @@ import Foundation
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
-    static let indexed = ["type:checkbox", "type:select", "type:range", "type:date", "type:time", "type:datetime-local"]
+    static let indexed = ["type:checkbox", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
     /// `switch`, `checkbox` or the `type` prop's value.
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
+        case "button": return "button" // LLP 1069.011 D3: before the checkbox default
         case "select": return "select"
         case "range": return "range"
         case let t? where dates.contains(t): return t
@@ -104,5 +105,38 @@ struct SelectMenu: Equatable {
     func refusal(_ value: String, id: UInt32) -> String? {
         if options.contains(where: { $0.value == value && !$0.disabled }) { return nil }
         return "select \(id) has no enabled option \"\(value)\" (options: \(options.map { "\"\($0.value)\"" }.joined(separator: ", ")))"
+    }
+}
+
+/// A native button's face and style (`exact_button_face`, LLP 1069.011 D2,
+/// D5): its title, its symbol as the platform names it, whether the symbol
+/// leads, and its `buttonStyles` row — each platform's draw, a `~` marking a
+/// stand-in.
+struct ButtonFace: Equatable {
+    var title: String?
+    var symbol: String?
+    var leading = true
+    var style = "bordered"
+    var ios = "bordered"
+    var iosBefore26 = "bordered"
+    var macos = "push"
+    var known = true
+
+    init() {}
+    init(json: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
+        title = o["title"] as? String
+        symbol = o["symbol"] as? String
+        leading = o["leading"] as? Bool ?? true
+        style = o["style"] as? String ?? "bordered"
+        ios = o["ios"] as? String ?? "bordered"
+        iosBefore26 = o["iosBefore26"] as? String ?? "bordered"
+        macos = o["macos"] as? String ?? "push"
+        known = o["known"] as? Bool ?? true
+    }
+
+    /// A platform name without its stand-in mark, and whether it had one.
+    static func drawn(_ name: String) -> (name: String, standIn: Bool) {
+        name.hasPrefix("~") ? (String(name.dropFirst()), true) : (name, false)
     }
 }

@@ -16,6 +16,20 @@
 import CoreGraphics
 
 enum BorderPaint {
+    /// Percentages use the border box's width and height independently.
+    static func radii(_ style: NodeStyle, in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
+        ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
+            let value = style["border_radius_" + name] ?? style["border_radius"]
+            func length(_ basis: CGFloat) -> CGFloat {
+                if case .object(let d) = value {
+                    return max(0, basis * CGFloat(d["pct"]?.number ?? 0) / 100 + CGFloat(d["px"]?.number ?? 0) - inset)
+                }
+                return max(0, CGFloat(value?.number ?? 0) - inset)
+            }
+            return CGSize(width: length(rect.width + 2 * inset), height: length(rect.height + 2 * inset))
+        }
+    }
+
     /// Circle-to-cubic control distance for a quarter arc.
     private static let kappa: CGFloat = 0.5522847498
 
@@ -60,10 +74,10 @@ enum BorderPaint {
     /// Paint `box`'s border. `widths` and `colors` are top, right, bottom,
     /// left; `radii` the authored corner radii (top-left, top-right,
     /// bottom-right, bottom-left), reduced here as CSS reduces them.
-    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGFloat]) {
+    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize]) {
         let w = widths.map { max(0, $0) }
         guard w.contains(where: { $0 > 0 }), box.width > 0, box.height > 0 else { return }
-        let outer = reduced(radii.map { CGSize(width: max(0, $0), height: max(0, $0)) }, in: box)
+        let outer = reduced(radii, in: box)
         let inner = CGRect(x: box.minX + w[3], y: box.minY + w[0],
                            width: max(0, box.width - w[3] - w[1]), height: max(0, box.height - w[0] - w[2]))
         // The padding box's radii: each outer radius less the adjacent widths.

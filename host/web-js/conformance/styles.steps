@@ -1,0 +1,8 @@
+# Bound readonly starts false, switches true, then permits typing again.
+type title First title
+type body First body
+tap flip
+tap widen
+tap flip
+type title Second title
+type body Second body

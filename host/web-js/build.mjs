@@ -12,7 +12,8 @@
 //    document streams.
 // A data module loaded after first pixel (`rust-data.js`) and the agent
 // adapter (`agent.js`, only under `?agent`) are separate files.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +37,18 @@ const production = args.includes('--production');
 // `--dev` (host/web-js/dev.mjs): the page carries its slots across a dev reload.
 const dev = args.includes('--dev');
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
+// The source revision a development build's install pages name, read while
+// it builds: optional, so no git, no repository, or a git held past 5 s (a
+// held index lock) leaves it unknown rather than failing or hanging the build.
+const git = (...a) => new Promise((done) => {
+  let text = '', c;
+  try { c = spawn('git', a, { cwd: appDir, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return done(null); }
+  const timer = setTimeout(() => { c.kill('SIGKILL'); done(null); }, 5000);
+  c.on('error', () => { clearTimeout(timer); done(null); });
+  c.on('close', (code) => { clearTimeout(timer); done(code === 0 ? text.trim() : null); });
+  c.stdout?.on('data', (d) => { text += d; });
+});
+const revision = production ? null : Promise.all([git('rev-parse', '--short=10', 'HEAD'), git('status', '--porcelain')]);
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(gen, { recursive: true });
@@ -316,6 +329,18 @@ else if (!existsSync(resolve(out, 'app.plan'))) cpSync(resolve(gen, 'app.plan'),
 // (LLP 1012.001.000 D6): never in a production build, never a stale one.
 rmSync(resolve(out, 'app.plan.map.json'), { force: true });
 if (!production && !opt('--plan') && existsSync(resolve(gen, 'app.plan.map.json'))) cpSync(resolve(gen, 'app.plan.map.json'), resolve(out, 'app.plan.map.json'));
+// The install pages and their data (LLP 1030.003 D6a), as the wasm build
+// writes them (a release carries its bake's, above). The build is named by
+// the program's bytes: the plan and the page's module.
+if (!production) {
+  const [{ readManifest }, { writeInstallPages }] = await Promise.all([import('../../scripts/app.mjs'), import('../../scripts/install-page.mjs')]);
+  // A release is `--production`'s, so this is a development build whatever
+  // the shell's EXACT_UPDATE_TRUST; with no bake receipt its reach is unknown.
+  const [source, changes] = await revision;
+  const id = createHash('sha256').update(readFileSync(resolve(out, 'app.plan'))).update(readFileSync(resolve(out, 'app.js'))).digest('hex');
+  writeInstallPages(out, readManifest(appDir, app), { id, source, dirty: changes === null ? null : !!changes, builtAt: new Date().toISOString(),
+    mode: 'Development build' });
+}
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.

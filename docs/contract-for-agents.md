@@ -1,0 +1,487 @@
+# Contract: a complete working guide for agents
+
+Use this guide to author, change, inspect, and verify a current Exact application.
+It covers the language implemented on `main` on 2026-10-02. Start here for an
+implementation task; use the [human guide](contract-for-humans.md) for explanations
+and complete examples, and the [grammar reference](contract-grammar.md) for exact
+forms, built-in functions, tags, and event payloads.
+
+The compiler and executable fixtures are authoritative. Read the repository's
+`AGENTS.md`, `rules/RULES.md`, and `rules/DEFERRED.md` before making changes here.
+This guide is documentation, not an additional policy layer. Documents in
+`llp/research/` describe a predecessor and do not establish current capabilities.
+
+## Contents
+
+- [Orient and choose the right layer](#orient-and-choose-the-right-layer)
+- [The implementation loop](#the-implementation-loop)
+- [Language inventory](#language-inventory)
+- [Values, expressions, and functions](#values-expressions-and-functions)
+- [State and action semantics](#state-and-action-semantics)
+- [Composition and lifetime](#composition-and-lifetime)
+- [Data requests and side effects](#data-requests-and-side-effects)
+- [Views, layout, and interaction](#views-layout-and-interaction)
+- [Routes and web documents](#routes-and-web-documents)
+- [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
+- [Inspection and testing](#inspection-and-testing)
+- [Repair common mistakes](#repair-common-mistakes)
+- [Completion criteria](#completion-criteria)
+
+## Orient and choose the right layer
+
+1. Identify the app, its root `app.contract`, `app.json`, data module, imports,
+   authored tests, and requested target hosts. An external app uses `EXACT_APP_DIR`
+   with the same exact2 build/driver scripts.
+2. Read the nearest working example for the feature. Search `contract/corpus/`,
+   `contract/cli/tests/it/`, and the app's sources before designing new syntax.
+3. Decide whether the change belongs in Contract, the app's data module, its
+   optional native/GPU module, or the host. Do not extend the compiler to avoid
+   writing an ordinary data-source function.
+4. Check the current branch and dirty files. Preserve other work. Do not commit
+   unrelated staged paths or use `git stash` in this repository.
+
+| Work | Normal home |
+| --- | --- |
+| View structure, UI state, event binding | `.contract` |
+| Derived labels, record copies, bounded list transforms | Contract expressions / `fn` |
+| Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
+| Device facts | Reserved source with an admitted shape |
+| Complex native widget | App's declared native module |
+| Canvas 2D drawing | Data module's canvas surface |
+| GPU scene or game | Optional GPU/game artifact |
+| App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
+
+For the implementation, the relevant authorities are:
+
+| Question | Source |
+| --- | --- |
+| Tokens, indentation, escapes | [`lexer.rs`](../contract/syntax/src/lexer.rs) |
+| Declarations, statements, elements | [`parser.rs`](../contract/syntax/src/parser.rs) |
+| Precedence, templates, callbacks | [`parser/expr.rs`](../contract/syntax/src/parser/expr.rs) |
+| Records, locals, callbacks | [`types/records.rs`](../contract/types/src/records.rs), [`types/actions.rs`](../contract/types/src/actions.rs), [`types/lists.rs`](../contract/types/src/lists.rs) |
+| Tags, aliases, authored CSS names | [`lower/tags.rs`](../contract/lower/src/tags.rs) |
+| Kernel property declarations | [`schema.json`](../kernel/tables/schema.json) |
+| Function signatures | [`format.json`](../plan/tables/format.json), field `stdlib`, plus compiler intrinsics |
+| Commands and argument checks | [`types/checks.rs`](../contract/types/src/checks.rs) |
+| Event payloads and arities | [`analyze/lib.rs`](../contract/analyze/src/lib.rs) |
+| Imports and file boundaries | [`cli/sources.rs`](../contract/cli/src/sources.rs) |
+| CLI flags and output | [`cli/main.rs`](../contract/cli/src/main.rs), [`cli/build.rs`](../contract/cli/src/build.rs) |
+
+The useful design context is [LLP 1006](../llp/1006-contract-compiler-v1.spec.md),
+[1017.000](../llp/1017.000-contract-v1-1.spec.md), and
+[1035.005.000](../llp/1035.005.000-contract-after-the-apps.rfc.md).
+A proposal in a design document is not an implemented grammar production.
+
+## The implementation loop
+
+Run from the exact2 root unless the app's own wrapper says otherwise:
+
+```sh
+bun install --frozen-lockfile
+cargo run -q -p contract -- build apps/caltrain/app.contract --json
+cargo run -q -p contract -- symbols apps/caltrain/app.contract
+cargo run -q -p contract -- fmt --stdout apps/caltrain/app.contract
+bun host/web/dev.mjs --app caltrain
+```
+
+Use `build --json` before and after the edit. It returns one JSON array with all
+independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
+exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read all
+diagnostics, including related locations, before making the next repair.
+
+Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
+`fmt` writes. Avoid formatting unrelated files. `symbols` reports definitions
+and references, with component interfaces and inferred action effects. Search
+by exact name with `symbols file.contract --name name`.
+
+After compiling, build and drive the actual app. For Caltrain on the web:
+
+```sh
+bun host/web/build.mjs caltrain-web
+bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" state logs
+bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
+```
+
+For another app, supply its `--app` and build target as its manifest/scripts
+require. For an external app, set `EXACT_APP_DIR` on both build and drive. A stale
+artifact is a failed verification; rebuild what the driver names. A successful
+Cargo rlib build does not prove a native app launches or behaves correctly.
+
+Use the existing five repository checks for repository changes. Do not add a
+new global check or fixture framework for an ordinary app edit. For documentation,
+compile complete examples, parse authored tests, and check local links.
+
+## Language inventory
+
+| Form | Placement | Meaning |
+| --- | --- | --- |
+| `use Name from "./file.contract"` | File | Local import inside the app boundary |
+| `shape Name` | File | Finite record with typed fields |
+| `fn name(arg: T): U = expr` | File | Pure nonrecursive expression function |
+| `style Name` | File | Literal style attributes |
+| `keyframes Name` | File | Constant animation frames |
+| `font "Family" = "path.ttf"` | File | Bundled family; block form supports faces |
+| `routes nav` | Root file | Route table and implicit router state |
+| `component Name` | File | Root (first component) or reusable child |
+| `test "description"` | Test file, normally | Agent interaction steps; not a plan assertion block |
+| `props` / `inject` | Component | Typed interface / inherited bindings |
+| `provide` | Component | Whole-view provider bindings, one per line |
+| `slot` | Component | Accept caller-authored children |
+| `state name = expr` | Component | Stored state |
+| `derive name = expr` | Component | Dependency-driven computed value |
+| `resource name = source(args) as shape T` | Root component | Reactive data request |
+| `mutation name as shape T` | Root component | Optional reply slot for explicit sends |
+| `action name(args)` | Component | Event transaction; effects inferred |
+| `task name mount` | Root component | One timer/frame schedule |
+| `view` | Component | UI tree |
+
+Top-level declarations begin in column 1. Indent with spaces. Comments use `//`.
+Use double quotes for strings and backticks for templates. Names admit CSS
+hyphens, so write `a - b` for subtraction between identifiers. Units are quoted
+(`"12px"`, `"50%"`), not number suffixes. Element attribute continuation lines
+are deeper than the element and begin with `name=`. Parentheses permit multiline
+calls and expressions without creating an indentation block.
+
+## Values, expressions, and functions
+
+- Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
+  and `action` for behavior interfaces. Do not emit authored `any` or object types.
+- `none` and `[]` need an inferable element type. A state initialized by either
+  usually gets that information from later assignments; a typed argument or
+  the other conditional/match arm can also supply it.
+- `Shape(field=value, …)` constructs every field exactly once.
+  `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
+  The one positional base comes first. Compiler-owned shapes are not constructible.
+- Use field access, arithmetic, comparisons, boolean operators, ternaries, and
+  exhaustive option matches. There is no truthiness or optional chaining.
+- Inline match is `match x { case some(v) => a, case none => b }`; the comma is
+  required and the `some` arm comes first. The block statement/view form has
+  separate indented `case` arms.
+- `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
+  `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
+  return options; `at` supports negative indices.
+- Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
+  There are no nonempty list literals, object literals, general lambdas, array
+  indexing, assignment expressions, or JavaScript built-ins by implication.
+- `fn` parameters and return types are explicit. Its body is one expression over
+  parameters and admitted pure calls, without component-state capture or recursion.
+  Pass an app value in; do not invent an ambient reference.
+- `t("key", placeholder=value)` and `empty(field=value)` are special named-argument
+  forms. Named record/component arguments do not mean every ordinary function
+  accepts named arguments.
+
+For the full roster and special calls, see
+[standard functions and intrinsics](contract-grammar.md#standard-functions-and-intrinsics).
+For record behavior in a callback, use [records](../contract/corpus/records.contract)
+and [the record tests](../contract/cli/tests/it/records.rs).
+
+## State and action semantics
+
+Action reads see the starting state. Writes commit together. They do not provide
+imperative read-after-write visibility. Bind intermediate calculations with `let`:
+
+```contract
+component App
+  state count = 0
+  state doubled = 0
+  action advance
+    let next = count + 1
+    count = next
+    doubled = next * 2
+  view
+    button press=advance testId="advance"
+      text `${count}/${doubled}` testId="result"
+```
+
+The first press yields `1/2`. Writing `doubled = count * 2` instead would use the
+old count and yield `1/0`. The same snapshot rule applies inside nested branches
+and to locals declared after a state assignment.
+
+A local is immutable, block-scoped, and visible only after its declaration. It
+cannot shadow an in-scope name. Two disjoint arms may declare the same local name.
+An action can assign only its own writable state/mutation slots, never a prop,
+derive, resource value, or arbitrary record field. Replace a record with a copied
+record. `send` targets a mutation owned by that component.
+
+Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
+`if`/`else`, and option `match`. No loops or general action calls. The compiler
+infers effects from the body; `writes` is a refusal, not an optional annotation.
+Use `symbols` when you need the inferred write set.
+
+A derive is not mutable storage, an async effect, or a timer. Derive cycles are
+refused. Avoid unnecessary state that can be calculated from existing values.
+
+## Composition and lifetime
+
+The first component is the root. Each component use is `Name(prop=value, …)`.
+Supply every required prop once. An `action` prop can receive a reference with
+captured arguments; the eventual event payload is appended at invocation.
+
+Children may hold state, derives, and actions. They cannot declare resources,
+mutations, or tasks. Lift shared data requests to the root and pass values and
+actions. A child used under `each` owns row state keyed to that row's identity.
+Stable keys matter when content is inserted, removed, filtered, or reordered.
+
+A component `provide` section lists `name = expr` or bare `name` entries. A
+descendant declares `inject` with typed fields. The nearest provider in the
+component-use chain wins and covers the providing component's whole view.
+The old view wrapper `provide name = expr` is refused. Use a small wrapper
+component if a subsection needs different values.
+
+`slot` declares a receiving component's one content slot. `children` places the
+caller's nodes in its view. The fill keeps its caller's variables and providers,
+not the receiving component's provider override. Do not invent named slots or
+render-function props.
+
+Imports resolve local `.contract` declarations, with cycle and app-boundary
+checks. Paths begin with `./` and cannot contain `..` segments. They do not load app logic or expand the available built-in function
+roster. Compiler-owned router names exist only with a `routes` declaration.
+
+## Data requests and side effects
+
+Choose the mechanism from its lifetime:
+
+| Requirement | Mechanism |
+| --- | --- |
+| Value follows query arguments | `resource result = source(args) as shape T` |
+| Explicit command with a reply | `mutation reply as shape T`, then `send reply = source(args)` |
+| Re-request current resource arguments | `refresh result` |
+| Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
+| React once to a settled mutation | `mutation … then actionName` |
+| Pending indicator | `pending(resourceOrMutationName)` |
+| Resource request failed without an answer | `failed(resourceName)` |
+| Initial resource fallback | `else empty(field=constant)` or `else source(args)` |
+
+Resources read as their declared type. Mutations read as `option<T>` and start at
+`none`. Do not treat a resource as an optional wrapper unless its declared type
+itself is optional. A mutation reply is unwrapped with match.
+
+The current request owns its answer; older replies cannot overwrite a newer
+request. Assigning a mutation forgets its in-flight reply. `refreshes` refreshes
+at send and settlement. `then` is parameterless, runs after settlement as a new
+commit, and cannot send its own mutation. Do not mistake the scheduling boundary
+for a general async workflow or a per-reply event log.
+
+A failed resource retains its value or placeholder, with `pending=false` and
+`failed=true`. Argument changes, refresh, or successful answers clear the failure.
+A domain error returned as a record is an answer and must be handled as data.
+
+Infer the actual source interface from the Contract:
+
+```sh
+cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
+cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
+```
+
+Use those generated declarations with the existing TypeScript/Rust integration.
+The compiler accepting a source call does not provide its implementation. Check
+its arguments, declared result, grants, storage access, and bake-time behavior.
+Keep generated output out of version control. Use app-local sources for domain
+formatting or algorithms beyond the finite standard roster.
+
+A bake runs initial data work and packages first-frame values. Live requests
+run after that under host scheduling. Do not assume a secret store, disk database,
+or authenticated network session is available while baking. See
+[the data-module reference](reference.md#generate-typescript-data-source-types).
+
+## Views, layout, and interaction
+
+The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
+option `match`, and `children`. Wrap root regions in a stable element. A component
+call uses parentheses; a built-in element uses space-separated attributes.
+`button "Save" press=save` is text-child sugar; an explicit text child is useful
+when that label needs its own styling or driver id.
+
+Use the CSS and HTML vocabulary. Defaults matter: a bare box is block and
+content-box, while `row` and `column` supply flex styles. Do not emit React Native
+property names, invented CSS aliases, or unknown HTML tags. Read the schema and
+tag mapping for admitted properties and units. CSS standard behavior does not
+imply that every browser API is implemented on every host.
+
+`class=Style` applies literal style values; node attributes win. Conditional
+classes select two named styles with `class=(condition ? A : B)`. Computed values
+go on nodes. There is no selector cascade, dynamic style object, or arbitrary
+class-string composition. A style branch can mix a number and a CSS keyword in
+a property's admitted value space; this does not add general union types.
+
+For scrolling, provide a bound and inspect measured layout. For virtualized
+lists, use `virtualized=true`, one direct keyed `each`, and one flow root per row.
+Vertical collections are block flow with a height constraint. Horizontal ones
+are fixed-height flex rows, without wrapping or reverse flow; use the axis's
+estimate property. Only the supported one-level nesting is admitted. Do not
+revive the removed legacy `item-height` windowing mechanism.
+
+A native button is an explicit `button appearance="auto"` after class merging;
+an ordinary button remains an authored `appearance="none"` pressable. The switch
+must be literal. Native title/symbol children are face data, not general layout.
+A symbol-only face needs a nonempty accessible label. `buttonStyle` is a declared
+styleable host-policy prop; its names and allowable branches are checked against
+`schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
+checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
+platform look. Do not assume arbitrary custom paint or typography is admitted.
+
+Keep `id` and `testId` separate:
+
+- `id`: host command target, geometry, cross-node references.
+- `testId`: driver/test target and stable inspection name.
+- `each` key: data identity for row lifetime, not either node id.
+
+Events bind actions (`press=save`, `input=edit(item.id)`). Captured arguments come
+before host payload arguments. Do not add an event object or a JavaScript closure.
+`navigate` is special: no captured arguments and zero or one location parameter.
+`transformgeometry` and `transformrelease` must be paired. The complete payload
+matrix is in [events](contract-grammar.md#events).
+
+Known host commands are statements, not expression-returning functions. Several
+commands have specialized argument checks; some generic commands leave validation
+to the host. Do not infer that compiler acceptance proves a command's arguments
+work. Use the command's working fixture and inspect its host result.
+
+## Routes and web documents
+
+Declare at most one `routes <slot>` in the app's root file. Each row names an
+absolute path pattern, optional tab membership, parentage by indentation, and
+optional rendering/activation policies. `notfound` is a bare fallback. Do not
+redeclare the implicit router state with `state`.
+
+Assign the results of `open`, `push`, `replace`, `go`, `select`, or `back` to that
+router state. Use `path("route", args…)` to construct checked locations; direct
+location templates are refused. A route's parameter fields are strings, with
+empty strings for absent fields. `select` takes a tab name, not a URL.
+
+`each entry in stack(nav) key=entry.id` gives retained screens their identities.
+Bind the host's navigation root and per-entry `navigationKey`s as the
+[router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
+tab switching, the same-URL push, external navigation, and route parameters.
+
+A `head` node supplies document metadata. The innermost active value wins for
+each field. `scroll document` declares page scrolling. Route `render`/`activate`
+policy belongs to the site's renderer/build pipeline; follow
+[the document fixture](../contract/corpus/document.contract) and
+[LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md). Do not claim SEO,
+streaming, or deployment correctness from a client-only screenshot.
+
+## Time, motion, graphics, and platform facts
+
+A root task has one `every(ms, action)`, `after(ms, action)`, or
+`every(frame, action)` entry. The action is parameterless. Millisecond intervals
+are positive integers. The frame form has no delta-time argument and does not
+catch up missed display frames. For deterministic tests, use the driver's clock.
+
+`now()` is the host's epoch-millisecond clock. A read does not itself schedule a
+future render. Use a timer if a displayed value must keep changing without other
+input. Prefer `clock settle` to waiting for a transition in real time.
+
+Use admitted CSS transitions and keyframes. Check which properties animate and
+which require optional capabilities. `spring()`, exit animation, layout
+transitions, and presentation timelines have specific documented behavior;
+they do not admit arbitrary frame callbacks or a second app-state graph.
+
+`frame(id)` and `measure("literal-id")` are action-only geometry reads returning
+`Geometry`. Handle `unavailable`. `frame` reads the last layout's untransformed
+border box in root space; `measure` reads an auto-height hypothetical layout.
+Neither is a computed style binding to run every render.
+
+SVG uses SVG names, with native `foreignObject` explicitly unsupported. Canvas 2D
+calls live in a data module, and GPU/game surfaces in their optional module.
+A hyphenated native tag needs the app's native schema and implementation. Do not
+turn a missing widget or canvas operation into invented Contract syntax.
+
+Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
+`exactSurface`) with checked shapes. Use dimensions, media preferences, page facts,
+and capability state rather than suffixing files by platform. Preference facts
+inform authored policy; the engine does not automatically remove all motion.
+
+Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
+files. Compile against the files to check keys and placeholders. Formatting
+functions accept a narrow set of literal formats; app wording is an app `fn`.
+
+## Inspection and testing
+
+Build diagnostics include stable ids and original file ranges. Locations are
+1-based line/byte-column coordinates, with exclusive end columns. Honor related
+locations when an error crosses a child prop, injected action, or imported file.
+Do not use a character index as a byte offset in Unicode source.
+
+```sh
+cargo run -q -p contract -- build path/to/app.contract --json
+cargo run -q -p contract -- symbols path/to/app.contract --name save
+cargo run -q -p contract -- build path/to/app.contract -o /tmp/app.plan --map
+```
+
+The source map is separate from the plan and keyed by its digest. Use it only for
+the accepted generation it describes. The driver can connect layout to the
+original declaration, component call sites, and winning style attribute.
+Production artifacts do not need a development source map.
+
+The driver has nine operations: `tree`, `screenshot`, `tap`, `type`, `state`,
+`layout`, `logs`, `clock`, and `prefer`. Variations are arguments, not new commands.
+Use `tree` to find targets, `state` for data and delivery, `layout` for geometry,
+and screenshots for rendered output. Logs name refused operations and data errors.
+
+Authored tests are a smaller language over that API:
+
+```contract-test
+test "an action uses its computed next value"
+  expect state count == 0
+  tap "advance"
+  expect text "result" == "1/2"
+  expect state doubled == 2
+```
+
+This test goes with the complete example above. The allowed steps are `tap`,
+`type`, `clock`, `screenshot`, and `expect tree|text|state`; not every interactive
+driver operation is a test-file statement. `contract test` parses and prints JSON;
+`agent.mjs <host> --test <file>` actually drives the app.
+
+Test the behavior being changed: a filter retaining row identity, a text edit
+sending the new value, an async error retaining its placeholder, a route back
+restoring a screen, or an animation at a specific virtual time. An assertion
+that restates a constant is weaker evidence than the user's actual sequence.
+
+## Repair common mistakes
+
+| Refused or misleading form | Accepted direction |
+| --- | --- |
+| `action save writes item` | Delete the clause; effects come from the body |
+| Component `contract` assertions | Authored `test` blocks exercised by the driver |
+| `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
+| `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
+| `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
+| `[a, b]` / `{ title: value }` | Source/list transform / declared record constructor |
+| `{...old, title: value}` | `Fields(old, title=value)` |
+| `if name` for a string | `if name != ""` |
+| `selected.title` when optional | Exhaustive `match selected` |
+| `press={() => save()}` | `press=save` or `press=save(captured)` |
+| Calling an action from another action | Put the statements there; factor calculations into `fn` |
+| Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
+| `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
+| `width=20px` | `width=20` or `width="20px"` |
+| Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
+| `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
+| Read a slot after writing it to get the new value | Compute `let next` before the assignments |
+| Dynamic navigation template | `path("route", args…)` |
+| Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module |
+
+Do not “repair” a refusal by adding a compatibility alias to the compiler. A
+new language or host feature is a separate, explicit implementation decision.
+Repository repair loops are capped at three rounds; report a remaining blocker
+with the diagnostic and evidence rather than silently weakening the result.
+
+## Completion criteria
+
+Before reporting an app change done:
+
+- The intended Contract and imported files compile; required data sources exist.
+- Complete examples use current syntax, including inferred effects and provider sections.
+- The app was built for every affected runtime surface required by repository policy.
+- The requested interaction was driven, with state/log/layout evidence as appropriate.
+- Authored tests and relevant checks pass, or remaining failures are named accurately.
+- Formatting and line caps hold; no generated artifacts or unrelated work entered the commit.
+- The result states what changed, how it was verified, and any actual platform limitation.
+
+For learning, continue with the [human guide](contract-for-humans.md). For exact
+syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
+new feature, start from the corresponding compiler fixture rather than memory
+of JavaScript, React Native, or the predecessor's Contract language.
