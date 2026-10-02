@@ -25,7 +25,7 @@ struct ViewportFold: Equatable {
 enum Segments {
     /// Split a viewport along its divider bands, each in the viewport's own
     /// coordinates and including its margins (UIKit's division frame, LLP
-    /// 1076 Q5): a band taller than wide cuts columns, a wider one rows; the
+    /// 1077 Q5): a band taller than wide cuts columns, a wider one rows; the
     /// band belongs to no segment; a band outside the viewport, or one that
     /// leaves a segment no room, cuts nothing. `folded` while any band is
     /// present, `continuous` otherwise.

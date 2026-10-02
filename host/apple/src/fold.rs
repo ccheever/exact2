@@ -35,7 +35,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The device's posture and the viewport segments a fold makes (LLP
-    /// 1076 D4): the kernel's grid and `exactViewport`'s three fields in one
+    /// 1077 D4): the kernel's grid and `exactViewport`'s three fields in one
     /// batch — the nodes whose style reads the environment get their
     /// dictionaries re-sent and are laid out again, as for the insets, and
     /// every reader of the fields recommits. Empty when nothing changed. A
