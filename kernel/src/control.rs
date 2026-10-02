@@ -317,7 +317,8 @@ impl Kernel {
                             Some(symbol) => face.symbol = Some(symbol.to_owned()),
                             None => face.raster = source.is_some_and(|s| !s.is_empty()),
                         }
-                        face.leading = texts == 0;
+                        // After a blank title it still leads: nothing is shown before it.
+                        face.leading = face.title.is_none();
                     }
                 }
                 _ => face.fits = false,

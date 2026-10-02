@@ -136,11 +136,13 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         let editable = node.node_type == NodeType::TextInput;
+        // A native button activates under any role, as `key_down` presses it.
         let activation = matches!(code, "Space" | "Enter" | "NumpadEnter")
-            && matches!(
+            && (matches!(
                 node.props.str(PropId::AccessibilityRole),
                 Some("button" | "link")
-            );
+            ) || exact_kernel::ControlKind::of(node.node_type, node.props)
+                == Some(exact_kernel::ControlKind::Button));
         if !self.host.route_visibility(id).1 && !editable && code != "Tab" && (!down || !activation)
             && self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()})) {
             return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));

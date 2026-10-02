@@ -380,6 +380,11 @@ pub(crate) fn button_context(
     if control == Some("button") {
         return Some("a native button");
     }
+    // A projection makes one item of a custom button, whatever it holds (a
+    // toolbar's, a tab bar's): a native button inside one would be dropped.
+    if tag == "button" {
+        return Some("a custom `button`");
+    }
     if menu_row {
         return Some("a menu row (a native button can be a popover's direct child, not below one)");
     }
@@ -434,6 +439,13 @@ const NATIVE_ROWS: &[StyleId] = &[
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
     matches!(p, P::Opacity | P::Translate | P::Scale | P::Rotate)
+}
+
+/// Whether `attrs` has `name` as the literal `value`.
+fn literal(attrs: &[contract_syntax::Attr], name: &str, value: &str) -> bool {
+    attrs
+        .iter()
+        .any(|a| a.name == name && matches!(&a.value, Expr::Str(v, _) if v == value))
 }
 
 /// Whether a value can be empty: a blank literal, `none`, or an arm of a
@@ -491,7 +503,11 @@ impl Lowerer<'_> {
             let name = a.name.as_str();
             let refuse = |id: &'static str, why: String| err(id, why, a.span);
             match name {
-                // A menu's invoker is a custom button in this version (LLP 1069.011.000 D5).
+                // A menu's invoker is a custom button in this version (LLP 1069.011.000
+                // D5); a row that only closes its popover or dialog — a confirmation's
+                // action or cancel — is not an invoker.
+                "popovertarget" if literal(attrs, "popovertargetaction", "hide") => {}
+                "commandfor" if literal(attrs, "command", "close") => {}
                 "popovertarget" | "commandfor" | "href" | "action" | "swipeContent"
                 | "swipeLeading" | "swipeTrailing" | "swipeIndicator" | "popover" => {
                     return refuse(

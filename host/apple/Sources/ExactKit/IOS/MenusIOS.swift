@@ -314,6 +314,9 @@ final class MenuHost {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
         // A native button's children are its face, not views: its title, else its label.
         if v.isNativeButton { return v.face?.shown ?? "" }
+        // A custom button whose face fits shows it too: a symbol-only row its
+        // label (LLP 1069.011.000 D5); other content keeps its text.
+        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         return v.container.subviews
             .compactMap { ($0 as? NodeView).map(title(of:)) }
             .filter { !$0.isEmpty }

@@ -256,7 +256,9 @@ fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
 
 /// LLP 1069.011.000: a native button is a tab, a toolbar item, a header's
 /// button, a menu row, a swipe action and a shortcut's button; it is not a
-/// menu's invoker, a link, a submit, below a menu row or in a canvas.
+/// menu's invoker, a link, a submit, below a menu row, inside a custom button
+/// or in a canvas. A row that only closes its popover or dialog — a
+/// confirmation's action or cancel — is not an invoker (astra's code review).
 #[test]
 fn it_goes_where_a_button_goes_but_invokes_no_menu() {
     for body in [
@@ -267,6 +269,8 @@ fn it_goes_where_a_button_goes_but_invokes_no_menu() {
         "button appearance=\"auto\" press=go aria-keyshortcuts=\"Meta+S\"\n  text \"Save\"",
         "column id=\"menu\" popover=\"auto\" role=\"menu\"\n  button appearance=\"auto\" role=\"menuitem\" press=go\n    image \"symbol:send\"\n    text \"Send\"\n  when busy\n    button appearance=\"auto\" press=go\n      text \"Wait\"",
         "scroll swipeContent=\"body\" swipeTrailing=\"mute\" overflow-x=\"scroll\" width=200 height=40\n  row id=\"body\" width=200 height=40\n    button appearance=\"auto\" press=go\n      text \"Open\"\n  button id=\"mute\" appearance=\"auto\" press=go aria-label=\"Mute\"\n    image \"symbol:send\"",
+        "column id=\"confirm\" popover=\"auto\" role=\"alertdialog\"\n  text \"Delete it?\"\n  button appearance=\"auto\" popovertarget=\"confirm\" popovertargetaction=\"hide\" press=go destructive=true\n    text \"Delete\"\n  button appearance=\"auto\" popovertarget=\"confirm\" popovertargetaction=\"hide\"\n    text \"Cancel\"",
+        "dialog id=\"ask\" closedby=\"any\"\n  button appearance=\"auto\" commandfor=\"ask\" command=\"close\" press=go\n    text \"Send\"",
     ] {
         contract::compile(&app(body)).unwrap_or_else(|e| panic!("{body}: {e}"));
     }
@@ -277,6 +281,12 @@ fn it_goes_where_a_button_goes_but_invokes_no_menu() {
         "button appearance=\"auto\" press=go role=\"dialog\"\n  text \"Go\"",
         "button appearance=\"auto\" press=go type=\"submit\"\n  text \"Go\"",
         "column id=\"menu\" popover=\"auto\"\n  row\n    button appearance=\"auto\" press=go\n      text \"Deep\"",
+        // Only a literal close is not an invoker.
+        "button appearance=\"auto\" press=go popovertarget=\"menu\" popovertargetaction=\"toggle\"\n  text \"More\"",
+        "button appearance=\"auto\" press=go popovertarget=\"menu\" popovertargetaction=(busy ? \"hide\" : \"show\")\n  text \"More\"",
+        "button appearance=\"auto\" press=go commandfor=\"menu\" command=\"show-modal\"\n  text \"More\"",
+        // A projection makes one item of a custom button, dropping what it holds.
+        "row role=\"toolbar\" toolbarPlacement=\"window\"\n  button press=go\n    button appearance=\"auto\" press=go\n      text \"Inner\"",
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-context", "{body}: {message}");
@@ -292,7 +302,7 @@ fn it_goes_where_a_button_goes_but_invokes_no_menu() {
 #[test]
 fn every_button_has_a_face_custom_or_native() {
     let r = boot(&app(
-        "button press=go testId=\"custom\" aria-label=\"Save it\"\n  image \"symbol:send\"\n  text \"Save\"\nbutton press=go testId=\"raster\"\n  image \"https://example.com/a.png\"\nbutton press=go testId=\"badged\"\n  text \"Inbox\"\n  box width=4 height=4\nbox testId=\"plain\" width=4 height=4",
+        "button press=go testId=\"custom\" aria-label=\"Save it\"\n  image \"symbol:send\"\n  text \"Save\"\nbutton press=go testId=\"raster\"\n  image \"https://example.com/a.png\"\nbutton appearance=\"auto\" press=go testId=\"blank\" aria-label=\"Add\"\n  text (busy ? \"Add\" : \"\")\n  image \"symbol:add\"\nbutton press=go testId=\"badged\"\n  text \"Inbox\"\n  box width=4 height=4\nbox testId=\"plain\" width=4 height=4",
     ));
     let face = |id: &str| r.kernel().press_face(view_of(&r, id));
     assert_eq!(
@@ -308,6 +318,12 @@ fn every_button_has_a_face_custom_or_native() {
     );
     let raster = face("raster").unwrap();
     assert!(raster.raster && raster.symbol.is_none() && raster.fits);
+    let blank = face("blank").unwrap();
+    assert_eq!(blank.title, None);
+    assert!(
+        blank.leading,
+        "a symbol after a blank title leads (grok's code review)"
+    );
     let badged = face("badged").unwrap();
     assert_eq!(badged.title.as_deref(), Some("Inbox"));
     assert!(!badged.fits, "a box beside the title does not fit");

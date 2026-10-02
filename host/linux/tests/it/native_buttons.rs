@@ -5,6 +5,7 @@
 use exact_linux::{presenter::PainterChoice, Presenter};
 use exact_runner::{DataError, DataSource, Value};
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -101,7 +102,7 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
   view
     column align-items="flex-start"
       text `pressed ${n}` testId="count"
-      row role="tablist"
+      row role="tablist" text-transform="uppercase"
         button appearance="auto" role="tab" aria-selected=true press=go testId="tab"
           text "Inbox"
 "#,
@@ -125,6 +126,12 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
     };
     let tab = id(&p, "tab");
     p.type_key(tab, "Enter", "Enter", true, false).unwrap();
+    // A held key's repeats press it once, as a native `role="button"`'s do.
+    p.type_key(tab, "Enter", "Enter", true, true).unwrap();
+    p.type_key(tab, "Enter", "Enter", false, false).unwrap();
+    // Its name is its face's title, as painted (grok's code review).
+    let tree = exact_linux::agent::handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(tree.contains(r#""accessibleName":"INBOX""#), "{tree}");
     let k = p.host().kernel();
     let count = k.node(id(&p, "count")).unwrap();
     let text: String = count

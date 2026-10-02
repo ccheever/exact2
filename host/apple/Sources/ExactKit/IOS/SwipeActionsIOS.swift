@@ -325,10 +325,12 @@ final class SwipeActionsHost {
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
                     // A native action (LLP 1069.011.000 D6): its accent, or the
-                    // platform's colour (UIKit's red for destructive); its
-                    // symbol, recorded for discovery as a snapshot is.
-                    if let accent = target.channels("accent_color").map({ TextEngine.color($0) }) { action.backgroundColor = accent }
-                    else if !destructive { action.backgroundColor = .systemBlue }
+                    // platform's colour; a destructive one sets none, whatever
+                    // its accent (UIKit's red); its symbol, recorded for
+                    // discovery as a snapshot is.
+                    if !destructive {
+                        action.backgroundColor = target.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
+                    }
                     if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
@@ -336,6 +338,13 @@ final class SwipeActionsHost {
                     return action
                 }
                 action.backgroundColor = target.color("background_color", .systemBlue)
+                // A custom action's symbol is a system image, as a native one's
+                // is (LLP 1069.011.000 D1); anything else is its snapshot.
+                if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {
+                    image.accessibilityLabel = host.label(target)
+                    images[target.id] = image; action.image = image
+                    return action
+                }
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {
                     func display(_ view: UIView) { view.layer.displayIfNeeded(); for child in view.subviews { display(child) } }
                     display(glyph)

@@ -155,10 +155,13 @@ impl<D: DataSource> Bridge<D> {
             None => json.push_str("null"),
         }
         json.push_str(",\"symbol\":");
-        // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000).
-        match face.symbol.as_deref().and_then(|r| {
+        // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000);
+        // a role with none is "", as `symbolName` is: a symbol that draws no
+        // image, not no symbol (grok's code review).
+        match face.symbol.as_deref().map(|r| {
             r.strip_prefix("sf/")
                 .or_else(|| exact_kernel::generated::symbol(r).map(|s| s.0))
+                .unwrap_or("")
         }) {
             Some(apple) => quote(apple, &mut json),
             None => json.push_str("null"),

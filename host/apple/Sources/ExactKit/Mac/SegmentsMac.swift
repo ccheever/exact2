@@ -128,6 +128,14 @@ final class SegmentHost {
         return true
     }
 
+    /// Whether a tab this projection hides is shown through its segment:
+    /// `nil` for a view that is not one of its tabs.
+    func shown(_ node: NodeView) -> Bool? {
+        guard let entry = members.first(where: { $0.value.contains(node.id) }) else { return nil }
+        guard let control = controls[entry.key] else { return false }
+        return control.window != nil && !control.isHiddenOrHasHiddenAncestor
+    }
+
     func observation(_ node: NodeView) -> [String: Any]? {
         guard let entry = members.first(where: { $0.value.contains(node.id) }),
               let control = controls[entry.key], let segment = entry.value.firstIndex(of: node.id) else { return nil }

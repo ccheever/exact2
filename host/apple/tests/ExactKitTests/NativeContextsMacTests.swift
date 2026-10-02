@@ -5,7 +5,7 @@ import XCTest
 
 /// LLP 1069.011.000 on AppKit: a native button is a window toolbar's item,
 /// its prominent style a prominent item (D2), and a tab drawn as a segment
-/// from its face (D4).
+/// from its face (D4), its shortcut kept (D7).
 final class NativeContextsMacTests: XCTestCase {
     func testANativeButtonIsAToolbarItemItsProminentStyleProminent() throws {
         _ = NSApplication.shared
@@ -62,7 +62,8 @@ final class NativeContextsMacTests: XCTestCase {
                                     ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 30.0]]
         for (i, id) in [2, 3, 4].enumerated() {
             ops += [["op": "create", "id": id, "kind": "control", "handlers": ["press"],
-                     "props": ["type": "button", "accessibilityRole": "tab", "accessibilityLabel": ["List", "Grid", "Map"][i]],
+                     "props": ["type": "button", "accessibilityRole": "tab", "accessibilityLabel": ["List", "Grid", "Map"][i],
+                               "accessibilityKeyShortcuts": "Meta+\(i + 1)"],
                      "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
                     ["op": "frame", "id": id, "x": Double(i) * 100, "y": 0.0, "w": 100.0, "h": 30.0]]
         }
@@ -71,6 +72,15 @@ final class NativeContextsMacTests: XCTestCase {
         XCTAssertEqual(segments.segmentCount, 3)
         XCTAssertNotNil(segments.image(forSegment: 0))
         XCTAssertEqual(segments.image(forSegment: 1)?.accessibilityDescription, "Grid")
+        // A tab the segment shows keeps its shortcut, though its view is hidden.
+        XCTAssertEqual(p.views[3]?.isHidden, true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                   windowNumber: w.windowNumber, context: nil, characters: "2",
+                                   charactersIgnoringModifiers: "2", isARepeat: false, keyCode: 0)!
+        XCTAssertTrue(p.shortcuts.perform(key))
+        XCTAssertEqual(pressed, [3])
     }
 }
 #endif
