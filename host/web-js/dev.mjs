@@ -31,7 +31,7 @@ function build(app, dist) {
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
-    const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none'],
+    const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none', '--dev'],
       { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
@@ -94,7 +94,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   // overlay, and a beacon when the reloaded page's runtime is up.
   const client = (n) => `<script>(()=>{const seq=${n},es=new EventSource('/__dev/page');let o;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;location.reload()}};
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;globalThis.exactDevCarry?.();location.reload()}};
 const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload;const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);fetch('/__dev/reloaded?seq='+r+'&boot='+b+'&at='+Date.now(),{method:'POST'})}},2)}})()</script>`;
   const server = createServer((req, res) => {
     if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }

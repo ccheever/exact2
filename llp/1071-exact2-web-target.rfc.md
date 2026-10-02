@@ -715,7 +715,7 @@ from (a) today.
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); ~~a file input and `showPicker`~~ (landed 2026-09-29, "Files and storage") | — | — |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| State carried across a dev reload (the loop rebuilds and reloads), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
+| State carried across a dev reload (landed 2026-10-02: slots, §7 "Dev reload"), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
 ### The tools (2026-09-29)
 
@@ -1237,6 +1237,18 @@ Measured (metrics' dev row, five edits, p50): video player 104 ms (p95
 rebuild 60–150 ms and a first frame that waits for its Rust module, as an
 unbaked plan's resources without a compiled value must. The budget row is
 100 ms; the rest is the reload itself.
+
+*State carry* (2026-10-02): a dev reload keeps the slots, as the wasm
+loop's restart does (`Runner::carry`). The dev build (`build.mjs --dev`,
+which only `dev.mjs` passes) has the page write its top-level slots to
+`sessionStorage` just before the loop's reload; the new page, after its
+first commit, writes back each one whose name it still has and whose value
+fits the new plan's type, in one commit, so a carried value never refuses
+the boot. The router's slot is untyped and not carried: the reloaded page
+reads its route from the address, as any reload does. Resources are asked
+again (the wasm loop carries matching answers; here they are re-fetched).
+Checked on Caltrain: `material` and `deck` set by taps survive a Contract
+edit's reload.
 
 **Arrange, the reorder drag; `frame` and `measure`** (landed 2026-09-29,
 measured; brotli):

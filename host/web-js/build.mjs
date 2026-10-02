@@ -33,6 +33,8 @@ const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 // sitemap) and head links carried, so the web root it publishes is the
 // wasm root's in everything but the program (LLP 1071 §7, delivery).
 const production = args.includes('--production');
+// `--dev` (host/web-js/dev.mjs): the page carries its slots across a dev reload.
+const dev = args.includes('--dev');
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 const gen = resolve(out, '.gen');
 rmSync(out, { recursive: true, force: true });
@@ -95,8 +97,17 @@ writeFileSync(resolve(gen, 'main.js'), [
     "} };",
   ] : []),
   ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
+  ...(dev ? ["import names from './names.js';", "import { conforms, W } from './rt.js';"] : []),
   "const start = () => {",
   "  const state = app();",
+  // A dev reload keeps the slots, as the wasm loop's restart does
+  // (Runner::carry): each by name, only where its value still fits the new
+  // plan's type, so a carried value never refuses the boot (LLP 1071 §7).
+  ...(dev ? [
+    "  const kept = sessionStorage.exactDevSlots; delete sessionStorage.exactDevSlots;",
+    "  if (kept) { const v = JSON.parse(kept); commit(() => names[0].forEach((n, i) => { if (Object.hasOwn(v, n) && state[0][i].n.t && conforms(v[n], state[0][i].n.t)) W(state[0][i], v[n]); }), 'the slots a dev reload carried'); }",
+    "  globalThis.exactDevCarry = () => { sessionStorage.exactDevSlots = JSON.stringify(Object.fromEntries(names[0].map((n, i) => [n, state[0][i]()]))); };",
+  ] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources });",
   // The agent adapter, only when the agent drives the page.
   ...(production ? [] : ["  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
