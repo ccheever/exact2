@@ -224,4 +224,67 @@ but not for CSS's own resolution, and says so in `navigation.js`. The
 reply's `fold{…}` is the four `layout.env` names. `agent-inspect.mjs` prints
 `posture P · segments C×R [x,y w×h]…` when the device is not flat.
 
-**Numbers.** (filled in below after the runs)
+**The hinge's first report.** `UIHingeInteraction` reports a turn or two
+after the view attaches, so a drive's first `prefer` on the Duo arrived
+before the device had said it has a fold and was honoured once. The agent
+now turns the main run loop for up to 0.3 s until the interaction has
+reported (`presenter.hingeReported`), then refuses on a device with a fold.
+
+**Numbers (2026-10-02).**
+
+- *The Duo simulator* (Xcode 27.1 beta, iOS 27.1, `B82DBA04`; this beta has
+  the simulator in portrait, so the inner panel is 669 × 951 with the
+  division a horizontal band). Caltrain, a non-cover viewport (the panel less
+  its 82-pt top and 34-pt bottom insets), `bun scripts/agent.mjs ios layout
+  state` after `hinge_helper set <angle>` and `devicectl … hinge-angle`
+  reading it back:
+  - 180° (`Angle:180.0°`): `viewport 669×835`, `device-posture continuous`,
+    1 × 1, `viewport-segments []`; `state.device.devicePosture
+    "continuous"`, counts 1 and 1.
+  - 130° (`Angle:130.0°`): `viewport 669×835 · posture folded · segments 1×2
+    [0,0 669×373.5] [0,413.5 669×421.5]` — the division's 40-pt band from
+    373.5 to 413.5 in the viewport (455.5 on the panel, less the 82-pt top
+    inset), with its 20-pt margins inside the band; `state.device`
+    `"folded"`, 1 and 2.
+  - 0° (closed, the cover panel): `viewport 594×432`, `continuous`, 1 × 1.
+  - `prefer segments 2x1 gap 40` and `prefer posture continuous` at 0° and at
+    130°: refused, `the device decides (it has a fold)`.
+  - `devicectl device motion hinge-angle --session-timeout 2` prints the
+    angle and then does not exit on this beta; the drive wraps it in
+    `timeout`.
+- *The iOS 27.0 simulator* (iPhone 18 Pro, the default Xcode): the build
+  compiles with the 27.0 SDK (the dynamic route finds neither class),
+  `smoke ios`'s insets, viewport-fact and fold checks pass with
+  `continuous` 1 × 1; the UIKit XCTests: 122, 0 failures.
+- *macOS*: `smoke macos` passes, `layout.env` carrying the four names flat;
+  the XCTests (`SegmentsTests` among them): 533 executed, 1 skipped, 0
+  failures.
+- *Linux*: `smoke linux` passes with `env {…, "device-posture":
+  "continuous", "horizontal-viewport-segments": 1,
+  "vertical-viewport-segments": 1, "viewport-segments": []}`.
+- *Web* (Chrome 154.0.8037.97, the `insets` fixture at 420 × 900): `prefer
+  segments 2x1 gap 40` through CDP — `viewport.segments` `[0,0,190,900]`,
+  `[230,0,190,900]`; Chromium resolves `env(viewport-segment-right 0 0)` to
+  `190px`, `-bottom 0 0` to `900px`, `-left 1 0` to `230px`, `-width 1 0` to
+  `190px`, `-top 0 0` to `0px` (the DOMRect edges the kernel uses) — and
+  `(horizontal-viewport-segments: 2)` matches. `prefer posture folded`:
+  `navigator.devicePosture.type` `folded`, `(device-posture: folded)`
+  matches. `prefer segments 2x2 gap 10`: this Chrome allows one display
+  feature, so the glue's substitute answers `2×2 [0,0 205×445] [215,0
+  205×445] [0,455 205×445] [215,455 205×445]`; `1x1` clears; `2x1 gap 500`
+  is refused by name. `smoke web` passes.
+- *Web-core sizes* (brotli-11 `app.wasm`, as `metrics.mjs` measures them;
+  before at `a74a8489b`, after at this lane): realworld 299.2 → 300.3 KiB
+  (ceiling 304), video-player 242.6 → 243.6 (249), caltrain 305.1 → 306.3
+  (310). About 1.1 KiB each: the segment grammar sits on the dimension
+  decoder every core links, not behind a use. Within the ceilings; a size
+  lane could link the grammar by the first `viewport-segment` row an app
+  authors.
+- *Kernel*: 120 unit and 333 integration tests; runner, contract CLI and
+  Linux pinned tests green; `cargo test -p exact-apple` adds one test and
+  keeps the 9 content-region and transform-drag failures the base commit
+  already has.
+
+**Open after this lane.** Rotation on the Duo (the beta's simulator
+decides); `apps/duo-lab`, `contract/corpus/segments.contract` and `smoke
+duo` (the sibling lane); linking the segment grammar by use.
