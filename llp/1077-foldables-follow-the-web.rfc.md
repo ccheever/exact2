@@ -334,6 +334,24 @@ grid), always-on by decision. `duo-lab`, which authors the lengths, is not
 in this tree (the app lane's); the link was proven instead by the refusal
 test and the conformance target over a plan that names a segment.
 
+**The conformance target, for real (2026-10-02, after review).** `bun
+host/web-js/conform.mjs segments --linux [--build]` names the fixture: a
+positional name with a `conformance/<name>.contract` is a synthetic plan,
+built from the contract and JS-built over the plan, swapped into its data
+app's wasm page — whose root `--build` now links every capability (LLP
+1047 D7, as the smoke's fixture roots do), since the page refuses a plan
+using what its entry did not link (D6) and a fixture's uses are its own
+(the first real run was refused `Unlinked("segments")` on Caltrain's root).
+Measured over `contract/corpus/segments.contract` (taken from the app
+lane's tip for the run; the link resolves on the landing branch): 5 steps
+compared, 5 equal, the Linux reference 5 / 5, 0 failures — `boot`, `prefer
+segments 2x1 gap 40`, `prefer posture folded`, `prefer segments 1x1`,
+`clock +60000`. At 2 × 1 gap 40 in the carriers' 420 × 900, `pane-list` is
+(0, 0, 190, 900) and `pane-detail` (230, 0, 190, 900) on the wasm page
+(Chromium's `env()`), the JS target and Linux (the kernel's) alike; flat,
+the panes stack (0, 32, 420, 434) and (0, 466, 420, 434). A dangling link
+is refused by name when named and skipped under `--synthetic`.
+
 **Open after this lane.** Rotation on the Duo (the beta's simulator
 decides); `apps/duo-lab` and `smoke duo` (the sibling lane); a `bun
 host/web/build.mjs duo-lab` whose entry names `segments`

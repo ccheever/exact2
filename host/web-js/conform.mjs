@@ -49,7 +49,7 @@
 //     bunx playwright@1.63.0 install firefox webkit
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
@@ -624,11 +624,19 @@ if (crossBrowser) {
 // `--urls <app> <a> <b>`: two served pages of one app, compared the same way
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
-const apps = urls >= 0 || only ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const sdir = resolve(here, 'conformance');
+// A named target that is a fixture here — `conformance/<name>.contract`, or a
+// directory holding `app.contract` — is a synthetic plan, not an app:
+// `conform.mjs segments --linux` drives contract/corpus/segments.contract
+// (its link) on the data app's wasm root (LLP 1076 D9).
+const fixtureFile = n => existsSync(resolve(sdir, n, 'app.contract')) ? `${n}/app.contract` : lstatSync(resolve(sdir, `${n}.contract`), { throwIfNoEntry: false }) ? `${n}.contract` : null;
+const fixtures = urls >= 0 ? [] : named.filter(n => fixtureFile(n));
+const apps = urls >= 0 || only ? [] : named.length ? named.filter(n => !fixtureFile(n)) : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 // A plan with its own files (`strings/`) is a directory holding `app.contract`.
-// A fixture linked from contract/corpus (segments.contract) is skipped while the link dangles.
-const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? (existsSync(resolve(sdir, f)) ? [f] : []) : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+// A fixture linked from contract/corpus (segments.contract) is skipped while the link dangles — unless named.
+const dangling = f => !existsSync(resolve(sdir, f));
+const synthetic = [...new Set([...(argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? (dangling(f) ? [] : [f]) : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only) : []), ...fixtures.map(fixtureFile)])]
+  .map(f => ({ f, data: dangling(f) ? 'caltrain' : /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' }));
 if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));
@@ -666,9 +674,10 @@ if (linuxRef && argv.includes('--build') && engineReady) {
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
-if (argv.includes('--synthetic')) {
+if (synthetic.length) {
   for (const { f, data } of synthetic) {
     const name = 'synthetic-' + (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
+    if (dangling(f)) { report.failures.push({ target: name, step: 'fixture', what: `${f} links ${readlinkSync(contract)}, which this tree lacks` }); continue; }
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.
