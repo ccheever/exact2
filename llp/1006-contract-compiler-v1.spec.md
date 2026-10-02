@@ -624,6 +624,28 @@ child action beside the root's names. Nine reject fixtures, one per new id.
 runner and the JavaScript target. Every other root's plan is byte-identical
 (117 roots, 2026-10-02).
 
+Three apps adopt them (2026-10-02). Fieldnotes' editing session is one
+`Session` record (note id, saved id, `draft` and `original` as
+`option<Fields>`, request version, delete question) in place of ten slots;
+`fn nextSession` builds the next one naming every field, and `edit`,
+`newNote`, `restore` and `remove` each end a session with one assignment of
+it. `restore` had missed `confirmDelete`, so a restored notebook's blank
+editor still asked "Delete this note?" and sent `deleteNote("")`; that
+question is now part of the record the constructor resets. Twelve field
+derives became four (`loaded`, `fields`, `base`, `reference`) and `dirty` is
+`fields != reference`: 20 slots and 22 derives became 11 and 14, the plan
+24,086 bytes 23,525. One wasm-target drive (two notes; save, edit while
+saving, discard, switch, a blocked switch while dirty, pin, cancel and
+confirm delete, search, backup and restore) gives the same 14 states before
+and after but the last, where only the stale question is gone. A keystroke
+through `Runner::dispatch` (one open note, release build, 5 rounds of 400)
+costs about 1 µs more: title 4.4 → 5.5 µs, body 4.7 → 5.9 µs (medians),
+since every derive that reads `session` re-evaluates. Interaction Gallery's
+`chooseSheet` and `snapSheet` bind `full` and `read` once, where each
+evaluated `sheetFullOf(frame("sheet-bay"), …)` four times and `measure`
+twice; Spark's `settle` binds `decision` once, where it evaluated
+`verdict(x, y, vx, vy, throwAt)` four times.
+
 Router rejects (LLP 1038 D2/D3) each have a same-named fixture in
 `rejects.txt`: `route-duplicate`, `route-shadowed`, `route-parent-param`,
 `route-pattern` (the four ids and messages come from `Table::check`),
