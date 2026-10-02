@@ -16,7 +16,12 @@ import { open } from '../../../scripts/agent.mjs';
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const dist = process.env.EXACT_MOTION_DIST;
-const check = existsSync(chrome) && dist && existsSync(resolve(dist, 'app.wasm')) ? test : test.skip;
+const unavailable = !existsSync(chrome) ? `Chromium is missing at ${chrome}`
+  : !dist ? 'EXACT_MOTION_DIST does not name an EXACT_WEB_LINK=all wasm build'
+  : !existsSync(resolve(dist, 'app.wasm')) ? `app.wasm is missing from EXACT_MOTION_DIST=${dist}`
+  : null;
+if(unavailable) console.warn(`SKIP: ${unavailable}`);
+const check = unavailable ? test.skip : test;
 
 const SOURCE = `component App
   state x = 0
@@ -34,7 +39,7 @@ const SOURCE = `component App
       box testId="card" width=300 height=300 background-color="#f06" touch-action="none" pan=moved panrelease=released
 `;
 
-check('a flick releases at its speed; a slow drag and a pause before lifting near rest', async () => {
+check(`a flick releases at its speed; a slow drag and a pause before lifting near rest${unavailable ? ` — ${unavailable}` : ''}`, async () => {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-panrelease-'));
   const plan = resolve(tmp, 'pan.plan');
   writeFileSync(resolve(tmp, 'pan.contract'), SOURCE);
