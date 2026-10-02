@@ -15,6 +15,8 @@
 // fixture). Without the Duo it prints `duo: unsupported — …` and the smoke
 // exits 0, the convention for a missing carrier. Rotation is not driven: this
 // beta's simulator ignores CoreDevice orientation on the Duo (LLP 1008 §9).
+// `--only insets,kbar,lab,host` runs the named legs; the keyboard checks run
+// only when a probe shows a software keyboard on this simulator.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,6 +48,8 @@ const after = (deg) => POSES[(POSES.findIndex((p) => p[1] === deg) + 1) % POSES.
 /** The suite. `open` is the smoke's session opener; `check` records a failure. Returns 'unsupported' when there is no Duo to drive. */
 export async function duoSmoke({ open, check: record }) {
   const check = (ok, what) => { if (!ok) console.log('  FAIL ' + what); return record(ok, what); };
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, kbar, lab, host
+  const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const dev = pick ? simulators().find((d) => d.udid === pick || d.name === pick) : null;
@@ -120,7 +124,8 @@ export async function duoSmoke({ open, check: record }) {
     const which = deg === 0 ? 'cover' : 'inner';
     if (recorded) {
       check(l.screen && l.screen.x === 0 && l.screen.y === 0 && l.viewport.w === l.screen.w && l.viewport.h === l.screen.h, `${tag}: the cover viewport is the whole panel ${JSON.stringify(l.viewport)} on ${JSON.stringify(l.screen)}`);
-      check(l.viewport.w === RECORDED[which].w && l.viewport.h === RECORDED[which].h, `${tag}: the ${which} panel is ${RECORDED[which].w}×${RECORDED[which].h}, not ${l.viewport.w}×${l.viewport.h}`);
+      const rec = RECORDED[which], same = (w, h) => l.viewport.w === w && l.viewport.h === h; // the simulator turns either panel on its own
+      check(same(rec.w, rec.h) || same(rec.h, rec.w), `${tag}: the ${which} panel is ${rec.w}×${rec.h} either way up, not ${l.viewport.w}×${l.viewport.h}`);
     } else {
       check(l.screen && l.viewport.w <= l.screen.w + 0.01 && l.viewport.h <= l.screen.h + 0.01, `${tag}: the cover viewport fits its panel ${JSON.stringify(l.viewport)} on ${JSON.stringify(l.screen)}`);
       panels[which] ??= { w: l.viewport.w, h: l.viewport.h };
@@ -158,9 +163,25 @@ export async function duoSmoke({ open, check: record }) {
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
   await hinge(180);
 
+  // Whether this simulator shows a software keyboard at all: the Mac's preference, and
+  // a one-shot probe (the preference was 0 on a run where no keyboard rose, 2026-10-02).
+  // Absent, the keyboard legs are reported unsupported once, and every other check runs.
+  const pref = spawnSync('defaults', ['read', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard'], { encoding: 'utf8' }).stdout.trim() || 'unset';
+  let softKeyboard = false;
+  if (plans.insets) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans.insets });
+    try {
+      await settle(s); await s.type('note', 'hi');
+      const l = await keyboard(s, true), st = await s.state();
+      softKeyboard = l.env['keyboard-inset-height'] > 0;
+      console.log(`duo keyboard: software keyboard ${softKeyboard ? 'rises' : 'absent'} (ConnectHardwareKeyboard=${pref}; keyboard-inset-height ${l.env['keyboard-inset-height']}, state.keyboard ${JSON.stringify(st.keyboard)})`);
+    } catch (e) { console.log(`duo keyboard: the probe failed — ${e.message}`); } finally { await s.close(); }
+  }
+  if (!softKeyboard) console.log(`duo keyboard: unsupported — no software keyboard on this simulator (ConnectHardwareKeyboard=${pref}); the keyboard checks are not run`);
+
   // 1. The insets fixture: a cover root, the Duo's asymmetric insets, the
   // keyboard (resizes-visual) at each pose, and a fold while editing.
-  if (plans.insets) {
+  if (plans.insets && leg('insets')) {
     const s = await open({ host: 'ios', app: 'duo-lab', plan: plans.insets });
     try {
       await eachPose(s, 'insets', async ({ l }, tag, deg) => {
@@ -171,9 +192,9 @@ export async function duoSmoke({ open, check: record }) {
         const st = await s.state(), kb = l2.env['keyboard-inset-height'];
         check(st.slots.note === 'hi' && st.slots.focused === true, `${tag}: typing focused the field ${JSON.stringify(st.slots)}`);
         check(l2.viewport.h === l.viewport.h, `${tag}: the layout viewport does not change for a keyboard (${l2.viewport.h} vs ${l.viewport.h})`);
-        check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb} (Simulator › I/O › Keyboard › Connect Hardware Keyboard hides it)`);
         const note = box(l2, 'note');
-        check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+        if (softKeyboard) check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
+        if (softKeyboard) check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
         await s.screenshot(resolve(out, `${tag}-keyboard.png`));
         // Fold while editing: focus and text survive the panel switch, the new panel is covered.
         const next = after(deg);
@@ -193,7 +214,7 @@ export async function duoSmoke({ open, check: record }) {
   }
 
   // 2. The keyboard-bar fixture (resizes-content): the bar rides the keyboard at each pose and across a fold.
-  if (plans['keyboard-bar']) {
+  if (plans['keyboard-bar'] && leg('kbar')) {
     const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['keyboard-bar'] });
     try {
       await eachPose(s, 'kbar', async ({ l, st }, tag, deg) => {
@@ -204,17 +225,19 @@ export async function duoSmoke({ open, check: record }) {
         await s.type('note', 'hi');
         let l2 = await keyboard(s, true);
         const kb = l2.env['keyboard-inset-height'], bar = box(l2, 'bar');
-        check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
-        check(near(l2.viewport.h, l.viewport.h - kb) && box(l2, 'root').h === l2.viewport.h, `${tag}: the layout viewport ends at the keyboard ${JSON.stringify(l2.viewport)} (was ${JSON.stringify(l.viewport)}, kb ${kb})`);
-        check(l2.env['safe-area-inset-bottom'] === 0, `${tag}: the bottom inset is the keyboard's while it is up`);
-        check(bar && near(bar.y + bar.h, l2.viewport.h) && bar.y < bar0.y, `${tag}: the bar rides on the keyboard ${JSON.stringify(bar)}`);
+        if (softKeyboard) {
+          check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
+          check(near(l2.viewport.h, l.viewport.h - kb) && box(l2, 'root').h === l2.viewport.h, `${tag}: the layout viewport ends at the keyboard ${JSON.stringify(l2.viewport)} (was ${JSON.stringify(l.viewport)}, kb ${kb})`);
+          check(l2.env['safe-area-inset-bottom'] === 0, `${tag}: the bottom inset is the keyboard's while it is up`);
+          check(bar && near(bar.y + bar.h, l2.viewport.h) && bar.y < bar0.y, `${tag}: the bar rides on the keyboard ${JSON.stringify(bar)}`);
+        }
         await s.screenshot(resolve(out, `${tag}-keyboard.png`));
         // Fold with the keyboard up: the bar still ends where the viewport does on the new panel.
         const next = after(deg);
         await pose(s, next);
         l2 = await keyboard(s, true);
         const barF = box(l2, 'bar'), kbF = l2.env['keyboard-inset-height'];
-        check(barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
+        if (softKeyboard) check(barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
         await pose(s, deg);
         await s.tap('dismiss');
         const l3 = await keyboard(s, false);
@@ -225,7 +248,7 @@ export async function duoSmoke({ open, check: record }) {
   }
 
   // 3. Duo Lab's four screens.
-  {
+  if (leg('lab')) {
     const s = await open({ host: 'ios', app: 'duo-lab' });
     try {
       await settle(s);
@@ -314,7 +337,7 @@ export async function duoSmoke({ open, check: record }) {
         await s.type('note-title-input', 'fold');
         let l = await keyboard(s, true);
         const kb = l.env['keyboard-inset-height'], sheet = box(l, 'note-sheet');
-        check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
+        if (softKeyboard) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
         await s.type('note-textarea', 'fold me');
         l = await keyboard(s, true);
         check(sheet && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)}`);
@@ -341,7 +364,8 @@ export async function duoSmoke({ open, check: record }) {
 
   // 4. The two-session sample host: both panes follow the pose.
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
-  if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
+  if (!leg('host')) { /* not asked for */ }
+  else if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
   else {
     let s = null;
     try {
