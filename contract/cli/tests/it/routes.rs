@@ -427,6 +427,8 @@ component App
     label = value
   action visit
     nav = push(nav, "/post/1")
+  action visitOther writes nav
+    nav = push(nav, "/post/2")
   view
     main
       button press=open(top(nav).url) testId="read"
@@ -438,12 +440,16 @@ component App
     let mut r = boot(contract::compile(source).unwrap(), "/");
     r.act("visit", vec![]).unwrap();
     let prior = rows(&r);
+    // A push of the location on top is no new visit (LLP 1038 `push`).
+    r.act("visit", vec![]).unwrap();
+    assert_eq!(rows(&r), prior);
+    r.act("visitOther", vec![]).unwrap();
     r.act("visit", vec![]).unwrap();
     assert_rows(&r);
     assert_eq!(&rows(&r)[..2], prior.as_slice());
     assert_ne!(
         rows(&r)[1].0,
-        rows(&r)[2].0,
+        rows(&r)[3].0,
         "repeated URLs have distinct entry keys"
     );
     let button = r.kernel().find_by_test_id("read")[0];

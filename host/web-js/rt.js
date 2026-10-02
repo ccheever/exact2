@@ -1424,6 +1424,7 @@ export function x_push(r, location) {
   const d = dest(r, location), i = sel(r);
   if (!d) return refuse(r, `no route matches ${canonical(location)}`);
   if (i < 0) return refuse(r, "router has no selected stack");
+  if (r[1][i][1].at(-1)?.[2] === d.url) return r; // the location on top: no new visit (route/src/router.rs)
   const out = copy(r); out[1][i][1].push(mint(out, d)); return out;
 }
 export function x_replace(r, location) {

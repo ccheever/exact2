@@ -250,6 +250,9 @@ try {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
     await tap('push-post'); await record('push post', '/post/42', n + 1, 2, 0);
+    // A push of the location shown is no new visit: no history entry (LLP 1038 `push`).
+    await tap('push-post'); const again = await record('push of the top adds nothing', '/post/42', n + 1, 2, 0);
+    assert.equal(again.calls.filter(c => c.name === 'pushState').length, 0, 'a same-URL push writes no history entry');
     await historyTap(-1); await until(`location.pathname==='/'`);
     const back = await record('browser Back', '/', n + 1, 1, 1);
     if (!js) assert.equal(back.logs.lines.filter(l => l.includes('(back)')).length, 1);
