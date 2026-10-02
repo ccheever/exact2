@@ -268,10 +268,126 @@ final class MacShortcutTests: XCTestCase {
         return node
     }
 
-    private func event(_ key: String, window: NSWindow, repeat repeating: Bool = false) -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+    private func event(_ key: String, window: NSWindow, modifiers: NSEvent.ModifierFlags = .command,
+                       code: UInt16 = 0, repeat repeating: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
                          timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                         characters: key, charactersIgnoringModifiers: key, isARepeat: repeating, keyCode: 0)!
+                         characters: key, charactersIgnoringModifiers: key, isARepeat: repeating, keyCode: code)!
+    }
+
+    func testNamedKeysPrintablePlusAndContextKeysReachTheirDeclaredAction() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let node = button(1, "Command", "", in: presenter)
+        var presses = 0
+        presenter.onPress = { _ in presses += 1 }
+        let cases: [(String, String, NSEvent.ModifierFlags, UInt16)] = [
+            ("Meta+Shift+Enter", "\r", [.command, .shift], 36),
+            ("Meta+Shift+Enter", "\u{3}", [.command, .shift], 76),
+            ("Meta+Shift+ArrowUp", "\u{f700}", [.command, .shift], 126),
+            ("Meta+Shift+ArrowDown", "\u{f701}", [.command, .shift], 125),
+            ("Control+ArrowLeft", "\u{f702}", .control, 123),
+            ("Control+ArrowRight", "\u{f703}", .control, 124),
+            ("Meta+Shift+Plus", "+", [.command, .shift], 24),
+            ("Meta+Shift++", "+", [.command, .shift], 24),
+            ("Plus", "+", [], 69),
+            ("c", "c", [], 8),
+            ("Shift+C", "C", .shift, 8),
+            ("Space", " ", [], 49),
+            ("Escape", "\u{1b}", [], 53),
+            ("Tab", "\t", [], 48),
+            ("Backspace", "\u{7f}", [], 51),
+            ("Delete", "\u{f728}", [], 117),
+            ("Meta+Home", "\u{f729}", .command, 115),
+            ("Meta+End", "\u{f72b}", .command, 119),
+            ("PageUp", "\u{f72c}", [], 116),
+            ("PageDown", "\u{f72d}", [], 121),
+            ("F1", "\u{f704}", .function, 122),
+            ("Meta+F12", "\u{f70f}", [.command, .function], 111),
+        ]
+        for (index, row) in cases.enumerated() {
+            node.props["accessibilityKeyShortcuts"] = row.0
+            XCTAssertTrue(presenter.shortcuts.perform(event(row.1, window: window, modifiers: row.2, code: row.3)), row.0)
+            XCTAssertEqual(presses, index + 1, row.0)
+            XCTAssertFalse(presenter.shortcuts.perform(event(row.1, window: window, modifiers: row.2.symmetricDifference(.option), code: row.3)), row.0)
+        }
+        for invalid in ["Meta+", "Meta+++", "Meta+Unknown", "Cmd+c", "F0", "F36", "Meta+Meta", "Enter+c"] {
+            node.props["accessibilityKeyShortcuts"] = invalid
+            XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window)), invalid)
+        }
+    }
+
+    func testNamedMenuEquivalentsAreAppKitCharacters() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "Send", "Meta+Shift+Enter", in: presenter)
+        _ = button(2, "Previous", "Meta+ArrowUp", in: presenter)
+        _ = button(3, "Zoom In", "Meta+Shift+Plus", in: presenter)
+        let menu = NSMenu(title: "File")
+        presenter.shortcuts.attach(menu)
+        XCTAssertEqual(Array(menu.items.prefix(3)).map(\.keyEquivalent), ["\r", "\u{f700}", "+"])
+        XCTAssertEqual(menu.items[0].keyEquivalentModifierMask, [.command, .shift])
+    }
+
+    func testEditorKeepsTypingAndCompositionButPermitsDeclaredCommands() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "Context", "c ArrowUp Space Alt+c", in: presenter)
+        _ = button(2, "Send", "Meta+Shift+Enter", in: presenter)
+        _ = button(3, "Cancel", "Escape", in: presenter)
+        let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        presenter.root.addSubview(editor)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window, modifiers: [], code: 8)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window, modifiers: .option, code: 8)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("\u{f700}", window: window, modifiers: [], code: 126)))
+        XCTAssertFalse(presenter.shortcuts.perform(event(" ", window: window, modifiers: [], code: 49)))
+        let send = event("\r", window: window, modifiers: [.command, .shift], code: 36)
+        let escape = event("\u{1b}", window: window, modifiers: [], code: 53)
+        XCTAssertTrue(presenter.shortcuts.perform(send))
+        XCTAssertTrue(presenter.shortcuts.perform(escape))
+        editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertFalse(presenter.shortcuts.perform(send))
+        XCTAssertFalse(presenter.shortcuts.perform(escape))
+        editor.unmarkText()
+        XCTAssertTrue(presenter.shortcuts.perform(send))
+        XCTAssertEqual(presses, [2, 3, 2])
+    }
+
+    func testFieldEditorKeepsContextKeysAndMenuRequiresTheKeyWindow() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let node = button(1, "Send", "Meta+Shift+Enter c ArrowDown", in: presenter)
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        presenter.root.addSubview(field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertTrue(window.firstResponder is NSTextView)
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window, modifiers: [], code: 8)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("\u{f701}", window: window, modifiers: [], code: 125)))
+        let menu = NSMenu(title: "File")
+        presenter.shortcuts.attach(menu)
+        let send = event("\r", window: window, modifiers: [.command, .shift], code: 36)
+        // XCTest has no application event loop/key window. The menu must not
+        // dispatch into an inactive window even when its equivalent matches.
+        XCTAssertFalse(presenter.shortcuts.validateMenuItem(menu.items[0]))
+        _ = menu.performKeyEquivalent(with: send)
+        XCTAssertTrue(presses.isEmpty)
+        XCTAssertTrue(presenter.shortcuts.perform(send))
+        XCTAssertEqual(presses, [1])
+        node.props["disabled"] = "true"
+        presenter.shortcuts.sync()
+        _ = menu.performKeyEquivalent(with: send)
+        XCTAssertEqual(presses, [1])
+        node.props["disabled"] = nil
+        node.props["accessibilityKeyShortcuts"] = "Meta+F01 Meta+F+1"
+        presenter.shortcuts.sync()
+        XCTAssertTrue(menu.items.isEmpty, "Malformed function names must not become menu equivalents")
+        XCTAssertFalse(presenter.shortcuts.perform(event("\u{f704}", window: window)))
     }
 
     /// The chrome passes visit what this index names instead of every view, so

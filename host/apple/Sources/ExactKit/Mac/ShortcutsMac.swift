@@ -5,11 +5,35 @@ import AppKit
 private struct Shortcut {
     let key: String
     let modifiers: NSEvent.ModifierFlags
+    /// AppKit represents named keys in menu equivalents by control/function
+    /// characters, not the web's names (which remain the declaration syntax).
+    private static let namedKeys: [String: String] = [
+        "Enter": "\r", "Tab": "\t", "Escape": "\u{1b}", "Space": " ",
+        "Backspace": "\u{8}", "Delete": "\u{f728}", "Insert": "\u{f727}",
+        "ArrowUp": "\u{f700}", "ArrowDown": "\u{f701}",
+        "ArrowLeft": "\u{f702}", "ArrowRight": "\u{f703}",
+        "Home": "\u{f729}", "End": "\u{f72b}",
+        "PageUp": "\u{f72c}", "PageDown": "\u{f72d}", "Plus": "+",
+    ]
+    var keyEquivalent: String {
+        if let value = Self.namedKeys[key] { return value }
+        if key.hasPrefix("F"), let n = Int(key.dropFirst()), (1...35).contains(n) {
+            return String(UnicodeScalar(0xf704 + n - 1)!)
+        }
+        return key
+    }
     init?(_ text: Substring) {
         var parts = text.split(separator: "+", omittingEmptySubsequences: false)
-        guard let last = parts.popLast() else { return nil }
-        if last == "Escape", parts.isEmpty { key = "Escape"; modifiers = []; return }
-        guard last.count == 1 else { return nil }
+        let last: Substring
+        // ARIA spells this key "Plus". Accept a literal '+' too, including
+        // the trailing separator in a chord such as Meta++.
+        if text == "+" { last = "Plus"; parts.removeAll() }
+        else if parts.count >= 3, parts.suffix(2).allSatisfy(\.isEmpty) {
+            last = "Plus"; parts.removeLast(2)
+        } else if let part = parts.popLast() { last = part }
+        else { return nil }
+        let function = Int(last.dropFirst()).map { (1...35).contains($0) && last == "F\($0)" } == true
+        guard last.count == 1 || Self.namedKeys[String(last)] != nil || function else { return nil }
         var mask: NSEvent.ModifierFlags = []
         for part in parts {
             switch part {
@@ -20,13 +44,22 @@ private struct Shortcut {
             default: return nil
             }
         }
-        guard !mask.intersection([.command, .control]).isEmpty else { return nil }
-        key = last.lowercased()
+        key = last.count == 1 ? last.lowercased() : String(last)
         modifiers = mask
     }
     func matches(_ event: NSEvent) -> Bool {
-        (key == "Escape" ? event.keyCode == 53 : event.charactersIgnoringModifiers?.lowercased() == key)
-            && event.modifierFlags.intersection([.command, .control, .option, .shift]) == modifiers
+        guard event.modifierFlags.intersection([.command, .control, .option, .shift]) == modifiers else { return false }
+        if ["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].contains(key) {
+            return NodeView.keyName(event) == key
+        }
+        return event.charactersIgnoringModifiers?.lowercased() == keyEquivalent.lowercased()
+    }
+    func permits(_ responder: NSResponder?) -> Bool {
+        // A declared command can use Command/Control inside an editor. Text,
+        // cursor motion and Option's text input stay with its input client;
+        // Escape retains the existing application's cancel shortcut.
+        key == "Escape" || !modifiers.intersection([.command, .control]).isEmpty
+            || (responder as? NSView)?.inputContext == nil
     }
 }
 
@@ -61,9 +94,10 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     func perform(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
+              (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
               let view = nodes().first(where: {
                   !$0.inert && $0.window === event.window && $0.window?.attachedSheet == nil
-                      && declarations($0).contains(where: { $0.matches(event) })
+                      && declarations($0).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
               }) else { return false }
         if !event.isARepeat && !view.disabled { presenter?.press(view.id) }
         return true
@@ -82,7 +116,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
             item.title = title(view)
-            item.keyEquivalent = shortcut?.key ?? ""
+            item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
             item.target = self
             item.representedObject = NSNumber(value: view.id)
@@ -152,7 +186,10 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     @objc private func activate(_ item: NSMenuItem) {
         guard validateMenuItem(item), let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
-        if let event = NSApp.currentEvent, event.type == .keyDown, event.isARepeat { return }
+        // Menu selection by keyboard need not use the declared equivalent.
+        // AppKit owns that selection; repeat and composition still cannot fire it.
+        if let event = NSApp.currentEvent, event.type == .keyDown,
+           event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return }
         presenter?.press(id)
     }
 }
