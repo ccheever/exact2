@@ -1016,6 +1016,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
         "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
+        "grid-auto-flow" => styles(&[StyleId::GridAutoFlow]),
+        "grid-template-columns" => styles(&[StyleId::GridTemplateColumns]),
+        "grid-template-rows" => styles(&[StyleId::GridTemplateRows]),
+        "grid-column" => styles(&[StyleId::GridColumn]),
+        "grid-row" => styles(&[StyleId::GridRow]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-content" => styles(&[StyleId::AlignContent]),
         "align-self" => styles(&[StyleId::AlignSelf]),

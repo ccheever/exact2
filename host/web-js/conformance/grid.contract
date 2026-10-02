@@ -1,0 +1,79 @@
+// linux: layout
+// CSS grid conformance: the browser's DOM boxes are compared with the Linux
+// host's kernel boxes by conform.mjs. Every authored grid grammar edge below
+// is a slot-bound runtime value, not a compiler-probed style literal.
+component Grid
+  state alternate = false
+  state columns = "auto"
+  state placement = "auto"
+  state flow = "row"
+  state items = "center"
+  action switchTemplate writes alternate
+    alternate = not alternate
+  action setGrid(nextColumns: string, nextPlacement: string) writes columns, placement
+    columns = nextColumns
+    placement = nextPlacement
+  action setKeywords(nextFlow: string, nextItems: string) writes flow, items
+    flow = nextFlow
+    items = nextItems
+  view
+    column testId="root" width=420 height=1240 box-sizing="border-box" padding=16 gap=16
+      button testId="switch-grid" press=switchTemplate height=32
+        text alternate ? "two tracks" : "three tracks"
+      row gap=4 flex-wrap="wrap"
+        button testId="grid-auto" press=setGrid("auto", "auto") width=84 height=24
+          text "auto"
+        button testId="grid-percent" press=setGrid("25%", "auto") width=84 height=24
+          text "25%"
+        button testId="grid-line" press=setGrid("auto", "2") width=84 height=24
+          text "line 2"
+        button testId="grid-span" press=setGrid("80px 80px 80px", "auto / span 2") width=84 height=24
+          text "span"
+        button testId="grid-nested" press=setGrid("repeat(2, repeat(2, 40px))", "auto") width=84 height=24
+          text "nested"
+        button testId="grid-upper" press=setGrid("100PX", "auto") width=84 height=24
+          text "upper"
+        button testId="grid-autofit" press=setGrid("repeat(auto-fit, minmax(80px, 1fr))", "auto") width=84 height=24
+          text "auto-fit"
+        button testId="grid-fitcontent" press=setGrid("fit-content(40px)", "auto") width=84 height=24
+          text "fit-content"
+        button testId="grid-comment" press=setGrid("80px 80px 80px", "2 /* gap */ / span 2") width=84 height=24
+          text "comments"
+        button testId="grid-large-tracks" press=setGrid("repeat(10001, 1px)", "auto") width=84 height=24
+          text "large tracks"
+        button testId="grid-large-line" press=setGrid("80px 80px", "10001") width=84 height=24
+          text "large line"
+        button testId="grid-scientific" press=setGrid("1e2%", "auto") width=84 height=24
+          text "scientific"
+        button testId="grid-subgrid" press=setGrid("subgrid [rails]", "auto") width=84 height=24
+          text "refused subgrid"
+        button testId="grid-keywords" press=setKeywords("DENSE", "SAFE CENTER") width=84 height=24
+          text "keywords"
+        button testId="grid-legacy" press=setKeywords("row", "left legacy") width=84 height=24
+          text "refused legacy"
+      box testId="runtime" display="grid" width=388 height=100 grid-template-columns=columns grid-auto-flow=flow justify-items=items column-gap=8
+        box testId="runtime-a" grid-column=placement width=32 height=30 background-color="#f97316"
+        box testId="runtime-b" width=32 height=30 background-color="#06b6d4"
+        box testId="runtime-c" width=32 height=30 background-color="#8b5cf6"
+      box testId="template" display="grid" width=388 height=140 box-sizing="border-box" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr minmax(60px, 25%)") grid-template-rows="40px minmax(30px, 1fr)" column-gap=10 row-gap=12 justify-items="center"
+        box testId="placed-a" width=40 height=24 background-color="#ef4444"
+        box testId="placed-b" grid-column="2 / span 2" grid-row="1 / span 1" width=70 height=28 background-color="#22c55e"
+        box testId="placed-c" grid-column="-2 / -1" grid-row="2 / -1" width=30 height=30 background-color="#3b82f6"
+      box testId="flow-row" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="row" column-gap=10 row-gap=10
+        box testId="row-1" width=20 height=20
+        box testId="row-2" width=20 height=20
+        box testId="row-3" width=20 height=20
+        box testId="row-4" width=20 height=20
+      box testId="flow-column" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="column" column-gap=10 row-gap=10
+        box testId="column-1" width=20 height=20
+        box testId="column-2" width=20 height=20
+        box testId="column-3" width=20 height=20
+        box testId="column-4" width=20 height=20
+      box testId="flow-row-dense" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="dense" column-gap=10 row-gap=10
+        box testId="row-wide" grid-column="span 2" width=130 height=20
+        box testId="row-hole" grid-column="span 2" width=130 height=20
+        box testId="row-fill" width=20 height=20
+      box testId="flow-column-dense" display="grid" width=200 height=70 grid-template-columns="repeat(3, 60px)" grid-template-rows="repeat(2, 30px)" grid-auto-flow="column dense" column-gap=10 row-gap=10
+        box testId="column-tall" grid-row="span 2" width=20 height=70
+        box testId="column-hole" grid-row="span 2" width=20 height=70
+        box testId="column-fill" width=20 height=20

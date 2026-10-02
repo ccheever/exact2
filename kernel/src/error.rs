@@ -22,6 +22,7 @@ pub enum StyleDomainError {
     NonFinite(StyleId),
     AutoNotAdmitted(StyleId),
     TooManyTracks { style: StyleId, count: usize },
+    InvalidGridTrack(StyleId),
     InvalidGridSpan(StyleId),
     InvalidTransition(exact_motion::TransitionError),
     InvalidAnimation(exact_motion::AnimationError),
@@ -113,9 +114,11 @@ pub enum DecodeError {
     UnknownTrackKind(u8),
     /// More grid tracks than the closed grammar allows.
     TooManyTracks(usize),
+    /// A grid track carried a negative breadth, which CSS cannot express.
+    InvalidGridTrack,
     /// A grid placement kind byte is outside the closed grammar.
     UnknownPlacementKind(u8),
-    /// A grid span was zero; CSS spans are positive integers.
+    /// A grid line or span was zero; CSS requires nonzero lines and positive spans.
     InvalidGridSpan,
     /// A `transition` row carried more declarations than the wire admits.
     TooManyTransitions(u8),
@@ -249,7 +252,9 @@ pub enum ApplyError {
         style: StyleId,
         count: usize,
     },
-    /// A grid placement carried a zero span; CSS spans are positive integers.
+    /// A grid template carried a negative breadth, which CSS cannot express.
+    InvalidGridTrack { op_index: usize, style: StyleId },
+    /// A grid placement carried a zero line or span, which CSS cannot express.
     InvalidGridSpan { op_index: usize, style: StyleId },
     /// A `SetStyle` patch carried a `transition` row the evaluator refuses.
     InvalidTransition {
@@ -352,6 +357,7 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
             StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
+            StyleDomainError::InvalidGridTrack(_) => DecodeError::InvalidGridTrack,
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
             StyleDomainError::InvalidTransition(error) => DecodeError::InvalidTransition(error),
             StyleDomainError::InvalidAnimation(error) => DecodeError::InvalidAnimation(error),
@@ -424,8 +430,16 @@ pub enum StyleValueError {
     BadColor {
         style: StyleId,
     },
-    /// The row's codec has no dynamic form (grid tracks, placements, gradients).
+    /// The row's codec has no dynamic form.
     Unsupported {
+        style: StyleId,
+    },
+    /// Not a grid track list in the kernel's closed CSS grammar.
+    BadGridTracks {
+        style: StyleId,
+    },
+    /// Not a grid line placement in the kernel's closed CSS grammar.
+    BadGridPlacement {
         style: StyleId,
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.

@@ -8,7 +8,7 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
 //   (the JS builds go to <out>/dist/<target>)
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
@@ -24,8 +24,9 @@
 //   headless on the Linux host (`agent.mjs linux`, the data app's release
 //   binary, built by --build), driven by the same steps on the same plan,
 //   its state and tree compared with the wasm page's (`linux` failures).
-//   Layout and pixels are the Linux host's own and are not compared. The
-//   only normalization is the route stack's browser location (`linuxView`);
+//   A plan marked `// linux: layout` also compares its testId boxes with the
+//   wasm page to 0.5 px. Pixels remain the Linux host's own and are not
+//   compared. The only normalization is the route stack's browser location (`linuxView`);
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
@@ -67,7 +68,8 @@ const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance'
 const knownByKey = new Map(known.map(entry => [`${entry.app}\0${entry.step}\0${entry.field}`, entry]));
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
 if (knownByKey.size !== known.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser'].includes(argv[i - 1]));
+const only = opt('--only', null);
+const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
@@ -260,6 +262,8 @@ async function drive(t, report, fail, dir, ws, js) {
     };
     const compare = async step => {
       let st = 0;
+      let linuxLayout = null;
+      let linuxReport = null;
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
       if (sj.error) { fail(step, `state: ${other} ${sj.error}`); st++; }
@@ -274,8 +278,10 @@ async function drive(t, report, fail, dir, ws, js) {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [], vw = linuxView(sw), vl = linuxView(sl);
         for (const k of STATE_KEYS) diffJSON(vw[k], vl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
+        if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
-        report.steps.push({ target: t.name, step, reference: 'linux', differences: o.length });
+        linuxReport = { target: t.name, step, reference: 'linux', differences: o.length };
+        report.steps.push(linuxReport);
       });
       driveAt = `${step} layout`;
       const [[lw, documentW], [lj, documentJ]] = await pair(
@@ -284,9 +290,15 @@ async function drive(t, report, fail, dir, ws, js) {
       );
       const o3 = diffLayout(lw, lj, tw, tj, !!crossBrowser, reference, other, documentW, documentJ); o3.forEach(x => fail(step, x.what, crossBrowser ? x.field : null)); st += o3.length;
       if (crossBrowser) report.targets[t.name].maxLayoutDelta = Math.max(report.targets[t.name].maxLayoutDelta ?? 0, o3.maxDelta);
+      if (linuxLayout) {
+        const ol = diffLayout(lw, linuxLayout, tw, null, false, reference, 'kernel');
+        ol.forEach(x => fail(step, x.what));
+        st += ol.length;
+        linuxReport.differences += ol.length;
+      }
       // Paint facts are part of parity even when boxes happen not to overlap.
       if (!crossBrowser) {
-        const paint = `Array.from(document.querySelectorAll('#exact-root > *, #exact-root [data-testid]'), e => { const s = getComputedStyle(e); return [e.dataset.testid ?? '$root', s.isolation, s.position]; })`;
+        const paint = `Array.from(document.querySelectorAll('#exact-root > *, [data-testid="runtime"]'), e => { const s = getComputedStyle(e), d = e.style; return [e.dataset.testid ?? '$root', s.isolation, s.position, d.gridTemplateColumns, d.gridTemplateRows, d.gridColumn, d.gridRow, d.gridAutoFlow, d.justifyItems]; })`;
         const [fw, fj] = await pair(() => W.carrier.evaluate(paint), () => J.carrier.evaluate(paint));
         const op = []; diffJSON(fw, fj, 'paint', op); op.forEach(x => fail(step, x)); st += op.length;
       }
@@ -570,6 +582,7 @@ function linuxFor(t) {
   if (!linuxRef) return null;
   const why = t.contract && /^\/\/ linux: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1];
   if (why?.startsWith('state only')) return { stateOnly: true };
+  if (why === 'layout') return { layout: true };
   if (why) return { why: `not compared on Linux: ${why}` };
   const crate = linuxCrate(t.app);
   if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
@@ -592,10 +605,10 @@ if (crossBrowser) {
 // `--urls <app> <a> <b>`: two served pages of one app, compared the same way
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
-const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
+const apps = urls >= 0 || only ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const sdir = resolve(here, 'conformance');
 // A plan with its own files (`strings/`) is a directory holding `app.contract`.
-const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
 if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));

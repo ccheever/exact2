@@ -1073,7 +1073,8 @@ fn review_grid_baseline_dependency_requires_refusal_or_ordinary_shell_parity() {
     let mut root = StyleProps::default();
     root.mask = mask(&[StyleId::Display, StyleId::GridTemplateColumns]);
     root.display = Display::Grid;
-    root.grid_template_columns = GridTracks(vec![GridTrack::Points(200.), GridTrack::Points(200.)]);
+    root.grid_template_columns =
+        GridTracks::from_tracks(vec![GridTrack::Points(200.), GridTrack::Points(200.)]);
     k.apply(
         0,
         0,

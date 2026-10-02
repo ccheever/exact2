@@ -68,6 +68,17 @@ impl Em<'_> {
         };
         let timeline = binding(StyleId::AnimationTimeline).is_some();
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
+        if matches!(
+            id,
+            StyleId::GridTemplateColumns
+                | StyleId::GridTemplateRows
+                | StyleId::GridColumn
+                | StyleId::GridRow
+                | StyleId::GridAutoFlow
+                | StyleId::JustifyItems
+        ) {
+            self.uses.rt("gridValue");
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];

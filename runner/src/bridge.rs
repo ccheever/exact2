@@ -79,8 +79,11 @@ pub fn set_style(
             "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
             // A lone percentage is one; other text ending in `%` is a CSS
             // value (`transform-origin: 0 100%`), as the compiler reads it.
-            t => match t.strip_suffix('%').map(exact_num::parse_f64) {
-                Some(Ok(p)) => StyleValue::Percent(p),
+            t => match t
+                .strip_suffix('%')
+                .and_then(|p| exact_num::parse_f64(p).ok())
+            {
+                Some(p) => StyleValue::Percent(p),
                 _ => StyleValue::Text(t.to_string()),
             },
         },
@@ -123,5 +126,23 @@ impl KeyframesTable {
             .into_iter()
             .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn css_percentages_accept_browser_exponents() {
+        let mut style = StyleProps::default();
+        set_style(
+            &mut style,
+            StyleId::GridTemplateColumns as u16,
+            &Value::str("1e2%"),
+            0,
+        )
+        .unwrap();
+        assert_eq!(style.grid_template_columns.css(), "100%");
     }
 }

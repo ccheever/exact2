@@ -206,7 +206,7 @@ fn a_grid_image_can_compress_below_its_natural_width() {
     grid.mask.set(StyleId::Display);
     grid.width = Dimension::Points(80.0);
     grid.mask.set(StyleId::Width);
-    grid.grid_template_columns = exact_kernel::GridTracks(vec![
+    grid.grid_template_columns = exact_kernel::GridTracks::from_tracks(vec![
         exact_kernel::GridTrack::Auto,
         exact_kernel::GridTrack::Points(20.0),
     ]);

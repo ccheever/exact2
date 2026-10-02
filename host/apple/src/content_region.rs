@@ -417,7 +417,10 @@ pub(crate) fn projection_size(
                 RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.css().len(), 6)?,
-                RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
+                RowValue::Tracks(v) => {
+                    bytes = add_wire(bytes, v.storage_len(), 128)?;
+                    bytes = add_wire(bytes, v.css().len(), 6)?;
+                }
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {
                     bytes = add_wire(bytes, g.gradient().map_or(0, |g| g.stops.len()), 512)?
@@ -451,7 +454,10 @@ pub(crate) fn projection_size(
                 RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.css().len(), 6)?,
-                RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
+                RowValue::Tracks(v) => {
+                    bytes = add_wire(bytes, v.storage_len(), 128)?;
+                    bytes = add_wire(bytes, v.css().len(), 6)?;
+                }
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {
                     bytes = add_wire(bytes, g.gradient().map_or(0, |g| g.stops.len()), 512)?
