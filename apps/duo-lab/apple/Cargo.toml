@@ -1,0 +1,20 @@
+# Duo Lab on Apple platforms (LLP 1076 D8): the host's C exports over its
+# TypeScript data module and baked plan.
+[package]
+name = "duo-lab-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

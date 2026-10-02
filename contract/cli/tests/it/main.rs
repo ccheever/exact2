@@ -58,6 +58,7 @@ mod reorder_collection;
 mod routes;
 mod rust_shapes;
 mod search;
+mod segments;
 mod shadow_and_case;
 mod shape_cycles;
 mod share;

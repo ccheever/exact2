@@ -1,0 +1,51 @@
+{
+  "generator": "OpenAI built-in image_gen tool",
+  "created": "2026-09-17",
+  "kind": "Generated photographic illustrations of imagined locations; no real location, photographer or stock license claimed.",
+  "runtime": "Local PNG files only; no remote image URLs.",
+  "assets": [
+    {
+      "file": "north-shore.png",
+      "scene": "A quiet wild Atlantic coast, deep turquoise water breaking around a pale granite headland with golden coastal grass, high viewpoint and a meandering shoreline, clear cool morning light. A tiny cove is the visual focal point.",
+      "prompt": "Create one distinct photographic raster asset for a polished offline photo collection app. Landscape aspect ratio 4:3, approximately 1024x768 pixels. Scene: A quiet wild Atlantic coast, deep turquoise water breaking around a pale granite headland with golden coastal grass, high viewpoint and a meandering shoreline, clear cool morning light. A tiny cove is the visual focal point. Editorial travel photography, authentic fine detail, subtle natural film grain, restrained color grading, crisp focal subject, rich but not oversaturated color. Edge-to-edge photograph only. No collage, no frame, no typography, no logos, no watermark, no camera UI. The location is imagined; do not reproduce a specific famous photograph.",
+      "width": 1448,
+      "height": 1086,
+      "bytes": 3096498,
+      "rgba_bytes": 6290112,
+      "sha256": "34ec17e872106a6a6ab5d18aae1320853f6c6936393928eb7a24d773ac269597"
+    },
+    {
+      "file": "ochre-dunes.png",
+      "scene": "Sculptural ochre sand dunes in an imaginary remote desert, a single delicate ridge curving toward the horizon, long blue-lilac shadows and pale apricot morning sky. Empty landscape, no footprints.",
+      "prompt": "Create one distinct photographic raster asset for a polished offline photo collection app. Landscape aspect ratio 4:3, approximately 1024x768 pixels. Scene: Sculptural ochre sand dunes in an imaginary remote desert, a single delicate ridge curving toward the horizon, long blue-lilac shadows and pale apricot morning sky. Empty landscape, no footprints. Editorial travel photography, authentic fine detail, subtle natural film grain, restrained color grading, crisp focal subject, rich but not oversaturated color. Edge-to-edge photograph only. No collage, no frame, no typography, no logos, no watermark, no camera UI. The location is imagined; do not reproduce a specific famous photograph.",
+      "width": 1448,
+      "height": 1086,
+      "bytes": 1949637,
+      "rgba_bytes": 6290112,
+      "sha256": "c93685de9f0627e48a184a80c5a2c31977d7f0f79c7c1ce9c4e29cdd6cf473cb"
+    },
+    {
+      "file": "alpine-water.png",
+      "scene": "Still blue-green alpine lake reflecting tall dark pines and distant pale granite mountains, foreground smooth warm grey rocks, calm late summer morning. Beautiful natural asymmetry.",
+      "prompt": "Create one distinct photographic raster asset for a polished offline photo collection app. Landscape aspect ratio 4:3, approximately 1024x768 pixels. Scene: Still blue-green alpine lake reflecting tall dark pines and distant pale granite mountains, foreground smooth warm grey rocks, calm late summer morning. Beautiful natural asymmetry. Editorial travel photography, authentic fine detail, subtle natural film grain, restrained color grading, crisp focal subject, rich but not oversaturated color. Edge-to-edge photograph only. No collage, no frame, no typography, no logos, no watermark, no camera UI. The location is imagined; do not reproduce a specific famous photograph.",
+      "width": 1448,
+      "height": 1086,
+      "bytes": 2820542,
+      "rgba_bytes": 6290112,
+      "sha256": "454001f111d9e9904334d5c6f1966eb00858888ddcdb7b9b87d177a3a4b9b1e4"
+    },
+    {
+      "file": "winter-ridge.png",
+      "scene": "A snow-covered mountain ridge emerging above soft lavender-grey clouds, the crest catching a thin ribbon of warm sunlight. Minimal layered shapes, spacious sky, dramatic quiet.",
+      "prompt": "Create one distinct photographic raster asset for a polished offline photo collection app. Landscape aspect ratio 4:3, approximately 1024x768 pixels. Scene: A snow-covered mountain ridge emerging above soft lavender-grey clouds, the crest catching a thin ribbon of warm sunlight. Minimal layered shapes, spacious sky, dramatic quiet. Editorial travel photography, authentic fine detail, subtle natural film grain, restrained color grading, crisp focal subject, rich but not oversaturated color. Edge-to-edge photograph only. No collage, no frame, no typography, no logos, no watermark, no camera UI. The location is imagined; do not reproduce a specific famous photograph.",
+      "width": 1448,
+      "height": 1086,
+      "bytes": 1692865,
+      "rgba_bytes": 6290112,
+      "sha256": "491b85771ee1893b6d31f98618504f11d919c4e1137d16bf5f070429602ce3c7"
+    }
+  ],
+  "total_file_bytes": 15128463,
+  "one_copy_rgba_bytes": 37740672,
+  "copied": "From apps/interaction-gallery/assets on 2026-10-02 for apps/duo-lab (LLP 1076 D8): the same bytes, the same provenance."
+}
