@@ -8,7 +8,6 @@
 // glass look's button is the glass body the glass-group pass isolates (D9).
 #if os(macOS)
 import AppKit
-import MachO
 
 /// AppKit's button, as a native button's control.
 final class NativeButtonMac: NSButton {
@@ -28,23 +27,6 @@ final class NativeButtonMac: NSButton {
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
     override var acceptsFirstResponder: Bool { false }
-
-    /// Whether AppKit draws this app in the macOS 26 design, where the glass
-    /// bezel draws glass. AppKit keys that design on the SDK the app was
-    /// linked with; under an older one its glass bezel draws no bezel at
-    /// all, so a glass look draws as a push button, as before macOS 26.
-    static let glassDrawn: Bool = {
-        guard #available(macOS 26.0, *), let header = _dyld_get_image_header(0) else { return false }
-        var at = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
-        for _ in 0..<header.pointee.ncmds {
-            let command = at.loadUnaligned(as: load_command.self)
-            if command.cmd == UInt32(LC_BUILD_VERSION) {
-                return at.loadUnaligned(as: build_version_command.self).sdk >= 26 << 16
-            }
-            at = at.advanced(by: Int(command.cmdsize))
-        }
-        return false
-    }()
 }
 
 extension NodeView {
@@ -145,7 +127,7 @@ extension ControlHost {
         var look = ButtonFace.drawn(face.macos).name
         var glass = false
         if look == "glass" || look == "glass-accent" {
-            if #available(macOS 26.0, *), NativeButtonMac.glassDrawn {
+            if #available(macOS 26.0, *), LinkedDesign.liquidGlass {
                 button.bezelStyle = .glass
                 glass = true
             } else {
