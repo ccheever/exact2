@@ -35,7 +35,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   stopping at the first failing crate or test binary. Cargo's scope is the root
   `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
   origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
-  the web JS target's conformance run (`host/web-js/conform.mjs --strict`),
+  the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
+  Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
   the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), then
   `metrics.mjs --long`. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.

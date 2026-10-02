@@ -26,6 +26,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
     else if (argv[i] === '--app') flags.app = argv[++i];
+    else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
