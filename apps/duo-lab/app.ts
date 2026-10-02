@@ -1,4 +1,4 @@
-// Duo Lab's data module (LLP 1076 D8): the words and rows behind the four
+// Duo Lab's data module (LLP 1077 D8): the words and rows behind the four
 // screens. Everything is generated deterministically here — no network, no
 // storage, no clock — so the bake answers every resource once and the app is
 // the same on every host and at every pose.

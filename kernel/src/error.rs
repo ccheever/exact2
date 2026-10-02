@@ -323,7 +323,7 @@ pub enum LayoutError {
     InvalidEnv,
     /// A segment grid with a count that is not `cols × rows` (or any
     /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
-    /// (LLP 1076 D3).
+    /// (LLP 1077 D3).
     InvalidSegments,
     /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
@@ -459,7 +459,7 @@ pub enum StyleValueError {
         style: StyleId,
     },
     /// An `env()` text that names one of the kernel's variables wrongly
-    /// (LLP 1076 D10): refused by name, never silently zero.
+    /// (LLP 1077 D10): refused by name, never silently zero.
     BadEnv {
         style: StyleId,
         refusal: crate::style::EnvRefusal,

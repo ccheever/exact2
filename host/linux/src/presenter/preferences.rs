@@ -81,7 +81,7 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// `devicePosture` and the viewport segments (LLP 1076 D7): what the
+    /// `devicePosture` and the viewport segments (LLP 1077 D7): what the
     /// agent's `prefer posture` and `prefer segments` set on this host,
     /// which has no fold of its own; kept for `layout.env`.
     pub fn set_segments(

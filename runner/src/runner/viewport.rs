@@ -1,5 +1,5 @@
 //! Host-owned viewport answers; never baked or carried device data.
-//! @ref LLP 1039 D1–D3; LLP 1061 D4; LLP 1076 D2
+//! @ref LLP 1039 D1–D3; LLP 1061 D4; LLP 1077 D2
 use super::{DataError, DataSource, Runner, RunnerError};
 use crate::viewport::{Fold, Preferences, Viewport, SOURCE};
 use exact_kernel::CommitReceipt;
@@ -46,7 +46,7 @@ impl<D: DataSource> Runner<D> {
         self.replace_viewport(viewport, "preferences")
     }
 
-    /// The device's posture or the segments a fold makes changed (LLP 1076
+    /// The device's posture or the segments a fold makes changed (LLP 1077
     /// D2): re-answer every viewport resource in one commit; the same fold
     /// again, or no reader, commit nothing. A grid without a column or a
     /// row is refused before anything changes.

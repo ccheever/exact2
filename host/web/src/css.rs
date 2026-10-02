@@ -698,7 +698,7 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
                 out.push_str("px)");
             }
         }
-        // The browser resolves the segment itself too (LLP 1076 D6): the
+        // The browser resolves the segment itself too (LLP 1077 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => {
             out.push_str(if plus == 0.0 { "env(" } else { "calc(env(" });

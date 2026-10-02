@@ -319,7 +319,7 @@ export function install(exact) {
         return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
-      // The fold group (LLP 1076 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
+      // The fold group (LLP 1077 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
       case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {}, fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };

@@ -666,7 +666,7 @@ impl Kernel {
     }
 
     /// The page's environment: what `env(safe-area-inset-*)` and
-    /// `env(viewport-segment-*)` lengths resolve to (LLP 1001 §2; LLP 1076 D3).
+    /// `env(viewport-segment-*)` lengths resolve to (LLP 1001 §2; LLP 1077 D3).
     pub fn env(&self) -> Env {
         self.arena.env().clone()
     }
@@ -689,7 +689,7 @@ impl Kernel {
         self.replace_env(next)
     }
 
-    /// Set the viewport segments (LLP 1076 D3): `cols × rows` rects,
+    /// Set the viewport segments (LLP 1077 D3): `cols × rows` rects,
     /// row-major, in the layout viewport's points — none for one segment,
     /// where CSS defines no segment variable. Refuses a zero count, a count
     /// that is not `cols × rows` (any rect on a 1 × 1 grid), and a

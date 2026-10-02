@@ -166,7 +166,7 @@ public final class ExactView: NSView {
 
     /// After a restart from a new plan: the new runner knows nothing of the
     /// insets — hand them over again, and fit the root. AppKit has no fold
-    /// (LLP 1076 D5): `continuous`, one segment, told once at every boot so
+    /// (LLP 1077 D5): `continuous`, one segment, told once at every boot so
     /// the facts are never the bake's — or what an agent preferred.
     func rebooted() {
         let i = session.presenter.insets

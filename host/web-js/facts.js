@@ -25,14 +25,14 @@ export function viewport(readers) {
     const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
-      devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows }); // @ref LLP 1076 D2, D6
+      devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows }); // @ref LLP 1077 D2, D6
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
   addEventListener("resize", changed);
   onPreferences(changed);
   onFold(changed);
-  // The agent's `prefer` fold group (LLP 1076 D7): an empty one re-reads the browser, a filled one is the substitute.
+  // The agent's `prefer` fold group (LLP 1077 D7): an empty one re-reads the browser, a filled one is the substitute.
   (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
 }
 

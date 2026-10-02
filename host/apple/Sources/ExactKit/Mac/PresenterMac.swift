@@ -94,7 +94,7 @@ final class Presenter {
     /// `viewport-fit=cover`, zero when the viewport is the content view
     /// below it. Reported to the agent as `env`.
     var insets = NSEdgeInsetsZero
-    /// The posture and the viewport segments last told (LLP 1076 D5): flat, unless an agent preferred otherwise.
+    /// The posture and the viewport segments last told (LLP 1077 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 
     init() {

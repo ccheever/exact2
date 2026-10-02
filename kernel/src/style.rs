@@ -60,7 +60,7 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
-    /// A viewport segment's length (LLP 1076 D3): `env(viewport-segment-<var>
+    /// A viewport segment's length (LLP 1077 D3): `env(viewport-segment-<var>
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
     Segment(SegmentVar, u8, u8, f32),
@@ -140,7 +140,7 @@ impl Dimension {
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
     /// `env(safe-area-inset-<edge>)`, `env(viewport-segment-<var> <x> <y>)`
-    /// (LLP 1076 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
+    /// (LLP 1077 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
     /// argument: the host always defines the insets, and an undefined
     /// segment takes the row's initial value. A text that names one of the
     /// variables wrongly is `None` too; [`env::parse`] says why.
@@ -163,7 +163,7 @@ impl Dimension {
         }
     }
 
-    /// Whether this is a segment length `env` does not define (LLP 1076 D3).
+    /// Whether this is a segment length `env` does not define (LLP 1077 D3).
     fn undefined_segment(self, env: &Env) -> bool {
         matches!(self, Dimension::Segment(_, x, y, _) if env.segment(x, y).is_none())
     }
@@ -1124,13 +1124,13 @@ impl StyleProps {
     pub fn to_taffy(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
         // A segment length the environment does not define is invalid at
         // computed-value time (CSS-ENV-1 §2.3): the row takes its initial
-        // value, which is the table's default (LLP 1076 D3).
+        // value, which is the table's default (LLP 1077 D3).
         self.env_resolved(env).lower(node_type, env)
     }
 
     /// This style with every segment length `env` does not define replaced
     /// by its row's initial value (CSS-ENV-1 §2.3: invalid at computed-value
-    /// time; LLP 1076 D3) — borrowed when there is none to replace, a copy
+    /// time; LLP 1077 D3) — borrowed when there is none to replace, a copy
     /// otherwise. Every reader of a style's dimensions goes through this
     /// before resolving them, so no reader sees the `Auto` stand-in on a row
     /// that does not admit it.

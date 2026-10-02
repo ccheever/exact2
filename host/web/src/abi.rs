@@ -608,7 +608,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The posture and the segment counts (LLP 1076 D4): re-answer the
+    /// The posture and the segment counts (LLP 1077 D4): re-answer the
     /// viewport resources that read them.
     pub fn segments(&mut self, posture: u32, cols: u32, rows: u32) -> u32 {
         let fold = exact_runner::Fold {
@@ -1131,7 +1131,7 @@ macro_rules! host {
         }
 
         /// The device's posture (0 continuous, 1 folded) and the viewport
-        /// segment counts (LLP 1076 D4, D6): the browser resolves the
+        /// segment counts (LLP 1077 D4, D6): the browser resolves the
         /// `env(viewport-segment-*)` lengths itself; the runner answers the
         /// three `exactViewport` fields. Returns the batch length.
         #[no_mangle]

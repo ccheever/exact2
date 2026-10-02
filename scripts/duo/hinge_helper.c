@@ -2,7 +2,7 @@
 // simulator (`xcrun simctl spawn <udid> hinge_helper set <degrees>`), by posting
 // the vendor-defined HID event the hidden hinge slider in Xcode's Device Hub sends.
 // `bun scripts/smoke.mjs duo` compiles it per run with the selected Xcode's
-// simulator SDK (LLP 1076 D9).
+// simulator SDK (LLP 1077 D9).
 //
 // From artemnovichkov/hinge (https://github.com/artemnovichkov/hinge), MIT
 // License, Copyright (c) 2026 Artem Novichkov. Permission is hereby granted,

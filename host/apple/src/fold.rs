@@ -1,4 +1,4 @@
-//! The page's environment as the host sets it (LLP 1001 §2; LLP 1076 D4):
+//! The page's environment as the host sets it (LLP 1001 §2; LLP 1077 D4):
 //! the safe-area insets and the viewport segments a fold makes, each a call
 //! that re-sends the dictionaries of the nodes whose style reads the
 //! environment and lays out again.

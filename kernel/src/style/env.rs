@@ -1,6 +1,6 @@
 //! The page's environment: what CSS's `env()` lengths resolve to — the four
 //! safe-area insets (LLP 1001 §2) and, on a foldable, the viewport segments
-//! (LLP 1076 D3; CSS-ENV-1 §2.3). The host sets both with the viewport; the
+//! (LLP 1077 D3; CSS-ENV-1 §2.3). The host sets both with the viewport; the
 //! kernel resolves every `env()` length against them where the engine style
 //! is derived. Text on a dimension row is parsed here, once, by CSS's grammar.
 
@@ -75,7 +75,7 @@ impl SegmentVar {
         SegmentVar::Bottom,
         SegmentVar::Right,
     ];
-    /// The largest index either axis takes (LLP 1076 D3: 15 is plenty).
+    /// The largest index either axis takes (LLP 1077 D3: 15 is plenty).
     pub const MAX_INDEX: u8 = 15;
 
     /// The CSS name's tail: `width`, `height`, `top`, `left`, `bottom`, `right`.
@@ -150,7 +150,7 @@ impl Rect {
 /// set by the host with the viewport. The four safe-area insets (a phone's
 /// status bar and home indicator under `viewport-fit=cover`; zero everywhere
 /// else, as a browser reports them for a page without it), and the viewport
-/// segments a fold makes (LLP 1076 D3): `cols × rows` rects, row-major, in
+/// segments a fold makes (LLP 1077 D3): `cols × rows` rects, row-major, in
 /// the layout viewport's coordinates — none on a viewport with one segment,
 /// where CSS-ENV-1 defines no segment variable.
 #[derive(Debug, Clone, PartialEq)]
@@ -254,7 +254,7 @@ impl Env {
 }
 
 /// Why an `env()` text that names one of the kernel's variables is not a
-/// length (LLP 1076 D10): refused by name at the bake, never silently zero.
+/// length (LLP 1077 D10): refused by name at the bake, never silently zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvRefusal {
     /// `env(safe-area-inset-top, 0px)`: the host always defines the insets
@@ -335,7 +335,7 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
 /// `env(viewport-segment-<var> <x> <y>)`, or either inside
 /// `calc(env(…) ± <n>px)`. `Ok(None)` when the text is not an `env()` form
 /// at all (a `calc()` of percent and points, a plain length); `Err` when it
-/// names one of the kernel's variables wrongly (LLP 1076 D10).
+/// names one of the kernel's variables wrongly (LLP 1077 D10).
 pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     let t = text.trim();
     if t.starts_with("env(") {

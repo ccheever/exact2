@@ -939,7 +939,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The device's posture and the viewport segments (LLP 1076 D4), set
+    /// The device's posture and the viewport segments (LLP 1077 D4), set
     /// only by the agent here: the kernel's grid and `exactViewport`'s
     /// three fields together — a relayout when a style reads the segments,
     /// one commit when a resource reads the fields.

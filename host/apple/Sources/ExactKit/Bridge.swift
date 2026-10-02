@@ -433,7 +433,7 @@ final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
-    /// The posture and the viewport segments (LLP 1076 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
+    /// The posture and the viewport segments (LLP 1077 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {
             var data = Data(capacity: fold.rects.count * 16)

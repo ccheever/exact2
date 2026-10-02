@@ -1,4 +1,4 @@
-// The device's posture and the viewport segments a fold makes (LLP 1076
+// The device's posture and the viewport segments a fold makes (LLP 1077
 // D4, D5, D7): the web's vocabulary and nothing native — `device-posture`
 // (`continuous` | `folded`) and the segment grid CSS-ENV-1 §2.3 names,
 // `cols × rows` rects in the viewport's points, row-major, none for one
@@ -15,7 +15,7 @@ struct ViewportFold: Equatable {
     var rects: [CGRect] = []
     static let flat = ViewportFold()
 
-    /// `layout.env`'s four names (LLP 1012 §1; LLP 1076 D7).
+    /// `layout.env`'s four names (LLP 1012 §1; LLP 1077 D7).
     var env: [String: Any] {
         ["device-posture": posture, "horizontal-viewport-segments": cols, "vertical-viewport-segments": rows,
          "viewport-segments": rects.map { [Agent.r2($0.minX), Agent.r2($0.minY), Agent.r2($0.width), Agent.r2($0.height)] }]

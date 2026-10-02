@@ -1,4 +1,4 @@
-# Duo Lab on the Linux host (LLP 1076 D8): one executable with the runner,
+# Duo Lab on the Linux host (LLP 1077 D8): one executable with the runner,
 # the kernel, the baked plan and its TypeScript data module.
 [package]
 name = "duo-lab-linux"

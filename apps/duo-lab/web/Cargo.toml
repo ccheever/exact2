@@ -1,4 +1,4 @@
-# Duo Lab on the web (LLP 1076 D8): one wasm with the runner, the kernel and
+# Duo Lab on the web (LLP 1077 D8): one wasm with the runner, the kernel and
 # the baked plan; its TypeScript module runs in the page's realm.
 [package]
 name = "duo-lab-web"

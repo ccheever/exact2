@@ -157,7 +157,7 @@ impl<'a> Reader<'a> {
     /// width/height/top/left/bottom/right) then `f32` (the points added to
     /// an inset or a segment length); a `calc()` carries its percent first
     /// and a second `f32`; a segment length carries its two index bytes,
-    /// `x` then `y`, after the `f32` (LLP 1076 D3).
+    /// `x` then `y`, after the `f32` (LLP 1077 D3).
     pub fn dimension(
         &mut self,
         style: StyleId,

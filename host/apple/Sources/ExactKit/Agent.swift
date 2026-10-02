@@ -299,7 +299,7 @@ public final class Agent {
     /// appearance, beneath the app's own `setScheme`. `page`: what
     /// `exactPage()` answers. A fact not named stays as it is; nothing
     /// applies unless every one is known.
-    /// `fold` (LLP 1076 D7): the posture and the segment grid a host without
+    /// `fold` (LLP 1077 D7): the posture and the segment grid a host without
     /// a fold makes by splitting its viewport evenly; a device with a fold
     /// refuses them — it decides.
     func prefer(_ req: [String: Any]) -> [String: Any] {
@@ -345,7 +345,7 @@ public final class Agent {
 
     /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and
     /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
-    /// names its fact (LLP 1076 D10); nothing applies unless all are known.
+    /// names its fact (LLP 1077 D10); nothing applies unless all are known.
     private func preferFold(_ fold: [String: Any]) -> String? {
         #if os(iOS)
         // The hinge interaction reports after the view attaches, a turn or two

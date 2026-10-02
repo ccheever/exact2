@@ -533,7 +533,7 @@ export function environment() {
   };
 }
 
-// @ref LLP 1076 D6, D7 — the fold as the browser reports it: the Device
+// @ref LLP 1077 D6, D7 — the fold as the browser reports it: the Device
 // Posture API's `navigator.devicePosture.type` and the viewport segments
 // `window.viewport.segments` (two or more means a divider splits the
 // viewport; the columns are the distinct lefts, the rows the distinct tops).

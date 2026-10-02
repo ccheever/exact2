@@ -347,7 +347,7 @@ async function drive(t, report, fail, dir, ws, js) {
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
     // up; a pan or a swipe), `pinch <target> <scale>` (two fingers), `down
     // <target>` and `up` (a held contact: press feedback), `prefer <fact>
-    // <value> …` (the device facts: media, page, the fold — LLP 1076 D9's
+    // <value> …` (the device facts: media, page, the fold — LLP 1077 D9's
     // parity, Chromium's own segments on both pages and the kernel's on
     // Linux) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);

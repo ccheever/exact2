@@ -350,7 +350,7 @@ function positionContexts() {
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
 const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && root.childElementCount) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged); // @ref LLP 1069.000 D2, D3
-const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = () => { if (wasm?.exact_segments && root.childElementCount) { const f = fold(); applyBatch(JSON.parse(readOut(wasm.exact_segments(f.posture === "folded" ? 1 : 0, f.cols, f.rows)))); } }; onFold(foldChanged); // @ref LLP 1076 D6 — the posture and the segment counts, beside the resize; the browser resolves the `env(viewport-segment-*)` lengths itself
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = () => { if (wasm?.exact_segments && root.childElementCount) { const f = fold(); applyBatch(JSON.parse(readOut(wasm.exact_segments(f.posture === "folded" ? 1 : 0, f.cols, f.rows)))); } }; onFold(foldChanged); // @ref LLP 1077 D6 — the posture and the segment counts, beside the resize; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -1152,7 +1152,7 @@ function agentReply(request) {
         }
         return tagged(reply);
       }
-      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1076 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
+      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1077 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message }; }
         pageChanged(); foldChanged();
         return tagged({ page: { ...pageFacts.read() }, fold: foldEnv() });
@@ -1356,7 +1356,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(now())))));
-  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace()))))); foldChanged(); // @ref LLP 1076 D6 — the fold once at boot, so the facts are never the bake's
+  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace()))))); foldChanged(); // @ref LLP 1077 D6 — the fold once at boot, so the facts are never the bake's
   if (wasm.exact_set_page) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits()))));
   if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize()))));
   globalThis.exact?.gpu?.finishRestart();

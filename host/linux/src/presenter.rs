@@ -116,7 +116,7 @@ pub struct Presenter<D: DataSource> {
     /// The app's `setScheme` (`None`: follow the system) and the system's
     /// appearance, which only an agent sets here (LLP 1061 D5).
     pub(crate) scheme: (Option<bool>, bool),
-    /// The viewport segments the agent set (LLP 1076 D7), for `layout.env`;
+    /// The viewport segments the agent set (LLP 1077 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
     /// A failed painter's blank fallback cannot bless an update generation.
@@ -925,7 +925,7 @@ impl<D: DataSource> Presenter<D> {
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
         // LLP 1012 §1: this host has no safe area or software keyboard; its
-        // fold is whatever the agent preferred (LLP 1076 D7).
+        // fold is whatever the agent preferred (LLP 1077 D7).
         let fold = self.host.runner().viewport().fold;
         let _ = write!(
             s,

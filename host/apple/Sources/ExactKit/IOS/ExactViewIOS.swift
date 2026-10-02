@@ -48,7 +48,7 @@ public final class ExactView: UIView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // A hinge moving from flat to a book angle changes the division
         // regions' `isActive` without changing any bounds; nothing else would
-        // lay out again (LLP 1076 D5).
+        // lay out again (LLP 1077 D5).
         ReservedRegions.observeHinge(on: self) { [weak self] status in
             guard let self else { return }
             session.presenter.hingeReported = true
@@ -211,7 +211,7 @@ public final class ExactView: UIView {
             if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
         }
         guard size.width > 0, size.height > 0 else { return }
-        // The fold (LLP 1076 D5): the container's active division regions,
+        // The fold (LLP 1077 D5): the container's active division regions,
         // converted into the viewport's space, split it into segments; the
         // posture is folded while any is active. Below 27.1 there are none.
         let fold = Self.fold(of: container, viewport: frame, size: size)
@@ -257,7 +257,7 @@ public final class ExactView: UIView {
     /// After a restart from a new plan (the dev loop): the new runner knows
     /// nothing of the insets or the fold — hand them over again (the fold
     /// always: the bake's flat answer must never stand in for the device's,
-    /// LLP 1076 D5), and fit the root.
+    /// LLP 1077 D5), and fit the root.
     func rebooted() {
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         session.segments(lastFold)

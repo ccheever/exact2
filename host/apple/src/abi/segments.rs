@@ -1,11 +1,11 @@
-//! `exact_segments` (LLP 1076 D4): the posture and the viewport segments a
+//! `exact_segments` (LLP 1077 D4): the posture and the viewport segments a
 //! fold makes, told to the host as one call.
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
-    /// The posture and the viewport segments changed (LLP 1076 D4).
+    /// The posture and the viewport segments changed (LLP 1077 D4).
     pub fn segments(&mut self, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {
         let rects = segment_rects(&self.input, count);
         let out = self

@@ -1,4 +1,4 @@
-// UIKit 27.1's fold, resolved through the Objective-C runtime (LLP 1076
+// UIKit 27.1's fold, resolved through the Objective-C runtime (LLP 1077
 // D5): `-[UIView reservedRegionsOfKind:options:]` with the division kind
 // (the fold band and its margins, active while the hinge is partially
 // open) and `UIHingeInteraction` (an update when the hinge moves, which
