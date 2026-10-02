@@ -2743,6 +2743,25 @@
       "field": "timeline_scope",
       "codec": "timeline-scope",
       "_comment": "@ref LLP 1057.003 D4: CSS `timeline-scope`, `none | all | <dashed-ident>#`: names a timeline declared below the node (its single declaring descendant, else an inactive timeline) in scope for the node's subtree. Not inherited, as in CSS."
+    },
+    {
+      "bit": 154,
+      "field": "text_shadow",
+      "codec": "text-shadow",
+      "inherited": true,
+      "_comment": "@ref LLP 1076 D3: CSS `text-shadow`, `none` or one shadow (no list, no spread), under the glyphs and decorations; a missing colour is currentcolor. Inherited, as in CSS."
+    },
+    {
+      "bit": 155,
+      "field": "mask_image",
+      "codec": "mask-image",
+      "_comment": "@ref LLP 1076 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
+    },
+    {
+      "bit": 156,
+      "field": "corner_shape",
+      "codec": "corner-shape",
+      "_comment": "@ref LLP 1076 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

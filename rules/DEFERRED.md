@@ -321,7 +321,7 @@ reading. Nothing that isn't HTML is added by it.
   SVG island. Also admitted ("do all of them"), LLP 1076 §5: SF Symbol rendering
   modes, variable values and effects; vibrancy; press haptics; rolling numerals; the
   scroll edge effect; iPad pointer effects; smart-invert opt-out. Still out:
-  `filter` and `mix-blend-mode` on boxes (LLP 1076 D9).
+  `mix-blend-mode` on boxes (LLP 1076 D9).
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks

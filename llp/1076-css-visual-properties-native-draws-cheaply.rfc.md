@@ -1,7 +1,7 @@
 # LLP 1076: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Being implemented.
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stage 1 built 2026-10-02 (§8); stages 2–4 and §5 being implemented.
 **Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
@@ -23,13 +23,13 @@ These are CSS visual properties that iOS draws with public Core Animation or Cor
 | D7 | `-webkit-text-stroke` | `CGContext` `.fillStroke` text mode | 3 |
 | D8 | `perspective`, `rotate: x\|y …`, `backface-visibility` | `CATransform3D`, `sublayerTransform.m34` | 4 |
 
-Two properties are **deferred**: `filter` on boxes and `mix-blend-mode` on boxes (D9). iOS has no public per-layer route for either. Nine iOS affordances with **no CSS name** are admitted too (§5, D10–D18). Charlie ruled them in, names included.
+One property is **deferred**: `mix-blend-mode` on boxes (D9). iOS has no public per-layer route for it. (`filter` on boxes already exists: LLP 1055.000 §0.) Nine iOS affordances with **no CSS name** are admitted too (§5, D10–D18). Charlie ruled them in, names included.
 
 Every row follows the house rules for a new visual row. CSS's grammar is admitted as a stated subset and the rest is refused by name, at compile time for a literal and at run time for a computed string. The web draws natively and is the oracle, so the native hosts are held to Chrome's pixels. Each feature links only where it is used, so an app that uses none of them pays no web-core bytes.
 
 ## Motivation
 
-The visual rows today: `backdrop-filter: blur()`, `backgroundMaterial`, one linear or radial `background-image`, one outer `box-shadow` without spread, 2D `translate`/`scale`/`rotate`, `clip-path`, `opacity`, `tint-color`, `accent-color`. `filter` and `mix-blend-mode` exist only on SVG elements. On a box, `backdrop-filter`'s other filter functions are refused (`contract/cli/tests/it/styles.rs:504`), and iOS declares blend modes unsupported.
+The visual rows today: `backdrop-filter: blur()`, `backgroundMaterial`, one linear or radial `background-image`, one outer `box-shadow` without spread, 2D `translate`/`scale`/`rotate`, `clip-path`, `opacity`, `tint-color`, `accent-color`. `filter` on a box is drawn natively on the web and as a picture on Apple (LLP 1055.000 §0), and `mix-blend-mode` only on SVG elements. `backdrop-filter`'s other filter functions are refused (`contract/cli/tests/it/styles.rs:504`), and iOS declares blend modes unsupported.
 
 Each item in the table is a single line of CSS on the web and a few lines of public API on iOS. Without them an author falls back to an SVG island, a Canvas surface, or a design change:
 
@@ -42,7 +42,7 @@ Each item in the table is a single line of CSS on the web and a few lines of pub
 
 `rules/DEFERRED.md` is binding and says twice that "decorative effects wait behind" named consumers: behind the four interaction workloads (2026-09-16), and behind the sheet and the Shop accordion (2026-09-17/19). Every item here is a decorative effect. Earlier visual rows moved by naming a consumer and a take. LLP 1061–1064 and 1066 were "for grnl", and Charlie later ratified them with the take waived.
 
-**Ruled (Charlie, 2026-10-02): "Waive the take."** He added that ports are starting to ask for almost all of these, so the waiver covers all four stages. The line moved in `rules/DEFERRED.md` the same day. D9 stays out.
+**Ruled (Charlie, 2026-10-02): "Waive the take."** He added that ports are starting to ask for almost all of these, so the waiver covers all four stages. The line moved in `rules/DEFERRED.md` the same day. D9 (`mix-blend-mode` on boxes) stays out.
 
 ## 2. Shared rules
 
@@ -144,11 +144,13 @@ Admitted: `perspective` (on the parent) with `perspective-origin`; the individua
 
 ## 4. Deferred
 
-### D9. `filter` and `mix-blend-mode` on boxes
+### D9. `mix-blend-mode` on boxes
 
-On iOS, `CALayer.filters` and `compositingFilter` are documented as unsupported. SwiftUI's `.blur()` and `.blendMode()` use private `CAFilter`. That risks App Store rejection and can break silently in an OS update, so it is rejected. The public route is LLP 1055.000's island: render the subtree at device scale, run the filter chain, composite. It works, and SVG already uses it. But it costs one filter pass per frame while anything under it animates or scrolls, and a one-line `filter: blur(4px)` gives an author no hint of that.
+*Corrected 2026-10-02.* r1 and r2 deferred `filter` on boxes too, but it already exists: LLP 1055.000 §0 (2026-09-29) draws it natively on the web and as a picture on Apple (`BoxFilter`: the box drawn unfiltered, the chain run on the GPU, redrawn after each batch). Linux still draws the box unfiltered; QUEUE carries that. Nothing in this RFC changes it.
 
-**Return trigger:** a port that needs a static filtered box, such as a greyed-out disabled card or a blurred placeholder image. Then `filter` on a box is admitted with the island route and its per-frame cost declared in LLP 1001, and `mix-blend-mode` follows with the same route. `backdrop-filter`'s other functions (`saturate()`, `brightness()`) stay refused for the same reason.
+`mix-blend-mode` on a box stays deferred. iOS documents `compositingFilter` as unsupported, and SwiftUI's `.blendMode()` uses private `CAFilter`, which risks App Store rejection and can break silently in an OS update. The public route would be `BoxFilter`'s: picture the box and what is under it, then blend. But a blend reads the backdrop, so the picture would have to be redrawn whenever anything under the box changes, not only after a batch.
+
+**Return trigger:** a port that blends a static box over static content.
 
 ## 5. iOS affordances with no CSS name
 
@@ -180,6 +182,33 @@ Each stage, before it lands:
 - **On a device.** A frame-level trace on an iPhone with the effect over scrolling content (D1 with clipping, D2, D4, D6), compared against the same screen without it, following the perf program's protocol. A stage that adds late frames does not land.
 - **Size.** `bun scripts/metrics.mjs`: a plan without the rows has unchanged web-core bytes.
 - **Driven.** `bun scripts/agent.mjs ios tree "screenshot …"` on the gallery page, plus a tap on a D8 tilted card that lands where it shows.
+
+## 8. As built
+
+### Stage 1 (2026-10-02): `corner-shape`, `mask-image`, `text-shadow`
+
+Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each CSS text parsed once in the kernel (`style/shadow.rs` `TextShadow`, `gradient.rs` reused for the mask, `corner.rs`). Refusals are named at compile time (`contract/cli/tests/it/visual.rs`).
+
+- **Geometry is the kernel's.** `corner::outline` flattens each corner: a superellipse sampled so its steep ends stay smooth, or Apple's curve as three cubics clamped to the box as UIKit clamps it. Apple's Swift reads it through `exact_corner_outline` (`host/apple/src/corner.rs`), and the Linux painter through `border::shape_path`. Every rounded-rect consumer on both platforms (background, border ring, shadow bands, clips, Vello's and tiny-skia's paths) takes the shape.
+- **Apple.** `-apple-continuous` over one radius is the layer's `cornerCurve = .continuous` on the box, clip box, fill, border, gradient and image layers. Any other shape draws through `draw(_:)` (`boxDrawn`/`boxPlan.drawn`), and an overflow clip of that shape is a mask (`BoxMaskIOS.swift`, `BoxMaskMac.swift`). `mask-image` is a `CAGradientLayer` mask (which an overflow or `clip-path` mask itself masks), or the effect view's own mask on a material. `text-shadow` is the raster layer's Core Animation shadow, rasterized; the `draw(_:)` path uses a Core Graphics shadow over a transparency layer.
+- **Linux.** `mask-image` is a group: Vello composites the gradient `DestIn` inside a layer clipped to the border box, and tiny-skia draws the group through a frame-sized alpha mask (`gpu/mask.rs`, `raster/mask.rs`). `text-shadow` is the paragraph drawn in the shadow's colour into a CPU island, blurred, and placed under the text by either painter (`paint/text_shadow.rs`).
+- **Web.** CSS's own properties. `-apple-continuous` becomes `superellipse(1.6)` over the radius × 1.52 (`css.rs`); for a bound value, the JS target's runtime maps the keyword but does not rescale the radius.
+
+**Measured against Chrome**, on pages `scripts/fixtures/visual.contract` and `text-shadow.contract`, light and dark:
+
+- **Linux, both painters, ten corner and mask cases:** mean ≤ 0.85/255 on every case but one. The GPU `spot` case (a radial mask) is 1.63/255, and no case has more than 0.91% of pixels beyond 48 (`host/linux/tests/pinned/visual.rs`).
+- **Text shadows on Linux:** asserted by where the shadow's colour lands, since the fonts differ from Chrome's.
+- **macOS and the iOS simulator:** every case matches Chrome by eye, light and dark, driven with `scripts/agent.mjs`.
+- **Apple's curve on Linux** (the kernel's) against UIKit's on the simulator: mean 0.57/255 filled, 1.76/255 bordered.
+- **The web's stand-in** against UIKit: 1.39/255 filled, 6.49/255 bordered (declared in LLP 1001).
+
+**Owed after stage 1:**
+
+- Motion for the three rows: a transition or keyframes on them is not yet carried by the paint-motion seam.
+- Apple XCTest parity classes holding these pages to Chrome's pictures (today the check is by the driven screenshots).
+- The iPhone frame check (§6) of a masked scroll view and of a shaped clip.
+- A dynamic `corner-shape` naming `-apple-continuous` does not rescale the radius on the web.
+- `text-shadow` on a text input.
 
 ## 7. Open questions for Charlie
 

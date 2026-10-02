@@ -275,7 +275,10 @@ extension NodeView {
         guard !textRasterUsesStrips, let layer, let surface = textRaster else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if textRasterFrame == CGRect(origin: .zero, size: bounds.size) {
+        // A `text-shadow` is cast by a sublayer of its own: the view's layer
+        // would cast its box too (LLP 1076 D3).
+        let shadow = textRasterKey?.spec.shadow
+        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil {
             textRasterOverflowLayer?.removeFromSuperlayer()
             textRasterOverflowLayer = nil
             layer.contentsScale = textRasterScale
@@ -290,6 +293,7 @@ extension NodeView {
             ink.contentsScale = textRasterScale
             ink.contentsGravity = .resize
             ink.contents = surface
+            TextShadowLayer.apply(shadow, to: ink)
         }
         textRasterPending = false
         CATransaction.commit()

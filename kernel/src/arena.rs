@@ -961,6 +961,7 @@ mod tests {
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
+            (StyleId::TextShadow, text("1px 2px 3px #000")),
             // SVG 2 presentation properties (LLP 1055 D2).
             (StyleId::Fill, text("#16a34a")),
             (StyleId::Stroke, text("currentcolor")),

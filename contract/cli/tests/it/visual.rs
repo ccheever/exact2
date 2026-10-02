@@ -1,0 +1,88 @@
+//! LLP 1076 D1–D3: `corner-shape`, `mask-image` and `text-shadow` reach the
+//! kernel as CSS, in a literal, a `style` and a conditional, and what the
+//! hosts do not draw is refused at compile time, by name.
+
+use exact_kernel::corner::{Corner, CornerShape};
+use exact_kernel::gradient::BackgroundImage;
+use exact_kernel::style::TextShadow;
+use exact_kernel::Kernel;
+use exact_plan::Value;
+use exact_runner::{DataError, DataSource, Runner};
+
+#[derive(Default)]
+struct NoData;
+impl DataSource for NoData {
+    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(s.into()))
+    }
+}
+
+fn boot(src: &str) -> Runner<NoData> {
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn style_of(r: &Runner<NoData>, id: &str) -> exact_kernel::StyleProps {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .style
+        .clone()
+}
+
+fn refused(attrs: &str) -> contract::CompileError {
+    contract::compile(&format!("component App\n  view\n    view {attrs}\n")).unwrap_err()
+}
+
+#[test]
+fn the_three_rows_take_css_in_a_literal_a_style_and_a_conditional() {
+    let r = boot(
+        "style Card\n  corner-shape=\"-apple-continuous\"\n  mask-image=\"linear-gradient(#000, transparent)\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Card testId=\"a\"\n      view corner-shape=(on ? \"squircle bevel\" : \"round\") testId=\"b\"\n      text \"x\" text-shadow=(on ? \"1px 2px 3px #000\" : \"none\") testId=\"c\"\n",
+    );
+    let a = style_of(&r, "a");
+    assert!(a.corner_shape.is_apple_continuous());
+    assert_eq!(
+        a.mask_image,
+        BackgroundImage::parse("linear-gradient(#000, transparent)").unwrap()
+    );
+    let b = style_of(&r, "b");
+    assert_eq!(b.corner_shape.0[1], Corner::Superellipse(0.0));
+    assert_eq!(
+        b.corner_shape,
+        CornerShape::check("squircle bevel").unwrap()
+    );
+    let c = style_of(&r, "c");
+    assert_eq!(
+        c.text_shadow,
+        TextShadow::check("1px 2px 3px #000").unwrap()
+    );
+}
+
+#[test]
+fn what_no_host_draws_is_refused_by_name() {
+    for (attr, says) in [
+        ("corner-shape=\"circle\"", "squircle"),
+        (
+            "corner-shape=\"round round round round round\"",
+            "one to four",
+        ),
+        ("mask-image=\"url(a.png)\"", "an image"),
+        (
+            "mask-image=\"linear-gradient(#000, #fff), linear-gradient(#fff, #000)\"",
+            "several",
+        ),
+        ("text-shadow=\"1px 1px #000, 2px 2px #fff\"", "one shadow"),
+        ("text-shadow=\"1px 1px 2px 3px #000\"", "no spread"),
+    ] {
+        let e = refused(attr);
+        assert_eq!(e.id, "lower-attr-value", "{attr}: {e}");
+        assert!(e.message.contains(says), "{attr}: {e}");
+    }
+}

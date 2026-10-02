@@ -243,7 +243,10 @@ pub fn uses(plan: &Plan) -> Uses {
                 ) {
                     uses = uses.with(Capability::Animations);
                 }
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackgroundImage) {
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::BackgroundImage | StyleId::MaskImage)
+                ) {
                     uses = uses.with(Capability::Gradients);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)

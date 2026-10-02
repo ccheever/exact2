@@ -170,6 +170,66 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 );
                 true
             }
+            // @ref LLP 1076 D2 — a mask is a gradient, as the background's.
+            RowValue::MaskImage(g) => match g.gradient() {
+                Some(g) => {
+                    out.push_str(&gradient_json(g));
+                    true
+                }
+                None => false,
+            },
+            // @ref LLP 1076 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
+            // is currentcolor, the text's own.
+            RowValue::TextShadow(t) => match t.shadow() {
+                Some(s) => {
+                    out.push_str("{\"o\":[");
+                    push_num(&mut out, s.offset.x);
+                    out.push(',');
+                    push_num(&mut out, s.offset.y);
+                    out.push_str("],\"b\":");
+                    push_num(&mut out, s.blur);
+                    match s.color {
+                        Some(ColorValue::Fixed(c)) => {
+                            out.push_str(",\"c\":");
+                            push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
+                        }
+                        Some(ColorValue::LightDark(l, d)) => {
+                            out.push_str(",\"c\":[");
+                            push_rgba(&mut out, [l.r(), l.g(), l.b(), l.a()]);
+                            out.push(',');
+                            push_rgba(&mut out, [d.r(), d.g(), d.b(), d.a()]);
+                            out.push(']');
+                        }
+                        None => {}
+                    }
+                    out.push('}');
+                    true
+                }
+                None => false,
+            },
+            // @ref LLP 1076 D1 — four corners: K, "inf", "-inf" or "apple".
+            // All `round` is no row: the hosts' arcs.
+            RowValue::CornerShape(c) if c.is_round() => false,
+            RowValue::CornerShape(c) => {
+                out.push('[');
+                for (i, corner) in c.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    match *corner {
+                        exact_kernel::corner::Corner::AppleContinuous => out.push_str("\"apple\""),
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::INFINITY => {
+                            out.push_str("\"inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::NEG_INFINITY => {
+                            out.push_str("\"-inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) => push_num(&mut out, k),
+                    }
+                }
+                out.push(']');
+                true
+            }
             RowValue::BackgroundImage(g) => match g.gradient() {
                 Some(g) => {
                     out.push_str(&gradient_json(g));

@@ -149,6 +149,36 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            // @ref LLP 1076 D1 — Apple's continuous curve is no CSS keyword:
+            // the web's stand-in is `superellipse(K)` over the radius scaled
+            // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
+            // 1001). CSS's own keywords are the browser's.
+            (StyleId::CornerShape, RowValue::CornerShape(c)) => {
+                let (k, _) = exact_kernel::corner::APPLE_ON_THE_WEB;
+                let web = exact_kernel::corner::CornerShape(c.0.map(|corner| match corner {
+                    exact_kernel::corner::Corner::AppleContinuous => {
+                        exact_kernel::corner::Corner::Superellipse(k)
+                    }
+                    other => other,
+                }));
+                push_text!(&mut out, "corner-shape:{};", web.css());
+            }
+            (
+                StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft,
+                RowValue::Dimension(d),
+            ) if apple_corner(style, id) => {
+                property(&mut out, id);
+                out.push_str(":calc(");
+                dimension(&mut out, *d);
+                push_text!(
+                    &mut out,
+                    " * {});",
+                    exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1)
+                );
+            }
             (StyleId::Scale, RowValue::Number(n)) if press => {
                 out.push_str("--exact-scale:");
                 num_into(&mut out, *n as f32);
@@ -397,6 +427,17 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
+/// Whether the corner a radius row sizes is `-apple-continuous` (LLP 1076 D1).
+fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
+    let i = match id {
+        StyleId::BorderRadiusTopLeft => 0,
+        StyleId::BorderRadiusTopRight => 1,
+        StyleId::BorderRadiusBottomRight => 2,
+        _ => 3,
+    };
+    style.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
+}
+
 /// One row → one declaration, by the CSS rule for its name and codec.
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
@@ -496,7 +537,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
-        RowValue::BackgroundImage(g) => out.push_str(&g.css()),
+        RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
+        RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -1027,6 +1070,28 @@ mod declaration_tests {
     /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
+    #[test]
+    fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
+                (StyleId::BorderRadiusTopRight, StyleValue::Number(10.0)),
+                (StyleId::CornerShape, t("-apple-continuous squircle")),
+            ],
+            &[],
+        );
+        assert!(
+            text.contains("border-top-left-radius:calc(10px * 1.52);"),
+            "{text}"
+        );
+        assert!(text.contains("border-top-right-radius:10px;"), "{text}");
+        assert!(
+            text.contains("corner-shape:superellipse(1.6) squircle superellipse(1.6) squircle;"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn background_image_is_one_declaration_over_the_colour() {
         let t = |s: &str| StyleValue::Text(s.into());

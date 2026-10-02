@@ -48,6 +48,12 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
+    /// Invalid or unsupported CSS `text-shadow` (LLP 1076 D3).
+    BadTextShadow,
+    /// Invalid or unsupported CSS `mask-image` (LLP 1076 D2).
+    BadMaskImage,
+    /// Invalid CSS `corner-shape` (LLP 1076 D1).
+    BadCornerShape,
     /// Invalid `drag-timeline` (LLP 1057.003).
     BadDragTimeline,
     /// Invalid `animation-timeline` (LLP 1057.003).
@@ -444,6 +450,18 @@ pub enum StyleValueError {
     },
     /// Not `none` or one gradient this kernel draws (LLP 1066).
     BadBackgroundImage {
+        style: StyleId,
+    },
+    /// Not `none` or one text shadow (LLP 1076 D3).
+    BadTextShadow {
+        style: StyleId,
+    },
+    /// Not `none` or one gradient mask (LLP 1076 D2).
+    BadMaskImage {
+        style: StyleId,
+    },
+    /// Not one to four corner shapes (LLP 1076 D1).
+    BadCornerShape {
         style: StyleId,
     },
     /// Not `none` or a `<dashed-ident>` with an optional axis.

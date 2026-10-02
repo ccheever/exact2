@@ -44,6 +44,10 @@ extension NodeView {
         var edges = false
         var sideColor: CGColor?
         var own = false
+        /// Apple's continuous curve over one radius (LLP 1076 D1).
+        var curve: CALayerCornerCurve = .circular
+        /// A shape only a path says: the layer keeps no radius of its own.
+        var shaped = false
     }
 
     /// Core Animation's corner mask names corners in the layer's own space;
@@ -86,6 +90,11 @@ extension NodeView {
             && p.radius <= min(bounds.width, bounds.height) / 2 + 0.01
         p.corners = cornerMask(radii)
         let gradient = style["background_image"] != nil
+        // A `corner-shape` the layer cannot say draws (LLP 1076 D1).
+        let shape = CornerShape(style["corner_shape"])
+        let continuous = shape?.isAppleContinuous == true && p.oneRadius
+        p.curve = continuous ? .continuous : .circular
+        p.shaped = shape != nil && !continuous
         // A border under the children unless none can reach it (clipped,
         // scrolled, or painted through a surface): then the layer's own,
         // which Core Animation paints over the sublayers.
@@ -97,7 +106,7 @@ extension NodeView {
         p.edges = !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
         // A layout transition's size shows the surface on its own layer.
         let away = surface != nil
-        p.drawn = !away && !((p.oneBorder || p.edges) && p.oneRadius) && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
+        p.drawn = !away && !((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
         // A border over the children needs the backing layer's own radius,
         // and AppKit makes a backing layer's radius clip: where the node
         // does not clip, a rounded one draws.
@@ -126,17 +135,19 @@ extension NodeView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox?.layer {
-            let clipRadius = p.oneRadius ? p.radius : 0
+            let clipRadius = p.oneRadius && !p.shaped ? p.radius : 0
             if box.cornerRadius != clipRadius { box.cornerRadius = clipRadius }
             if clipRadius > 0, box.maskedCorners != p.corners { box.maskedCorners = p.corners }
+            if box.cornerCurve != p.curve { box.cornerCurve = p.curve }
         }
         // AppKit makes a backing layer's corner radius clip its sublayers
         // (setting one sets `masksToBounds`), so the backing layer carries a
         // radius only where the overflow clips; a rounded box that does not
         // clip fills a sublayer of its own under the children.
-        let layerRadius = clipsToBounds && p.oneRadius ? p.radius : 0
+        let layerRadius = clipsToBounds && p.oneRadius && !p.shaped ? p.radius : 0
         if layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
+        if layer.cornerCurve != p.curve { layer.cornerCurve = p.curve }
         let fill = onLayer && !away ? p.fill : nil
         let fillsSublayer = fill != nil && p.radius > 0 && layerRadius == 0
         let bg = fillsSublayer ? nil : fill
@@ -149,6 +160,7 @@ extension NodeView {
             if f.backgroundColor != fill { f.backgroundColor = fill }
             if f.cornerRadius != p.radius { f.cornerRadius = p.radius }
             if f.maskedCorners != p.corners { f.maskedCorners = p.corners }
+            if f.cornerCurve != p.curve { f.cornerCurve = p.curve }
         } else if let f = boxFill { f.removeFromSuperlayer(); boxFill = nil }
         let cornerRadius = p.oneRadius ? p.radius : 0
         let ownWidth = p.own && border != nil ? devicePixels(p.widths[0]) : 0
@@ -177,6 +189,7 @@ extension NodeView {
         }
         if b.cornerRadius != cornerRadius { b.cornerRadius = cornerRadius }
         if b.maskedCorners != p.corners { b.maskedCorners = p.corners }
+        if b.cornerCurve != p.curve { b.cornerCurve = p.curve }
         if b.borderWidth != devicePixels(p.widths[0]) { b.borderWidth = devicePixels(p.widths[0]) }
         if b.borderColor != border { b.borderColor = border }
     }
@@ -211,6 +224,7 @@ extension NodeView {
         let round = radius > 0 && p.oneRadius
         if g.cornerRadius != (round ? radius : 0) { g.cornerRadius = round ? radius : 0 }
         if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
+        if g.cornerCurve != p.curve { g.cornerCurve = p.curve }
         if g.masksToBounds != round { g.masksToBounds = round }
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
     }
@@ -302,6 +316,7 @@ extension NodeView {
         applyBoxLayer(p)
         applyGradientLayer(p)
         applyImageLayer()
+        applyBoxMask()
         // What the plan just decided is what `wantsUpdateLayer` answers
         // until something it reads changes.
         layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && symbolView == nil && raster != nil && imageLayer == nil)

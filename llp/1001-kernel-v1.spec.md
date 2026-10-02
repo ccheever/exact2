@@ -332,6 +332,24 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   the gradient image as CSS's initial `background-repeat` does. Their gradient
   shaders/layers extend one gradient rather than tiling a padding-box image;
   translucent borders expose the difference.
+- **`corner-shape: -apple-continuous`**, bit 156 ([LLP 1076 D1](1076-css-visual-properties-native-draws-cheaply.rfc.md)),
+  is not a CSS keyword. It names Apple's continuous corner curve, one shape on
+  every host: UIKit and AppKit draw it with `cornerCurve = .continuous` where
+  the box has one radius, and the kernel's outline (`corner::outline`, fitted
+  to UIKit's curve; Linux against the iOS simulator: mean 0.57/255) everywhere
+  else. The web draws `superellipse(1.6)` over the radius scaled by 1.52, the
+  closest CSS shape (2.5% of the radius at worst; a bordered box measured mean
+  6.5/255 against UIKit), and a bound (dynamic) `corner-shape` is not rescaled.
+  CSS's own keywords are CSS's on every host. The inner border edge of any
+  shaped corner is the same shape over the padding box's radii, CSS's rule for
+  round corners.
+- **`mask-image` on a material** ([LLP 1076 D2](1076-css-visual-properties-native-draws-cheaply.rfc.md)):
+  UIKit and AppKit mask the effect view itself (`mask` / `maskImage`), as they
+  require of a visual effect view, so the blur fades and the node's children
+  do not; CSS masks the element and its children together.
+- **`text-shadow`** ([LLP 1076 D3](1076-css-visual-properties-native-draws-cheaply.rfc.md))
+  takes one shadow, not a list, and no spread (CSS has none). On Apple a
+  paragraph drawn without a raster clips its shadow to the view's bounds.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

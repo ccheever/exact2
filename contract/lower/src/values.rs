@@ -118,6 +118,9 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
+        StyleValueError::BadMaskImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
+        StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
+        StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -apple-continuous".into(),
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
@@ -369,15 +372,23 @@ pub(crate) fn check_style_value(
                     return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
                 }
             }
-            // @ref LLP 1066 — the kernel's parse says why, by name.
-            if rows.contains(&StyleId::BackgroundImage) {
-                if let Err(why) = exact_kernel::gradient::BackgroundImage::check(v) {
-                    return err(
-                        "lower-attr-value",
-                        format!("`{}=\"{v}\"`: {why}", a.name),
-                        span,
-                    );
-                }
+            // @ref LLP 1066, LLP 1076 — the kernel's parse says why, by name.
+            let why =
+                if rows.contains(&StyleId::BackgroundImage) || rows.contains(&StyleId::MaskImage) {
+                    exact_kernel::gradient::BackgroundImage::check(v).err()
+                } else if rows.contains(&StyleId::TextShadow) {
+                    exact_kernel::style::TextShadow::check(v).err()
+                } else if rows.contains(&StyleId::CornerShape) {
+                    exact_kernel::corner::CornerShape::check(v).err()
+                } else {
+                    None
+                };
+            if let Some(why) = why {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}=\"{v}\"`: {why}", a.name),
+                    span,
+                );
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);

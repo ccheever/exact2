@@ -71,8 +71,10 @@ enum BorderPaint {
         return radii.map { CGSize(width: max(0, $0.width * factor), height: max(0, $0.height * factor)) }
     }
 
-    /// A rectangle with an elliptical radius per corner, clockwise on screen.
-    static func roundedRect(_ r: CGRect, _ radii: [CGSize]) -> CGMutablePath {
+    /// A rectangle with an elliptical radius per corner, clockwise on screen;
+    /// with a `corner-shape`, the kernel's outline (LLP 1076 D1).
+    static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
+        if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()
         let (tl, tr, br, bl) = (radii[0], radii[1], radii[2], radii[3])
         let k = kappa
@@ -100,7 +102,7 @@ enum BorderPaint {
     /// Paint `box`'s border. `widths` and `colors` are top, right, bottom,
     /// left; `radii` the authored corner radii (top-left, top-right,
     /// bottom-right, bottom-left), reduced here as CSS reduces them.
-    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize]) {
+    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize], shape: CornerShape? = nil) {
         let w = widths.map { max(0, $0) }
         guard w.contains(where: { $0 > 0 }), box.width > 0, box.height > 0 else { return }
         let outer = reduced(radii, in: box)
@@ -113,8 +115,8 @@ enum BorderPaint {
             CGSize(width: outer[2].width - w[1], height: outer[2].height - w[2]),
             CGSize(width: outer[3].width - w[3], height: outer[3].height - w[2]),
         ].map { CGSize(width: max(0, $0.width), height: max(0, $0.height)) }, in: inner)
-        let ring = roundedRect(box, outer)
-        ring.addPath(roundedRect(inner, innerRadii))
+        let ring = roundedRect(box, outer, shape: shape)
+        ring.addPath(roundedRect(inner, innerRadii, shape: shape))
 
         // Visible sides, grouped by colour.
         var groups: [(CGColor, [Int])] = []

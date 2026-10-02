@@ -1047,7 +1047,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
-        layer?.mask = resolvedClipMask()
+        applyBoxMask()
         applyFilter()
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1142,6 +1142,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
     /// picture (`BoxFilter`), drawn again after each batch.
     private(set) var boxFilter: BoxFilter?
+    var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
         // A node with no filter makes no BoxFilter to learn so (three layers
         // per styled node otherwise; iOS's 50e9abf6e).
@@ -1156,7 +1157,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.remove()
             boxFilter = nil
             presenter?.boxFilters.remove(self)
-            layer?.mask = resolvedClipMask()
+            applyBoxMask()
         }
     }
 
@@ -1203,7 +1204,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard kind == "text" else { return }
         wantsLayer = true
         applyShadow()
-        layer?.mask = boxFilter?.hide ?? resolvedClipMask()
+        if let hide = boxFilter?.hide { layer?.mask = hide } else { applyBoxMask() }
         layer?.zPosition = usedZIndex
         applyTransform()
     }
@@ -1249,7 +1250,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         cornerSizes(in: rect, inset: inset).map { $0.width }
     }
     func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
-        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset)))
+        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
     }
 
     override func draw(_ rect: NSRect) {
@@ -1302,7 +1303,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
         if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

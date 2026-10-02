@@ -221,16 +221,7 @@ impl BackgroundImage {
         }
         for stop in &g.stops {
             out.push_str(", ");
-            match stop.color {
-                ColorValue::Fixed(c) => hex(&mut out, c),
-                ColorValue::LightDark(light, dark) => {
-                    out.push_str("light-dark(");
-                    hex(&mut out, light);
-                    out.push_str(", ");
-                    hex(&mut out, dark);
-                    out.push(')');
-                }
-            }
+            color_css(&mut out, stop.color);
             let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
         }
         out.push(')');
@@ -428,6 +419,20 @@ fn corner(dx: &(f32, f32), dy: &(f32, f32), pick: fn(f32, f32) -> f32) -> f32 {
 
 fn hex(out: &mut String, c: Color) {
     let _ = write!(out, "#{:08x}", c.0);
+}
+
+/// A colour row's canonical CSS: `#rrggbbaa`, or `light-dark()` of two.
+pub(crate) fn color_css(out: &mut String, color: ColorValue) {
+    match color {
+        ColorValue::Fixed(c) => hex(out, c),
+        ColorValue::LightDark(light, dark) => {
+            out.push_str("light-dark(");
+            hex(out, light);
+            out.push_str(", ");
+            hex(out, dark);
+            out.push(')');
+        }
+    }
 }
 
 /// The byte index of the `)` closing the `(` at `open`.

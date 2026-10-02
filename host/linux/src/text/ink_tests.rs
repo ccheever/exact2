@@ -376,10 +376,12 @@ fn raster_nested_scroll_clip_bounds_work_and_pop_restores_parent() {
     let parent = Shape {
         rect: (10.125, 7.25, 275.5, 110.5),
         radii: [(5.5, 5.5); 4],
+        corners: None,
     };
     let child = Shape {
         rect: (18.375, 49.25, 210.5, 9.25),
         radii: [(2.5, 2.5); 4],
+        corners: None,
     };
     let ts = Transform::from_rotate(2.0);
     let view = View::at(-377.625, 1.0);
@@ -487,6 +489,7 @@ mod clip_masks {
         Shape {
             rect: (10.125, 7.25, 275.5, 110.5),
             radii: [5.5, 4.25, 3.5, 2.75].map(|r| (r, r)),
+            corners: None,
         }
     }
 

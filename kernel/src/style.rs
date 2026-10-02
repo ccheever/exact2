@@ -24,7 +24,7 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
-pub use shadow::BoxShadow;
+pub use shadow::{BoxShadow, GlyphShadow, TextShadow};
 
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
@@ -900,6 +900,12 @@ pub enum RowValue<'a> {
     Filter(&'a crate::svg::filter::FilterList),
     /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
+    /// CSS `text-shadow` (LLP 1076 D3).
+    TextShadow(&'a TextShadow),
+    /// CSS `mask-image`: `none` or one gradient (LLP 1076 D2).
+    MaskImage(&'a crate::gradient::BackgroundImage),
+    /// CSS `corner-shape` (LLP 1076 D1).
+    CornerShape(&'a crate::corner::CornerShape),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -952,6 +958,9 @@ impl RowValue<'_> {
             | RowValue::AnimationTimeline(_)
             | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
+            | RowValue::TextShadow(_)
+            | RowValue::MaskImage(_)
+            | RowValue::CornerShape(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)

@@ -94,6 +94,9 @@ struct Spec: Hashable {
     var ellipsis = false
     /// Collapsed → source offsets for the runs above (LLP 1053 G5).
     var source = SourceMap()
+    /// CSS `text-shadow` (LLP 1076 D3): offset x, y and blur in points, then
+    /// the colour's r g b a (0–255), resolved for the appearance.
+    var shadow: [Double]? = nil
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -1168,6 +1171,16 @@ final class TextEngine {
     /// UIView's): one CTLineDraw per line, baselines currently rounded to
     /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
+        // CSS `text-shadow`: under every glyph of the paragraph at once, so
+        // one line's shadow never covers another's text (LLP 1076 D3). Core
+        // Graphics' blur is CSS's radius; its offset is base space, y up.
+        if let s = spec.shadow {
+            ctx.saveGState()
+            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2],
+                          color: CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255))
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+        defer { if spec.shadow != nil { ctx.endTransparencyLayer(); ctx.restoreGState() } }
         func paint(_ index: Int) {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let baseline = p.baselines[index]

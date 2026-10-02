@@ -567,6 +567,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("url(#m)".into()),
         StyleValue::Text("--t".into()),
         StyleValue::Text("0px 300px".into()),
+        StyleValue::Text("squircle".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

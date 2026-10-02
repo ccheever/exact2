@@ -538,6 +538,13 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "clip-path",
             "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
         )],
+        // @ref LLP 1076 D1 — Apple's curve as the web's stand-in. A bound
+        // radius is not rescaled here, as css.rs scales a static one: a
+        // dynamic `-apple-continuous` reaches less far on the web.
+        StyleId::CornerShape => vec![with(
+            "corner-shape",
+            "v=>v==null?v:v.replace(/-apple-continuous/gi,\"superellipse(1.6)\")",
+        )],
         _ => {
             let (name, unit) = style_row(id)?;
             one(name, unit)
@@ -579,6 +586,9 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::PaintOrder
             | StyleCodec::Filter
             | StyleCodec::BackgroundImage
+            | StyleCodec::MaskImage
+            | StyleCodec::TextShadow
+            | StyleCodec::CornerShape
     ) {
         return Ok((css_property(row), String::new()));
     }

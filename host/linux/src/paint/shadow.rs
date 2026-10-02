@@ -9,7 +9,7 @@
 //! stack to the CDF at that band: one fill per band, through the border
 //! fill every backend already draws (a region inside a clip).
 
-use super::border::{rounded_rect, BorderFill, PathOp};
+use super::border::{rounded_rect, shaped_rect, BorderFill, PathOp};
 use super::Shape;
 use exact_kernel::StyleProps;
 
@@ -77,7 +77,12 @@ impl ShadowPaint {
             (x - reach, y - reach, w + 2.0 * reach, h + 2.0 * reach),
             [(0.0, 0.0); 4],
         );
-        rounded_rect(&mut outside, outer.rect, outer.radii);
+        shaped_rect(
+            &mut outside,
+            outer.rect,
+            outer.radii,
+            outer.corners.as_ref(),
+        );
         let a = self.color[3] as f32 / 255.0;
         let bands = if sigma > 0.0 {
             (6.0 * sigma / STEP).ceil().clamp(2.0, BANDS) as usize
@@ -107,7 +112,7 @@ impl ShadowPaint {
             let radii = outer
                 .radii
                 .map(|(x, y)| ((x + edge).max(0.0), (y + edge).max(0.0)));
-            rounded_rect(&mut clip, rect, radii);
+            shaped_rect(&mut clip, rect, radii, outer.corners.as_ref());
             out.push(BorderFill {
                 region: outside.clone(),
                 clip: Some(clip),

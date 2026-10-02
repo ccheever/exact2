@@ -40,6 +40,7 @@ mod presented;
 mod region;
 mod shadow;
 mod svg;
+mod text_shadow;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
@@ -66,6 +67,8 @@ pub struct Shape {
     pub rect: Rect4,
     /// The radii.
     pub radii: [(f32, f32); 4],
+    /// CSS `corner-shape` when any corner is not `round` (LLP 1076 D1).
+    pub corners: Option<exact_kernel::corner::CornerShape>,
 }
 
 impl Shape {
@@ -80,6 +83,7 @@ impl Shape {
         Shape {
             rect,
             radii: border::reduced(radii, rect.2, rect.3),
+            corners: None,
         }
     }
 
@@ -88,7 +92,14 @@ impl Shape {
         Shape {
             rect,
             radii: [(0.0, 0.0); 4],
+            corners: None,
         }
+    }
+
+    /// The same box with these corner shapes; `round` ones are none.
+    pub fn with_corners(mut self, corners: Option<exact_kernel::corner::CornerShape>) -> Shape {
+        self.corners = corners.filter(|c| !c.is_round());
+        self
     }
 
     /// Whether any corner is rounded.
@@ -108,6 +119,7 @@ impl Shape {
             self.radii
                 .map(|(x, y)| ((x - by).max(0.0), (y - by).max(0.0))),
         )
+        .with_corners(self.corners)
     }
 }
 
@@ -115,6 +127,7 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
@@ -170,6 +183,7 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
+            corners: Some(s.corner_shape).filter(|c| !c.is_round()),
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
@@ -212,7 +226,8 @@ impl BoxPaint {
                     };
                     (resolve(w).max(0.0), resolve(h).max(0.0))
                 }),
-            ),
+            )
+            .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -251,12 +266,7 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(
-            geometry.outer.rect,
-            geometry.outer.radii,
-            self.widths,
-            self.colors,
-        )
+        border::border_fills(&geometry.outer, self.widths, self.colors)
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -440,6 +450,16 @@ pub trait Backend {
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
     fn push_opacity(&mut self, alpha: f32);
+    /// CSS `mask-image` (LLP 1076 D2): what paints until [`Backend::pop_mask`]
+    /// is one group, clipped to `shape`, the border box.
+    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
+        self.push_opacity(1.0);
+    }
+    /// The group, kept where `mask` (a gradient, or one colour) is opaque
+    /// over `shape`, the border box, and nowhere outside it.
+    fn pop_mask(&mut self, _shape: &Shape, _mask: &Result<GradientPaint, [u8; 4]>, _ts: Transform) {
+        self.pop_opacity();
+    }
     /// End an opacity layer.
     fn pop_opacity(&mut self);
     /// The pointer arrow at a point.
@@ -863,6 +883,11 @@ impl Painter {
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // @ref LLP 1076 D2 — the mask is the border box's gradient's alpha.
+        let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
+        if mask.is_some() {
+            self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
+        }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
         let path_clip = !node.style.clip_path.commands().is_empty()
             && self
@@ -874,6 +899,9 @@ impl Painter {
         self.dark = previous;
         if path_clip {
             self.backend.pop_clip();
+        }
+        if let Some(mask) = &mask {
+            self.backend.pop_mask(&Shape::rect((x, y, w, h)), mask, ts);
         }
         match drawn {
             Some(backend) => self.backend = backend,
@@ -977,6 +1005,7 @@ impl Painter {
                             ts,
                         );
                     }
+                    self.text_shadow(node, &shown, &palette, (content.0, content.1), ts);
                     let mut engine = self.text.borrow_mut();
                     self.backend
                         .text(&mut engine, &shown, &palette, (content.0, content.1), ts);

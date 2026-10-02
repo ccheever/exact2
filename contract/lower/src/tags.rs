@@ -866,6 +866,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "background-color" => styles(&[StyleId::BackgroundColor]),
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
+        // @ref LLP 1076 D1–D3
+        "mask-image" => styles(&[StyleId::MaskImage]),
+        "text-shadow" => styles(&[StyleId::TextShadow]),
+        "corner-shape" => styles(&[StyleId::CornerShape]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         // @ref LLP 1069.001 D6 — a form control's tint and whether the
         // platform draws it.

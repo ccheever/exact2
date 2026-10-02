@@ -31,6 +31,13 @@ impl Captured {
         Some(Captured { gradient, stops })
     }
 
+    /// CSS `mask-image`'s gradient (LLP 1076 D2), placed in the border box.
+    pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
+        let gradient = style.mask_image.gradient()?.clone();
+        let stops = gradient.resolved(dark);
+        Some(Captured { gradient, stops })
+    }
+
     /// The paint for a padding box. A radial gradient whose ending shape has
     /// no area is its last colour everywhere, as CSS draws it.
     pub(super) fn place(&self, padding: Rect4) -> Result<GradientPaint, [u8; 4]> {
