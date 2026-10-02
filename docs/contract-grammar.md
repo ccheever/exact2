@@ -29,9 +29,11 @@ in their respective contexts; reserved-word handling differs by context.
 
 The notation uses `=` for a production, `|` for alternatives, `[ … ]` for optional
 syntax, `{ … }` for repetition, and quoted text for literal tokens. `NL`, `INDENT`,
-and `DEDENT` describe logical line boundaries. `block(X)` means `NL INDENT X+
-DEDENT`; blank and comment-only lines do not count as entries. Optional blocks
-are written explicitly; the compiler additionally checks required nonempty bodies.
+and `DEDENT` describe logical line boundaries. `block(X)` means an indented run of
+`X` entries, `NL [ INDENT { X } DEDENT ]`; blank and comment-only lines do not
+count as entries. Most bodies may be empty (a shape, a style, `props`, an action,
+an `each` body, a `case` arm, a test). The bodies of `if`/`else` and `when`/`else`,
+a `keyframes` or `font` block, and a component need at least one entry.
 
 - A name starts with `[A-Za-z_]`, followed by ASCII alphanumerics/underscores or
   a hyphen immediately followed by an ASCII letter. Thus `font-size` is a name,
@@ -44,10 +46,11 @@ are written explicitly; the compiler additionally checks required nonempty bodie
   `\t`, `\"`, `\\`, ``\` ``, and `\$`. Single quotes are not delimiters.
 - Templates use backticks and `${expression}`. Interpolation scanning balances
   nested braces, strings, and templates. A template is one physical source line.
-  Templates retain raw text; do not assume all ordinary-string escape semantics
-  are applied to template text.
+  Template text is verbatim: a backslash is never an escape and stays in the
+  text, and `\${` still interpolates. Use an ordinary string when you need an
+  escape.
 - `//` starts a line comment outside a string/template. No block comments.
-- Indentation uses spaces, never tabs. At bracket depth zero, indentation emits
+- Indentation uses spaces; a tab in indentation is refused. At bracket depth zero, indentation emits
   block tokens. Inside `()`, `[]`, and `{}`, newlines and indentation continue
   the logical expression instead.
 - No statement semicolons, single-quoted literals, JSX, or arbitrary braces for
@@ -145,7 +148,7 @@ source-call   = IDENT "(" [ arguments ] ")" ;
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. The named timer action takes no parameters;
-a millisecond interval is a compile-time positive whole number.
+a millisecond interval is a literal whole number of at least 1.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 awaits, or ordinary action-to-action calls. A standalone call statement is a
@@ -153,7 +156,9 @@ host command, not an arbitrary function invocation. `let` is recognized as the
 local-declaration statement when followed by a name; a writable slot named `let`
 can still appear in an ordinary assignment.
 
-Resource `else empty(field=value, …)` is a specially checked placeholder form.
+A resource's `else` is a placeholder. `else empty()` is the resource type's zero,
+with `field=constant` overrides for a record. `else source(values…)` names a source
+whose arguments are plain values, not state; it is answered once at build.
 A mutation's `then` names a parameterless action and follows `refreshes` when
 both are present. Action effects are inferred: `writes` clauses are refused.
 Component `contract` sections are also refused.
@@ -165,7 +170,7 @@ node          = element | component-use | when | each | view-match | children ;
 element       = TAG { attribute | expr | special-word } NL [ element-body ] ;
 attribute     = FIELD "=" expr | "autofocus" ;
 element-body  = INDENT { continuation } { node } DEDENT ;
-continuation  = attribute { attribute } NL ;
+continuation  = FIELD "=" expr { attribute } NL ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
@@ -196,7 +201,7 @@ refused: wrap them in an element. `children` requires a declared slot.
 ## Expressions and types
 
 ```ebnf
-type          = "number" | "string" | "bool" | IDENT | "action"
+type          = "number" | "string" | "bool" | "unit" | IDENT | "action"
               | "option" "<" type ">" | "list" "<" type ">" ;
 expr          = ternary ;
 ternary       = binary [ "?" expr ":" expr ] ;
@@ -234,8 +239,9 @@ comparison semantics. Logical operators short-circuit; ternary/match evaluates
 only its selected arm. Conditions require booleans.
 
 Named arguments are accepted only by the corresponding constructs: component
-uses, record construction/copy, localization, placeholders, and specialized host
-commands. Ordinary function calls are positional. Arrow expressions are admitted
+uses, record construction/copy, localization (`t`), placeholders (`empty`),
+canvas `surface=` bindings, and specialized host commands (`share`,
+`scrollIntoView`). Ordinary function calls are positional. Arrow expressions are admitted
 as the callbacks to `map` and `filter`, with at most item and index parameters;
 they are not first-class values or event handlers.
 
@@ -275,7 +281,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 
 | Call | Result / restriction |
 | --- | --- |
-| `now()` | Epoch milliseconds; does not schedule a render |
+| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year")` | String; format is a literal choice, not an expression containing `or` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
@@ -311,6 +317,9 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `frame(id)` | `Geometry`, actions only; last layout in root space |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
 
+The router functions (`open` through `searchParam`) and `encodeRouteSegment`
+exist only in an app with a `routes` declaration.
+
 Compiler intrinsics and special forms additionally include:
 
 | Form | Meaning |
@@ -323,10 +332,11 @@ Compiler intrinsics and special forms additionally include:
 | `DeclaredShape(field=value, …)` | Construct a record |
 | `DeclaredShape(base, field=value, …)` | Copy a record |
 
-`Router`, `Tab`, `Entry`, and `Params` are introduced by routes. `Geometry` is
-provided by geometry support. These are not ordinary user record constructors.
-The actual sources are [`format.json`](../plan/tables/format.json),
-[`runner/stdlib.rs`](../runner/src/stdlib.rs), and the compiler's type/lowering
+`Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
+also declares `Geometry` (geometry reads), `MarkdownSelection` (the `select`
+payload) and `Picked` (a file input's `change` payload). None of these is
+constructible. The actual sources are [`format.json`](../plan/tables/format.json),
+[`runner/src/stdlib.rs`](../runner/src/stdlib.rs), and the compiler's type/lowering
 modules. A function available in JavaScript, CSS, Swift, or a data module does
 not automatically become a Contract function.
 
@@ -347,8 +357,9 @@ Several tags share a kernel node type with different fixed properties.
 | SVG color / text / embedding | `linearGradient`, `radialGradient`, `stop`, `tspan`, `foreignObject` |
 | SVG filters | `filter`, `feBlend`, `feColorMatrix`, `feComponentTransfer`, `feComposite`, `feConvolveMatrix`, `feDiffuseLighting`, `feDisplacementMap`, `feDropShadow`, `feFlood`, `feFuncR`, `feFuncG`, `feFuncB`, `feFuncA`, `feGaussianBlur`, `feMerge`, `feMergeNode`, `feMorphology`, `feOffset`, `feSpecularLighting`, `feTile`, `feTurbulence`, `feDistantLight`, `fePointLight`, `feSpotLight` |
 
-`text` inside SVG has SVG semantics. Hyphenated native-module tags are checked
-against the app's module schema. A capitalized name is a component use, not a
+`text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
+bake checks it against `app.json`'s `modules` list (`bake-unknown-module`), and
+its attributes pass to the module unchecked. A capitalized name is a component use, not a
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
@@ -376,11 +387,13 @@ working fixture, not inferred from JavaScript's Event interface.
 
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
-| One string | `change`, `input`, `key`, `message`, `error` |
-| One boolean | `hover` |
-| One number | `timeupdate`, `durationchange` |
+| One string | `change`, `input` (text field, textarea, `select`), `key`, `message`, `error` |
+| One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
+| One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
+| One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
-| Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease`, `reorderdrop` |
+| Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease` |
+| A string, then an `option<string>` | `reorderdrop`: the dragged row's key, then the key it lands before (`none` at the end) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
@@ -389,7 +402,8 @@ working fixture, not inferred from JavaScript's Event interface.
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
-`navigate` belongs to the first navigation root, and transform geometry/release
+`navigate` belongs on the first root element, outside any region, which must
+also carry `navigationKey` and `navigationBack`. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
@@ -407,9 +421,12 @@ argument validation. Use the working implementation when selecting arguments:
 
 | Operation | Starting point |
 | --- | --- |
-| `focus(id)`, `blur(id)`, selection and editor `format` | [Markdown](../apps/markdown/app.contract), [Markdown Stress](../apps/markdown-stress/app.contract) |
-| `copyText(text)`, `openURL(url)` | [RealWorld](../apps/realworld/app.contract), host command dispatch |
-| `setScheme(...)` | [Weatherlight](../apps/weatherlight/app.contract) |
+| `focus(id)`, editor `format` | [Markdown Stress](../apps/markdown-stress/app.contract) |
+| `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
+| `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
+| `copyText(text)` | [Messages](../apps/messages/app.contract) |
+| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web/glue.js`](../host/web/glue.js). The JavaScript web target and Linux do not carry it |
+| `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
@@ -431,7 +448,8 @@ Syntax is only the first layer. In particular:
   are refused. `none` and `[]` need enough context to infer their contained type.
 - Record construction requires all fields once; copying requires a matching base.
   Shapes are finite and nonrecursive. Equality compares values structurally.
-- Function bodies are pure, nonrecursive expressions; app functions cannot shadow
+- Function bodies are effect-free, nonrecursive expressions (they may read
+  `now()`); app functions cannot shadow
   roster names or take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.

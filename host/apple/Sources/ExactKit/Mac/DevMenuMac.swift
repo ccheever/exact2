@@ -101,7 +101,7 @@ public enum DevMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
-        let appMenu = NSMenu(title: ExactEnv.appName)
+        let appMenu = ShortcutMenu(title: ExactEnv.appName)
         appMenu.addItem(withTitle: "About \(ExactEnv.appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         let services = NSMenu(title: "Services")
@@ -117,7 +117,7 @@ public enum DevMenu {
         appItem.submenu = appMenu
         let fileItem = NSMenuItem()
         bar.addItem(fileItem)
-        let file = NSMenu(title: "File")
+        let file = ShortcutMenu(title: "File")
         fileItem.submenu = file
         // ⌘N and the tab bar's + open an empty window with a session of its
         // own (LLP 1069.010 D4), whether or not the app opens documents:
@@ -156,7 +156,7 @@ public enum DevMenu {
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
-        let go = NSMenu(title: "Go")
+        let go = ShortcutMenu(title: "Go")
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")

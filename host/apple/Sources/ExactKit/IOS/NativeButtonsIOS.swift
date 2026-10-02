@@ -87,8 +87,12 @@ extension ControlHost {
 
     /// The `UIButton.Configuration` a face's row names, on this iOS.
     static func configuration(_ face: ButtonFace) -> (UIButton.Configuration, String, Bool) {
-        var name = ButtonFace.drawn(face.ios).name
-        if #unavailable(iOS 26.0) { name = ButtonFace.drawn(face.iosBefore26).name }
+        // Before iOS 26, or in an app that keeps the design before it
+        // (`LinkedDesign`), the table's earlier column: UIKit draws a glass
+        // configuration there as a bordered button.
+        var current = false
+        if #available(iOS 26.0, *) { current = LinkedDesign.liquidGlass }
+        let name = ButtonFace.drawn(current ? face.ios : face.iosBefore26).name
         if #available(iOS 26.0, *) {
             switch name {
             case "glass": return (.glass(), name, true)

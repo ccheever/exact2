@@ -2,6 +2,7 @@
 // a select's menu as the runtime reads it from the kernel: both hosts'
 // presenters build the platform's own control from these.
 import Foundation
+import MachO
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
@@ -140,3 +141,25 @@ struct ButtonFace: Equatable {
         name.hasPrefix("~") ? (String(name.dropFirst()), true) : (name, false)
     }
 }
+
+/// Whether UIKit and AppKit draw this app in their 26 design (Liquid Glass):
+/// they key it on the SDK the main executable records in `LC_BUILD_VERSION`,
+/// not on the OS, so an app linked to record an older SDK
+/// (`designRequiresCompatibility`, `host/apple/build.mjs`) draws as before 26
+/// on iOS 27 and macOS 27, where a glass button configuration or bezel draws
+/// no glass. Read once; callers also check the OS (`#available(… 26.0, *)`).
+enum LinkedDesign {
+    static let liquidGlass: Bool = {
+        guard let header = _dyld_get_image_header(0) else { return false }
+        var at = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
+        for _ in 0..<header.pointee.ncmds {
+            let command = at.loadUnaligned(as: load_command.self)
+            if command.cmd == UInt32(LC_BUILD_VERSION) {
+                return at.loadUnaligned(as: build_version_command.self).sdk >= 26 << 16
+            }
+            at = at.advanced(by: Int(command.cmdsize))
+        }
+        return false
+    }()
+}
+
