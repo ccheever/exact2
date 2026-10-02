@@ -245,8 +245,11 @@ export async function duoSmoke({ open, check }) {
         check(text('fact-h') === String(h) && text('fact-v') === String(v), `${tag}: the screen prints ${text('fact-h')}×${text('fact-v')}, layout.env ${h}×${v}`);
         check(text('fact-size') === `${l.viewport.w}×${l.viewport.h}`, `${tag}: fact-size ${text('fact-size')} vs layout ${l.viewport.w}×${l.viewport.h}`);
         check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
+        // The panes sit exactly on the two rects, whichever axis the device splits
+        // (across: each pane the viewport's height; down: each the viewport's width).
         const list = box(l, 'pane-list'), detail = box(l, 'pane-detail');
-        if (h === 2 && segs?.length === 2) check(list && detail && near(list.x, segs[0][0]) && near(list.w, segs[0][2]) && near(list.h, l.viewport.h) && near(detail.x, segs[1][0]) && near(detail.w, segs[1][2]) && near(detail.h, l.viewport.h), `${tag}: the panes sit on the segments ${JSON.stringify(segs)}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+        const on = (pane, r, full) => pane && near(pane.x, r[0]) && near(pane.y, r[1]) && near(pane.w, full ? l.viewport.w : r[2]) && near(pane.h, full ? r[3] : l.viewport.h);
+        if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}): list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
         else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01, `${tag}: one pane, the list above the detail: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
         check(text('detail-title') === chosen, `${tag}: the selection survived the fold: ${text('detail-title')} (was ${chosen})`);
       });

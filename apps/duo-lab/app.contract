@@ -112,6 +112,7 @@ component DuoLab
   state sheetPx = 400
   derive current = top(nav)
   derive twoAcross = viewport.horizontalViewportSegments == 2
+  derive twoDown = viewport.verticalViewportSegments == 2
   action choose(id: number)
     selected = id
   action selectTab(name: string)
@@ -139,9 +140,11 @@ component DuoLab
       each entry in stack(nav) key=entry.id
         column navigationKey=`${entry.id}` class=Screen testId=`screen-${entry.name}`
           when entry.name == "fold"
-            // Two horizontal segments: the list on the first, the detail on
-            // the second, each inset by the safe areas on its own side; the
-            // band between them belongs to neither (LLP 1076 D1, D3).
+            // Two segments across: the list on the first, the detail on the
+            // second, each inset by the safe areas on its own side; two down
+            // (the Duo's inner panel upright): the list on the upper, the
+            // detail on the lower. The band belongs to neither (LLP 1076 D1,
+            // D3); one segment stacks the panes.
             when twoAcross
               column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
                 Facts(viewport=viewport)
@@ -150,12 +153,20 @@ component DuoLab
               column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color="#ebe6da"
                 Detail(items=items, selected=selected)
             else
-              column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)"
-                Facts(viewport=viewport)
-                ItemList(items=items, selected=selected, choose=choose)
-              column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)" background-color="#ebe6da"
-                Detail(items=items, selected=selected)
-                TabBar(tab=nav.tab, select=selectTab)
+              when twoDown
+                column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)"
+                  Facts(viewport=viewport)
+                  ItemList(items=items, selected=selected, choose=choose)
+                column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" background-color="#ebe6da"
+                  Detail(items=items, selected=selected)
+                  TabBar(tab=nav.tab, select=selectTab)
+              else
+                column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)"
+                  Facts(viewport=viewport)
+                  ItemList(items=items, selected=selected, choose=choose)
+                column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)" background-color="#ebe6da"
+                  Detail(items=items, selected=selected)
+                  TabBar(tab=nav.tab, select=selectTab)
           when entry.name == "images"
             column flex=1 min-height=0 width="100%" class=Safe
               text "Images" class=Title testId="images-title"
