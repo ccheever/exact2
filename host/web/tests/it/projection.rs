@@ -20,7 +20,7 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
     let plan = contract::compile(
         r##"component App
   state more = false
-  action grow writes more
+  action grow
     more = not more
   view
     column
