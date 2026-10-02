@@ -417,6 +417,22 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         RowValue::Vec2(_) => id == StyleId::Translate,
         // Written with `rotate` and `translate` (LLP 1076 D8).
         RowValue::RotateAxis(_) => false,
+        // Apple's affordances: no CSS property (LLP 1076 §5).
+        RowValue::SymbolPalette(_) => false,
+        _ if matches!(
+            id,
+            StyleId::SymbolRendering
+                | StyleId::SymbolValue
+                | StyleId::SymbolEffect
+                | StyleId::PressHaptic
+                | StyleId::ContentTransition
+                | StyleId::ScrollEdgeEffect
+                | StyleId::HoverEffect
+                | StyleId::SmartInvert
+        ) =>
+        {
+            false
+        }
         RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
         | RowValue::Tracks(_)
@@ -519,7 +535,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::TextShadow(s) => out.push_str(&s.css()),
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
-        RowValue::RotateAxis(_) => {}
+        RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");

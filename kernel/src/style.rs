@@ -25,7 +25,8 @@ pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
 pub mod space;
-mod stroke;
+pub(crate) mod stroke;
+pub mod symbols;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest grid track list the closed grammar carries.
@@ -425,47 +426,10 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
-        // @ref LLP 1076 D8 — `rotate`'s angle part, `translate`'s z part,
-        // `perspective` as CSS writes it.
-        if let StyleValue::Text(t) = self {
-            let parsed = match style {
-                StyleId::Rotate => space::rotate(t).map(|(_, deg)| deg),
-                StyleId::TranslateZ => space::translate_z(t),
-                StyleId::Perspective => space::perspective(t),
-                _ => None,
-            };
-            if matches!(
-                style,
-                StyleId::Rotate | StyleId::TranslateZ | StyleId::Perspective
-            ) {
-                return parsed.ok_or(StyleValueError::WrongKind {
-                    style,
-                    expected: "CSS's value: an angle and an optional axis (`rotate`), up to three lengths (`translate`), `none` or a length (`perspective`)",
-                });
-            }
-        }
-        if style == StyleId::Perspective {
-            if let StyleValue::Number(n) = self {
-                if n.is_nan() || *n < 0.0 {
-                    return Err(StyleValueError::WrongKind {
-                        style,
-                        expected: "`none` or a nonnegative length",
-                    });
-                }
-            }
-        }
-        // @ref LLP 1076 D7 — a width, or the shorthand's width part.
-        if style == StyleId::TextStrokeWidth {
-            return match self {
-                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
-                StyleValue::Text(t) => stroke::parse(t)
-                    .map(|(w, _)| w)
-                    .map_err(|reason| StyleValueError::BadTextStroke { style, reason }),
-                _ => Err(StyleValueError::WrongKind {
-                    style,
-                    expected: "a nonnegative width in px",
-                }),
-            };
+        // @ref LLP 1076 D7, D8, D11 — the rows that take CSS text or a
+        // range of their own.
+        if let Some(value) = space::f32_row(self, style) {
+            return value;
         }
         // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
         if style == StyleId::BackdropBlur {
@@ -785,10 +749,15 @@ impl ColorValue {
         matches!(self, ColorValue::LightDark(..))
     }
 
-    /// `light-dark(<color>, <color>)`, CSS's own spelling and nothing else.
-    /// Whitespace is free; anything that is not two parseable colours is not
-    /// this function, and falls through to the plain colour parse.
+    /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
+    /// label, fill and separator colours by WebKit's name, which is such a
+    /// pair (LLP 1076 D13). Whitespace is free; anything that is not two
+    /// parseable colours is not this function, and falls through to the
+    /// plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
+        if let Some(system) = symbols::system_color(text) {
+            return Some(system);
+        }
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
         // The comma between the two colours, not one inside an `rgb()`.
         let mut depth = 0;
@@ -939,6 +908,8 @@ pub enum RowValue<'a> {
     CornerShape(&'a crate::corner::CornerShape),
     /// CSS `rotate`'s axis (LLP 1076 D8).
     RotateAxis(&'a space::RotateAxis),
+    /// A symbol's palette (LLP 1076 D10).
+    SymbolPalette(&'a symbols::SymbolPalette),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -996,6 +967,7 @@ impl RowValue<'_> {
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)
             | RowValue::RotateAxis(_)
+            | RowValue::SymbolPalette(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)

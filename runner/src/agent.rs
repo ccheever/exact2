@@ -608,6 +608,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::BoxShadow(s) => quote(&s.css(), out),
         RowValue::CornerShape(c) => quote(&c.css(), out),
         RowValue::RotateAxis(a) => quote(&a.css(), out),
+        RowValue::SymbolPalette(p) => quote(&p.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
         RowValue::Paint(p) => quote(&p.css(), out),

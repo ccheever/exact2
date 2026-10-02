@@ -964,6 +964,8 @@ mod tests {
             (StyleId::TextShadow, text("1px 2px 3px #000")),
             (StyleId::TextStrokeWidth, number(2.0)),
             (StyleId::TextStrokeColor, text("#ff0000")),
+            (StyleId::SymbolRendering, text("palette")),
+            (StyleId::SymbolPalette, text("#ff0000 #0000ff")),
             // SVG 2 presentation properties (LLP 1055 D2).
             (StyleId::Fill, text("#16a34a")),
             (StyleId::Stroke, text("currentcolor")),

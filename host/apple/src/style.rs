@@ -224,6 +224,20 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 }
                 None => false,
             },
+            // @ref LLP 1076 D10 — the palette's colours, each four channels
+            // or a light/dark pair of them.
+            RowValue::SymbolPalette(p) if p.0.is_empty() => false,
+            RowValue::SymbolPalette(p) => {
+                out.push('[');
+                for (i, c) in p.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    push_color_value(&mut out, *c);
+                }
+                out.push(']');
+                true
+            }
             // @ref LLP 1076 D8 — `[x, y, z]`; the z axis (CSS's initial) is
             // no row.
             RowValue::RotateAxis(a) if a.0 == [0.0, 0.0, 1.0] => false,

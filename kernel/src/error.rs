@@ -52,6 +52,8 @@ pub enum DecodeError {
     BadBoxShadow,
     /// Invalid CSS `rotate` axis (LLP 1076 D8).
     BadRotateAxis,
+    /// Invalid `symbol-palette` (LLP 1076 D10).
+    BadSymbolPalette,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1076 D3).
     BadTextShadow,
     /// Invalid or unsupported CSS `mask-image` (LLP 1076 D2).
@@ -486,6 +488,10 @@ pub enum StyleValueError {
     },
     /// Not a CSS `rotate` (LLP 1076 D8).
     BadRotateAxis {
+        style: StyleId,
+    },
+    /// Not `none` or one to three colours (LLP 1076 D10).
+    BadSymbolPalette {
         style: StyleId,
     },
     /// Not `-webkit-text-stroke` (LLP 1076 D7); `reason` names what.

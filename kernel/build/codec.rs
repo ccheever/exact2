@@ -53,6 +53,7 @@ fn parse_codec(s: &str) -> Codec {
         // @ref LLP 1066 D1
         "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
         // @ref LLP 1076 D1–D4
+        "symbol-palette" => Codec::CssValue { path: "crate::style::symbols::SymbolPalette", variant: "SymbolPalette", error: "BadSymbolPalette" },
         "rotate-axis" => Codec::CssValue { path: "crate::style::space::RotateAxis", variant: "RotateAxis", error: "BadRotateAxis" },
         "box-shadow" => Codec::CssValue { path: "crate::style::BoxShadows", variant: "BoxShadow", error: "BadBoxShadow" },
         "text-shadow" => Codec::CssValue { path: "crate::style::TextShadow", variant: "TextShadow", error: "BadTextShadow" },

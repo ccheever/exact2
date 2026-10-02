@@ -365,6 +365,15 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   is refused), and a transition between two different `rotate` axes changes
   the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
   on the CPU.
+- **Apple's affordances** ([LLP 1076 §5](1076-css-visual-properties-native-draws-cheaply.rfc.md)),
+  rows 162–170, are not CSS: `symbol-rendering`, `symbol-palette`,
+  `symbol-value`, `symbol-effect` (with the `symbolEffectValue` prop),
+  `press-haptic` (host-owned as `press-scale`), `content-transition`,
+  `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
+  platform that has it; the web writes no declaration for them and draws a
+  symbol monochrome. The `-apple-system-*` label, fill and separator colours
+  are WebKit's names, resolved on every host as `light-dark()` pairs of
+  UIKit's values.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

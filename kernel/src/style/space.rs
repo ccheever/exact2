@@ -105,6 +105,52 @@ pub fn perspective(text: &str) -> Option<f32> {
     parse_pixel_length(t).filter(|n| *n >= 0.0)
 }
 
+/// The `f32` rows that take CSS text or a range of their own (LLP 1076):
+/// `rotate`'s angle, `translate`'s z and `perspective` (D8), a symbol's
+/// value (D11) and `-webkit-text-stroke`'s width (D7). `None` for any other
+/// row, which the plain number parse takes.
+pub(crate) fn f32_row(
+    value: &super::StyleValue,
+    style: crate::StyleId,
+) -> Option<Result<f32, crate::error::StyleValueError>> {
+    use super::StyleValue;
+    use crate::error::StyleValueError;
+    use crate::StyleId;
+    let wrong = |expected| Err(StyleValueError::WrongKind { style, expected });
+    Some(match (style, value) {
+        (StyleId::Rotate, StyleValue::Text(t)) => rotate(t).map(|(_, deg)| deg).map_or_else(
+            || wrong("an angle, and optionally an axis: `x`, `y`, `z` or three numbers"),
+            Ok,
+        ),
+        (StyleId::TranslateZ, StyleValue::Text(t)) => {
+            translate_z(t).map_or_else(|| wrong("up to three lengths in px"), Ok)
+        }
+        (StyleId::Perspective, StyleValue::Text(t)) => {
+            perspective(t).map_or_else(|| wrong("`none` or a nonnegative length"), Ok)
+        }
+        (StyleId::Perspective, StyleValue::Number(n)) if n.is_nan() || *n < 0.0 => {
+            wrong("`none` or a nonnegative length")
+        }
+        (StyleId::SymbolValue, StyleValue::Text(t)) if t.trim().eq_ignore_ascii_case("none") => {
+            Ok(-1.0)
+        }
+        (StyleId::SymbolValue, StyleValue::Number(n)) if (0.0..=1.0).contains(n) || *n == -1.0 => {
+            Ok(*n as f32)
+        }
+        (StyleId::SymbolValue, _) => wrong("`none` or a number from 0 to 1"),
+        (StyleId::TextStrokeWidth, StyleValue::Number(n))
+            if (*n as f32).is_finite() && *n >= 0.0 =>
+        {
+            Ok(*n as f32)
+        }
+        (StyleId::TextStrokeWidth, StyleValue::Text(t)) => super::stroke::parse(t)
+            .map(|(w, _)| w)
+            .map_err(|reason| StyleValueError::BadTextStroke { style, reason }),
+        (StyleId::TextStrokeWidth, _) => wrong("a nonnegative width in px"),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

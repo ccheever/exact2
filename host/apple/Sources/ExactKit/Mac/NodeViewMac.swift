@@ -437,11 +437,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let name = props["symbolName"] ?? "", points = number("font_size", 16)
         let weights: [NSFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
-        let key = "\(source):\(name):\(points):\(index)"
+        let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index]))
+            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(NSImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index])))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
@@ -450,7 +450,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 let clip = SymbolClip(); clip.wantsLayer = true; clip.layer?.masksToBounds = true
                 symbolClip = clip; symbolView = leaf; leaf.wantsLayer = true; clip.addSubview(leaf); addSubview(clip)
             }
-            leaf.image = image; leaf.setAccessibilityElement(false)
+            showSymbol(image, on: leaf); leaf.setAccessibilityElement(false)
             let size = image?.size ?? (points > 0 ? CGSize(width: points, height: points) : nil)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter,
@@ -459,6 +459,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         symbolView?.contentTintColor = color("tint_color", .black)
+        if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
     func layoutSymbol() {
@@ -943,6 +944,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
+        if set["symbolEffectValue"] != nil { updateSymbol() }
         applyTextArea()
         if let f = field {
             // `type` changed between password and text: a secure field is a

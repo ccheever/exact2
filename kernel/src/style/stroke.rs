@@ -6,7 +6,7 @@ use super::{parse_pixel_length, Color, ColorValue};
 
 /// `<length> <color>?` in either order, the length in `px` (unitless zero);
 /// no colour is `currentcolor` (`None`).
-pub(super) fn parse(text: &str) -> Result<(f32, Option<ColorValue>), &'static str> {
+pub(crate) fn parse(text: &str) -> Result<(f32, Option<ColorValue>), &'static str> {
     let (mut width, mut color) = (None, None);
     let mut depth = 0usize;
     let mut words = Vec::new();

@@ -675,6 +675,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "refreshing" => AttrTarget::Prop(p("refreshing")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
+        // @ref LLP 1076 D12 — what a discrete symbol effect plays on.
+        "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "inert" => AttrTarget::Prop(p("inert")),
@@ -1018,6 +1020,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "perspective" => styles(&[StyleId::Perspective]),
         "perspective-origin" => styles(&[StyleId::PerspectiveOrigin]),
         "backface-visibility" => styles(&[StyleId::BackfaceVisibility]),
+        // @ref LLP 1076 §5 — declared rows CSS has no name for.
+        "symbol-rendering" => styles(&[StyleId::SymbolRendering]),
+        "symbol-palette" => styles(&[StyleId::SymbolPalette]),
+        "symbol-value" => styles(&[StyleId::SymbolValue]),
+        "symbol-effect" => styles(&[StyleId::SymbolEffect]),
+        "press-haptic" => styles(&[StyleId::PressHaptic]),
+        "content-transition" => styles(&[StyleId::ContentTransition]),
+        "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
+        "hover-effect" => styles(&[StyleId::HoverEffect]),
+        "smart-invert" => styles(&[StyleId::SmartInvert]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,

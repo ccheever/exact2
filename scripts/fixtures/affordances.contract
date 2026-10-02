@@ -1,0 +1,24 @@
+// LLP 1076 §5's page: what Apple's platforms draw that CSS has no name for,
+// checked on Apple by eye (the web draws its declared fallbacks). Symbols
+// in each rendering mode, at a variable value and with an effect; text in
+// the system's label colours; a press that taps; a scroll container with
+// a soft edge.
+component Affordances
+  state taps = 0
+  action tap
+    taps = taps + 1
+    haptic("success")
+  view
+    main testId="affordances" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      image "symbol:sf/heart.fill" testId="mono" position="absolute" left=20 top=20 width=50 height=50 font-size=40 tint-color="#e53935"
+      image "symbol:sf/person.crop.circle.badge.plus" testId="palette" position="absolute" left=90 top=20 width=50 height=50 font-size=40 symbol-rendering="palette" symbol-palette="#1e88e5 #43a047"
+      image "symbol:sf/square.stack.3d.up.fill" testId="hierarchical" position="absolute" left=160 top=20 width=50 height=50 font-size=40 tint-color="#8e24aa" symbol-rendering="hierarchical"
+      image "symbol:sf/cloud.sun.rain.fill" testId="multicolor" position="absolute" left=230 top=20 width=50 height=50 font-size=40 symbol-rendering="multicolor"
+      image "symbol:sf/wifi" testId="value" position="absolute" left=300 top=20 width=50 height=50 font-size=40 tint-color="#1e88e5" symbol-value=0.4
+      image "symbol:sf/bell.fill" testId="effect" position="absolute" left=20 top=90 width=50 height=50 font-size=40 tint-color="#fdd835" symbol-effect="bounce" symbolEffectValue=`${taps}`
+      text "Primary" testId="label" position="absolute" left=90 top=95 font-size=17 color="-apple-system-label"
+      text "Secondary" testId="secondary" position="absolute" left=90 top=118 font-size=17 color="-apple-system-secondary-label"
+      button testId="tap" press=tap press-haptic="impact-light" position="absolute" left=20 top=160 width=120 height=44 border-radius=22 background-color="#1e88e5" color="#ffffff"
+        text "Tap"
+      column testId="scroller" position="absolute" left=160 top=160 width=200 height=120 overflow-y="scroll" scroll-edge-effect="soft" background-color="#eeeeee"
+        box height=300 background-image="linear-gradient(#e53935, #1e88e5)"

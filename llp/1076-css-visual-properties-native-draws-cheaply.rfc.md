@@ -1,7 +1,7 @@
 # LLP 1076: The CSS visual properties native hosts draw cheaply
 
 **Type:** RFC
-**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–4 built 2026-10-02 (§8); §5 being implemented.
+**Status:** Accepted 2026-10-02 (r2; every question in §7 ruled). Stages 1–4 and §5 built 2026-10-02 on lane/visual-1076 (§8); review and landing owed.
 **Systems:** Kernel (`schema.json` style rows from bit 154, `kernel/src/gradient.rs`, hit testing), Contract (`tags.rs` attributes, `values.rs` refusals), Web host (CSS from rows), Apple host (iOS layers, macOS `draw`), Linux host (painter: Vello and tiny-skia)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), from 2026-10-02; Astra and Grok review the build before it lands (Charlie, 2026-10-02).
@@ -271,6 +271,26 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 - `perspective()` and `matrix3d()` inside `transform`.
 - Slerp between different axes in motion (the axis changes at once).
 - A device frame check of an animated flip on Linux's CPU warp.
+
+### §5 (2026-10-02): what Apple draws that CSS has no name for
+
+- **Rows.** 162–170 are declared, non-CSS rows; the web writes no declaration for them. Plus the `symbolEffectValue` prop and the `haptic()` host command.
+- **D10–D12 (symbols).** `symbol-rendering` (monochrome, hierarchical in the tint, palette, multicolor) and `symbol-palette` build the symbol's configuration on UIKit and AppKit. `symbol-value` is its variable value. `symbol-effect` runs pulse, variable-color, scale, and (on 18/15) breathe and rotate while set. It plays bounce, and wiggle on 18/15, each time `symbolEffectValue` changes. `replace` is the platform's replace transition.
+- **D13 (system colours).** `-apple-system-label`, `-secondary-label`, `-tertiary-label`, `-quaternary-label`, `-separator` and `-fill` are colours on every host: `light-dark()` pairs of UIKit's own values, parsed wherever a colour is.
+- **D14 (haptics).** `press-haptic` plays at touch-down, host-owned as `press-scale` is. `haptic("success" | "warning" | "error" | "selection" | "impact-…")` plays from app logic. iOS uses the feedback generators, macOS `NSHapticFeedbackManager`, the web `navigator.vibrate` where it exists, and Linux nothing.
+- **D15 (numerals).** `content-transition: numeric` (or `numeric-countdown`) rolls a paragraph's raster when its text changes, unless Reduce Motion is on. The whole line rolls, not each digit.
+- **D16 (scroll edge).** `scroll-edge-effect` sets a scroll container's four `UIScrollEdgeEffect`s on iOS 26.
+- **D17 (pointer hover).** `hover-effect` adds a `UIPointerInteraction` with the highlight, lift or hover style.
+- **D18 (Smart Invert).** `smart-invert` sets `accessibilityIgnoresInvertColors`, which `auto` sets on images, video and canvases.
+
+**Seen:** on the iOS simulator and macOS, each symbol mode, the variable value, the effect symbol and the label colours draw as Apple draws them (`scripts/fixtures/affordances.contract`), and a press delivers `haptic`. The compiler test holds the rows and their named refusals.
+
+**Owed after §5:**
+
+- **D13 vibrancy itself.** A label is vibrant only inside a material's effect view, and the node tree does not nest a material's children there; only glass groups do. The colours land; the vibrancy effect does not yet.
+- **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
+- **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
+- **Web stand-ins** for the symbol effects.
 
 ## 7. Open questions for Charlie
 

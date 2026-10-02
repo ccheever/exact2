@@ -261,6 +261,7 @@ extension NodeView {
         }
         ink.frame = result.frame
         ink.contentsScale = key.scale
+        NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
         TextShadowLayer.apply(key.spec.shadow, to: ink)
         textRasterLayer = ink

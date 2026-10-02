@@ -1247,6 +1247,12 @@
       "kind": "str",
       "styleable": true,
       "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
+    },
+    {
+      "id": 218,
+      "name": "symbolEffectValue",
+      "kind": "str",
+      "_comment": "@ref LLP 1076 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1395,6 +1401,75 @@
         "underline-line-through"
       ],
       "default": "none"
+    },
+    "SymbolRendering": {
+      "values": [
+        "monochrome",
+        "hierarchical",
+        "palette",
+        "multicolor"
+      ],
+      "default": "monochrome"
+    },
+    "SymbolEffect": {
+      "values": [
+        "none",
+        "bounce",
+        "pulse",
+        "wiggle",
+        "breathe",
+        "rotate",
+        "variable-color",
+        "scale",
+        "replace"
+      ],
+      "default": "none"
+    },
+    "PressHaptic": {
+      "values": [
+        "none",
+        "selection",
+        "impact-light",
+        "impact-medium",
+        "impact-heavy",
+        "impact-soft",
+        "impact-rigid"
+      ],
+      "default": "none"
+    },
+    "ContentTransition": {
+      "values": [
+        "none",
+        "numeric",
+        "numeric-countdown"
+      ],
+      "default": "none"
+    },
+    "ScrollEdgeEffect": {
+      "values": [
+        "automatic",
+        "soft",
+        "hard",
+        "none"
+      ],
+      "default": "automatic"
+    },
+    "HoverEffect": {
+      "values": [
+        "auto",
+        "highlight",
+        "lift",
+        "hover",
+        "none"
+      ],
+      "default": "auto"
+    },
+    "SmartInvert": {
+      "values": [
+        "auto",
+        "ignore"
+      ],
+      "default": "auto"
     },
     "BackfaceVisibility": {
       "values": [
@@ -2810,6 +2885,63 @@
       "field": "backface_visibility",
       "codec": "enum:BackfaceVisibility",
       "_comment": "@ref LLP 1076 D8: CSS `backface-visibility`: a hidden box turned away from the viewer paints nothing."
+    },
+    {
+      "bit": 162,
+      "field": "symbol_rendering",
+      "codec": "enum:SymbolRendering",
+      "inherited": true,
+      "_comment": "@ref LLP 1076 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
+    },
+    {
+      "bit": 163,
+      "field": "symbol_palette",
+      "codec": "symbol-palette",
+      "inherited": true,
+      "_comment": "@ref LLP 1076 D10: not CSS. A symbol's palette, one to three colours, under `symbol-rendering: palette`. Inherited."
+    },
+    {
+      "bit": 164,
+      "field": "symbol_value",
+      "codec": "f32",
+      "default": -1,
+      "_comment": "@ref LLP 1076 D11: not CSS. A variable symbol's value, 0 to 1 (Wi-Fi bars, volume); `none` (-1) draws it whole."
+    },
+    {
+      "bit": 165,
+      "field": "symbol_effect",
+      "codec": "enum:SymbolEffect",
+      "_comment": "@ref LLP 1076 D12: not CSS. An SF Symbol effect: a continuing one (pulse, breathe, rotate, variable-color, scale) plays while set; a discrete one (bounce, wiggle) plays each time `symbolEffectValue` changes; replace plays when the source changes."
+    },
+    {
+      "bit": 166,
+      "field": "press_haptic",
+      "codec": "enum:PressHaptic",
+      "_comment": "@ref LLP 1076 D14: not CSS. Host-owned feedback when a pointer presses the node, as `press-scale` is (no runner round trip): a selection tick or an impact."
+    },
+    {
+      "bit": 167,
+      "field": "content_transition",
+      "codec": "enum:ContentTransition",
+      "_comment": "@ref LLP 1076 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown)."
+    },
+    {
+      "bit": 168,
+      "field": "scroll_edge_effect",
+      "codec": "enum:ScrollEdgeEffect",
+      "_comment": "@ref LLP 1076 D16: not CSS. A scroll container's edge effect where content meets a bar (iOS 26): automatic, soft, hard or none."
+    },
+    {
+      "bit": 169,
+      "field": "hover_effect",
+      "codec": "enum:HoverEffect",
+      "_comment": "@ref LLP 1076 D17: not CSS. The iPad pointer's effect over the node: highlight, lift or hover; auto is the platform's."
+    },
+    {
+      "bit": 170,
+      "field": "smart_invert",
+      "codec": "enum:SmartInvert",
+      "_comment": "@ref LLP 1076 D18: not CSS. Whether Smart Invert leaves the node's pixels alone: auto ignores images, video and canvases; ignore leaves any node's."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

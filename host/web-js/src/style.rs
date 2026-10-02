@@ -501,6 +501,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
                 "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
+        // @ref LLP 1076 §5 — Apple's affordances: no declaration on the web
+        // (its forms are declared in LLP 1001).
+        StyleId::SymbolRendering
+        | StyleId::SymbolPalette
+        | StyleId::SymbolValue
+        | StyleId::SymbolEffect
+        | StyleId::PressHaptic
+        | StyleId::ContentTransition
+        | StyleId::ScrollEdgeEffect
+        | StyleId::HoverEffect
+        | StyleId::SmartInvert => vec![],
         StyleId::Animation => vec![with("animation", NONE)],
         // @ref LLP 1069.011 D8 — and the custom property a native button reads.
         StyleId::AccentColor => vec![

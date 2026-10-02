@@ -86,3 +86,39 @@ fn what_no_host_draws_is_refused_by_name() {
         assert!(e.message.contains(says), "{attr}: {e}");
     }
 }
+
+/// LLP 1076 §5: the declared rows Apple draws, their refusals named, and
+/// `haptic()` a host command.
+#[test]
+fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/fixtures/affordances.contract"
+    ))
+    .unwrap();
+    let mut r = boot(&src);
+    let palette = style_of(&r, "palette");
+    assert_eq!(
+        palette.symbol_rendering,
+        exact_kernel::SymbolRendering::Palette
+    );
+    assert_eq!(palette.symbol_palette.0.len(), 2);
+    assert_eq!(style_of(&r, "value").symbol_value, 0.4);
+    assert_eq!(style_of(&r, "mono").symbol_value, -1.0);
+    assert!(matches!(
+        style_of(&r, "secondary").text_color,
+        exact_kernel::ColorValue::LightDark(..)
+    ));
+    let k = r.kernel();
+    let tap = k.node_by_key(k.find_by_test_id("tap")[0]).unwrap().id;
+    r.dispatch(tap, exact_runner::Event::Press).unwrap();
+    assert!(r.take_commands().iter().any(|c| c.name == "haptic"));
+    for (attr, says) in [
+        ("symbol-value=2", "0 to 1"),
+        ("symbol-palette=\"#000 #111 #222 #333\"", "one to three"),
+        ("press-haptic=\"buzz\"", "selection"),
+    ] {
+        let e = refused(attr);
+        assert!(e.message.contains(says), "{attr}: {e}");
+    }
+}

@@ -70,7 +70,10 @@ extension NodeView {
     var pressFactor: CGFloat { press.idle ? 1 : press.factor(at: CACurrentMediaTime()) }
 
     /// `pressed` changed: ease toward the pressed scale, or back to 1.
-    func pressChanged() { aimPress(pressed, release: !pressed) }
+    func pressChanged() {
+        if pressed { pressHaptic() }
+        aimPress(pressed, release: !pressed)
+    }
     /// The pointer moved while pressed: the feedback follows whether it is
     /// still inside, as the tap's own acceptance does on release.
     func pressFollows(inside: Bool) { if pressed { aimPress(inside) } }
