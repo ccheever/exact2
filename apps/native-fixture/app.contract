@@ -9,9 +9,9 @@
 component NativeFixture
   state expanded = false
   state natural = true
-  action grow writes expanded
+  action grow
     expanded = not expanded
-  action sizing writes natural
+  action sizing
     natural = not natural
   state count = 0
   state emit = 0
