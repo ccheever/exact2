@@ -687,10 +687,14 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let _ = write!(s, ",\"seed\":{}", num(place.seed));
     // The device facts (LLP 1069.000; LLP 1069.007 D2), by their web names,
     // whether or not the app declares a source that reads them.
-    let (media, page) = (runner.viewport().preferences, runner.page());
+    let (media, page, fold) = (
+        runner.viewport().preferences,
+        runner.page(),
+        runner.viewport().fold,
+    );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -698,7 +702,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         page.visibility_state(),
         page.on_line,
         page.can_share,
-        num(runner.root_font_size())
+        num(runner.root_font_size()),
+        fold.posture.keyword(),
+        fold.cols,
+        fold.rows
     );
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {

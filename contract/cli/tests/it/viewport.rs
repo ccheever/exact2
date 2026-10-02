@@ -177,3 +177,76 @@ component App
     assert_eq!(state(&r)["resources"]["b"]["width"], 1280);
     assert!(agent::logs(&r, 0).contains("viewport (2 asked again)"));
 }
+
+/// LLP 1076 D2: the fold's three fields ride `exactViewport` — the bake
+/// answers `continuous`, 1, 1; a host's `set_fold` re-answers every reader
+/// in one commit; an unknown or mistyped field is refused at the bake.
+#[test]
+fn fold_fields_are_viewport_fields_the_bake_answers_flat() {
+    let src = r#"shape Fold
+  devicePosture: string
+  horizontalViewportSegments: number
+  verticalViewportSegments: number
+component App
+  resource m = exactViewport() as shape Fold
+  derive two = m.horizontalViewportSegments == 2
+  view
+    column
+      text `${m.devicePosture} ${m.horizontalViewportSegments}x${m.verticalViewportSegments}` testId="fold"
+      when two
+        text "two panes" testId="panes"
+"#;
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<NoData>, id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(text(&r, "fold"), "continuous 1x1");
+    assert!(r.kernel().find_by_test_id("panes").is_empty());
+    let state: serde_json::Value = serde_json::from_str(&agent::state(&r)).unwrap();
+    assert_eq!(state["device"]["devicePosture"], "continuous");
+    assert_eq!(state["device"]["horizontalViewportSegments"], 1);
+    let folded = exact_runner::Fold {
+        posture: exact_runner::Posture::Folded,
+        cols: 2,
+        rows: 1,
+    };
+    let receipt = r.set_fold(folded).unwrap().unwrap();
+    assert_eq!(receipt.epoch, 2, "one commit");
+    assert_eq!(text(&r, "fold"), "folded 2x1");
+    assert_eq!(r.kernel().find_by_test_id("panes").len(), 1);
+    assert!(r.set_fold(folded).unwrap().is_none(), "the same fold again");
+    assert!(matches!(
+        r.set_fold(exact_runner::Fold { cols: 0, ..folded }),
+        Err(RunnerError::InvalidViewport)
+    ));
+    assert_eq!(r.viewport().fold, folded, "nothing changed");
+    // A resize re-answers the same resource (one source, LLP 1039 D2) and
+    // keeps the fold.
+    assert!(r.set_viewport(900.0, 600.0).unwrap().is_some());
+    assert_eq!(r.viewport().fold, folded, "a resize keeps the fold");
+    assert_eq!(text(&r, "fold"), "folded 2x1");
+    let state: serde_json::Value = serde_json::from_str(&agent::state(&r)).unwrap();
+    assert_eq!(state["device"]["devicePosture"], "folded");
+    assert_eq!(state["device"]["horizontalViewportSegments"], 2);
+    for wrong in [
+        "shape F\n  devicePosture: number\ncomponent A\n  resource m = exactViewport() as shape F\n  view\n    text `${m.devicePosture}`\n",
+        "shape F\n  hingeAngle: number\ncomponent A\n  resource m = exactViewport() as shape F\n  view\n    text `${m.hingeAngle}`\n",
+    ] {
+        assert!(contract::bake(contract::compile(wrong).unwrap(), NoData).is_err(), "{wrong}");
+    }
+}
