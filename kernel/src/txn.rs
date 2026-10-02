@@ -609,7 +609,10 @@ pub(crate) fn apply_document(
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, &mut receipt);
-                    if matches!(prop, PropId::Type | PropId::AccessibilityRole) {
+                    if matches!(
+                        prop,
+                        PropId::Type | PropId::AccessibilityRole | PropId::Href
+                    ) {
                         if let Some(node) = arena.taffy(slot) {
                             layout.restyle(arena, slot, node);
                         }
@@ -637,7 +640,10 @@ pub(crate) fn apply_document(
                         }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);
-                        if matches!(prop, PropId::Type | PropId::AccessibilityRole) {
+                        if matches!(
+                            prop,
+                            PropId::Type | PropId::AccessibilityRole | PropId::Href
+                        ) {
                             if let Some(node) = arena.taffy(slot) {
                                 layout.restyle(arena, slot, node);
                             }

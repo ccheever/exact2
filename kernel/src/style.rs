@@ -1356,16 +1356,15 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     {
         s.item_is_table = true;
     }
-    // Native-appearance widgets retain the UA's box semantics even though
-    // the web reset computes `box-sizing: content-box`. Chrome ignores a
-    // checkbox's padding and treats its authored width as the whole widget;
-    // a select's UA default is border-box unless the author overrides it.
-    // Other controls (range, file and the date types) keep content-box
-    // padding, so this is deliberately per kind rather than a Control rule.
-    if arena.style(slot).appearance == crate::Appearance::Auto {
-        match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
-            Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
-                s.box_sizing = taffy::style::BoxSizing::BorderBox;
+    // The page reset makes a checkbox border-box for both `appearance:auto`
+    // and `none`. With native appearance Chrome additionally ignores its
+    // padding; with `none` the authored padding remains in that border box.
+    // A select's native UA default is border-box unless the author overrides
+    // it. Other controls keep the reset's content-box semantics.
+    match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
+        Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
+            s.box_sizing = taffy::style::BoxSizing::BorderBox;
+            if arena.style(slot).appearance == crate::Appearance::Auto {
                 s.padding = taffy::geometry::Rect {
                     top: length(0.0),
                     right: length(0.0),
@@ -1373,11 +1372,14 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
                     left: length(0.0),
                 };
             }
-            Some(crate::ControlKind::Select) if !arena.style(slot).mask.has(StyleId::BoxSizing) => {
-                s.box_sizing = taffy::style::BoxSizing::BorderBox;
-            }
-            _ => {}
         }
+        Some(crate::ControlKind::Select)
+            if arena.style(slot).appearance == crate::Appearance::Auto
+                && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
+        {
+            s.box_sizing = taffy::style::BoxSizing::BorderBox;
+        }
+        _ => {}
     }
     s.direction = match arena.computed_style(slot, StyleMask::INHERITED).direction {
         Direction::Ltr => taffy::style::Direction::Ltr,

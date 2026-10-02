@@ -210,9 +210,9 @@ impl<D: DataSource> Presenter<D> {
         Some(id)
     }
 
-    /// Each select's size, which Linux reports as the other hosts do (LLP
-    /// 1069.001 D3): its widest option in its own font, with room for the
-    /// chevron and Chrome's padding.
+    /// Each control's painted size, which Linux reports as the other hosts
+    /// do (LLP 1069.001 D3). Fixed painted widgets use the geometry their
+    /// painter was designed for; fields measure the text they paint.
     pub(crate) fn size_controls(&mut self) {
         let mut sizes = Vec::new();
         {
@@ -225,20 +225,39 @@ impl<D: DataSource> Presenter<D> {
                 if node.node_type != NodeType::Control {
                     continue;
                 }
+                let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
+                    continue;
+                };
+                let fixed = match kind {
+                    exact_kernel::ControlKind::Checkbox => Some((13.0, 13.0)),
+                    exact_kernel::ControlKind::Switch => Some((38.0, 22.0)),
+                    // Linux's file picker activation is native, but its
+                    // visible control is the same painted square as a
+                    // checkbox until the picker opens.
+                    exact_kernel::ControlKind::File => Some((13.0, 13.0)),
+                    exact_kernel::ControlKind::Range => Some((129.0, 16.0)),
+                    _ => None,
+                };
+                if let Some(size) = fixed {
+                    sizes.push((id, size));
+                    continue;
+                }
                 // A select fits its widest option; a date control its
-                // widest value (D3).
-                let labels: Vec<String> = match node.props.str(PropId::Type) {
-                    Some("select") => kernel
+                // widest painted value (D3).
+                let labels: Vec<String> = match kind {
+                    exact_kernel::ControlKind::Select => kernel
                         .select_choices(id)
                         .into_iter()
                         .map(|c| c.label)
                         .collect(),
-                    Some("date") => vec!["0000-00-00".into()],
-                    Some("time") => vec!["00:00:00".into()],
-                    Some("datetime-local") => vec!["0000-00-00T00:00".into()],
+                    exact_kernel::ControlKind::Date => vec!["0000-00-00".into()],
+                    exact_kernel::ControlKind::Time => vec!["00:00:00".into()],
+                    exact_kernel::ControlKind::DateTimeLocal => {
+                        vec!["0000-00-00T00:00".into()]
+                    }
                     _ => continue,
                 };
-                let chevron = if node.props.str(PropId::Type) == Some("select") {
+                let chevron = if kind == exact_kernel::ControlKind::Select {
                     30.0
                 } else {
                     12.0

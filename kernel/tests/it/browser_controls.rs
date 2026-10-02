@@ -297,6 +297,84 @@ fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn an_auto_width_control_at_the_document_root_shrinks_to_its_intrinsic() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::Control,
+        },
+        Op::SetProp {
+            id: 1,
+            prop: PropId::Type,
+            value: PropValue::Str("checkbox".into()),
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(400.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(1).unwrap().frame.width, 13.0);
+}
+
+#[test]
+fn an_appearance_none_checkbox_keeps_the_reset_border_box_and_its_padding() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows("width:400px"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Control,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&rows("width:200px;padding:10px"))),
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Type,
+            value: PropValue::Str("checkbox".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(400.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 200.0);
+    assert_eq!(kernel.node(2).unwrap().frame.height, 13.0);
+
+    let receipt = kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(props(&rows("appearance:none"))),
+            }],
+        )
+        .unwrap();
+    assert!(receipt.layout_invalidated);
+    kernel
+        .compute_layout(1, Offer::definite(400.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 200.0);
+    assert_eq!(kernel.node(2).unwrap().frame.height, 33.0);
+}
+
 struct ChromeFieldMeasurer;
 
 impl TextMeasurer for ChromeFieldMeasurer {
@@ -541,6 +619,83 @@ fn a_block_button_clamps_its_preferred_width_to_the_available_line() {
     ];
     let mut kernel = Kernel::with_monospace();
     kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 400.0);
+}
+
+#[test]
+fn the_block_sizing_marker_follows_a_pressables_href_from_its_initial_props() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows("width:400px"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Pressable,
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Href,
+            value: PropValue::Str("/initial-link".into()),
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: Box::new(props(&rows("width:40px;height:18px"))),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 400.0);
+
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::ClearProp {
+                id: 2,
+                prop: PropId::Href,
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.width, 40.0);
+
+    kernel
+        .apply(
+            2,
+            3,
+            &[Op::SetProp {
+                id: 2,
+                prop: PropId::Href,
+                value: PropValue::Str("/later-link".into()),
+            }],
+        )
+        .unwrap();
     kernel
         .compute_layout(1, Offer::definite(800.0, 600.0))
         .unwrap();

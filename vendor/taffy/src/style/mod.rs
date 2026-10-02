@@ -107,6 +107,12 @@ pub trait CoreStyle {
     fn is_compressible_replaced(&self) -> bool {
         false
     }
+    /// Whether this node carries the table-item sizing marker. Exact also
+    /// uses it for HTML form-control shrink-to-fit sizing (patch 21).
+    #[inline(always)]
+    fn is_table_item(&self) -> bool {
+        false
+    }
     /// Which box do size styles apply to
     #[inline(always)]
     fn box_sizing(&self) -> BoxSizing {
@@ -882,6 +888,10 @@ impl<S: CheapCloneStr> CoreStyle for Style<S> {
         self.item_is_replaced
     }
     #[inline(always)]
+    fn is_table_item(&self) -> bool {
+        self.item_is_table
+    }
+    #[inline(always)]
     fn box_sizing(&self) -> BoxSizing {
         self.box_sizing
     }
@@ -957,6 +967,10 @@ impl<T: CoreStyle> CoreStyle for &'_ T {
     #[inline(always)]
     fn is_compressible_replaced(&self) -> bool {
         (*self).is_compressible_replaced()
+    }
+    #[inline(always)]
+    fn is_table_item(&self) -> bool {
+        (*self).is_table_item()
     }
     #[inline(always)]
     fn box_sizing(&self) -> BoxSizing {

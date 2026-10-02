@@ -741,6 +741,11 @@ layout now measures its min-content and max-content widths and clamps the
 available width between them before laying it out. Ordinary blocks, flex/grid
 items, absolutely positioned boxes and replaced elements are unchanged.
 
+The root path likewise withholds its normal automatic-width stretch from a
+table-marked root. This matches Chrome's 13 px checkbox for
+`#exact-root > input` in a 400 px wrapper rather than treating the projected
+element as an ordinary block root.
+
 The kernel uses this existing internal marker for HTML form controls. It lets
 Exact's reset `<button>` keep its authored flex-column contents while retaining
 HTML's shrink-to-fit block width; text fields and leaf controls follow the same

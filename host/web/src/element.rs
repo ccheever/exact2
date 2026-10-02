@@ -784,11 +784,18 @@ mod name_tests {
             .expect("page stylesheet");
         assert!(page.contains("select { display: block; }"));
         assert!(page.contains("input[type=\"checkbox\"] { box-sizing: border-box; }"));
-        assert!(page.contains("input[type=\"file\"]"));
+        let mut file_appearance_restored = false;
         for rule in stylesheet.split('}') {
             let Some((selectors, declarations)) = rule.rsplit_once('{') else {
                 continue;
             };
+            if selectors.contains("input[type=\"file\"]")
+                && declarations
+                    .split(';')
+                    .any(|declaration| declaration.trim() == "appearance: auto")
+            {
+                file_appearance_restored = true;
+            }
             if selectors.split(',').any(|selector| {
                 let selector = selector.trim();
                 selector.contains("input")
@@ -804,6 +811,7 @@ mod name_tests {
                 );
             }
         }
+        assert!(file_appearance_restored);
         for (tag, ty) in [("input", "checkbox"), ("select", "select")] {
             let style = StyleProps::default();
             let mut props = PropList::default();

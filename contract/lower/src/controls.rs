@@ -9,6 +9,48 @@ use contract_syntax::{Expr, Span};
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, BindingsRow, Value};
 
+/// HTML's `input type` is ASCII-case-insensitive. Keep the prop every host
+/// reads in its canonical lowercase spelling as well as classifying it that
+/// way, including the literal arms of the admitted text-field choice.
+pub(crate) fn canonical_type_attrs(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+) -> Option<Vec<contract_syntax::Attr>> {
+    if tag != "input" {
+        return None;
+    }
+    let type_attr = attrs.iter().find(|a| a.name == "type")?;
+    let value = canonical_type_expr(&type_attr.value)?;
+    (value != type_attr.value).then(|| {
+        attrs
+            .iter()
+            .map(|a| {
+                if a.name == "type" {
+                    contract_syntax::Attr {
+                        value: value.clone(),
+                        ..a.clone()
+                    }
+                } else {
+                    a.clone()
+                }
+            })
+            .collect()
+    })
+}
+
+fn canonical_type_expr(value: &Expr) -> Option<Expr> {
+    match value {
+        Expr::Str(kind, span) => Some(Expr::Str(kind.to_ascii_lowercase(), *span)),
+        Expr::Ternary(cond, yes, no, span) => Some(Expr::Ternary(
+            cond.clone(),
+            Box::new(canonical_type_expr(yes)?),
+            Box::new(canonical_type_expr(no)?),
+            *span,
+        )),
+        _ => None,
+    }
+}
+
 /// The form control an element is (LLP 1069.001 D1), refusing a bound
 /// `type` that could name a control: the node type is chosen when the view
 /// compiles, from the literal. A choice between text fields' types stays a
@@ -44,26 +86,21 @@ pub(crate) fn control(
         return Ok(None);
     }
     if let Some(a) = attrs.iter().find(|a| a.name == "type") {
+        if let Some(kind) = contract_syntax::unsupported_input_type(&a.value) {
+            return err(
+                "lower-input-type",
+                format!(
+                    "`input type=\"{kind}\"` is a non-text control Exact does not support; use `button` for an action"
+                ),
+                a.span,
+            );
+        }
         if !matches!(a.value, Expr::Str(..)) && !contract_syntax::text_input_type(&a.value) {
             return err(
                 "lower-input-type",
                 "`input`'s `type` is a literal (`type=\"text\"`, `\"password\"`, `\"checkbox\"`, …), or a choice between text fields' (`type=shown ? \"text\" : \"password\"`): it picks the kind of node when the view compiles",
                 a.span,
             );
-        }
-        if let Expr::Str(kind, _) = &a.value {
-            if matches!(
-                kind.as_str(),
-                "radio" | "button" | "submit" | "reset" | "image"
-            ) {
-                return err(
-                    "lower-input-type",
-                    format!(
-                        "`input type=\"{kind}\"` is a non-text control Exact does not support; use `button` for an action"
-                    ),
-                    a.span,
-                );
-            }
         }
     }
     let control = contract_syntax::input_control(tag, attrs);

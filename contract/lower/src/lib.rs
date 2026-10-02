@@ -698,6 +698,8 @@ impl<'a> Lowerer<'a> {
                 };
                 // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
                 // type is a text field, `checkbox` a form control.
+                let canonical_type = controls::canonical_type_attrs(tag, expanded);
+                let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 controls::check_nesting(tag, parent_tag, *span)?;

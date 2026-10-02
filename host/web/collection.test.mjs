@@ -62,6 +62,24 @@ function setup() {
   };
 }
 
+test('the production page reset leaves native and appearance-none checkboxes border-box', async () => {
+  const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const stylesheet = page.split('<style>')[1].split('</style>')[0];
+  const result = await evaluate(`(() => {
+    const style=document.createElement('style');style.textContent=${JSON.stringify(stylesheet)};document.head.append(style);
+    const root=document.getElementById('root'),native=document.createElement('input'),plain=document.createElement('input');
+    native.type='checkbox';plain.type='checkbox';plain.style.cssText='appearance:none;width:200px;padding:10px;margin:0';
+    root.replaceChildren(native,plain);
+    const read=el=>{const css=getComputedStyle(el),box=el.getBoundingClientRect();return {appearance:css.appearance,boxSizing:css.boxSizing,padding:css.padding,width:box.width,height:box.height};};
+    return {native:read(native),plain:read(plain)};
+  })()`);
+  expect(result.native).toEqual({appearance:'auto',boxSizing:'border-box',padding:'0px',width:13,height:13});
+  expect(result.plain.appearance).toBe('none');
+  expect(result.plain.boxSizing).toBe('border-box');
+  expect(result.plain.padding).toBe('10px');
+  expect(result.plain.width).toBe(200);
+});
+
 test('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
   const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
   const bytes = collectionBytes(feedback), view = new DataView(bytes.buffer);
