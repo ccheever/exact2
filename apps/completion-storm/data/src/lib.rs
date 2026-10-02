@@ -11,6 +11,8 @@ pub const DATA: &str = "http://127.0.0.1:4319";
 pub struct Storm {
     emitted: u64,
     accepted: u64,
+    /// Requests `lost` has sent, whose replies it never takes.
+    lost: u64,
 }
 
 impl Storm {
@@ -134,6 +136,20 @@ impl DataSource for Storm {
                 }
             }
             "fixtureStats" => Request::get(&format!("{CONTROL}/api/stats")),
+            // A request whose reply is never an answer (`parse` refuses it,
+            // whatever the loopback says or whether anything listens): a
+            // failed request on every host (the conformance plan
+            // `host/web-js/conformance/failed.contract`). `lost(0, _)`
+            // answers now with how many it has sent; the second argument
+            // only asks again.
+            "lost" => {
+                let n = number(args, 0, 9_007_199_254_740_991)?;
+                if n == 0 {
+                    return Ok(Answer::Now(Value::Number(self.lost as f64)));
+                }
+                self.lost += 1;
+                Request::get(&format!("{CONTROL}/api/lost?n={n}"))
+            }
             "completion" => {
                 let wave = number(args, 0, 9_007_199_254_740_991)?;
                 let lane = number(args, 1, MAX_LANES as u64 - 1)?;
@@ -205,6 +221,11 @@ impl DataSource for Storm {
                 ),
                 Err(error) => control(&error, 0, 0, 0),
             },
+            "lost" => {
+                return Err(DataError::Unavailable(
+                    "lost: its reply is never an answer".into(),
+                ))
+            }
             other => return Err(DataError::UnknownSource(other.into())),
         };
         Ok(Answer::Now(value))
@@ -262,5 +283,33 @@ mod tests {
             answer,
             Answer::Now(reply(1, 0, false, "Malformed fixture JSON"))
         );
+    }
+
+    #[test]
+    fn lost_requests_are_counted_and_their_replies_never_answer() {
+        let mut data = Storm::default();
+        let mut store = Store::default();
+        let mut ask = |n: f64| {
+            data.answer(&mut store, "lost", &[Value::Number(n), Value::Number(9.0)])
+                .unwrap()
+        };
+        assert_eq!(ask(0.0), Answer::Now(Value::Number(0.0)));
+        assert!(matches!(ask(3.0), Answer::Later(r) if r.url.ends_with("/api/lost?n=3")));
+        assert_eq!(ask(0.0), Answer::Now(Value::Number(1.0)));
+        for outcome in [
+            Outcome::Response(exact_runner::Response {
+                status: 200,
+                headers: vec![],
+                body: b"{}".to_vec(),
+            }),
+            Outcome::Failed {
+                kind: exact_runner::FailureKind::Network,
+                message: "refused".into(),
+            },
+        ] {
+            assert!(data
+                .parse(&mut store, "lost", &[Value::Number(3.0)], outcome)
+                .is_err());
+        }
     }
 }

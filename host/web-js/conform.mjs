@@ -1,7 +1,8 @@
 // The JS target's conformance harness: the same plan through the Rust web runner
 // (app.wasm + glue.js) and the JavaScript runner (exact-web-js + rt.js), in the
 // same Chrome, driven by the same agent operations (scripts/agent.mjs's
-// `open`). After every step it compares the runner's typed state, the tree
+// `open`). After every step it compares the runner's typed state and the
+// document's head (`state.head`), the tree
 // (preorder: depth, type, testId, text, value, label, handlers), layout boxes
 // by testId and a screenshot. `app.test.contract` files run on both.
 // Every failure is reported in one run; the exit code is 0 unless `--strict`,
@@ -104,7 +105,8 @@ function diffPng(a, b, sideBySide, masks = []) {
   }
   return share;
 }
-const STATE_KEYS = ['slots', 'derives', 'resources'];
+// The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
+const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
 
 // The wasm page's route stack carries the browser's location; the Linux
 // host has none. So, and only in a route stack (entries shaped { id, name,

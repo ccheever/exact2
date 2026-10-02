@@ -1673,6 +1673,48 @@ of the committed src, as glue.js's `guestMessageAuthorized`). Cost: rt.js
 +849 B minified (+308 B brotli) before tree shaking; agent.js (agent only)
 7.7 → 12.3 KB.
 
+**Failed replies and the document's head** (2026-10-02): two places the JS
+runtime disagreed with the runner, each now held by a synthetic plan and
+equal on the wasm page, the JS page and the Linux reference.
+- *A reply its source cannot take.* A rejected TypeScript promise, a Rust
+  parse that refuses (a failed outcome it does not shape included) or an
+  answer outside the declared shape refused the reply's commit, which put the
+  ticket back: `pending` stayed true for good and `failed` never came. Now a
+  data or shape refusal in a reply's commit, while the ticket is still held,
+  lets it go in a commit of its own, as the runner's `release_failed`
+  (rt.js `reply`): a resource keeps its last value and is failed for those
+  arguments, not asked again for them, asked again for new ones or by
+  `refresh`, the marker restored with a refused commit; a mutation ends
+  unsent, its slot as it was and its `then` unarmed; the journal says
+  `request N (name) failed and is no longer pending: …`. Any other refusal
+  keeps the ticket, and a refused commit now puts back the mutations' tickets
+  too, as the runner restores its pending set. `conformance/failed.contract`
+  asks Completion Storm's `lost` (a request whose reply its parse never takes)
+  and `fixtureStats()` under a shape it lacks: 0 of 20 steps equal before,
+  20 of 20 after.
+- *The head.* Each `head`'s fields were set by their own effects, so the last
+  to run won; a head that left kept its fields, and a covered route's head
+  still won when it changed. `host/web-js/document.js` now finds the active
+  head after each commit's tree update as `runner/src/head.rs` does (the
+  deepest, then the latest in document order, field by field; nothing inside
+  a route its navigation root has not selected, read from `navigationBack`
+  and `navigationKey`, not from the projection), with parentNode and
+  childNodes only, so a render's DOM finds it too; `Head`, `document.title`
+  (the page's own where no head sets one) and the description meta follow it.
+  The scroll-document mark (LLP 1048.003 D4) moved there with it, keeping
+  rt.js at 1,499 lines. The JS agent's `state` reports `head` and
+  `conform.mjs` compares it on every target and step:
+  `conformance/heads.contract` was 0 of 15 steps equal before, 15 of 15 after.
+- *Cost* (`app.js`, raw / gzip / brotli-11, unbaked builds): Caltrain
+  68,303 / 18,554 / 16,160 → 69,955 / 19,139 / 16,690; RealWorld
+  102,883 / 29,011 / 24,666 → 104,444 / 29,634 / 25,186 (the head about
+  two thirds of it, in every app with a `head`).
+- *Found, not fixed* (QUEUE): the JS target checks no `net.fetch` grant (a
+  request outside the grants goes out where the wasm host refuses it); it
+  projects a navigation root (hides and inerts covered routes) only in a plan
+  with a router; and a render under Bun refuses a boot whose `each` builds
+  two or more rows in one pass (dom.js has no `prepend`).
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**
