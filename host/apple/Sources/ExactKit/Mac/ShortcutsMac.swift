@@ -117,11 +117,13 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // Buttons that declare a chord, and the window toolbar's own.
         let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
-            $0.kind == "button" && $0.handlers.contains("press") && presenter.toolbar.visible($0)
+            $0.kind == "button" && $0.pressable && presenter.toolbar.visible($0)
                 && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
         }
     }
     func perform(_ event: NSEvent) -> Bool {
+        // Escape belongs to the input method while composition is active.
+        if event.keyCode == 53, let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
         guard event.type == .keyDown,
               (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
               let view = nodes().first(where: {

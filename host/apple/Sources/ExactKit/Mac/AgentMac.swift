@@ -122,7 +122,7 @@ extension Agent {
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull()]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "dialog": presenter.dialogs.observation ?? NSNull()]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll
@@ -383,6 +383,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node) {
@@ -659,7 +660,7 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.shortcuts.perform(down) {
+            if phase != "up", presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
                     keyReleases[release] = { ["phase": "up", "delivery": "recognized"] }

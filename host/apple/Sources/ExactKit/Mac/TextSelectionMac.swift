@@ -64,6 +64,7 @@ final class TextSelection {
             for child in view.subviews { walk(child) }
         }
         walk(presenter.root)
+        for dialog in presenter.dialogs.presented { walk(dialog) }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
@@ -176,7 +177,7 @@ final class TextSelection {
 
     func selectAll() {
         gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
-        let nodes = paragraphs
+        let nodes = paragraphs.filter { !$0.inert }
         if let first = nodes.first(where: { position($0, offset: 0) != nil }),
            let (owner, start) = position(first, offset: 0),
            let last = nodes.last(where: { $0.isDescendant(of: owner) }),

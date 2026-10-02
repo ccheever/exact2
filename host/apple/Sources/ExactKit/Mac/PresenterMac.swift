@@ -35,6 +35,13 @@ final class Presenter {
     func carrying(_ key: String) -> [NodeView] {
         chrome.ids(key).sorted().compactMap { views[$0] }
     }
+    /// Reparenting into/out of the top layer changes text's paint/selection walk.
+    func topLayerChanged() {
+        selection.clear()
+        selection.structureChanged()
+        textViewportIndex = nil
+        refreshVisibleText()
+    }
     /// Scroll containers: the only views with a position to keep across a batch.
     var scrollers: Set<UInt32> = []
     let glassGroups = GlassGroups()
@@ -63,6 +70,7 @@ final class Presenter {
     private var textViewportIndex: TextViewportIndex?
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var dialogs = DialogHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
@@ -536,6 +544,7 @@ final class Presenter {
         autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
+        dialogs.reset()
         toolbar.reset()
         navigation.reset()
         segments.reset()
@@ -687,9 +696,11 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32) {
-        guard let node = textHost(id), !node.inert else { return }
-        onPress?(id)
+    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
+        guard let node = textHost(id), !node.inert, !node.disabled else { return }
+        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
+        if command == nil || node.handlers.contains("press") { onPress?(id) }
+        command?()
         // An invoker's press also drops its menu (LLP 1021 D3).
         menus.pressed(id)
     }
@@ -739,7 +750,7 @@ final class Presenter {
     }
     private var waiting: [(UInt32, () -> Void)] = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
-        guard textHost(id) != nil else { return }
+        guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
@@ -875,12 +886,14 @@ final class Presenter {
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
+                dialogs.children(container, want)
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
                 for (i, child) in want.enumerated() {
+                    if dialogs.owns(child) { continue }
                     if child.superview !== container {
                         reparented.insert(child.id)
                         child.prepareToMount()
@@ -910,14 +923,17 @@ final class Presenter {
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:
+                dialogs.children(root, op.ids.compactMap { views[UInt32($0)] })
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
+                    if dialogs.owns(r) { continue }
                     r.prepareToMount()
                     root.addSubview(r)
                 }
             case .frame:
                 guard let v = views[id] else { continue }
-                v.frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                if !dialogs.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
@@ -970,6 +986,7 @@ final class Presenter {
         segments.sync()
         controls.sync()
         menus.sync()
+        dialogs.sync()
         glassGroups.reconcile()
         positionContexts()
         toolbar.sync()
@@ -1069,7 +1086,8 @@ final class Presenter {
             if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
         }
-        for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) }
+        if let dialog = dialogs.active { walk(dialog) }
+        else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
         let tabbable = listed.enumerated().sorted { a, b in
             let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
@@ -1092,7 +1110,7 @@ final class Presenter {
 
     private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
 
-    private static func tabbable(_ v: NodeView) -> Bool {
+    static func tabbable(_ v: NodeView) -> Bool {
         if v.props["disabled"] == "true" { return false }
         let index = tabIndex(v)
         if index < 0 { return false }
