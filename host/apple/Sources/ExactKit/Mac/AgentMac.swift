@@ -97,7 +97,7 @@ extension Agent {
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
-            responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+            session.natives.ownsFocus(n) || responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
         }).min(by: { $0.id < $1.id }) {
             focus["logical"] = Int(node.id)
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
@@ -554,6 +554,19 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if v.kind == "native" {
+            let nonce = session.natives.inputToken(v)
+            if nonce != nil, !win.isKeyWindow { win.makeKey() }
+            let reply = session.natives.input(v, request: req)
+            if reply["error"] == nil, req["phase"] as? String == "down",
+               let release = req["releaseKey"] as? String, let nonce, let key = req["key"] as? String {
+                keyReleases[release] = { [weak session, weak v] in
+                    guard let session, let v else { return ["error": "native view ended"] }
+                    return session.natives.input(v, request: ["key": key, "phase": "up"], token: nonce)
+                }
+            }
+            return reply
+        }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }

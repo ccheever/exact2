@@ -142,6 +142,44 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     t = await until(s, 'a remount attaches a new instance', (t) => module(t, 'box')?.state === 'ready');
     await settle(s);
     check((await s.state()).slots.loads === 3, `${host} native: the new instance loaded`);
+    if (host === 'macos') {
+      const input = byTestId(await s.tree(), 'native-input').id;
+      const plainId = byTestId(await s.tree(), 'plain').id;
+      const focus = async () => (await s.state()).focus.logical;
+      await s.tap('focus-input'); await settle(s);
+      check(await focus() === input, 'macos native: focus action reaches the editable descendant');
+      await s.type('native-input', 'Hello 한글'); await settle(s);
+      check((await s.state()).slots.inputValue === 'Hello 한글', 'macos native: standard type replaces text through AppKit');
+      await s.type('native-input', 'abc');
+      await s.type('native-input', { key: 'Backspace' }); await settle(s);
+      check((await s.state()).slots.inputValue === 'ab' && (await s.state()).slots.inputEvents.includes('key:Backspace;'), 'macos native: standard key reaches the editor and deletes a character');
+      await s.type('native-input', { key: 'Backspace', for: 10 }); await settle(s);
+      check((await s.state()).slots.inputValue === 'a', 'macos native: held key releases through the same instance');
+      check((await s.state()).slots.inputEvents.split('focus;').length === 2, 'macos native: typing and keys preserve an existing editing session');
+      const unsupported = await s.carrier.ask({ op: 'type', id: input, key: 'Meta+Q' });
+      check(/does not support key/.test(unsupported.error ?? ''), 'macos native: unsupported key is an honest refusal');
+      const passive = await s.carrier.ask({ op: 'type', id: plainId, text: 'no' });
+      check(/refused focus/.test(passive.error ?? ''), 'macos native: a widget without a focus hook refuses input');
+      await s.tap('blur-plain'); await settle(s);
+      check(await focus() === input, 'macos native: targeted blur of another widget preserves ownership');
+      const blurredHold = await s.carrier.input(input, 'key', { key: 'ArrowLeft', phase: 'down', ownedRelease: true });
+      await s.tap('blur-input'); await settle(s);
+      check(await focus() !== input && (await s.state()).slots.inputEvents.endsWith('blur;'), 'macos native: targeted blur resigns the descendant');
+      const blurredRelease = await blurredHold.release().catch(error => ({ error: error.message }));
+      check(/no longer owns focus/.test(blurredRelease.error ?? '') && await focus() !== input, 'macos native: a held release after blur does not reclaim focus');
+      for (const [button, reason] of [['block-input', 'disabled'], ['hide-input', 'hidden'], ['inert-input', 'inert']]) {
+        await s.tap(button); await s.tap('focus-input'); await settle(s);
+        const refused = await s.carrier.ask({ op: 'type', id: input, text: 'forbidden' });
+        check(Boolean(refused.error) && await focus() !== input && (await s.state()).slots.inputValue === 'a', `macos native: ${reason} refuses focus and agent input`);
+        await s.tap(button); await settle(s);
+      }
+      await s.tap('focus-input'); await settle(s);
+      const held = await s.carrier.input(input, 'key', { key: 'ArrowLeft', phase: 'down', ownedRelease: true });
+      await s.tap('toggle'); await settle(s);
+      const retired = await held.release().catch(error => ({ error: error.message }));
+      check(Boolean(retired.error) && await focus() !== input, 'macos native: unmount retires focus and refuses a held release');
+      await s.tap('toggle'); await settle(s);
+    }
     // A plan reload reuses the defined elements (web).
     if (host === 'web') {
       const defined = await s.carrier.evaluate('exact.nativeDefines?.count');
