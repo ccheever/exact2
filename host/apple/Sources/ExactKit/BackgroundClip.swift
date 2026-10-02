@@ -51,6 +51,23 @@ extension NodeView {
         paintGradient(ctx, clip: clip)
     }
 
+    #if os(macOS)
+    /// `draw(_:)`'s background colour and gradients, within the clip.
+    func drawBackground(_ path: NSBezierPath, rounded: Bool) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        if backgroundClip != "border-box" {
+            if surface == nil { paintBackground(ctx, border: path.cgPath, color: true) }
+            return
+        }
+        let bg = color("background_color", .clear)
+        if bg.alphaComponent > 0, surface == nil {
+            bg.setFill()
+            if rounded { path.fill() } else { ctx.fill(bounds) }
+        }
+        if style["background_image"] != nil { paintGradient(ctx, clip: path.cgPath) }
+    }
+    #endif
+
     /// `background-clip: text`: the background colour and gradients inside
     /// the paragraph's glyphs, before the glyphs themselves paint.
     func paintBackgroundThroughText(_ ctx: CGContext, paragraph: Paragraph, spec: Spec, in box: CGRect) {
@@ -93,4 +110,5 @@ extension TextEngine {
         }
         return path
     }
+
 }

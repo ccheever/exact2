@@ -47,7 +47,7 @@ extension NodeView {
     /// Four equal percentage radii can still be elliptical. Keep the declared
     /// unequal-corner overflow fallback, but carry this equal outline alongside
     /// clip-path instead of dropping it when CALayer's circular fast path fails.
-    private var ellipticalClip: CGPath? {
+    var ellipticalClip: CGPath? {
         #if os(macOS)
         let backdrop = layer?.backgroundFilters?.isEmpty == false
         #else
@@ -60,22 +60,13 @@ extension NodeView {
         return BorderPaint.roundedRect(bounds, sizes)
     }
 
+    /// The layer's mask as CSS composes it — `mask-image` over `clip-path`
+    /// over the clip's outline (`BoxMaskIOS.swift`, `BoxMaskMac.swift`) — for
+    /// a filtered box's picture.
     func resolvedClipMask() -> CALayer? {
-        let authored = ClipPath.mask(clipPath, clipRule)
-        guard clipBox == nil, let outline = ellipticalClip else { return authored }
-        let mask = ClipPath.mask(outline)
-        mask?.mask = authored
-        return mask
+        composedMask(shaped: clipBox == nil ? shapedClip() : nil)
     }
 
-    func syncEllipticalClip() {
-        guard surface == nil else { return }
-        #if os(macOS)
-        if boxFilter == nil { layer?.mask = resolvedClipMask() }
-        clipBox?.layer?.mask = ClipPath.mask(ellipticalClip)
-        #else
-        if boxFilter == nil { layer.mask = resolvedClipMask() }
-        clipBox?.layer.mask = ClipPath.mask(ellipticalClip)
-        #endif
-    }
+    /// The clip's outline follows a new size or a backdrop coming or going.
+    func syncEllipticalClip() { applyBoxMask() }
 }

@@ -1039,13 +1039,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         defer { video?.update() }
         layerPaintCache = nil
         let origin = style["transform_origin"]
-        let space = [style["rotate_axis"], style["translate_z"], style["perspective"], style["perspective_origin"], style["backface_visibility"]]
+        let old = style
         style = s
         if s["transform_origin"] != origin { applyTransform() }
-        // LLP 1076 D8: the 3D rows.
-        if [s["rotate_axis"], s["translate_z"], s["perspective"], s["perspective_origin"], s["backface_visibility"]] != space {
-            applyTransform(); applyPerspective()
-        }
+        applySpace(changedFrom: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1306,18 +1303,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
-        let bg = paintsBox ? color("background_color", .clear) : .clear
         // A layout transition's size shows the surface on its own layer.
-        if paintsBox, backgroundClip != "border-box", let ctx = NSGraphicsContext.current?.cgContext {
-            // Within its `background-clip` (LLP 1076 D6).
-            if surface == nil { paintBackground(ctx, border: path.cgPath, color: true) }
-        } else {
-            if paintsBox, bg.alphaComponent > 0, surface == nil {
-                bg.setFill()
-                if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
-            }
-            if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
-        }
+        if paintsBox { drawBackground(path, rounded: rounded) }
         if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.

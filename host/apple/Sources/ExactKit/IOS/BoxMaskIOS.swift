@@ -19,6 +19,9 @@ import UIKit
 extension NodeView {
     /// The layer's mask, rebuilt where the box's size is known (`display`).
     func applyBoxMask() {
+        // A layout transition's surface clips with a mask of its own
+        // (`Surface.swift`) until it ends.
+        guard surface == nil else { return }
         let shaped = shapedClip()
         if let box = clipBox?.layer, box.mask !== shaped { box.mask = clipBox != nil ? shaped : nil }
         guard !hasBoxFilter else { return }
@@ -67,20 +70,23 @@ extension NodeView {
         return g
     }
 
-    /// `clip-path`, masked by the shaped corners when both are there.
+    /// The shaped corners masked by `clip-path` when both are there.
     private func clipMask(shaped: CALayer?) -> CALayer? {
-        guard let path = clipPath else { return shaped }
-        let clip = ClipPath.mask(path, clipRule)
-        clip?.mask = shaped
-        return clip
+        let authored = ClipPath.mask(clipPath, clipRule)
+        guard let shaped else { return authored }
+        shaped.mask = authored
+        return shaped
     }
 
-    /// The border box's shaped outline when the node clips its overflow and
-    /// its corners are shapes the layer's radius cannot say.
+    /// The border box's outline when the node clips its overflow and the
+    /// layer's radius cannot say it: shaped corners, or four equal elliptical
+    /// ones (`ClipPath.swift`).
     func shapedClip() -> CALayer? {
-        guard clipsToBounds || clipBox != nil, let shape = CornerShape(style["corner_shape"]),
-              !(shape.isAppleContinuous && (clipBox?.layer.cornerRadius ?? layer.cornerRadius) > 0) else { return nil }
-        return ClipPath.mask(roundedPath(in: bounds).cgPath)
+        if clipsToBounds || clipBox != nil, let shape = CornerShape(style["corner_shape"]),
+           !(shape.isAppleContinuous && (clipBox?.layer.cornerRadius ?? layer.cornerRadius) > 0) {
+            return ClipPath.mask(roundedPath(in: bounds).cgPath)
+        }
+        return ClipPath.mask(ellipticalClip)
     }
 }
 
