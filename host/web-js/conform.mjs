@@ -384,26 +384,31 @@ async function bootPress(t, report, fail, dist) {
     const url = `http://127.0.0.1:${port}/`;
     S = await open({ host: 'web', app: t.app, url });
     const ev = S.carrier.evaluate;
-    await ev(`location.href = ${JSON.stringify(url)}`).catch(() => {});
     const q = id => `document.querySelector('#exact-root[data-boot] [data-testid="${id}"]')`;
-    let pressed = null;
-    for (const end = Date.now() + 15000; !pressed && Date.now() < end; await new Promise(z => setTimeout(z, 25))) {
-      pressed = await ev(`(() => { const b = ${q('boot-bump')}, w = ${q('boot-words')};
-        if (!b || !w || location.search) return null;
-        if (document.querySelector('#exact-root:not([data-boot])')) return 'late';
-        b.click(); w.focus(); w.value = 'early'; for (const k of ['input', 'change']) w.dispatchEvent(new Event(k, { bubbles: true }));
-        return 'pressed'; })()`).catch(() => null);
+    // Twice: the field edited without focus (the page's focus on <body>),
+    // then focused, which the settled field takes over.
+    for (const focus of [false, true]) {
+      const pass = `${step}${focus ? ', focused' : ''}`;
+      await ev(`location.href = ${JSON.stringify(url)}`).catch(() => {});
+      let pressed = null;
+      for (const end = Date.now() + 15000; !pressed && Date.now() < end; await new Promise(z => setTimeout(z, 25))) {
+        pressed = await ev(`(() => { const b = ${q('boot-bump')}, w = ${q('boot-words')};
+          if (!b || !w || location.search) return null;
+          if (document.querySelector('#exact-root:not([data-boot])')) return 'late';
+          b.click(); ${focus ? 'w.focus();' : ''} w.value = 'early'; for (const k of ['input', 'change']) w.dispatchEvent(new Event(k, { bubbles: true }));
+          return 'pressed'; })()`).catch(() => null);
+      }
+      if (pressed !== 'pressed') { fail(pass, pressed === 'late' ? 'the settled page arrived before the boot document could be pressed' : 'no boot document with boot-bump and boot-words'); continue; }
+      let got = null;
+      const want = `1 early|early|${focus ? 'boot-words' : ''}|1|`;
+      for (const end = Date.now() + 15000; Date.now() < end; await new Promise(z => setTimeout(z, 50))) {
+        got = await ev(`(() => { const r = document.querySelectorAll('#exact-root'), s = document.querySelector('[data-testid="boot-state"]');
+          return r.length === 1 && r[0].dataset.bootMs != null && s ? [s.textContent, document.querySelector('[data-testid="boot-words"]').value, document.activeElement?.dataset.testid ?? '', r.length, document.title].join('|') : null; })()`).catch(() => null);
+        if (got?.startsWith(want)) break;
+      }
+      if (!got?.startsWith(want)) fail(pass, `after adoption: ${got}, not ${want}… (state|field|focus|roots|title)`);
+      report.steps.push({ target: t.name, step: pass, differences: got?.startsWith(want) ? 0 : 1 });
     }
-    if (pressed !== 'pressed') return fail(step, pressed === 'late' ? 'the settled page arrived before the boot document could be pressed' : 'no boot document with boot-bump and boot-words');
-    let got = null;
-    for (const end = Date.now() + 15000; Date.now() < end; await new Promise(z => setTimeout(z, 50))) {
-      got = await ev(`(() => { const r = document.querySelectorAll('#exact-root'), s = document.querySelector('[data-testid="boot-state"]');
-        return r.length === 1 && r[0].dataset.bootMs != null && s ? [s.textContent, document.querySelector('[data-testid="boot-words"]').value, document.activeElement?.dataset.testid ?? '', r.length, document.title].join('|') : null; })()`).catch(() => null);
-      if (got && got.startsWith('1 early|')) break;
-    }
-    const want = '1 early|early|boot-words|1|';
-    if (!got?.startsWith(want)) fail(step, `after adoption: ${got}, not ${want}… (state|field|focus|roots|title)`);
-    report.steps.push({ target: t.name, step, differences: got?.startsWith(want) ? 0 : 1 });
   } catch (e) {
     fail(step, e.message.split('\n')[0]);
   } finally {

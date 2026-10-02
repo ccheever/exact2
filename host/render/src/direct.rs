@@ -241,7 +241,7 @@ pub fn boot_swap_js() -> &'static str {
     concat!(
         "(()=>{let d=document,b=d.querySelector(\"#exact-root[data-boot]\"),",
         "s=d.querySelector(\"#exact-root:not([data-boot])\"),",
-        "m=e=>{let p=[];while(e&&e!=b){p.unshift([...e.parentNode.children].indexOf(e));e=e.parentNode}",
+        "m=e=>{let p=[];while(e&&e!=b){p.unshift([...e.parentNode.children].indexOf(e));e=e.parentElement}",
         "if(!e)return null;let t=s;for(let n of p)t=t?.children[n];return t},",
         "f=m(d.activeElement);",
         "for(let i of self.exact?.q??[]){let t=m(i.target);",
