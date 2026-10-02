@@ -3,8 +3,8 @@
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
  * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`, the web glue's unit tests (`host/web/*.test.mjs`
- * by name), the web JS target's conformance run
+ * `#[ignore = "async lane: …"]`, every web host unit test found by one glob,
+ * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
  * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), then
  * `metrics.mjs --long` (every RULES budget;
@@ -61,7 +61,10 @@ function checks(sha) {
     ['boot', 'bun', ['scripts/boot.mjs']],
     // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30),
     // discovered by one glob so a new test cannot sit outside the lane.
-    ['glue', 'bun', ['test', ...glue]],
+    ['glue', 'env', ['EXACT_GLUE_FAST=1', 'bun', 'test', ...glue]],
+    // This document proof builds Weatherlight's wasm target. Keep it out of
+    // glue's seconds loop while retaining it in the asynchronous lane.
+    ['web-build-test', 'bun', ['test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', 'realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery', '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],

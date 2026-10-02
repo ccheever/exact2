@@ -10,27 +10,38 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const browserUnavailable = existsSync(chrome) ? null : `Chromium is missing at ${chrome}`;
-const linuxHermes = resolve(process.env.HERMES_LIB_DIR ?? resolve(ROOT, '../ibex/linux-vanilla/lib'));
-const linuxHermesHeaders = resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(ROOT, '../ibex/linux-vanilla/hermes-headers'));
-const missingHermes = process.platform === 'linux'
-  ? [linuxHermesHeaders, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map((name) => resolve(linuxHermes, name))].filter((path) => !existsSync(path))
-  : [];
-const weatherlightUnavailable = browserUnavailable ?? (missingHermes.length ? `the Weatherlight wasm build needs provisioned Linux Hermes; missing ${missingHermes.join(', ')}` : null);
+const { executable: chrome, unavailable: browserUnavailable } = chromium();
+function weatherlightPrerequisite() {
+  if (process.env.EXACT_GLUE_FAST === '1') return 'the async glue step does not build apps; the web-build-test step runs this test';
+  if (browserUnavailable) return browserUnavailable;
+  if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
+  if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
+    : resolve(process.env.EXACT_HERMES_DIR ?? resolve(ROOT, '../ibex/ios/Frameworks-vanilla'));
+  const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');
+  const libraries = process.platform === 'linux' ? resolve(process.env.HERMES_LIB_DIR ?? resolve(engine, 'lib')) : resolve(engine, 'macos-static');
+  const hermesc = resolve(process.env.EXACT_HERMESC ?? resolve(ROOT, `../ibex/tools/hermes-vanilla/hermesc-${process.platform === 'linux' ? 'linux' : 'macos'}-${arch}`));
+  const needed = [headers, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map(name => resolve(libraries, name)),
+    hermesc, resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
+    resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];
+  const missing = needed.filter(path => !existsSync(path));
+  return missing.length ? `the Weatherlight wasm build needs its complete Hermes and TypeScript toolchain; missing ${missing.join(', ')}` : null;
+}
+const weatherlightUnavailable = weatherlightPrerequisite();
 let unavailable = browserUnavailable;
 try {
   if (!unavailable) {
     await assertWebDistApp(dist, app);
     if (jsTargetBuild(dist)) throw new Error(`web dist is a JS-target build; document adoption needs app.wasm; run bun host/web/build.mjs ${app.crate('web')} --wasm`);
-    refuseStale('web', resolve(dist, '.exact-build.json'), webChanges(dist, app).app,
+    refuseStale('web', resolve(dist, '.exact-build.json'), webChanges(dist, app).all,
       `bun host/web/build.mjs ${app.crate('web')} --wasm`);
   }
 } catch (error) {
