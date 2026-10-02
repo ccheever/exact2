@@ -94,25 +94,6 @@ const init = `
     style.textContent = '*{scrollbar-width:none!important}*::-webkit-scrollbar{display:none!important}';
     document.head.append(style);
   });
-  // Playwright exposes no phased touchscreen API outside Chromium. For an
-  // app-owned contact (touch-action is not auto), dispatch matching touch
-  // and pointer records with the agent clock. Install before app listeners.
-  globalThis.__exactAgentTouchTime = null;
-  for (const type of ['pointerdown','pointermove','pointerup','pointercancel','touchstart','touchmove','touchend','touchcancel']) addEventListener(type, event => {
-    if ((event.pointerType === 'touch' || type.startsWith('touch')) && Number.isFinite(globalThis.__exactAgentTouchTime)) {
-      try { Object.defineProperty(event, 'timeStamp', { value: globalThis.__exactAgentTouchTime }); } catch {}
-    }
-  }, true);
-  // These engines' Playwright protocols expose a trusted tap but no phased
-  // touch. A recognized contact is used only where CSS or pointer capture has
-  // taken native scrolling out of the gesture. Give that
-  // contact pointer-capture semantics without changing real pointers.
-  const captures = new Map(), synthetic = new Set(), active = new Map(), targets = new Map();
-  globalThis.__exactAgentSyntheticPointers = { captures, synthetic, active, targets };
-  const set = Element.prototype.setPointerCapture, has = Element.prototype.hasPointerCapture, release = Element.prototype.releasePointerCapture;
-  Element.prototype.setPointerCapture = function(id) { if (synthetic.has(id)) captures.set(id, this); else return set.call(this, id); };
-  Element.prototype.hasPointerCapture = function(id) { return synthetic.has(id) ? captures.get(id) === this : has.call(this, id); };
-  Element.prototype.releasePointerCapture = function(id) { if (synthetic.has(id)) captures.delete(id); else return release.call(this, id); };
 `;
 
 async function waitForBoot(page, why = 'the page never booted') {
@@ -122,11 +103,11 @@ async function waitForBoot(page, why = 'the page never booted') {
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
 
-const keyName = code => {
-  if (code.length === 1) return code;
+const keyName = (code, browserOwned = false) => {
+  if (!browserOwned && code.length === 1) return code;
   if (/^Key[A-Z]$/.test(code)) return code;
   if (/^Digit[0-9]$/.test(code)) return code;
-  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
+  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ...(browserOwned ? {} : { Tab: 'Tab', Backspace: 'Backspace' }), ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
   if (!key) throw new Error(`key: unsupported code ${code}`);
   return key;
 };
@@ -171,7 +152,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     address.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
     if (storage !== undefined) address.searchParams.set('storage', storage);
-    await page.goto(address.href);
+    await page.goto(address.href, { waitUntil: 'commit' });
     let boot = await waitForBoot(page, `the page never booted; ${hostLines.join('\n')}`);
     if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) throw new Error(`${name} cannot emulate the required prefers-reduced-transparency: no-preference launch fact`);
     if (plan && !hosted.js) {
@@ -195,8 +176,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };
-    let contact = null;
     const heldKeys = new Map();
+    const emulated = { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'no-preference', 'prefers-contrast': 'no-preference' };
     const focus = async (id, select = true) => {
       const r = await ask({ op: 'focus', id, select });
       if (r.error) throw new Error(r.error);
@@ -210,12 +191,12 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       }, id);
       if (!result.ok) throw new Error(`view ${id} could not take focus`);
     };
-    const browserKey = async (id, opts) => {
+    const browserKey = async (id, opts, browserOwned = true) => {
       if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id);
-      const key = keyName(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+      const key = keyName(opts.key, browserOwned), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
       const release = async () => { await page.keyboard.up(key); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
@@ -226,53 +207,21 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
       return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
     };
-    const syntheticTouch = async (type, points, time) => page.evaluate(({ type, points, time }) => {
-      globalThis.__exactAgentTouchTime = time;
-      const state = globalThis.__exactAgentSyntheticPointers;
-      const changed = [], eventTargets = [];
-      for (const point of points) {
-        if (type === 'pointerdown') state.synthetic.add(point.id);
-        const target = state.captures.get(point.id) ?? state.targets.get(point.id) ?? document.elementFromPoint(point.x, point.y);
-        if (!target) throw new Error(`touch point (${point.x}, ${point.y}) is outside the viewport`);
-        if (type === 'pointerdown') state.targets.set(point.id, target);
-        eventTargets.push(target);
-        const event = new PointerEvent(type, { bubbles: true, composed: true, cancelable: true, pointerId: point.id, pointerType: 'touch', isPrimary: point.primary, button: type === 'pointerdown' ? 0 : -1, buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1, clientX: point.x, clientY: point.y, width: 1, height: 1, pressure: type === 'pointerup' || type === 'pointercancel' ? 0 : 0.5 });
-        try { Object.defineProperty(event, 'timeStamp', { value: time }); } catch {}
-        target.dispatchEvent(event);
-        const touch = new Touch({ identifier: point.id, target, clientX: point.x, clientY: point.y, screenX: point.x, screenY: point.y, pageX: point.x + scrollX, pageY: point.y + scrollY, radiusX: 1, radiusY: 1, force: type === 'pointerup' || type === 'pointercancel' ? 0 : 0.5 });
-        changed.push(touch);
-        if (type === 'pointerup' || type === 'pointercancel') state.active.delete(point.id); else state.active.set(point.id, touch);
-      }
-      const touchType = {pointerdown:'touchstart',pointermove:'touchmove',pointerup:'touchend',pointercancel:'touchcancel'}[type];
-      const touches = [...state.active.values()], touchEvent = new TouchEvent(touchType, { bubbles:true, composed:true, cancelable:true, touches, targetTouches:touches.filter(touch => eventTargets[0].contains(touch.target)), changedTouches:changed });
-      try { Object.defineProperty(touchEvent, 'timeStamp', { value: time }); } catch {}
-      eventTargets[0].dispatchEvent(touchEvent);
-      if (type === 'pointerup' || type === 'pointercancel') for (const point of points) { state.captures.delete(point.id); state.synthetic.delete(point.id); state.targets.delete(point.id); }
-    }, { type, points, time });
-    const phasedTouch = async (type, points, time) => {
-      await syntheticTouch(type, points, time);
-    };
     const carrier = {
-      host: 'web', browser: name, boot, hostLines, evaluate, launchFacts: facts,
+      host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
       async reset() {
-        if (contact) {
-          await syntheticTouch('pointercancel', [{ id: 31, x: contact.x, y: contact.y, primary: true }], contact.t).catch(() => {});
-          contact = null;
-        }
         for (const key of heldKeys.values()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
         await page.evaluate(async () => { sessionStorage.clear(); localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); });
-        await context.clearCookies(); hostLines.length = 0; await page.goto(address.href); this.boot = await waitForBoot(page, 'the reused page never booted');
+        await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
       async prefer(media, pageFacts) {
-        const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
+        const unsupported = Object.entries(media).find(([key, value]) => key === 'prefers-reduced-transparency' && value !== 'no-preference');
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
-        const options = {};
-        if (media['prefers-color-scheme']) options.colorScheme = media['prefers-color-scheme'];
-        if (media['prefers-reduced-motion']) options.reducedMotion = media['prefers-reduced-motion'];
-        if (media['prefers-contrast']) options.contrast = media['prefers-contrast'];
+        Object.assign(emulated, media);
+        const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };
         if (Object.keys(options).length) { await page.emulateMedia(options); await frame(); }
         const pageReply = Object.keys(pageFacts).length ? await ask({ op: 'prefer', page: pageFacts }) : null;
         if (pageReply?.error) throw new Error(pageReply.error);
@@ -290,50 +239,20 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const x = box ? box.x + box.w / 2 : contact?.x, y = box ? box.y + box.h / 2 : contact?.y;
+        const x = box ? box.x + box.w / 2 : undefined, y = box ? box.y + box.h / 2 : undefined;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press' ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
             : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
           const guest = await ask(request);
           if (guest.guest === true || guest.handled === true) { if (guest.error) throw new Error(guest.error); await frame(); return { ...guest, at: [x, y] }; }
         }
-        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts);
+        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts, true);
+        if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
+          const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
+          if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
+        }
         let deliveredAt = [x, y];
-        if (kind === 'down') {
-          if (contact) throw new Error('a contact is already down; use `tap up` first');
-          const px = opts.x ?? x, py = opts.y ?? y;
-          const viewport = page.viewportSize();
-          if (px < 0 || py < 0 || px >= viewport.width || py >= viewport.height) throw new Error(`${name} held touch unsupported: its contact point (${px}, ${py}) is outside the viewport`);
-          const clock = (await ask({ op: 'tags' })).clock;
-          contact = { x: px, y: py, t: clock, elapsed: 0 };
-          await phasedTouch('pointerdown', [{ id: 31, x: px, y: py, primary: true }], clock);
-          const owns = await page.evaluate(({ id, x, y }) => {
-            if (globalThis.__exactAgentSyntheticPointers.captures.has(id)) return true;
-            for (let e = document.elementFromPoint(x, y); e; e = e.parentElement) if (getComputedStyle(e).touchAction !== 'auto') return true;
-            return false;
-          }, { id: 31, x: px, y: py });
-          if (!owns) {
-            await syntheticTouch('pointercancel', [{ id: 31, x: px, y: py, primary: true }], clock);
-            contact = null;
-            throw new Error(`${name} held touch unsupported: Playwright cannot phase the native scrolling contact at this point`);
-          }
-          deliveredAt = [px, py];
-        }
-        else if (kind === 'move') {
-          if (!contact) throw new Error('no contact is down');
-          const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) }, steps = Math.max(1, Math.round(Math.max(0, opts.ms ?? 0) / 16));
-          const from = contact;
-          for (let i = 1; i <= steps; i++) {
-            contact.elapsed += (opts.ms || 16) / steps;
-            await phasedTouch('pointermove', [{ id: 31, x: from.x + (to.x - from.x) * i / steps, y: from.y + (to.y - from.y) * i / steps, primary: true }], contact.t + contact.elapsed);
-          }
-          contact.x = to.x; contact.y = to.y; deliveredAt = [to.x, to.y];
-        } else if (kind === 'hold') { if (!contact) throw new Error('no contact is down'); contact.elapsed += opts.ms ?? 0; deliveredAt = [contact.x, contact.y]; }
-        else if (kind === 'cancel') {
-          if (!contact) throw new Error('no contact is down');
-          deliveredAt = [contact.x, contact.y]; await syntheticTouch('pointercancel', [{ id: 31, x: contact.x, y: contact.y, primary: true }], contact.t + contact.elapsed + 8); contact = null;
-        }
-        else if (kind === 'up') { if (!contact) throw new Error('no contact is down'); deliveredAt = [contact.x, contact.y]; await phasedTouch('pointerup', [{ id: 31, x: contact.x, y: contact.y, primary: true }], contact.t + contact.elapsed + 8); contact = null; }
+        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) throw new Error(`${name} ${kind} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         else if (kind === 'wheel') {
           await page.mouse.move(x, y); await page.mouse.wheel(opts.wheel[0], opts.wheel[1]); deliveredAt = [x, y];
           let same = 0, previous = '';
@@ -348,19 +267,10 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'dblclick') await page.mouse.dblclick(x, y);
         else if (kind === 'press') await page.mouse.click(x, y);
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
-        else if (kind === 'key') return browserKey(id, opts);
-        else if (kind === 'pinch') {
-          const [cx, cy] = opts.at ? [box.x + opts.at[0], box.y + opts.at[1]] : [x, y], d = Math.max(8, Math.min(box.w, box.h) * 0.3), clock = (await ask({ op: 'tags' })).clock;
-          const owns = await page.evaluate(({ x, y }) => { for (let e = document.elementFromPoint(x, y); e; e = e.parentElement) if (getComputedStyle(e).touchAction !== 'auto') return true; return false; }, { x: cx, y: cy });
-          if (!owns) throw new Error(`${name} pinch unsupported: Playwright cannot phase the native scrolling contacts at this point`);
-          const fingers = k => [{ id: 41, x: cx - d * k / 2, y: cy, primary: true }, { id: 42, x: cx + d * k / 2, y: cy, primary: false }];
-          await phasedTouch('pointerdown', fingers(1), clock);
-          for (let i = 1; i <= 8; i++) await phasedTouch('pointermove', fingers(1 + (opts.pinch - 1) * i / 8), clock + i * 16);
-          await phasedTouch('pointerup', fingers(opts.pinch), clock + 136);
-          await frame(); return { pinch: opts.pinch, at: [cx, cy], delivery: 'recognized' };
-        }
+        else if (kind === 'key') return browserKey(id, opts, false);
+        else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
-        return ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? { phase: kind, at: deliveredAt, delivery: 'recognized' } : { at: kind === 'wheel' ? deliveredAt : [x, y] };
+        return { at: kind === 'wheel' ? deliveredAt : [x, y] };
       },
       async screenshot(path) {
         await frame();

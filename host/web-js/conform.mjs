@@ -99,7 +99,7 @@ function diffJSON(a, b, path, out, other = 'js', reference = 'wasm') {
   } else out.push(`${path}: ${reference} ${JSON.stringify(a)?.slice(0, 120)} ${other} ${JSON.stringify(b)?.slice(0, 120)}`);
 }
 function diffJSONFields(a, b, path, out, other, reference) {
-  if (out.length >= 8 || JSON.stringify(a) === JSON.stringify(b)) return;
+  if (JSON.stringify(a) === JSON.stringify(b)) return;
   if (a && b && typeof a === 'object' && typeof b === 'object' && Array.isArray(a) === Array.isArray(b)) {
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJSONFields(a[k], b[k], `${path}.${k}`, out, other, reference);
   } else out.push({ field: `state.${path}`, what: `state ${path}: ${reference} ${JSON.stringify(a)?.slice(0, 120)} ${other} ${JSON.stringify(b)?.slice(0, 120)}` });
@@ -114,7 +114,7 @@ function boxes(l, tree, relative) {
   }
   return m;
 }
-function diffLayout(a, b, treeA, treeB, relative = false, reference = 'wasm', other = 'js') {
+function diffLayout(a, b, treeA, treeB, relative = false, reference = 'wasm', other = 'js', documentA = [0, 0], documentB = [0, 0]) {
   const A = boxes(a, treeA, relative), B = boxes(b, treeB, relative), out = []; let maxDelta = 0;
   for (const [t, x] of A) {
     const y = B.get(t);
@@ -127,6 +127,10 @@ function diffLayout(a, b, treeA, treeB, relative = false, reference = 'wasm', ot
     }
   }
   for (const t of B.keys()) if (!A.has(t)) out.push({ field: `layout.${t}.present`, what: `layout ${t}: on screen in ${other}, not in ${reference}` });
+  if (relative) for (const [i, k] of ['sx', 'sy'].entries()) {
+    const d = Math.abs(documentA[i] - documentB[i]); maxDelta = Math.max(maxDelta, d);
+    if (d > 1) out.push({ field: `layout.$document.${k}`, what: `layout $document.${k}: ${reference} ${documentA[i].toFixed(2)} ${other} ${documentB[i].toFixed(2)} (delta ${d.toFixed(2)} px, tolerance 1 px)`, delta: d });
+  }
   const limited = relative ? out : out.slice(0, 8); limited.maxDelta = maxDelta; return limited;
 }
 function diffPng(a, b, sideBySide, masks = []) {
@@ -191,6 +195,7 @@ async function target(t, report) {
   };
   const dir = resolve(out, t.name); mkdirSync(dir, { recursive: true });
   if (t.urls) {
+    report.targets[t.name] = { jsBuild: true, warnings: 0 };
     await drive(t, report, fail, dir, { url: t.urls[0], close() {} }, { url: t.urls[1], close() {} });
     for (const url of new Set(t.urls)) {
       await activation(t, report, fail, url, 'chrome');
@@ -231,7 +236,7 @@ async function drive(t, report, fail, dir, ws, js) {
     if (crossBrowser) {
       try { J = await open({ host: 'web', browser: crossBrowser, app: t.app, ...facts, url: js.url }); }
       catch (e) { return fail(`${other}-open`, e.message.replace(/\s+/g, ' ').trim()); }
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
       try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
@@ -273,8 +278,11 @@ async function drive(t, report, fail, dir, ws, js) {
         report.steps.push({ target: t.name, step, reference: 'linux', differences: o.length });
       });
       driveAt = `${step} layout`;
-      const [lw, lj] = await pair(() => W.layout(), () => J.layout());
-      const o3 = diffLayout(lw, lj, tw, tj, !!crossBrowser, reference, other); o3.forEach(x => fail(step, x.what, crossBrowser ? x.field : null)); st += o3.length;
+      const [[lw, documentW], [lj, documentJ]] = await pair(
+        async () => [await W.layout(), crossBrowser ? await W.carrier.evaluate('[scrollX, scrollY]') : [0, 0]],
+        async () => [await J.layout(), crossBrowser ? await J.carrier.evaluate('[scrollX, scrollY]') : [0, 0]],
+      );
+      const o3 = diffLayout(lw, lj, tw, tj, !!crossBrowser, reference, other, documentW, documentJ); o3.forEach(x => fail(step, x.what, crossBrowser ? x.field : null)); st += o3.length;
       if (crossBrowser) report.targets[t.name].maxLayoutDelta = Math.max(report.targets[t.name].maxLayoutDelta ?? 0, o3.maxDelta);
       // Paint facts are part of parity even when boxes happen not to overlap.
       if (!crossBrowser) {
@@ -322,12 +330,23 @@ async function drive(t, report, fail, dir, ws, js) {
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
       const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
+      // Playwright cannot make trusted phased touches in Firefox/WebKit.
+      // Ask that carrier first so its named refusal is exercised while the
+      // Chrome oracle remains untouched; the following step starts equal.
+      if (crossBrowser && ['drag', 'down', 'up', 'pinch'].includes(op)) {
+        try { await run(J); fail(line, `${other}: accepted ${op}, which must refuse without trusted phased touches`); }
+        catch (e) {
+          const message = e.message.split('\n')[0];
+          if (!message.includes(`${other} ${op === 'drag' ? 'down' : op} unsupported:`)) fail(line, `${other}: ${message}`);
+          else report.steps.push({ target: t.name, step: line, skipped: `${other}: ${message}` });
+        }
+        continue;
+      }
       try { await run(W); } catch (e) { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; }
       try { await run(J); } catch (e) {
         const message = e.message.split('\n')[0];
-        if (/\bunsupported:/.test(message)) report.steps.push({ target: t.name, step: line, skipped: `${other}: ${message}` });
-        else fail(line, `${other}: ${message}`);
-        continue;
+        fail(line, `${other}: ${message}`);
+        break;
       }
       await onLinux(line, L => LINUX_OPS.includes(op) ? run(L) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
@@ -576,8 +595,8 @@ const apps = urls >= 0 ? [] : named.length ? named : readdirSync(wasmRoot).filte
 const sdir = resolve(here, 'conformance');
 // A plan with its own files (`strings/`) is a directory holding `app.contract`.
 const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
-if (argv.includes('--build')) mkdirSync(wasmRoot, { recursive: true });
-if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
+if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: true });
+if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));
   if (direct) mkdirSync(resolve(wasmRoot, a), { recursive: true });
   const b = direct
@@ -585,7 +604,7 @@ if (argv.includes('--build')) for (const a of new Set([...apps, ...synthetic.map
     : spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, EXACT_WEB_DIST: resolve(wasmRoot, a) } });
   if (b.status !== 0) report.failures.push({ target: a, step: direct ? 'plan-build' : 'wasm-build', what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
 }
-if (linuxRef && argv.includes('--build')) {
+if (linuxRef && argv.includes('--build') && engineReady) {
   // Each data app's binary where agent.mjs runs it (`resolveApp(app).target`):
   // the root workspace's crates in one build; an app in a workspace of its own
   // (Messages, snapback4's) from its manifest into that workspace's target.
@@ -642,6 +661,9 @@ writeFileSync(resolve(out, 'report.md'), lines.join('\n'));
 console.log(lines.slice(0, targets.length + 4).join('\n'));
 console.log(`\n${report.failures.length} failures across ${targets.length} targets; ${resolve(out, 'report.md')}`);
 if (argv.includes('--strict') && report.failures.length) {
-  for (const f of report.failures) console.log(`FAIL ${crossBrowser ? `${crossBrowser} ` : ''}${f.target} ${f.step}: ${f.what.split('\n')[0].slice(0, 200)}`);
+  for (const f of report.failures) {
+    const what = f.what.replace(/\s+/g, ' ').trim();
+    console.log(`FAIL ${crossBrowser ? `${crossBrowser} ` : ''}${f.target} ${f.step}: ${f.target === 'engine' && f.step === 'launch' ? what : what.slice(0, 200)}`);
+  }
   process.exit(1);
 }
