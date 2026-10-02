@@ -255,7 +255,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     };
     return {
-      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -305,11 +305,20 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           }
           try {
             if (fold.posture) await call(fold.posture === 'continuous' ? 'Emulation.clearDevicePostureOverride' : 'Emulation.setDevicePostureOverride', fold.posture === 'continuous' ? {} : { posture: { type: fold.posture } });
-            if (fold.cols != null || fold.rows != null || fold.gap != null) await call(cols * rows === 1 ? 'Emulation.clearDisplayFeaturesOverride' : 'Emulation.setDisplayFeaturesOverride', cols * rows === 1 ? {} : { features: displayFeatures(v.w, v.h, cols, rows, gap) });
+            if (fold.cols != null || fold.rows != null || fold.gap != null) {
+              // Chrome 154: a display feature takes effect only inside a device-metrics override (the carrier's own
+              // viewport, 1:1), carried on it when there is one divider; the list form joins it for a grid.
+              const features = displayFeatures(v.w, v.h, cols, rows, gap);
+              await call('Emulation.setDeviceMetricsOverride', { width: v.w, height: v.h, deviceScaleFactor: 1, mobile: false, ...(features.length === 1 ? { displayFeature: features[0] } : {}) });
+              await call(features.length > 1 ? 'Emulation.setDisplayFeaturesOverride' : 'Emulation.clearDisplayFeaturesOverride', features.length > 1 ? { features } : {});
+              await frame();
+              const reported = await evaluate(`(globalThis.viewport?.segments?.length ?? 1)`);
+              if (reported !== cols * rows && cols * rows > 1) throw new Error(`the browser reports ${reported} segments for ${cols}x${rows}`);
+            }
             foldRequest = {}; // the browser's own readings, re-read
           } catch (error) {
-            if (!/wasn't found|not found|Invalid parameters|unknown/i.test(String(error?.message ?? error))) throw error;
-            foldRequest = fold; // the glue's substitute
+            if (!/wasn't found|not found|Invalid parameters|unknown|Only one display feature|reports \d+ segments/i.test(String(error?.message ?? error))) throw error;
+            foldRequest = fold; // the glue's substitute: the facts and layout.env, not CSS's own resolution
           }
           await frame();
         }
