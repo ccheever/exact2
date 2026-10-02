@@ -104,7 +104,7 @@ const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.cl
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   const server = createServer((req, res) => {
     if (!gate.check(req).allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -119,11 +119,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       return;
     }
     if (url.pathname === '/__dev/checkpoint' && req.method === 'POST') {
-      const id = url.searchParams.get('id') ?? '', n = Number(url.searchParams.get('seq')), chunks = [];
+      const id = url.searchParams.get('id') ?? '', n = Number(url.searchParams.get('seq')), revision = url.searchParams.get('revision') ?? '', chunks = [];
       if (!/^\d+(?:-\d+){3}$/.test(id) || !Number.isSafeInteger(n)) { res.writeHead(400); res.end(); return; }
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
-        try { const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text); checkpoints.set(id, { seq: n, text }); res.writeHead(204); res.end(); }
+        try { const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text); checkpoints.set(id, { seq: n, revision, text }); res.writeHead(204); res.end(); }
         catch { res.writeHead(400); res.end(); }
       });
       return;
@@ -154,6 +154,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       const id = url.searchParams.get('__exactDev'), carried = id && checkpoints.get(id);
       if (carried) {
         checkpoints.delete(id);
+        if (carried.revision !== String(logicRevision ?? '')) {
+          const c = JSON.parse(carried.text);
+          if (c.carryAnswers || c.answers?.length) { c.carryAnswers = false; c.answers = []; carried.text = JSON.stringify(c); }
+        }
         const checkpoint = `<script type="application/vnd.exact.dev-checkpoint" data-seq="${carried.seq}">${carried.text.replaceAll('<', '\\u003c')}</script><script>const u=new URL(location.href);u.searchParams.delete('__exactDev');history.replaceState(history.state,'',u.pathname+(u.search?'?'+u.searchParams:'')+u.hash)</script>`;
         body = body.replace('<script type="module"', checkpoint + '<script type="module"');
       }
