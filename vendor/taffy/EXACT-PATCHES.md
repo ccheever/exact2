@@ -524,6 +524,11 @@ carries the box. The call sites are:
 first tranche left on upstream's `maybe_apply_aspect_ratio`:
 - a flex and a grid container's own size, min and max (`flexbox.rs`
   `compute_flexbox_layout` and `compute_constants`; `grid/mod.rs`);
+- a grid container's parent-assigned dimensions also feed the ratio (2026-10-02):
+  an item stretched to 100px during intrinsic track measurement keeps its 1:1
+  height floor even with an unresolved `height:100%`. The container's ratio floor
+  cannot prematurely become that item's percentage basis. Three literal-Chrome
+  cases in `browser_position.tsv` hold ratio, definite-height and auto parents;
 - grid items, in `grid/alignment.rs::align_and_position_item`, in
   `GridItem::known_dimensions` and in `GridItem::minimum_contribution`, where a
   minimum only the ratio gives (a transferred one, or the floor a derived

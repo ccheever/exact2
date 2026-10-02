@@ -1,6 +1,7 @@
 # A grid item with a percentage height and a ratio, under a ratio container, resolves the percentage against the container's floor
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Grid containers now apply the ratio to parent-assigned dimensions during intrinsic sizing; Chrome 154 and three browser_position.tsv cases agree at 100x100 for the item and 50x50 for its child, with the existing position/ratio and containing-block suite passing.
 **Systems:** vendored Taffy, kernel
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever
