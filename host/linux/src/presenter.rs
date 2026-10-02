@@ -473,7 +473,7 @@ impl<D: DataSource> Presenter<D> {
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
                 // substitute answers (D9).
                 "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
-                    Some(id) => self.show_picker(&id.to_string()),
+                    Some(id) => self.show_picker(id),
                     _ => eprintln!("exact: showPicker requires an element id"),
                 },
                 // @ref LLP 1069.010 D3 — no save panel here: refused with
@@ -992,11 +992,31 @@ impl<D: DataSource> Presenter<D> {
                 }
                 detail.push(']');
             }
-            let _ = write!(
-                detail,
-                ",\"native\":{{\"unavailable\":true}},\"observed\":{{\"clock\":{}}}}}",
-                num(clock)
-            );
+            detail.push_str(",\"native\":{\"unavailable\":true");
+            if let Some(source) = self
+                .host
+                .runner()
+                .kernel()
+                .node(id)
+                .filter(|n| n.node_type == NodeType::Image)
+                .and_then(|n| n.props.str(PropId::ImageSource))
+                .filter(|s| s.starts_with("symbol:"))
+            {
+                let name = &source[7..];
+                let reason = if name == "sf/" {
+                    "empty"
+                } else if !name.starts_with("sf/") && exact_kernel::symbol(name).is_none() {
+                    "role"
+                } else {
+                    "platform"
+                };
+                detail.push_str(",\"symbol\":{\"found\":false,\"source\":");
+                quote(source, &mut detail);
+                detail.push_str(",\"name\":");
+                quote(name.strip_prefix("sf/").unwrap_or(name), &mut detail);
+                let _ = write!(detail, ",\"reason\":\"{reason}\"}}");
+            }
+            let _ = write!(detail, "}},\"observed\":{{\"clock\":{}}}}}", num(clock));
             s.push_str(",\"node\":");
             s.push_str(&detail);
         }

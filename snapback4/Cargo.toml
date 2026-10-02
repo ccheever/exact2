@@ -1,7 +1,7 @@
 # Messages and the optional Snapback adapter resolve private sources here,
 # outside exact2's root lock. External apps still depend on this crate by path.
 [workspace]
-members = ["../apps/messages/web", "../apps/messages/apple", "../apps/messages/linux"]
+members = ["../apps/messages-legacy/web", "../apps/messages-legacy/apple", "../apps/messages-legacy/linux"]
 resolver = "2"
 
 [workspace.package]

@@ -85,6 +85,48 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
 }
 
 #[test]
+fn raw_symbol_names_cross_the_boundary_without_a_catalog() {
+    let plan = contract::compile(
+        r#"component App
+  state source = "symbol:sf/airpodsmax"
+  action missing writes source
+    source = "symbol:sf/exact.nonexistent"
+  action empty writes source
+    source = "symbol:sf/"
+  action restore writes source
+    source = "symbol:sf/airpodsmax"
+  view
+    column
+      image source testId="icon"
+      button "Missing" press=missing testId="missing"
+      button "Empty" press=empty testId="empty"
+      button "Restore" press=restore testId="restore"
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.,
+        874.,
+    )
+    .unwrap();
+    assert!(first.contains("\"symbolName\":\"airpodsmax\""));
+    for (action, expected) in [
+        ("missing", "exact.nonexistent"),
+        ("empty", ""),
+        ("restore", "airpodsmax"),
+    ] {
+        let batch = host.dispatch(view(&host, action), Event::Press);
+        assert!(
+            batch.contains(&format!("\"symbolName\":\"{expected}\"")),
+            "{batch}"
+        );
+    }
+}
+
+#[test]
 fn inherited_text_rows_reach_runs_and_editors_as_computed_values() {
     let plan = contract::compile(SRC).unwrap();
     let (mut host, first) = Host::boot(

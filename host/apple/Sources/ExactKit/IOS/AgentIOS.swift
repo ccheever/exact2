@@ -390,8 +390,12 @@ extension Agent {
         if let key = presenter.navigation.routeKey(containing: host) { native["route"] = key }
         if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = presenter.modals.presentation == "fullscreen" ? "fullscreen" : "sheet" }
         if let leaf = host.symbolView {
-            let size = leaf.image?.size ?? .zero
-            native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
+            let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
+            let points = max(0, host.number("font_size", 16))
+            let size = leaf.image?.size ?? CGSize(width: points, height: points)
+            var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            native["symbol"] = symbol
         }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]

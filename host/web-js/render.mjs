@@ -41,7 +41,7 @@ export function renderer(dist) {
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
   async function begin(location) {
-    const document = createDocument();
+    const document = createDocument(shell);
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },

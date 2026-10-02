@@ -84,6 +84,46 @@ fn until(mut test: impl FnMut() -> bool) {
 }
 
 #[test]
+fn symbols_clear_rasters_without_loading_and_follow_font_size() {
+    let mut k = kernel(1);
+    let mut images = Images::with_assets(assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert!(images.bitmaps.contains_key(&1));
+    for name in ["symbol:sf/airpodsmax", "symbol:sf/", "symbol:unknown"] {
+        source(&mut k, 1, name);
+        assert_eq!(images.sync(&k, &k.roots()), vec![(1, Some((16., 16.)))]);
+        assert!(!images.bitmaps.contains_key(&1));
+        assert!(images.poll().is_empty());
+        assert!(images.views[&1].source_id.is_none());
+        assert!(images.views[&1].refusal.is_none());
+        assert!(images.sync(&k, &k.roots()).is_empty());
+    }
+    let epoch = k.epoch();
+    k.apply(
+        0,
+        epoch + 1,
+        &[Op::SetStyle {
+            id: 1,
+            patch: Box::new({
+                let mut style = exact_kernel::StyleProps {
+                    font_size: 28.,
+                    ..Default::default()
+                };
+                style.mask.set(exact_kernel::StyleId::FontSize);
+                style
+            }),
+        }],
+    )
+    .unwrap();
+    assert_eq!(images.sync(&k, &k.roots()), vec![(1, Some((28., 28.)))]);
+    source(&mut k, 1, "1");
+    assert_eq!(images.sync(&k, &k.roots()), vec![(1, None)]);
+    images.wait(SETTLED);
+    assert_eq!(images.bitmaps[&1].natural(), (17, 11));
+}
+
+#[test]
 fn replacement_keeps_old_pixels_and_geometry_and_drops_cancelled_backing_once() {
     let mut k = kernel(1);
     let mut images = Images::with_assets(assets());

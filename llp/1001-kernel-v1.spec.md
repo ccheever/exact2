@@ -121,7 +121,12 @@ emits the compiler vocabulary and both host mappings. An explicitly set row also
 (LLP 1011 §3–4; 2026-09-27): the image alpha masks the tint. On Apple and
 Linux the box's background and border still paint; on the web the mask still
 covers the whole element (declared below). Linux symbol rendering remains unsupported. This
-is separate from `caret-color`.
+is separate from `caret-color`. `symbol:sf/<name>` passes the opaque name
+straight to Apple's running OS (LLP 1035.004.000; Codex, 2026-10-02).
+Empty/unavailable names and symbols on hosts without their renderer paint
+nothing, with a one-computed-font-size square as fallback intrinsic size.
+This font-sized image source is a declared extension to the web's schemes;
+CSS dimensions, constraints and aspect ratio still determine its box.
 
 `overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
 layout intent with CSS's `normal | break-word | anywhere` vocabulary and

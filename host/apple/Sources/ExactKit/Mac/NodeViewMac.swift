@@ -134,6 +134,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
     var symbolView: NSImageView? { didSet { layerPaintCache = nil } }
+    var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
     var symbolClip: NSView?
@@ -399,6 +400,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         loadGeneration += 1
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         clearSymbol(); image = nil
+        if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
         if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
             imageSource = previousSource; loadGeneration = previousGeneration
@@ -417,7 +419,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     // A symbol remains an image leaf; AppKit owns glyph rendering and tint.
     func clearSymbol() {
-        symbolClip?.removeFromSuperview(); symbolClip = nil; symbolView = nil; symbolKey = nil
+        symbolClip?.removeFromSuperview(); symbolClip = nil; symbolView = nil; symbolKey = nil; symbolFound = false
     }
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
@@ -429,16 +431,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty || points <= 0 ? nil : NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: points, weight: weights[index]))
-            if name.isEmpty, symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
-            if !name.isEmpty { symbolRefusal = nil }
+            image = name.isEmpty ? nil : NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index]))
+            symbolFound = image != nil; if points <= 0 { image = nil }
+            if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
             let leaf = symbolView ?? NSImageView()
             if symbolView == nil {
                 let clip = SymbolClip(); clip.wantsLayer = true; clip.layer?.masksToBounds = true
                 symbolClip = clip; symbolView = leaf; leaf.wantsLayer = true; clip.addSubview(leaf); addSubview(clip)
             }
             leaf.image = image; leaf.setAccessibilityElement(false)
-            let size = image?.size
+            let size = image?.size ?? (points > 0 ? CGSize(width: points, height: points) : nil)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter,
                       presenter.views[self.id] === self else { return }

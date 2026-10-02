@@ -1,593 +1,577 @@
 # Exact
 
-Tooling runs on **Bun 1.4.2**, the version `package.json` pins.
-Run `bun install --frozen-lockfile` to install the dependencies in `bun.lock`.
-The web artifacts build with a pinned nightly Rust and its std sources (LLP 1047);
-everything else uses `rust-toolchain.toml`'s stable. `host/web/build.mjs` prints the
-install commands when they're missing:
-`rustup toolchain install nightly-2026-08-21 --profile minimal --component rust-src`,
-then `cargo +nightly-2026-08-21 fetch` on that toolchain's `library/Cargo.toml`.
-Node and npm are not required. Rolldown remains the app bundler; the existing
-build, serve, watch, and reload scripts run under Bun. Run tooling unit tests with
-`bun test ./scripts/`; the explicit path keeps Bun from searching generated
-fixture checkouts. This is the source
-tooling installation; a standalone CLI distribution is not packaged yet.
+**Write an app once. It runs natively on the web, macOS, iOS, and Linux, and an AI
+agent can build it, run it, see it, and test it on every one of them.**
 
-An app with TypeScript sources (`app.ts`) is baked with Hermes on the machine
-that builds it, for every host (the web's build too: its crate build-depends on
-`exact-js-bake`, which runs `js/build.rs`). `js/build.rs` links the engine and
-the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
-([expo/ibex](https://github.com/expo/ibex)): clone it beside this repo and run
-`./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
-`EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
-them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. An app with a Rust data crate and no `app.ts`
-needs none of this.
+<table>
+  <tr>
+    <th>Web</th>
+    <th>macOS</th>
+    <th>Linux</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/caltrain-web.webp" width="250" alt="Caltrain in Chrome"></td>
+    <td><img src="docs/screenshots/caltrain-macos.webp" width="250" alt="Caltrain as a native macOS app"></td>
+    <td><img src="docs/screenshots/caltrain-linux.webp" width="250" alt="Caltrain painted by the Linux host"></td>
+  </tr>
+  <tr>
+    <td>The browser's own DOM and CSS</td>
+    <td>AppKit views, CoreText, Metal sky</td>
+    <td>Painted by vello / tiny-skia, headless here</td>
+  </tr>
+</table>
 
-Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
-in `bun.lock`; Cargo pins native devices and schema compilers to the matching
-release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
-Run `bun install --frozen-lockfile` before baking Messages, and use the pinned CLI
-with `bun run --bun snapback4` from an app directory.
-Messages and the optional `exact-snapback4` adapter belong to the separate
-`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
-commands need no Snapback access. The ordinary Messages build commands select
-that workspace automatically; direct Cargo commands use
-`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
-dependency on `snapback4/`.
+<sub>One <code>app.contract</code>, three hosts, captured by the agent driver from this
+checkout. (The aurora behind the macOS and web versions is an optional GPU module.)</sub>
 
+Exact is a cross-platform application runtime. You describe your interface in
+**Contract**, a small declarative language, and you write your data logic in
+**TypeScript or Rust**. The Contract compiler turns the interface into a compact
+*plan*. On the web, that plan becomes one ES module over a ~20 KB runtime that drives
+the real DOM. On macOS, iOS, and Linux, a Rust runner executes the same plan, a Rust
+layout kernel computes every box with CSS rules, and each platform draws with its own
+tools: AppKit, UIKit, or a GPU painter. There is no webview and no JavaScript bridge
+in the UI, and no app JavaScript runs before the first pixel.
 
-A cross-platform application runtime. The Rust kernel computes layout, each platform
-renders natively, and Contract is the authoring model.
+> [!NOTE]
+> Exact is pre-1.0 and changes daily. There is no API stability, no backwards
+> compatibility, and no migration guide, by design (`rules/DEFERRED.md`). This
+> repository, `exact2`, is a rebuild of an earlier one ("exact1"). Its design documents
+> are imported under `llp/research/` as research, never as authority.
 
-Surfaces: web, macOS, iOS, Linux.
+## Contents
 
-Start here:
+- [Three principles](#three-principles)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Contract](#contract)
+- [Example apps](#example-apps)
+- [What works today, and what doesn't yet](#what-works-today-and-what-doesnt-yet)
+- [Repository map](#repository-map)
+- [Working on Exact](#working-on-exact)
 
-- **`rules/RULES.md`** — how work happens here. One page. Read it before your first PR.
-- **`rules/DEFERRED.md`** — what v1 deliberately excludes, and why.
-- **`llp/1000-exact2-root.explainer.md`** — the map: what exists, what is next, how the
-  design corpus is laid out.
+## Three principles
 
-The predecessor repo is research, not authority: cite it for how something worked,
-never to block. Its design documents are imported under `llp/research/`.
+### 1. Agent native
 
-## What exists
+Exact assumes much of the code will be written by AI agents. An agent can make an app,
+run it, look at it, operate it, and prove it works without a person in the loop.
 
-| Crate | What it is | Spec |
+- **Nine operations, the same on every host.** `tree · screenshot · tap · type · state
+  · layout · logs · clock · prefer` drive the web, macOS, iOS (Simulator or a real
+  iPhone), and Linux through one script, `scripts/agent.mjs`. There are nine on purpose:
+  the predecessor's agent API grew to eighty wire names, one reasonable addition at a
+  time.
+- **The clock belongs to the agent.** Between two operations nothing moves. Instead of
+  sleeping until an animation finishes, the agent says `clock +60000` or
+  `clock settle` and reads the result. No timing flakes, no waits.
+- **Tests are scripts of those operations.** An `app.test.contract` file runs unchanged
+  on any host, with no second evaluator.
+- **Every tool speaks to machines.** `contract build --json` gives diagnostics with
+  stable ids and source ranges. `contract symbols` gives navigation. A development
+  source map leads from any node on screen back to the line that declared it.
+  The driver refuses to drive a build older than its sources and names the rebuild.
+- **Contract is small on purpose.** A whole app fits in a context window. Every write
+  is declared, every list is keyed, every value is typed. Mistakes are refusals that
+  say what to do, not quiet misbehavior.
+
+```sh
+bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" \
+  "clock +60000" state "screenshot out.png"
+```
+
+### 2. Speed is king
+
+Speed of the app and speed of the loop. Each budget in `rules/RULES.md` is tracked on
+every commit, and a regression is a P0 with a name on it.
+
+| Budget | Target |
+|---|---|
+| Cold start to interactive first frame | 100 ms p50 |
+| Dev restart, edit to present | 100 ms p50 |
+| App JavaScript executed before first pixel | none |
+| Touch one line, rebuild that crate | 30 s |
+| The whole blocking check suite | 60 s |
+
+How the design keeps those numbers:
+
+- **The boot path executes and compiles nothing.** TypeScript is compiled to Hermes
+  bytecode at build time and loads after the first pixel. The first frame comes from
+  data baked into the plan.
+- **Pay only for what you use.** GPU rendering, the Markdown editor, text flow, and
+  browser SQLite are separate artifacts, loaded on demand. Nothing is a feature flag
+  on a core crate.
+- **The web gets its own small runtime.** On the RealWorld ("Conduit") benchmark,
+  Exact's runtime was up about 300 ms before the React SSR build had hydrated. It used
+  26 KB of code against React's 81 KB
+  ([LLP 1071](llp/1071-exact2-web-target.rfc.md)).
+- **Edits land in about a tenth of a second.** On a fresh app made by `exact new`, a
+  saved Contract or TypeScript edit was rebuilt and in the page in 99 ms.
+
+### 3. The web is the standard
+
+When a default, a property name, a value, or a behavior could follow CSS or follow
+something else (React Native's Yoga, UIKit, AppKit), Exact follows CSS, even where a
+CSS reset would usually override it.
+
+- A bare node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
+  `flex-shrink: 1`, the same as a bare `<div>`.
+- Properties are CSS's: `font-size`, `object-fit`, `text-overflow`, `line-clamp`,
+  `light-dark()`, `env(safe-area-inset-top)`. The compiler refuses an alias and names
+  the web's spelling.
+- The browser is the parity oracle. Native layout, Canvas 2D, SVG, gradients, and
+  motion are checked against what Chrome draws.
+- The web is also the development loop. You work on the seconds-long web loop, and the
+  native hosts are swept behind you.
+- Any unavoidable deviation is declared, with its reason, in
+  [`llp/1001-kernel-v1.spec.md`](llp/1001-kernel-v1.spec.md). For example, Taffy has no
+  `position: static`.
+
+Following the web doesn't mean the lowest common denominator. Where a platform can do
+more (real HTML in an SVG `foreignObject` on the web, MapKit through a native module on
+Apple), Exact lets it.
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph author["You write"]
+    C["app.contract<br/>view · state · actions"]
+    D["app.ts or a Rust crate<br/>data sources"]
+  end
+  C --> K["Contract compiler"] --> P["plan<br/>tables + bytecode"]
+  P --> W["Web<br/>one ES module, ~20 KB runtime,<br/>the browser's DOM and CSS"]
+  P --> R["Rust runner<br/>+ layout kernel (Taffy)"]
+  R --> M["macOS<br/>AppKit + CoreText"]
+  R --> I["iOS<br/>UIKit + CoreText"]
+  R --> L["Linux<br/>vello GPU / tiny-skia CPU"]
+  D -.->|answers, checked against declared shapes| W
+  D -.-> R
+```
+
+- **Contract** (`contract/`) is compiled in four passes: syntax, types, analysis, and
+  lowering. At build time the plan is *baked*: constant data is evaluated into it, so
+  the first frame needs nothing else.
+- **The runner** (`runner/`) is the plan's virtual machine. It handles keyed component
+  instances, events, timers on a seekable clock, and the data seam.
+- **The kernel** (`kernel/`) is a columnar node arena with CSS layout through a patched
+  [Taffy](vendor/taffy/EXACT-PATCHES.md). The host measures text: CoreText on Apple,
+  cosmic-text on Linux. On the web, the browser lays out the same CSS itself, so the web
+  build carries no layout engine.
+- **Hosts** (`host/`) present the tree. The web host writes DOM nodes, and the browser
+  runs CSS transitions. The Apple host is a static library with a C ABI under AppKit and
+  UIKit presenters. The Linux host paints the tree itself, onto DRM/KMS with evdev
+  input, or into an offscreen buffer.
+- **Data sources** sit below one seam. TypeScript runs on Hermes on native hosts and in
+  the browser's own engine on the web. Rust runs natively, and can be replaced live
+  (as a shared library, or as Wasm on iOS and the web). Every answer is checked against
+  the shape Contract declared. Grants control network, files, SQLite, and secrets.
+- **Optional pieces** are separate artifacts: a wgpu GPU module (Metal on Apple, WebGPU
+  in the browser), native modules (a hyphenated tag backed by a platform widget, like
+  MapKit), and a [game engine](game/README.md) add-on.
+
+## Quick start
+
+These steps were run on macOS on Apple Silicon. Linux works for the web loop and the
+Linux host.
+
+### 1. Install the tools
+
+- **Rust** through [rustup](https://rustup.rs). The pinned stable toolchain in
+  `rust-toolchain.toml` installs itself the first time Cargo runs.
+- **[Bun](https://bun.sh) 1.4.2**, the version `package.json` pins. Node and npm are
+  not needed.
+- **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
+  use another Chromium.
+- **Xcode**, for the macOS and iOS hosts.
+- **Hermes**, only for TypeScript apps on native hosts. Clone
+  [expo/ibex](https://github.com/expo/ibex) beside this repository and build it once:
+  `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
+- **A pinned nightly**, only for the wasm artifacts (games, delivery bakes, a native
+  client following a dev URL):
+  `rustup toolchain install nightly-2026-08-21 --profile minimal --component rust-src`.
+  The build prints this command when it needs it.
+
+### 2. Run Caltrain in the browser
+
+```sh
+git clone https://github.com/ccheever/exact2.git
+cd exact2
+bun install --frozen-lockfile
+bun host/web/dev.mjs            # Caltrain, at http://127.0.0.1:8765/
+```
+
+The first run compiles the toolchain, which takes a few minutes. After that, open
+[`apps/caltrain/app.contract`](apps/caltrain/app.contract), change some text, and save.
+The page rebuilds and reloads in about a tenth of a second. Add `--lan` to open the
+same page from a phone on your network.
+
+### 3. Run it natively
+
+```sh
+bun host/apple/build.mjs --run              # macOS
+bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run for a connected iPhone)
+cargo build --release -p caltrain-linux     # Linux: a DRM/KMS console, or headless anywhere
+```
+
+### 4. Drive it the way an agent does
+
+```sh
+bun host/web/build.mjs caltrain-web         # the build the agent's web host serves
+bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" state "screenshot out.png"
+bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
+```
+
+Swap `web` for `macos`, `ios`, or `linux` once that host is built. Caltrain's three
+tests take about two seconds on the web host. `"screenshot film.png over 600 every 50"`
+films motion as a contact sheet; use an `.apng` name to get an animation.
+
+### 5. Make your own app
+
+```sh
+bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exact new ../hello`
+cd ../hello
+bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
+bun exact.mjs mac --run                     # this Mac
+bun exact.mjs ios --run                     # an iOS Simulator
+```
+
+`exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
+`app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
+`apple/` host crates. It has its own Cargo workspace, which uses your exact2 checkout
+by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
+
+```sh
+EXACT_APP_DIR=../hello bun host/web/build.mjs hello-web
+EXACT_APP_DIR=../hello bun scripts/agent.mjs web --app hello tree "screenshot hello.png"
+```
+
+`bun scripts/exact.mjs` also runs apps from this repository as real Mac apps:
+`exact run markdown README.md`, or `exact install markdown` to put `mdview` on your
+`PATH`. `exact list` shows what's here.
+
+## Contract
+
+Contract describes what an app shows and how its state changes. It doesn't fetch, read
+files, or run arbitrary code. That's what data sources are for. Here is a complete app
+in a Contract file, a TypeScript file, and a test. This exact app was built and run on
+the web host, and its test passed.
+
+```
+// app.contract
+shape Todo
+  id: string
+  title: string
+  done: bool
+
+style Card
+  padding=16 border-radius=12
+  background-color="light-dark(#f2f2f5, #1c1c1e)"
+
+component Todos
+  state showDone = true
+  resource todos = todos() as shape list<Todo>
+  derive shown = filter(todos, t => showDone or not t.done)
+
+  action toggle writes showDone
+    showDone = not showDone
+
+  view
+    column padding=24 gap=12
+      text `${length(shown)} of ${length(todos)}` font-size=28 font-weight=700 testId="count"
+      each t in shown key=t.id
+        row class=Card gap=8 testId=`todo-${t.id}`
+          text (t.done ? "✓" : "○")
+          text t.title
+      button press=toggle padding=12 testId="toggle"
+        text (showDone ? "Hide done" : "Show done")
+```
+
+```ts
+// app.ts: answers the sources app.contract asks for
+import type { Answer, Sources } from './app.contract.d.ts';
+
+export const appId = 'com.example.hello';
+export const grants = '';  // e.g. 'net.fetch https://api.example.com'
+
+const sources: Sources = {
+  todos: () => [
+    { id: 'contract', title: 'Describe the screen in Contract', done: true },
+    { id: 'source', title: 'Answer its data in TypeScript', done: false },
+    { id: 'ship', title: 'Run it on four platforms', done: false },
+  ],
+};
+
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+```
+
+<img src="docs/screenshots/todos.webp" width="300" align="right" alt="The Todos example running on the web host">
+
+```
+// app.test.contract: runs on any host with `agent.mjs <host> --test`
+test "hiding finished items"
+  expect text "count" == "3 of 3"
+  tap "toggle"
+  expect text "count" == "2 of 3"
+  expect tree missing "todo-contract"
+```
+
+<br clear="right">
+
+### The pieces
+
+| Concept | What it is |
+|---|---|
+| `shape` | A closed record type. Fields are `number`, `string`, `bool`, another shape, `option<T>`, or `list<T>`. |
+| `component` | A unit of UI. The first one in a file is the root. Components take `props`, can `inject` what an ancestor `provide`s, and can fill a `slot` with `children`. |
+| `state` | A value the component owns. Under an `each`, child state belongs to that keyed row. |
+| `derive` | A value computed from others, recomputed when they change. |
+| `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
+| `mutation` / `send` | A write to a source, with `pending(x)` and `failed(x)` to show progress. |
+| `action … writes …` | The only place state changes. The `writes` list is required and checked. |
+| `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
+| `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |
+| `style` / `class=` | A named set of CSS properties. The node's own attributes win, and there is no cascade. |
+| `fn`, `map` / `filter` / `join` | Pure, single-expression helpers. Recursion is refused. |
+| `routes` | A router: a location and a retained stack per tab, moved with `open`, `push`, `replace`, and `back`, and read with `top`. |
+| `font` | Declares a font family and binds it to files at build time. |
+| `use … from "./x.contract"` | Imports components, shapes, styles, and `fn`s from another Contract file. |
+| `testId` | A stable name for the agent, tests, and accessibility tools. |
+
+### What Contract leaves out, and why
+
+- **No JavaScript in the view, and no I/O.** Expressions have no effects. Effects
+  happen only in actions, as assignments, `send`, `refresh`, or commands like
+  `focus(…)` and `share(…)`. Data crosses one seam: a source answers, and the runner
+  checks the answer.
+- **No loops, no `let`, no `await`.** A list is an `each`, a computation is a
+  `derive` or a `fn`, and anything slower lives in a source. That's what lets the plan
+  be baked, diffed, inspected, and executed the same way on four hosts.
+- **No escape hatch.** Where an app needs a platform widget, it uses a *native
+  module*: a hyphenated tag like `native-map`, backed by Swift or Rust, laid out by the
+  kernel like any other box.
+
+These limits serve the principles. An agent can't wire up a data race it can't write.
+A plan with no JavaScript in it starts fast. A view written in CSS's own words means
+the same thing on every host.
+
+### The compiler talks back
+
+```sh
+$ cargo run -q -p contract -- build app.contract
+app.contract:4:5 [analyze-write-not-declared] `increment` writes `count` but does not declare it: add `writes count`
+app.contract:7:30 [lower-unknown-attr] `text` has no attribute `size`; `size` is spelled `font-size` here, the web's name (LLP 1017 §8.1)
+```
+
+One run reports up to twenty independent errors, not just the first. Other subcommands:
+`--json` for tools, `symbols` (definitions and references as JSON), `fmt`
+(source-preserving), `types` (generates `app.contract.d.ts` for TypeScript sources),
+and `rust` (shapes for a Rust data crate). The full language is specified in
+[LLP 1006](llp/1006-contract-compiler-v1.spec.md),
+[LLP 1017.000](llp/1017.000-contract-v1-1.spec.md) (v1.1), and
+[LLP 1017.003](llp/1017.003-map-filter-join.spec.md). Data sources are covered in
+[LLP 1027](llp/1027-typescript-data-sources.rfc.md).
+
+## Example apps
+
+Each app lives in [`apps/<name>/`](apps). Run one on the web with
+`bun host/web/dev.mjs --app <name>`, on macOS with
+`bun host/apple/build.mjs <name>-apple --run`, and on iOS by adding `--ios`. All of
+these screenshots come from the web host, taken by `scripts/agent.mjs`.
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/screenshots/caltrain-web.webp" width="200" alt="Caltrain"></td>
+    <td width="25%"><img src="docs/screenshots/weatherlight.webp" width="200" alt="Weatherlight"></td>
+    <td width="25%"><img src="docs/screenshots/spark.webp" width="200" alt="Spark"></td>
+    <td width="25%"><img src="docs/screenshots/expose.webp" width="200" alt="Expose"></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="apps/caltrain"><b>Caltrain</b></a><br>The app that defines v1: nearby stations, live departure boards, search, theming, a Canvas 2D line map, and an aurora GPU sky. Rust data. Every host.</td>
+    <td><a href="apps/weatherlight"><b>Weatherlight</b></a><br>Weather from Open-Meteo under a GPU-animated sky that follows the hour you pick. TypeScript data and a wgpu module.</td>
+    <td><a href="apps/spark"><b>Spark</b></a><br>A swipe deck: throw a card with your finger, and it flies off with your release velocity. Pan gestures and springs on every host.</td>
+    <td><a href="apps/expose"><b>Expose</b></a><br>A pretend phone OS (lock screen, home, Messages with an AI assistant, Reader) set in custom fonts. TypeScript. The assistant needs an OpenRouter key.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/calendar.webp" width="200" alt="Calendar"></td>
+    <td><img src="docs/screenshots/sparkline.webp" width="200" alt="Sparkline"></td>
+    <td><img src="docs/screenshots/photo-editor.webp" width="200" alt="Photo Editor"></td>
+    <td><img src="docs/screenshots/video-player.webp" width="200" alt="Video Player"></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="examples/ios/calendar"><b>Calendar</b></a><br>Month pages, draggable sheets, events dragged between days, wallpaper themes, SQLite. It lives outside <code>apps/</code>, so set <code>EXACT_APP_DIR</code> to run it.</td>
+    <td><a href="apps/sparkline"><b>Sparkline</b></a><br>A market list of animated SVG charts that draw in and pulse.</td>
+    <td><a href="apps/photo-editor"><b>Photo Editor</b></a><br>Rotate, pan, and crop, through a native module.</td>
+    <td><a href="apps/video-player"><b>Video Player</b></a><br>A bundled clip that shrinks out of the way when the keyboard opens.</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/exact-live.webp" width="420" alt="Exact Live"></td>
+    <td width="50%"><img src="docs/screenshots/interaction-gallery.webp" width="420" alt="Still, the interaction gallery"></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="apps/exact-live"><b>Exact Live</b></a><br>A creative-production workspace: a photo grid you reorder by dragging, a crew chat that can take a 10,000-message burst, and a Markdown runbook. Rust data.</td>
+    <td><a href="apps/interaction-gallery"><b>Still</b> (Interaction Gallery)</a><br>Drag to reorder, pan and zoom photos, a resizable sheet with a nested list, and 100 to 25,000 records.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/reflow.webp" width="420" alt="Reflow"></td>
+    <td><img src="docs/screenshots/textflow.webp" width="420" alt="Textflow"></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="apps/reflow"><b>Reflow</b></a><br>Seven typography studies after Cheng Lou's Pretext demos: text flowing around moving balls, a dragon, masonry, and a magazine spread. Line heights come from font metrics read at build time.</td>
+    <td><a href="apps/textflow"><b>Textflow</b></a><br>Text around shapes with CSS's <code>shape-outside</code> and <code>wrap-flow</code>: draggable orbs, a dancer, an editorial layout. One Rust walker shared by every host.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/markdown.webp" width="420" alt="Markdown reader"></td>
+    <td><img src="docs/screenshots/realworld.webp" width="420" alt="Conduit, the RealWorld app"></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="apps/markdown"><b>Markdown</b></a><br>A Markdown reader that opens files from Finder or the command line (<code>mdview README.md</code>). Its sibling <a href="apps/llp"><b>LLP</b></a> (<code>llpview</code>) reads this repository's design corpus.</td>
+    <td><a href="apps/realworld"><b>Conduit</b> (RealWorld)</a><br>The RealWorld Medium clone against its hosted API. It's the benchmark that compared Exact's web build with React 19. Web only.</td>
+  </tr>
+</table>
+
+<table>
+  <tr><td><img src="docs/screenshots/svg-gallery.webp" width="860" alt="SVG Gallery"></td></tr>
+  <tr><td><a href="apps/svg-gallery"><b>SVG Gallery</b></a>: SVG as the browser renders it, one page per feature, held to Chrome's pixels on every host.</td></tr>
+  <tr><td><img src="docs/screenshots/canvas-gallery.webp" width="860" alt="Canvas Gallery"></td></tr>
+  <tr><td><a href="apps/canvas-gallery"><b>Canvas Gallery</b></a>: the HTML Canvas 2D API drawn by the browser, Core Graphics, or tiny-skia, and compared to Chrome.</td></tr>
+</table>
+
+### More apps, labs, and stress tests
+
+| App | What it shows | Notes |
 |---|---|---|
-| `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |
-| `motion/` (`exact-motion`) | CSS `transition` semantics over `translate`/`scale`/`rotate`/`opacity`, one spring, a seekable clock. The web executes it as CSS; everywhere else this crate does. | LLP 1002 (decision), LLP 1003 (spec) |
-| `plan/` (`exact-plan`) | The plan format: tables, bytecode, and the validating decoder, generated from one JSON authority. Depends on nothing. | LLP 1005 |
-| `runner/` (`exact-runner`) | The plan runner: VM, keyed instances, kernel ops, events, timers under a seekable clock, the data seam. | LLP 1005 |
-| `contract/` | The Contract compiler in Rust: `syntax` → `types` → `analyze` → `lower`, the `contract` driver and CLI, and the corpus. | LLP 1004 (decision), LLP 1006 (spec) |
-| `apps/fieldnotes/` | Offline notes: Contract UI, TypeScript sources, SQLite persistence, and JSON file backup/restore. See its [README](apps/fieldnotes/README.md). | LLP 1027 |
-| `apps/markdown/` | A Markdown reader: the parser and block model both readers share, and the general one-file app. `mdview`. See its [README](apps/markdown/README.md). | LLP 1033 |
-| `apps/llp/` | The same reader specialised for an LLP corpus: numbered index with sub-documents, search over every document's text, section outline, `LLP 1234` as a link. `llpview`. See its [README](apps/llp/README.md). | LLP 1033 |
-| `apps/caltrain/` | The v1 app: `app.contract`, its Rust data crate, and its wasm crate; the end-to-end fixture. | — |
-| `apps/exact-live/` | A creative production workspace combining photo zoom, scene ordering, crew chat and a runbook. The [browser preview](https://exact-live.tuft.host/) passes 19 interaction checks; native delivery and connected jobs remain in progress. See its [README](apps/exact-live/README.md). | LLP 1041 §8 |
-| `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
-| `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `bun host/apple/build.mjs --run`; `bun host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
-| `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --release -p caltrain-linux`. | LLP 1015 |
-| `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`bun host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
-| `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
-
-All four surfaces run the app; `QUEUE.md` is the ordered list of what would
-make sense to do next.
-
-## Serve RealWorld
-
-RealWorld's public pages can be served by the native renderer:
-
-```sh
-EXACT_WEB_DIST=target/realworld-dist bun host/web/build.mjs realworld-web
-cargo run --release -p realworld-web --bin realworld-render -- --serve target/realworld-dist --port 8080 --name Conduit
-```
-
-The home feed, articles and profiles arrive as anonymous HTML. Their public
-responses are cached for 60 seconds by default (`--lifetime` changes this).
-Links work without the runtime, which loads when the page is idle; a press
-made before it is ready is replayed once it is. Login and editing routes
-start the client normally. The renderer compresses what it sends (brotli, else
-gzip, by `Accept-Encoding`), and SIGTERM drains it. Reading-page transfer and
-the later runtime download are separate costs. With `--generations <dir>` it
-keeps the builds of `app.wasm` it has served, and a browser holding an earlier
-one gets the new build as a delta against it (LLP 1047.000 §9): after a
-one-line app change, 9.5 KB instead of 238.6.
-
-## Inspect and format Contract
-
-```sh
-cargo run -q -p contract -- build apps/messages/app.contract --json
-cargo run -q -p contract -- build apps/messages/app.contract -o /tmp/messages.plan --map
-cargo run -q -p contract -- symbols apps/messages/app.contract
-cargo run -q -p contract -- symbols apps/messages/app.contract --name selectRecipient
-cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
-cargo run -q -p contract -- fmt --check apps/messages/app.contract
-```
-
-`symbols` prints JSON with `definitions` and `references`. Each reference's
-`to` is an index into `definitions`; locations include the original file,
-1-based line and byte column, and an exclusive `end_col`. Component interfaces,
-local bindings, parameters, typed shape fields, font families and literal IDs are navigable.
-Shared shape/function/style/font files can be queried directly. The query uses the
-compiler's import and type rules and writes no files. Repeated literal IDs have
-an edge to each matching declaration; dynamic IDs have no static target.
-An action's definition carries `writes`: the states and mutations its body
-assigns or sends, inferred (an action declares none), in slot order: router
-state, states, then mutations, each as declared.
-
-`--name <exact-name>` returns all matching definitions across scopes and their
-references, with `to` indices into that response's smaller `definitions` array.
-Names are exact and case-sensitive, not patterns; no match returns empty arrays.
-The complete source graph is still checked. `symbols --help` shows the syntax.
-
-`build --json` writes one diagnostics array to stdout: `[]` on success, or a
-stable `id`, `message`, original `file`, `line`, `col`, `end_col`, and `related`
-array per refusal. Compilation returns the first refusal. Action-interface
-mismatches link the invocation, declaration and caller binding, each with its
-own source file, including forwarded props and injected actions. Locations use the same byte columns as symbols; zero
-means no source range, and a null file means no file is associated. No prose is
-mixed into JSON, including argument and output-write failures. Exit codes are
-0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
-`-o <file.plan>` writes the same plan bytes in either output mode.
-
-`build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
-SHA-256 of the plan bytes. Each plan node has its original file and range,
-component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
-including state and actions lifted from child components. Maps are separate
-files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
-`compile_path_mapped` and `compile_path_source_mapped` return the map alongside
-the plan; `SourceMap::bake_error` resolves measured layout refusals, and
-`SourceMap::json` takes the final encoded bytes after baking. A consumer must
-verify the map's digest against the plan actually accepted by its session.
-The resident Contract, TypeScript and portable Rust producers emit maps after
-baking. Temporary source captures retain the original app filenames. The dev
-server keeps the matching map at the generation's `app.plan.map.json` URL,
-declared under `dev.sourceMap`; it is never an asset or module payload. Static
-builds and production publication omit it. `agent.mjs ... "layout <target>"`
-reads the map beside `--plan` or from the development `--url`/`EXACT_DEV_PLAN`
-envelope. It shows the declaration, component callers and winning authored style
-origins only when the same node reply carries the matching plan digest. The
-runner computes that digest lazily once per accepted plan; ordinary inspection
-does no hashing. Missing, invalid or stale maps leave geometry available with a
-source-unavailable explanation. The driver retains four recent map digests for
-sessions that keep an older plan after a refused reload. A fresh driver may lack
-that older map and refuses the join. “Compatible source map” means the compiled
-plan matches: formatting-only edits can change source locations without changing
-the plan, so this is not an original-source revision guarantee.
-
-`fmt --stdout` previews source-preserving formatting; `--check` prints a diff
-and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
-explicitly. Formatting never runs automatically on save.
-
-## Run an app from a terminal on macOS
-
-```sh
-bun scripts/exact.mjs list                       # the apps here, and their commands
-bun scripts/exact.mjs run markdown README.md     # build and launch, log on this terminal
-bun scripts/exact.mjs install markdown           # ~/Applications/Markdown.app + `mdview`
-mdview README.md                                  # from anywhere, reusing a running copy
-```
-
-`bun link` (or a symlink into a directory on `PATH`) makes it plain `exact`.
-Both verbs launch the executable inside `<Name>.app`, so the process has the
-app's bundle identity: its name in the menu bar, its Dock tile, and the
-document types Finder's Open With reads. `install` also writes a shim named by
-the manifest's `app.command` into the first of `~/.local/bin`, `/usr/local/bin`,
-`~/bin` that is already on `PATH` (`EXACT_BIN_DIR` overrides), and prints the
-line to add when none is.
-
-An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
-Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
-it. A path from the command line, from Finder, from ⌘O, or from a link inside
-a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). `exact uninstall <app>` takes both halves away.
-
-Apple products and Swift caches live under the resolved app's target directory,
-scoped by canonical source directory, manifest id, destination, composition and
-trust policy. `--bundle` prints the stable Mac bundle at
-`<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
-`agent --app` and metrics use that same resolver. `--host` leaves both standalone
-and sample products; simulator and device bundles have separate destinations.
-Two apps can build together. A second Apple build of the same source/app fails
-with its owner's PID and lock path before baking; remove a stale lock only after
-verifying that owner is no longer running. Failed packaging retains the previous
-complete product. `EXACT_MAC_BIN` remains an explicit diagnostic override, checked
-against the selected app's embedded identity before the driver launches it.
-
-## Open the same development URL on Apple hosts
-
-Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
-and launch the app's native client with that same address:
-
-```sh
-bun host/apple/build.mjs --run --url http://127.0.0.1:8765/
-bun host/apple/build.mjs --ios --run --url http://127.0.0.1:8765/
-bun host/apple/build.mjs --device --run --url http://192.168.1.20:8765/
-```
-
-For a phone, replace the example with the server's reachable LAN or HTTPS
-URL. Device builds require a connected, provisioned phone. `--url` overrides
-`EXACT_DEV_PLAN` for this launch; it does not change the app's production origin.
-An external app uses these commands with `EXACT_APP_DIR` set as usual.
-Plans and assets reload through the native URL loader. Admitted TypeScript
-module clients reload logic on web/macOS/iOS; declared Rust modules reload on
-web/macOS/iOS/Linux using the executor selected below. Once built, an agent can drive
-the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
-(also `web`, `ios`, and `linux`; Linux polls the same URL after first pixel).
-The Go/custom-client sequence
-is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
-
-Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
-`timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
-zone's `utcOffset` at that instant) on every host. Override them at session setup with
-`bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
-Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
-`EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
-(milliseconds); direct agent launches can set these too. Web agent pages accept
-`?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
-The driver supplies its own defaults unless an option (or `open({env: ...})`)
-overrides them. `clock +N` moves the date (`epochAtZero + now()`); `state.time`
-reports all five facts. Before the first host report, the runner
-also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
-from secure platform entropy. A development reload retains that launch's seed.
-Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`,
-normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
-`TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
-
-## Generate TypeScript data-source types
-
-The compiler can derive the logic interface from a Contract's source signatures:
-
-```sh
-cargo run -q -p contract -- types path/to/app.contract -o path/to/app.contract.d.ts
-```
-
-In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
-Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
-returns its declared result or a Promise of it. An `Answer` dispatcher can call
-`sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
-Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
-Generated declarations are build artifacts, not files to commit.
-
-The dispatcher receives storage as its fourth argument:
-`answer(source, args, store, storage)`. `store` remains the grant-checked secrets
-interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
-`app:/cache`, and `app:/tmp`; `storage.sqlite` provides databases, prepared
-statements, and batch transactions. Declare grants such as `fs.read app:/data`,
-`fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
-`grants` string.
-Generated declarations export Ibex2's `Storage` and related types; Rust sources
-can use the same implementations through `ibex2::host`.
-
-Hosts configure app-specific directories after first pixel. Files and databases
-survive module reload; temporary storage is a directory under the app cache,
-without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake rejects storage calls with `Unavailable`; catch it when a resource needs an
-empty-store bake placeholder. Browser storage uses app-scoped IndexedDB files
-and SQLite WASM in a dedicated worker, loaded on the first database operation.
-Use HTTPS or localhost for Web Locks. Data persists across reloads within the
-same browser origin, subject to browser storage retention and quota policies.
-An open database exclusively locks its file; conflicting opens or filesystem
-mutations return `Unavailable` with a busy message. Agent mode skips storage.
-
-This first browser implementation targets modest app stores: filesystem
-operations read the app's file records, and each SQLite mutation atomically
-saves the whole database file. Database files share the filesystem namespace,
-so closed databases can be copied or exported through `storage.fs`. SQLite integer results
-are `bigint`: convert them to a Contract-compatible value before returning.
-
-Build an app-local `app.ts` module and bake its Contract through the resulting
-Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
-
-```sh
-cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
-```
-
-The app exports `appId`, `grants`, and an `Answer`-typed `answer`. The producer
-captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
-bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
-types, and an `app.module.json` pairing receipt into a **new** directory; it
-never overwrites an existing generation. npm dependencies are not captured yet.
-`EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
-A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
-and `rust.placement` are `main` (the default) or `worker`, overridable per
-platform under `platforms.<platform>.placement`; `EXACT_TYPESCRIPT_PLACEMENT`
-and `EXACT_RUST_PLACEMENT` override a bake for a measurement. A change is a new
-compatibility id, never an update. `build_mixed_with` bakes a mixed app through
-its own composer, so a resource only Rust owns needs no TypeScript placeholder;
-the development producer keeps such a resource's last Cargo-baked value.
-
-Native module clients can supply a `Module` factory to `exact_apple::host!`
-(the sixth argument) and apply an `ExactGeneration` containing an `ExactModule`
-through `ExactApp.applyGeneration`. All sessions prepare before any commit;
-changed logic re-asks resources while preserving compatible slots and clock.
-Initial module loading happens after first pixel. The binary's app identity
-and grants must match; a client must include the candidate's executor. Pairing
-hashes are not authentication: this API requires an admitted development origin,
-and does not accept signed-delivery generation tokens.
-
-For a module client's `build.rs`, depend on `exact-js-bake` and call
-`exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
-paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
-`REVISION`) into `OUT_DIR`. Set the participating platforms' `deploy.store` entries to
-`"0"` in `app.json`: signed module delivery is not implemented.
-
-The web crate links `exact-js-web`, not Hermes. Include the generated constants
-and artifacts, then use the host macro's factory and paired-artifact arguments:
-
-```rust
-include!(concat!(env!("OUT_DIR"), "/module.rs"));
-exact_web::host!(exact_js_web::Module,
-    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan")),
-    include_str!(concat!(env!("OUT_DIR"), "/compat.json")),
-    || exact_js_web::Module::new(APP, GRANTS, REVISION), [
-        include_bytes!(concat!(env!("OUT_DIR"), "/app.module.json")),
-        include_bytes!(concat!(env!("OUT_DIR"), "/app.js")),
-        include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")),
-    ]);
-```
-
-Run the ordinary build scripts and `bun host/web/dev.mjs --app <name>` with
-`EXACT_APP_DIR` set for an external app. The dev server watches local TypeScript
-imports and Contract, publishes complete immutable generations, and the same URL
-delivers plan/logic/assets to the browser and an admitted macOS/iOS client without
-rebuilding either binary. Browser code runs after first paint in a disposable
-private realm; page and guest globals are untouched. This is trusted app code,
-not a security sandbox. Corrupt, incompatible, or failing candidates preserve
-the running app.
-
-Browser providers support async answers and sequential/parallel `fetch` through
-the existing grant-checked host transport. Executor-local continuation tickets
-drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
-replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
-25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
-plus store, errors, binary responses, interleaving and disposal cases.
-
-Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
---vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
-archive from `ibex/linux-vanilla` and compiles with the matching
-`ibex/tools/hermes-vanilla/hermesc-linux-<arch>`. After replacing an engine or
-compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
-build cannot reuse captured archives or bytecode from the previous installation.
-
-iOS uses lean bytecode-only Hermes archives, not the compiler-containing
-framework. `bun host/apple/build.mjs --ios` (or `--device`) builds the one it
-needs from ibex's Hermes source, once per machine, into
-`~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
-LLP 1036.001 D5); the recipe and archive layout are in
-[LLP 1027 D6](llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
-The normal Apple build captures the linked archives in its receipt. The iOS
-simulator executed an async module, fetched twice and followed a URL logic edit
-while retaining count 1 alongside the browser. The device-target archive also
-builds. The simulator guard app passed all 25 forms at initialization, in direct
-calls and after fetch, explicit UTC/Intl inputs, interleaved async calls and an
-uncaught-initialization refusal (27 HTTP requests, no pending work).
-The physical iPhone 17 Pro Max / iOS 26.6.1 now passes the same guard sweep,
-including all 75 refusals, 27 HTTP requests, no pending work, and a copied,
-inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
-frame, one sample rather than a startup budget result).
-
-The TypeScript Caltrain twin passed the complete app drive and all three
-Contract tests on web, macOS, iOS simulator and physical iPhone, with its real assets, deck and
-GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
-selected app and its tests without unrelated bare-plan host fixtures, which a
-paired module client correctly refuses. The driver now supports
-`ios --device [--phone <name|udid>]`: the phone connects outward to a temporary
-Mac-side port with a per-launch token, because developer-console stdin closes
-immediately. Use a trusted LAN, allow local networking, and keep the app visible;
-`EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
-Physical URL replacement is now driven alongside the browser: TypeScript edits
-change the answer with counter 1 and clock 12345 retained, unchanged plan and
-native binary, and the same phone PID. A candidate that throws only at the carried
-counter preserves both clients; the next valid edit recovers. Each valid revision
-passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
-crash; the dev-menu recognizers no longer delay touch endings. The complete proof
-passes with the menu enabled and tracing removed. The full Caltrain URL proof
-also passes: live edit, broken-candidate refusal and recovery preserve the selected
-station, clock and train boards, with unchanged phone PID/native binary. The
-initial menu-only mitigation was incomplete: Caltrain's hover recognizers still
-delayed touch endings. Hover now neither delays nor cancels finger events, and
-the four-finger shortcuts accept only direct touch events. Two physical Caltrain
-replacement/refusal/recovery runs pass with the menu enabled (the final one with
-tracing removed). Those gesture mitigations did not fix real finger scrolling:
-the same-binary diagnostic isolated session creation before UIApplicationMain.
-Both iOS adapters now create sessions after UIKit starts; Charlie confirmed
-scrolling in regular Caltrain and opening it natively from Safari. Normal URL
-module replacement also configures storage before activation, exactly once.
-Manual four-finger single/double-tap verification remains owed.
-Agent deadlines include native
-diagnostics; a closed carrier rejects later requests immediately. Systematic
-size/startup/per-call measurements remain to be proved.
-
-The dev page's **Open in native…** link offers an installed-client action and
-local setup instructions at `/__dev/open`. Development Apple builds register an
-app-specific opening scheme and pass its HTTP(S) locator to the existing loader;
-production builds do not register that development handler. iOS handles cold and
-warm URL delivery. For a local macOS bundle, use
-`bun host/apple/build.mjs <app>-apple --bundle` and open the printed `.app` once.
-The bundle includes its assets and native modules; it is not a notarized download.
-Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
-tested. The page cannot detect installation, and does not trigger signing/builds.
-Safari's reported 5–10-second initial scroll delay remains unresolved: the web
-root is inert until the module loads. A held-loader Chrome probe confirmed that
-this blocks scrolling despite the complete list already being present; physical
-Safari timing still needs a working remote automation connection. Web-only program
-rebuilds also currently invalidate connected native clients unnecessarily.
-
-Remaining: Linux native TypeScript execution, npm dependency capture, signed
-module updates, downloadable custom clients, and the generic Go launcher.
-One async web/iOS edit measured 410 ms save-to-DOM / 430 ms to a rendering
-opportunity; the 100 ms save-to-present p50 target is not demonstrated.
-
-## The five checks
-
-```sh
-cargo build --all-targets --keep-going                                  # build
-cargo test --lib --bins --tests --no-fail-fast                          # test
-cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
-cargo fmt --all -- --check                                              # lint (run both)
-bun scripts/caps.mjs                                                   # caps
-bun scripts/boot.mjs                                                   # boot graph
-```
-
-Cargo's checks cover the root `default-members`: the deterministic, in-process
-crates. The async lane runs the same commands with `--workspace` (hosts, GPU,
-Hermes, platform shells, stress fixtures).
-
-Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
-Debug assertions and overflow checks remain enabled; the normal development
-profile still leaves app and engine code unoptimized. Tests keep their full frame
-counts. Use release builds when comparing application frame costs.
-
-An unset `EXACT_UPDATE_TRUST` bakes development trust. A development binary
-admits unsigned heads, so it checks only an origin named by
-`EXACT_UPDATE_ORIGIN`, never the manifest's. `EXACT_UPDATE_TRUST=production`
-bakes a release: an updating native artifact requires
-`EXACT_UPDATE_RECEIPT` pointing to the authenticated publisher receipt for its
-exact plan and complete asset roster. A new production stream instead requires
-`EXACT_UPDATE_GENESIS=1`; it starts at sequence zero. Existing streams retain the
-receipt's sequence and verification keys. Updater-free Level 0 artifacts require
-neither input.
-
-`kernel/tables/schema.json` is the one declaration authority for node types, props,
-style rows, enums, and opcodes; `kernel/build.rs` generates the Rust from it at build
-time. Edit the table, never the generated code.
-
-## Installation page
-
-Every web build includes `/.exact/install/`, with explicit `web/`, `ios/` and
-`macos/` pages. Each shows stacked Web, iOS and macOS sections; unavailable
-platforms are gray. Web works by default and shows its destination URL. Native
-methods appear only when configured. The header shows build/source/timestamp
-and serving context. Optional `brand.logo` and `brand.wordmark` reuse app images
-or a text wordmark with an asset font; the footer uses the gray Exact mark.
-
-Configure `install.<platform>.methods` in the app’s `app.json`; use
-`recommended` to name a configured method. See [LLP 1030.003 D6a](llp/1030.003-continuous-release-loop.rfc.md#d6a--the-standard-install-page)
-for the schema and examples. A method links to an already available installation
-flow; configuring it does not build, sign, upload or verify a native app.
-`terminal` displays a command and offers Copy, never executes it.
-
-On a Mac, the development server adds a dev-only iOS method to the page. It lists
-available iOS Simulators and reachable paired devices, then **Build and install**
-runs the existing `--ios --sim` or development-signed `--device` build, installs
-the app, and opens it on the same development URL. Simulator builds work from a
-loopback server. A physical phone must be unlocked, paired, in Developer Mode and
-able to reach the server, so start the dev server with `--lan`; the build opens the
-app on a LAN address the server printed. The action appears only on a page loaded
-over loopback on the Mac itself, and its request is protected by a random token that
-exists only for that server process. Static and hosted pages never expose it.
-
-For additional web destinations, set `install.web.urls` to entries such as
-`{"label":"Public", "url":"https://interview.example/"}` alongside the web
-method. These are explicit HTTPS destinations; the build does not guess a public
-hostname. Development install pages also list localhost and interface addresses
-for the actual listener, labeling LAN and Tailscale/VPN addresses. Loopback-only
-servers omit other interfaces. Published pages do not expose the host's private
-network addresses. Address discovery uses the OS interface list, with no external
-commands on the request path.
-
-## Rust live replacement
-
-Rust replacement is enabled by default in development and production: native
-shared libraries on macOS/Linux, the browser's Wasm executor on web, and the
-`wasmi` interpreter on iOS devices and simulators. Native hosts start with their
-linked Rust; interpreted execution applies to replaced logic. Android/Windows
-have policy defaults but their hosts remain future work. See
-[LLP 1029.000](llp/1029.000-rust-development-reload.rfc.md) for the boundary and
-verification status.
-
-Control inclusion in `app.json`. `"rust": false` disables everywhere;
-`"rust": {"prod": false}` keeps it in development only. A platform can override
-both or either environment:
-
-```json
-{
-  "rust": {
-    "module": { "package": "caltrain-logic" },
-    "platforms": {
-      "ios": { "prod": false },
-      "macos": { "prod": "wasm" }
-    }
-  },
-  "dev": { "rebuild": { "rust": "manual", "typescript": "save" } }
-}
-```
-
-Modes are `auto`, `native`, `tiered`, `wasm`, and `off`; `true` means `auto` and `false`
-means `off`. Resolution is global → environment → platform → platform environment.
-`off` removes the replacement path from the native bake; changing that requires
-a new binary. TypeScript and delivery cadence remain separate choices. Save is
-the default trigger for both languages while the development watcher runs;
-manual is useful when an agent wants to finish a set of edits before rebuilding.
-After the app's initial web bake, run `bun scripts/rust.mjs caltrain` to build
-the independent Rust module variants; the running dev server consumes the
-completed output. At the dev
-server’s terminal, `r` + Enter rebuilds Rust and `t` + Enter rebuilds TypeScript.
-
-For portable modules without essential private state,
-`"rust": {"platforms": {"macos": {"dev": "tiered"}}}` runs new Wasm immediately
-after publication and promotes to native when the library finishes loading.
-Both variants must declare `exact_logic_abi::export!(Data, constructor, stateless)`:
-essential state lives in host inputs, Contract or host-owned storage; initialization
-and destruction have no external effects. Promotion preserves the app generation
-and does not restart TypeScript or replay business calls. Native loading failures
-leave Wasm running. This mode adds the interpreter and both artifact variants;
-explicit `native` avoids that interpreter. The usual dev/prod overrides apply,
-but `tiered` is unavailable on iOS/web. Update Lab opts in for macOS development;
-`auto` defaults are unchanged. Both variants still compile before publication.
-
-The repository's app entries use `contract::rust_entry` to select a concrete
-factory at bake time. A custom host adapter must do the same (and depend on
-`exact-logic`), or compose `Swappable::native`, `Swappable::tiered`, `Swappable::wasm` or
-`Swappable::browser` explicitly. Merely declaring a module does not retrofit
-a custom, manually implemented `DataSource` host.
-
-[Update Lab](apps/update-lab/README.md) composes one Rust probe with one
-TypeScript executor. Its complete development candidate carries both modules,
-so a TypeScript or Contract edit retains the last accepted Rust version.
-
-The replacement unit is the declared portable logic-wrapper `cdylib`, not an individual
-Rust function or file. Keep business logic in small Cargo crates and native I/O
-in host adapters; Cargo reuses unchanged helpers, but their dependent loadable
-module still relinks. Independent replacement of several domains requires
-separate loadable artifacts and explicit host composition; a multi-module
-manifest registry is not implemented.
-
-Production capability does not grant store permission to deliver arbitrary
-code updates. Apple's [review guidelines](https://developer.apple.com/app-store/review/guidelines/)
-restrict downloaded feature-changing code, including interpreted code; Google
-Play's [policy](https://support.google.com/googleplay/android-developer/answer/16559646?hl=en)
-restricts downloaded native `.so` code and describes a VM/interpreter exception.
-Use the production opt-out where the app's distribution requires it. Native
-macOS libraries also need platform-appropriate code signing: the production
-producer requires `EXACT_RUST_SIGN_IDENTITY` for the host's signing team, or
-select `wasm` for macOS production.
-
-## Interactive stress examples
-
-[Messages stress](apps/messages-stress/README.md) compares a bounded synthetic
-history page with deliberately eager construction while typing and streaming
-updates. [Completion Storm](apps/completion-storm/README.md) holds and releases
-real local HTTP requests, including failures and replies to a departed screen.
-[Markdown stress](apps/markdown-stress/README.md) exercises the shipped parser
-and reader components with large documents, huge individual blocks and reflow.
-These are opt-in developer workloads; none claims automatic virtualization or
-120 Hz performance. [LLP 1041](llp/1041-graceful-overload.rfc.md) specifies the
-graceful-overload direction and records what the first examples actually prove.
-
-With a fixture running, `bun scripts/metrics.mjs --stress-url
-http://127.0.0.1:4318 --seconds 10 --target-hz 120` samples typing-to-echo and
-frame-callback gaps (`CHROME` selects the browser). Repeat `--tap <testId>` for
-workload controls. This is a headless diagnostic, not a physical-display FPS test.
-
-After building a native app, `bun scripts/native-resize-metrics.mjs macos
---app messages-stress` interleaves window resizing, typing and scrolling, then
-checks geometry, echo and recovery. Substitute `linux` on an actual Linux host
-or select `--app markdown-stress` / `completion-storm` (with its fixture running).
-It records raw command acknowledgments and executable identity; AppKit window
-resizing and Linux headless presenter resizing do not measure physical refresh.
+| [Fieldnotes](apps/fieldnotes) | A local notebook with pins, search, SQLite storage, and JSON backup and restore | TypeScript + Rust |
+| [Messages](apps/messages) | A port of Expo's chat demo, talking to models through OpenRouter | Needs `bun apps/messages/service.ts` and an OpenRouter key |
+| [Type Tour](apps/typetour) | Phone-OS screens as a type specimen for the Expose fonts | No JavaScript at all |
+| [Recorder](apps/recorder), [Map Demo](apps/map-demo) | Native modules: a microphone waveform, MapKit on Apple and OpenStreetMap on the web | |
+| [Carousel](apps/carousel) | A horizontal virtualized list of 25,000 cards | |
+| [Motion Gallery](apps/motion-gallery) | Animated GIF and WebP images and CSS keyframes, compared across hosts | |
+| [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |
+| [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads ([LLP 1041](llp/1041-graceful-overload.rfc.md)) |
+| [Native Fixture](apps/native-fixture), [Auth Fixture](apps/auth-fixture) | The native-module interface; OAuth with PAR, DPoP, and PKCE against a local server | Test fixtures |
+| [Messages Legacy](apps/messages-legacy) | The earlier chat app, built on Snapback4 | Needs private Snapback access |
+| [Beacons, Tennis, …](game/games) | Games on the optional [engine add-on](game/README.md): Rust gameplay, Contract menus | `bun game/dev.mjs beacons` |
+
+## What works today, and what doesn't yet
+
+The v1 bar, from `rules/DEFERRED.md`: *one real application, not a demo, runs from a
+single Contract source on web, macOS, iOS, and Linux, within the time budgets in
+`rules/RULES.md`.* Caltrain is that application, and it runs on all four. Everything
+else here was admitted because a real app needed it.
+
+### Working
+
+- **Four hosts.** Web, macOS (AppKit, no SwiftUI), iOS (UIKit, on the Simulator and
+  on devices), and Linux (GPU or CPU painting, DRM/KMS or headless). Existing Swift apps
+  can embed Exact sessions through ExactKit
+  ([LLP 1031](llp/1031-brownfield-embedding.rfc.md)).
+- **Layout and text.** CSS block, flex, and grid; `position: static` and containing
+  blocks; `aspect-ratio`; declared fonts; text around shapes
+  ([LLP 1043.000](llp/1043.000-text-around-shapes.rfc.md)).
+- **Paint.** Gradients, shadows, `backdrop-filter`, glass materials, complete SVG
+  ([LLP 1055](llp/1055-svg-shapes-and-css-animations.rfc.md)), Canvas 2D on every host
+  ([LLP 1056](llp/1056-canvas-2d.rfc.md)), and a wgpu GPU canvas loaded after first
+  pixel.
+- **Motion.** CSS transitions, springs, `@keyframes`, follow-and-release gestures (pan,
+  swipe, pinch) with release velocity, layout transitions, exit animations, and
+  scroll- or drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
+  [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md)).
+- **Lists.** Virtualized lists, vertical or horizontal, one level deep
+  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)).
+- **Controls and media.** Inputs, `select`, a WYSIWYG Markdown editor on the web, macOS,
+  and iOS ([LLP 1045](llp/1045-markdown-editor.rfc.md)), images including animated
+  ones, video ([LLP 1042](llp/1042-video.spec.md)), pickers for an app's declared file
+  types, and share.
+- **Data.** TypeScript or Rust sources, optionally on a worker. Grant-checked `fetch` and
+  streams, files and SQLite (native and in the browser), Keychain secrets, and OAuth
+  sign-in. A router keeps a stack per tab ([LLP 1038](llp/1038-router.rfc.md)).
+- **Native modules.** Platform widgets as hyphenated tags
+  ([LLP 1024](llp/1024-native-modules.rfc.md)).
+- **The web, server side.** Pages pre-rendered at build time or per request by a Rust
+  renderer, then adopted in place instead of hydrated
+  ([LLP 1048](llp/1048-rendering-across-the-curve.rfc.md)).
+- **Delivery.** `scripts/deploy.mjs` publishes the web root and signed update bundles,
+  which installed apps fetch after first pixel. TypeScript and Rust logic can be
+  replaced live in development. Every web build gets an install page, and
+  `exact release` signs and notarizes a Mac app
+  ([LLP 1030](llp/1030-delivery-unified.rfc.md)).
+- **Agents and tests.** The nine operations on every host, including a physical
+  iPhone; Contract tests; source maps; filmed screenshots.
+
+### Not yet, or not at all
+
+- **Windows and Android.** Deferred. A Direct2D host exists in the predecessor, and it
+  gets ported once the loop is proven.
+- **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
+  open, but no one is building it.
+- **TypeScript can't import npm packages yet.** `app.ts` imports only its own local
+  files.
+- **Code updates in production.** Signed delivery covers plans and assets. Signed
+  delivery of TypeScript or Rust modules isn't implemented, and app-store rules limit
+  it anyway.
+- **Linux editing.** The web and Apple hosts edit; Linux reads. Linux also has no
+  word segmenter, so flowed Thai, Lao, Khmer, and Myanmar text breaks only at spaces.
+- **Out on purpose for v1.** Camera access, a gesture arena, general layout animation,
+  grid or masonry virtualization, a general webview beyond `iframe`, and a devtools UI.
+- **No packaged CLI.** You work from a source checkout. `exact new` apps refer to it by
+  path.
+
+[`QUEUE.md`](QUEUE.md) lists what would make sense to do next, and
+[`llp/current/`](llp/current) holds the design documents in play.
+
+## Repository map
+
+| Path | What's there |
+|---|---|
+| [`kernel/`](kernel) | `exact-kernel`: the node arena, wire frames, transactions, Taffy layout, and the export. [`kernel/tables/schema.json`](kernel/tables/schema.json) declares every node type, property, and opcode. |
+| [`contract/`](contract) | The Contract compiler (`syntax` → `types` → `analyze` → `lower`), its CLI, and the corpus |
+| [`plan/`](plan), [`runner/`](runner) | The plan format, generated from one JSON authority, and the VM that runs it |
+| [`motion/`](motion) | CSS transitions, springs, and the seekable clock for non-web hosts |
+| [`host/`](host) | `web/`, `web-js/` (the JS target), `apple/` (Rust core, ExactKit Swift package, AppKit and UIKit), `linux/`, `render/` (server pages), plus update adapters and rasterizers |
+| [`js/`](js), [`logic/`](logic), [`data/`](data) | The TypeScript executor (Hermes, and the browser's engine on the web), Rust logic modules, and the data seam |
+| [`gpu/`](gpu), [`canvas/`](canvas), [`textflow/`](textflow), [`markdown/`](markdown) | Capabilities loaded on demand: the wgpu canvas, Canvas 2D, text around shapes, and the Markdown editor |
+| [`route/`](route), [`update/`](update), [`bake/`](bake), [`filesystem/`](filesystem) | The router, the signed update store, delivery baking, and app-owned files |
+| [`apps/`](apps), [`examples/`](examples), [`game/`](game) | The apps above, the Calendar example, and the optional game engine |
+| [`scripts/`](scripts) | `exact.mjs`, `agent.mjs`, `smoke.mjs`, `metrics.mjs`, `deploy.mjs`, and the checks |
+| [`llp/`](llp) | The design corpus: numbered RFCs, specs, and research ([LLP 1000](llp/1000-exact2-root.explainer.md) is the map) |
+| [`rules/`](rules) | [`RULES.md`](rules/RULES.md) and [`DEFERRED.md`](rules/DEFERRED.md), the two binding documents |
+| [`vendor/taffy/`](vendor/taffy) | Taffy, plus Exact's patches |
+
+## Working on Exact
+
+Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here, and
+[`rules/DEFERRED.md`](rules/DEFERRED.md), what v1 deliberately leaves out. Agents should
+also read [`AGENTS.md`](AGENTS.md). In short:
+
+- **Five blocking checks, 60 seconds in total.** Anything slower runs asynchronously,
+  per commit.
+
+  ```sh
+  cargo build --all-targets --keep-going
+  cargo test --lib --bins --tests --no-fail-fast
+  cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
+  bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
+  bun scripts/boot.mjs     # counts the module graph before first pixel
+  ```
+
+- **Verify by running, not by reading.** Build the app a change touches and drive it:
+  `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the whole app on that host.
+- **Delete; don't deprecate.** Before 1.0 there are no compatibility shims. Generated
+  files are built, never committed.
+- **Agents remove apparatus freely and add none** (checks, scripts, registries, design
+  documents) without a person saying so.
+- **Design happens in LLPs.** These are numbered documents in [`llp/`](llp). A spec gets
+  written only when it has an implementer and a date.
+
+Detailed operational notes cover toolchains, the Contract CLI's JSON formats, source
+maps, TypeScript and Rust data modules, storage, live replacement, delivery trust, the
+install page, and the stress harnesses. They're in
+[`docs/reference.md`](docs/reference.md). Open issues are files under
+[`issues/`](issues) ([how that works](docs/issues.md)).
+
+The workspace is MIT-licensed (`Cargo.toml`).

@@ -735,6 +735,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             .and_then(|s| s.strip_prefix("symbol:"))
         {
             let symbol = exact_kernel::generated::symbol(role);
+            out.insert("data-symbol-source".into(), format!("symbol:{role}"));
             out.insert(
                 "data-symbol-path".into(),
                 symbol.map(|s| s.1).unwrap_or("").into(),

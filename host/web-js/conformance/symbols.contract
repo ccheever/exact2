@@ -1,0 +1,55 @@
+// LLP 1035.004.000: opaque names, empty slots and source replacement.
+component Symbols
+  state source = "symbol:sf/airpodsmax"
+  state selected = "home"
+  state count = 0
+  state large = false
+  action missing writes source
+    source = "symbol:sf/exact.nonexistent.symbol"
+  action empty writes source
+    source = "symbol:sf/"
+  action restore writes source
+    source = "symbol:sf/airpodsmax"
+  action portable writes source
+    source = "symbol:home"
+  action raster writes source
+    source = "assets/caltrain.png"
+  action resize writes large
+    large = not large
+  action press writes count
+    count = count + 1
+  action home writes selected
+    selected = "home"
+  action saved writes selected
+    selected = "saved"
+  view
+    column padding=12 gap=12 font-size=(large ? 28 : 20) background-color="#ffffff"
+      text "SF Symbols" color="#222222"
+      row gap=6
+        button "Missing" press=missing testId="missing"
+        button "Empty" press=empty testId="empty"
+        button "Restore" press=restore testId="restore"
+      row gap=6
+        button "Portable" press=portable testId="portable"
+        button "Raster" press=raster testId="raster"
+        button "Size" press=resize testId="resize"
+      row gap=8 align-items="flex-start"
+        image source testId="natural" tint-color="#0066cc"
+        image source width=40 testId="width-only" tint-color="#0066cc"
+        image source width=40 height=24 testId="fixed" tint-color="#0066cc"
+        image "symbol:sf/" testId="empty-literal"
+      button aria-label="Count" press=press testId="count-button"
+        image source width=24 height=24 testId="button-icon" tint-color="#0066cc"
+      text `Count ${count}` testId="count"
+      row role="tablist" testId="tabs" width=340 height=80
+        button role="tab" aria-selected=(selected == "home") press=home testId="home"
+          image source width=24 height=24 testId="tab-icon" tint-color="#0066cc"
+          text "Home"
+        button role="tab" aria-selected=(selected == "saved") press=saved testId="saved"
+          image "symbol:sf/star" width=24 height=24 tint-color="#0066cc"
+          text "Saved"
+      row role="tablist" testId="segments" width=340 height=44
+        button role="tab" aria-label="Home" aria-selected=(selected == "home") press=home testId="segment-home"
+          image source width=24 height=24 testId="segment-icon" tint-color="#0066cc"
+        button role="tab" aria-label="Saved" aria-selected=(selected == "saved") press=saved testId="segment-saved"
+          image "symbol:sf/star" width=24 height=24 tint-color="#0066cc"
