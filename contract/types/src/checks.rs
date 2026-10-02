@@ -590,7 +590,7 @@ fn check_inject_nodes(
                         return err(
                             "type-provide",
                             format!(
-                                "`provide {} = …` is `{got}`, but `{name}` injects `{want}`",
+                                "the provided `{}` is `{got}`, but `{name}` injects `{want}`",
                                 inject.name
                             ),
                             *provided_at,
