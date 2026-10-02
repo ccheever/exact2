@@ -57,7 +57,6 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
 
     private struct Pending { weak var node: NodeView?; let press: UILongPressGestureRecognizer }
     private var pending: [UInt32: Pending] = [:]
-    private var link: CADisplayLink?
     /// Since launch: heavy leaves held, made after waiting, and retired
     /// before they were made (`state`).
     private(set) var deferred = 0, released = 0, cancelled = 0
@@ -205,18 +204,16 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     func settle() { for id in pending.keys.sorted() { release(id) } }
     func reset() {
         for entry in pending.values { entry.press.view?.removeGestureRecognizer(entry.press) }
-        pending.removeAll(); link?.invalidate(); link = nil
+        pending.removeAll(); FrameClock.shared.drop(self)
     }
 
     private func start() {
-        guard link == nil else { return }
-        let value = CADisplayLink(target: Tick(self), selector: #selector(Tick.tick))
-        value.add(to: .main, forMode: .common)
-        link = value
+        guard !FrameClock.shared.wants(self) else { return }
+        FrameClock.shared.want(self, .heavyLeaves) { [weak self] _ in self?.tick() }
     }
     /// One leaf a frame, visible first, once its list is still enough — or
     /// at once when focus moved into it or its row went.
-    fileprivate func tick() {
+    private func tick() {
         guard !presenter.applying else { return }
         for (id, entry) in pending.sorted(by: { $0.key < $1.key }) {
             guard let node = entry.node, presenter.views[id] === node else { release(id); continue }
@@ -228,7 +225,7 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
             guard let node = entry.node else { return false }
             return near(node).near || list(holding: node).map { $0.scroll?.isDragging == true || $0.scroll?.isDecelerating == true } ?? false
         }
-        if pending.isEmpty || !waiting { link?.invalidate(); link = nil }
+        if pending.isEmpty || !waiting { FrameClock.shared.drop(self) }
     }
     @objc private func pressed(_ press: UILongPressGestureRecognizer) {
         guard press.state == .began, let id = pending.first(where: { $0.value.press === press })?.key else { return }
@@ -243,9 +240,4 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     }
 }
 
-private final class Tick: NSObject {
-    weak var leaves: HeavyLeaves?
-    init(_ leaves: HeavyLeaves) { self.leaves = leaves }
-    @objc func tick() { leaves?.tick() }
-}
 #endif

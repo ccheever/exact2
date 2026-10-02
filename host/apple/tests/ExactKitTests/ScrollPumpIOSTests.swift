@@ -54,5 +54,24 @@ final class ScrollPumpIOSTests: XCTestCase {
         p.scrollPump.scrolled(nil)
         XCTAssertTrue(p.scrollPump.asksForFrames, "the pass that gives it its pixels")
     }
+
+    /// Owed work takes frames from the app's one link, asked once for the
+    /// scroll: not a link made and torn down per frame.
+    func testOwedWorkTakesTheAppsLinkOnce() throws {
+        let session = fixture("pump-clock")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.views[2]?.dropTextRaster()
+        RegionTextExecutor.queue.isSuspended = true
+        defer { RegionTextExecutor.queue.isSuspended = false }
+        var made: Set<Int> = []
+        for _ in 0..<20 {
+            p.scrollPump.scrolled(nil)
+            XCTAssertTrue(FrameClock.shared.wants(p.scrollPump))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            made.insert(FrameClock.shared.linksMade)
+        }
+        XCTAssertEqual(made.count, 1, "the app's one link")
+    }
 }
 #endif

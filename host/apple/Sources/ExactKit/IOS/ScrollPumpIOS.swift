@@ -5,8 +5,6 @@ import UIKit
 
 final class ScrollPump: NSObject, UIScrollViewDelegate {
     private weak var presenter: Presenter?
-    private var link: CADisplayLink?
-    private lazy var target = ScrollPumpTarget(self)
     private var queued = false
     private var epoch = 0
     private var inScroll = false
@@ -34,13 +32,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         turnObserver = observer
     }
     deinit {
-        link?.invalidate()
+        FrameClock.shared.drop(self)
         restTimer?.invalidate()
         RasterWorkers.shared.travelling(self, false)
         if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
     }
-    /// A pass is queued or the display link runs.
-    var asksForFrames: Bool { queued || link != nil }
+    /// A pass is queued or frames are asked of the app's clock.
+    var asksForFrames: Bool { queued || FrameClock.shared.wants(self) }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
     /// Seconds a list must be still before what it cached for travel is
     /// let go (`ExactSession.rest`).
@@ -181,13 +179,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         return rows
     }
+    /// Frames from the app's clock (`FrameClock`) while a scroll moves or
+    /// work is owed, asked for once per scroll, not once per frame.
     private func start() {
-        guard link == nil else { return }
-        let value = CADisplayLink(target: target, selector: #selector(ScrollPumpTarget.tick(_:)))
+        guard !FrameClock.shared.wants(self) else { return }
         let maximum = Float(presenter?.viewport.window?.screen.maximumFramesPerSecond ?? 60)
-        value.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        value.add(to: .main, forMode: .common)
-        link = value
+        FrameClock.shared.want(self, .scroll, rate: CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)) { [weak self] in self?.tick($0) }
     }
     /// Once scrolling has been still for `restDelay` after a scroll or a
     /// batch, the session trims its caches to what shows, as a browser
@@ -209,7 +206,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             presenter?.session?.rest()
         }
     }
-    private func stop() { link?.invalidate(); link = nil; RasterWorkers.shared.travelling(self, false) }
+    private func stop() { FrameClock.shared.drop(self); RasterWorkers.shared.travelling(self, false) }
     private func scheduleAfterScroll() {
         guard !queued else { return }
         queued = true
@@ -220,7 +217,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             self.pump()
         }
     }
-    fileprivate func tick(_ link: CADisplayLink) {
+    private func tick(_ link: CADisplayLink) {
         let interval = link.targetTimestamp - link.timestamp
         if interval > 0 { refreshInterval = interval }
         // UIKit's offset callback runs in layout. During travel its queued
@@ -248,7 +245,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         // One image decode at a time while a list travels fast.
         RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
-        if !textPending && p.collections.fillPending.isEmpty { stop() }
+        // Frames stay asked for until the scroll has been still for two of
+        // them, so a moving scroll keeps one steady request.
+        if !textPending && p.collections.fillPending.isEmpty && now - lastScroll >= refreshInterval * 2 { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
@@ -275,10 +274,5 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// A smooth correction ended: no travel sample outlives it.
     func forgetTravel(_ id: UInt32) { travel[id] = nil }
 
-}
-private final class ScrollPumpTarget: NSObject {
-    private weak var pump: ScrollPump?
-    init(_ pump: ScrollPump) { self.pump = pump }
-    @objc func tick(_ link: CADisplayLink) { pump?.tick(link) }
 }
 #endif
