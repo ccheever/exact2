@@ -213,15 +213,10 @@ fn no_op_start_does_not_require_another_host_report_for_end() {
 
 #[test]
 fn same_keys_after_start_refresh_defer_end_until_another_report() {
-    let source = SOURCE
-        .replace(
-            "action onStart",
-            "action onStart",
-        )
-        .replace(
-            "refused = fail",
-            "refused = fail\n    revision = revision + 1",
-        );
+    let source = SOURCE.replace(
+        "refused = fail",
+        "refused = fail\n    revision = revision + 1",
+    );
     let mut r = boot(&source);
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
         .unwrap();
@@ -237,10 +232,6 @@ fn same_keys_after_start_refresh_defer_end_until_another_report() {
 fn changed_interior_membership_defers_end_even_when_endpoints_are_unchanged() {
     let source = SOURCE
         .replace("resource rows = rows(", "resource rows = interior(")
-        .replace(
-            "action onStart",
-            "action onStart",
-        )
         .replace(
             "refused = fail",
             "refused = fail\n    revision = revision + 1",
@@ -266,20 +257,12 @@ fn tiny_rows_shift_at_most_once_per_report_then_stay_disarmed() {
             .replace("state count = 200", "state count = 8")
             .replace("height=32", "height=1")
             .replace(
-                "action onStart",
-                "action onStart",
-            )
-            .replace(
                 "refused = fail",
                 if start_loads {
                     "refused = fail\n    start = start + 8"
                 } else {
                     "refused = fail"
                 },
-            )
-            .replace(
-                "action onEnd",
-                "action onEnd",
             )
             .replace("ends = ends + 1", "ends = ends + 1\n    start = start + 8");
         let mut r = boot(&source);
@@ -407,10 +390,6 @@ fn refused_edge_action_returns_committed_feedback_and_rolls_back_action_only() {
 fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
     let source = SOURCE
         .replace("refused = fail", "refused = false")
-        .replace(
-            "action onEnd",
-            "action onEnd",
-        )
         .replace("ends = ends + 1", "ends = ends + 1\n    refused = fail")
         .replace("fail = true", "fail = not fail");
     let mut r = boot(&source);
@@ -589,16 +568,8 @@ fn bidirectional_tiny_rows_do_not_rearm_on_endpoint_key_changes() {
         .replace("state count = 200", "state count = 2")
         .replace("height=32", "height=1")
         .replace(
-            "action onStart",
-            "action onStart",
-        )
-        .replace(
             "refused = fail",
             "refused = fail\n    if start > 0\n      start = 2 - start",
-        )
-        .replace(
-            "action onEnd",
-            "action onEnd",
         )
         .replace(
             "ends = ends + 1",
@@ -618,16 +589,8 @@ fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
         .replace("height=32", "height=1")
         .replace("state start = 0", "state start = 200")
         .replace(
-            "action onStart",
-            "action onStart",
-        )
-        .replace(
             "refused = fail",
             "refused = fail\n    if start > 0\n      start = start - 100",
-        )
-        .replace(
-            "action onEnd",
-            "action onEnd",
         )
         .replace(
             "ends = ends + 1",

@@ -113,6 +113,9 @@ local bindings, parameters, typed shape fields, font families and literal IDs ar
 Shared shape/function/style/font files can be queried directly. The query uses the
 compiler's import and type rules and writes no files. Repeated literal IDs have
 an edge to each matching declaration; dynamic IDs have no static target.
+An action's definition carries `writes`: the states and mutations its body
+assigns or sends, inferred (an action declares none), in slot order: router
+state, states, then mutations, each as declared.
 
 `--name <exact-name>` returns all matching definitions across scopes and their
 references, with `to` indices into that response's smaller `definitions` array.

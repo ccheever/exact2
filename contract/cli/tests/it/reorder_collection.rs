@@ -194,7 +194,6 @@ impl DataSource for EditingRows {
 fn editing(mode: &'static str) -> Runner<EditingRows> {
     let source = SOURCE.replace("resource rows = rows() as shape list<string>",
         "resource initial = rows() as shape list<string>\n  mutation changed as shape list<string>\n  derive rows = match changed { case some(value) => value, case none => initial }")
-        .replace("writes dropped, count", "writes dropped, count, changed")
         .replace("    dropped = item", "    send changed = move(item, before)\n    dropped = item");
     Runner::boot(
         contract::compile(&source).unwrap(),
@@ -540,10 +539,6 @@ fn physical_terminal_preserves_empty_unicode_destination_and_true_end() {
             "state count = 0\n  state destination = some(\"initial\")",
         )
         .replace(
-            "writes dropped, count",
-            "writes dropped, count, destination",
-        )
-        .replace(
             "    dropped = item",
             "    dropped = item\n    destination = before",
         );
@@ -639,10 +634,6 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
             .replace(
                 "state count = 0",
                 "state count = 0\n  state destination = some(\"initial\")",
-            )
-            .replace(
-                "writes dropped, count",
-                "writes dropped, count, destination",
             )
             .replace(
                 "    dropped = item",

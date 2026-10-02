@@ -236,10 +236,7 @@ fn every_binding_is_checked_and_valid_lifted_child_actions_keep_their_arity() {
     ));
     let children = format!("component Stateful\n  props\n    value: number\n  state n = 0\n  action local\n    n = value\n  view\n    Button(callback=local)\n{BUTTON}");
     contract::compile(&root("Stateful(value=7)", &children)).unwrap();
-    let invalid = children.replace(
-        "action local",
-        "action local(extra: number)",
-    );
+    let invalid = children.replace("action local", "action local(extra: number)");
     refusal(&root("Stateful(value=7)", &invalid));
 }
 

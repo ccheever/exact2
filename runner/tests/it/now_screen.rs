@@ -302,8 +302,8 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
 /// resource stations = stations()               (compiled: constant args)
 /// resource board = departures(selected)        (requested when `selected` changes)
 /// derive count = length(board)
-/// action selectStation(id) writes stationId    action setQuery(q) writes query
-/// action tick writes nowMs                     task ticker mount: every(1000, tick)
+/// action selectStation(id)                    action setQuery(q)
+/// action tick                                  task ticker mount: every(1000, tick)
 /// view
 ///   column testId="main"
 ///     text `${count} trains` font-size=24 font-weight=700 testId="count"

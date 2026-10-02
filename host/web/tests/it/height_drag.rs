@@ -347,15 +347,10 @@ fn rebegin_reuse_and_action_destruction_retire_generational_active_record() {
         .unwrap()
         .is_none());
     assert!(!host.has_hold(new.token.serial()));
-    let deleting = SOURCE
-        .replace(
-            "writes extent, count, received, speed",
-            "writes extent, count, received, speed, shown",
-        )
-        .replace(
-            "    speed = velocity",
-            "    speed = velocity\n    shown = false",
-        );
+    let deleting = SOURCE.replace(
+        "    speed = velocity",
+        "    speed = velocity\n    shown = false",
+    );
     let (mut host, _) = boot_source(&deleting);
     let held = begin(&mut host, "handle", 300.0, 1.0);
     let batch = host

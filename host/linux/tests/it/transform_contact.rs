@@ -315,15 +315,10 @@ fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
 
 #[test]
 fn geometry_callback_deletion_clears_owner_and_does_not_dispatch_again() {
-    let source = APP
-        .replace(
-            "writes geometryCount, boxWidth, portWidth",
-            "writes geometryCount, boxWidth, portWidth, showing",
-        )
-        .replace(
-            "    portWidth = pw",
-            "    portWidth = pw\n    showing = false",
-        );
+    let source = APP.replace(
+        "    portWidth = pw",
+        "    portWidth = pw\n    showing = false",
+    );
     let mut p = boot(&source);
     assert!(p.host().kernel().find_by_test_id("target").is_empty());
     assert!(p.host().transform_bindings().is_empty());

@@ -930,8 +930,8 @@ fn then_names_an_action_that_takes_nothing() {
     };
     refuse("then signedIn", "then nobody", "analyze-unknown-action");
     refuse(
-        "action signedIn writes",
-        "action signedIn(x: number) writes",
+        "action signedIn\n",
+        "action signedIn(x: number)\n",
         "analyze-handler-arity",
     );
 }
@@ -943,20 +943,12 @@ fn then_cannot_send_its_own_mutation_even_in_a_branch() {
         "    if who == \"ada\"\n      send session = greet(who)",
         "    match session\n      case some(s)\n        send session = greet(s.username)\n      case none\n        greeted = \"?\"",
     ] {
-        let src = THEN.replace(
-            "action signedIn",
-            "action signedIn",
-        ).replace("    landings = landings + 1", body);
+        let src = THEN.replace("    landings = landings + 1", body);
         let error = contract::compile(&src).unwrap_err();
         assert_eq!(error.id, "analyze-then-self-send");
     }
     // Clearing the answer is allowed; only sending can arm the action again.
-    let src = THEN
-        .replace(
-            "action signedIn",
-            "action signedIn",
-        )
-        .replace("    landings = landings + 1", "    session = none");
+    let src = THEN.replace("    landings = landings + 1", "    session = none");
     contract::compile(&src).unwrap();
 }
 

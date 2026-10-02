@@ -317,7 +317,6 @@ fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     let renamed = contract::compile(
         &COUNTER
             .replace("state n = 1", "state m = 1")
-            .replace("writes n", "writes m")
             .replace("n = n + 1", "m = m + 1")
             .replace("${n}", "${m}"),
     )

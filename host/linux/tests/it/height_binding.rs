@@ -249,15 +249,10 @@ fn stale_handle_generation_foreign_token_and_malformed_live_release_are_atomic()
 
 #[test]
 fn release_action_deleting_handle_makes_subsequent_end_stale() {
-    let source = APP
-        .replace(
-            "writes target, releases, seenHeight, seenVelocity",
-            "writes target, releases, seenHeight, seenVelocity, first",
-        )
-        .replace(
-            "    releases = releases + 1",
-            "    releases = releases + 1\n    first = false",
-        );
+    let source = APP.replace(
+        "    releases = releases + 1",
+        "    releases = releases + 1\n    first = false",
+    );
     let mut h = boot(&source);
     let target = key(&h, "panel");
     let handle = key(&h, "first");

@@ -1061,7 +1061,9 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         ("path", "paht", ""),
         ("save", "svae", "fn save(): number = 1\n"),
     ] {
-        let declarations = format!("{global}component App\n  state count = 0\n  action {name}\n    count = count + 1\n");
+        let declarations = format!(
+            "{global}component App\n  state count = 0\n  action {name}\n    count = count + 1\n"
+        );
         for view in [
             format!("  view\n    button \"Save\" press={typo}()\n"),
             format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),

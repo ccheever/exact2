@@ -356,22 +356,7 @@ fn lower_with_sites(
             params.iter().map(|(n, t)| (n.as_str(), *t)).collect();
         // @ref LLP 1035.005.000 D1 — the VM's allowlist is exactly what the
         // body assigns or sends through every branch, in slot order.
-        let mut writes: Vec<exact_plan::SlotsId> = a
-            .effects()
-            .iter()
-            .map(
-                |e| match root.states.iter().position(|s| s.name == e.target) {
-                    Some(si) => l.slots[si],
-                    None => {
-                        l.mutation_slots[root
-                            .mutations
-                            .iter()
-                            .position(|m| m.name == e.target)
-                            .unwrap()]
-                    }
-                },
-            )
-            .collect();
+        let mut writes: Vec<_> = a.effects().iter().map(|e| l.slot_named(e.target)).collect();
         writes.sort_unstable_by_key(|slot| slot.0);
         writes.dedup();
         let id = l.b.action(&a.name, &params_ref, &writes, placeholder);
@@ -1099,6 +1084,17 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    /// The slot a state's or a mutation's name writes.
+    fn slot_named(&self, name: &str) -> exact_plan::SlotsId {
+        match self.root.states.iter().position(|s| s.name == name) {
+            Some(si) => self.slots[si],
+            None => {
+                let mi = self.root.mutations.iter().position(|m| m.name == name);
+                self.mutation_slots[mi.expect("the type pass resolved it")]
+            }
+        }
+    }
+
     /// Lower one statement of an action body: assignments, commands, `send`,
     /// `refresh`, and — LLP 1017 P2 — `if`/`else` and `match`, as the
     /// ternary and the inline `match` are lowered in `expr.rs`: a forward
@@ -1115,17 +1111,7 @@ impl<'a> Lowerer<'a> {
         match stmt {
             Stmt::Assign { target, expr, .. } => {
                 expr::compile(self, asm, expr, scope, locals)?;
-                let slot = match root.states.iter().position(|s| &s.name == target) {
-                    Some(si) => self.slots[si],
-                    None => {
-                        self.mutation_slots[root
-                            .mutations
-                            .iter()
-                            .position(|m| &m.name == target)
-                            .unwrap()]
-                    }
-                };
-                asm.store_slot(slot);
+                asm.store_slot(self.slot_named(target));
             }
             Stmt::Send {
                 target,

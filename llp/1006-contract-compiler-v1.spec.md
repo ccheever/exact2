@@ -65,8 +65,7 @@ routes nav
 
 The declaration inserts a root state slot before authored initializers and
 instance lifting, with no authored initializer. Its type is `Router`; launch
-fills it before initializers run. Actions declare `writes nav` and assign
-ordinary values. Only apps with `routes` receive the four compiler shapes,
+fills it before initializers run. Actions assign it ordinary values. Only apps with `routes` receive the four compiler shapes,
 with these exact positional field orders:
 
 - `Router { tab: string, tabs: list<Tab>, next: number }`
@@ -207,8 +206,8 @@ inliner's; nothing reaches the plan.
 
 **Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
 T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:
-`send name = source(args)` in an action asks the data source once (the
-mutation must be in the action's `writes`); `refresh resource` re-requests a
+`send name = source(args)` in an action asks the data source once;
+`refresh resource` re-requests a
 resource with its current arguments; `pending(x)` is `bool` for a resource
 or mutation `x` — a name, not a value, so it is not a roster entry. The name
 reads as `option<T>` (`match session { case some(s) => … }`) and may be
@@ -228,19 +227,28 @@ a placeholder. Changed arguments or `refresh` clear the failure and allow a
 new request; a successful answer clears it too. A failure the source shapes
 into an answer is an answer, not `failed`. Like `pending`, this is a compiler
 call, not a value-taking roster entry. **Actions.**
-`action name(params) writes a, b` with a body of `slot = expr`
+`action name(params)` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case
 some(x)` / `case none` blocks of statements, nested as deep as wanted, with no
-loops (a body still always terminates, LLP 1005 §2; `writes` covers every
-branch; `if` needs a bool, `type-condition`; the `match` binds its name as a
-local, as the inline form does); a parameter's type is written or
+loops (a body still always terminates, LLP 1005 §2; `if` needs a bool,
+`type-condition`; the `match` binds its name as a local, as the inline form
+does); a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
-`change`'s payload types the last parameter `string`, a `hover`'s `bool`);
-an assignment to an undeclared slot is
-`analyze-write-not-declared`. **Tasks.** `task name mount` with
+`change`'s payload types the last parameter `string`, a `hover`'s `bool`).
+An action's effects are inferred, never declared (LLP 1035.005.000 D1,
+2026-10-02): the plan's `actions.writes`, the VM's `StoreSlot`/`Send`
+allowlist, is exactly the states and mutations the body assigns or sends
+through every branch, in slot order. A `writes` clause after the parameters
+is `syntax-writes-clause`, whose message says to delete it; there is no
+compatibility before 1.0, and one mechanical rewrite removed every clause.
+What the clause once caught is scope and type: an assignment to anything but
+the component's own state or mutation is `type-assign-not-state`, a `send` to
+anything but its mutation `type-send-not-mutation`. An unintended write to a
+valid, in-scope slot is no longer refused; `contract symbols` shows each
+action's inferred `writes` on its definition. **Tasks.** `task name mount` with
 `every(ms, action)` (fires at boot+ms and every ms after), `every(frame,
 action)` (once per presented frame, never caught up; LLP 1073) or `after(ms,
 action)` (fires once at boot+ms, then is spent and reports no deadline),
@@ -461,29 +469,27 @@ position default; `commandfor` and `command` are schema props, passed by their
 HTML names. Their presentation belongs to the host (LLP 1021 D2), with no
 compiler-created open-state slot.
 
-**Analyze** (`contract-analyze`): `writes` declared and honored, handler
-shape and arity (`change` and `key` supply a string as the last parameter,
-`hover` a bool, `press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and
-`handler_payload` in `contract-analyze`), timer
-actions exist and take no parameters, component uses name real components
-with each argument once. Effect declarations are checked once on each authored
-component, including stateful children (LLP 1017 P4c), so errors name authored
-slots and actions rather than lifted instance names. Membership still uses the
-resolved slots, including the root's implicit router state. A missing `writes`
-declaration reports every undeclared target in first-write order, including
-`send` and every branch, without repeating targets. The stable
-`analyze-write-not-declared` ID and first offending statement's span remain.
-Unknown `writes` entries likewise report every invalid name in declaration order,
-without repeating names, and list the component's available state/mutation slots
-in sorted order. Choices use authored declarations plus the root's implicit
-router slot; parent slots, props, resources, derives and lifted child names are
-excluded. The `analyze-writes-unknown-state` ID and first invalid token's span
-remain, as does an earlier duplicate-entry refusal. Valid declarations construct
-no choices. Four scripted CLI repairs use the reported names, choices and original
-source location, reducing two or three successive refusals to one; non-message
-diagnostic fields and all 18 app/fixture plans are unchanged. This measures the
-repair protocol, not general agent productivity or runtime performance.
-Evidence: `/tmp/exact-writes-choices-06971c8e`.
+**Analyze** (`contract-analyze`): handler shape and arity (`change` and
+`key` supply a string as the last parameter, `hover` a bool,
+`press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and `handler_payload` in
+`contract-analyze`), timer actions exist and take no parameters, a mutation's
+`then` action takes none and never sends that mutation, in any branch
+(`analyze-then-self-send`, read from the body's effects), component uses name
+real components with each argument once. It checks no effect declarations:
+there are none (§2, LLP 1035.005.000 D1). `analyze-write-not-declared`,
+`analyze-writes-unknown-state` and `analyze-writes-duplicate` retired with the
+clause on 2026-10-02, with their fixtures and their repair-message work.
+Lowering computes each action's `writes` from `Action::effects` (the body's
+assignments and sends, every branch) after expansion, so a lifted child
+instance's action names its own renamed slots and a row-owned slot is written
+to the row in force, as before. Proof at the change: every one of the 117
+`.contract` roots in the repository (apps, examples, game fixtures, corpus,
+conformance) compiled before and after, and the decoded plans compared with
+`actions.writes` set aside are identical. 99 kept the same allowlists in the
+same order, 16 the same sets now in slot order, and two shrank where an app
+listed a slot its body never writes: Completion Storm's `sample` (`clicks`)
+and the iOS Calendar example's `animateDrag` (`editorMorphAt`) and
+`chooseType` (`pickerClosing`, `pickerUntil`).
 
 **Lower** (`contract-lower`): shapes to `types`; declarations to `slots`,
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view

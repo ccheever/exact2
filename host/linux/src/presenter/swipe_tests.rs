@@ -876,8 +876,14 @@ component MessageBubble
     fn retained_actions_unsupported_child_is_a_barrier_not_parent_fallthrough() {
         let _service = crate::content_region::test_service();
         let src = source()
-            .replace("  action outside", "  action unsupported\n    replying = replying\n  action outside")
-            .replace("column width=\"100%\" padding=5.3", "column press=outside width=\"100%\" padding=5.3")
+            .replace(
+                "  action outside",
+                "  action unsupported\n    replying = replying\n  action outside",
+            )
+            .replace(
+                "column width=\"100%\" padding=5.3",
+                "column press=outside width=\"100%\" padding=5.3",
+            )
             .replace("button press=replyTo(m.id)", "button press=unsupported");
         let mut p = boot(&src, true, Rows::default());
         let child = id(&p, "reply-message-0");
