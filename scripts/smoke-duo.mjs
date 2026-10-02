@@ -44,7 +44,8 @@ const SEGMENTS = [[0, 0, 455.5, 669], [495.5, 0, 455.5, 669]];
 const after = (deg) => POSES[(POSES.findIndex((p) => p[1] === deg) + 1) % POSES.length][1];
 
 /** The suite. `open` is the smoke's session opener; `check` records a failure. Returns 'unsupported' when there is no Duo to drive. */
-export async function duoSmoke({ open, check }) {
+export async function duoSmoke({ open, check: record }) {
+  const check = (ok, what) => { if (!ok) console.log('  FAIL ' + what); return record(ok, what); };
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const dev = pick ? simulators().find((d) => d.udid === pick || d.name === pick) : null;
@@ -327,14 +328,15 @@ export async function duoSmoke({ open, check }) {
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
   if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
   else {
-    const s = await open({ host: 'host-ios', session: 'a' });
+    let s = null;
     try {
+      s = await open({ host: 'host-ios', session: 'a' }); // a stale bundle is refused by name: reported, not a crash
       await settle(s);
       await eachPose(s, 'host', async ({ l }, tag) => {
         s.session = 'b'; const lb = await s.layout(); s.session = 'a';
         check(l.viewport.w > 0 && lb.viewport.w > 0 && l.viewport.w === lb.viewport.w, `${tag}: both sessions follow the pose (a ${l.viewport.w}×${l.viewport.h}, b ${lb.viewport.w}×${lb.viewport.h})`);
       });
-    } catch (e) { check(false, `host: ${e.message}`); } finally { await s.close(); }
+    } catch (e) { check(false, `host: ${e.message}`); } finally { await s?.close(); }
   }
   await hinge(180);
 }
