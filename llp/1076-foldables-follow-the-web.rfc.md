@@ -1,7 +1,7 @@
 # LLP 1076: Foldables follow the web — `device-posture` and viewport segments
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Accepted by Charlie, 2026-10-02 (Q1 "for now", Q2 "ok", Q3 "ok rec for now", Q4 "rec prob is fine", Q5 "follow UIKit"), to land once the integrated lane passes the checks, the smokes and the Duo run that day; more testing "once the phone is actually released"
 **Systems:** Kernel (`Dimension::Segment`, `Env` grows a segment grid, `Kernel::set_segments`, wire kinds 8–13, `env()` parsing in `kernel/src/style.rs`); Runner (`exactViewport` gains `devicePosture`, `horizontalViewportSegments`, `verticalViewportSegments`); Apple host (`exact_segments` beside `exact_insets`; `UIView.reservedRegions(kind: .division)` and `UIHingeInteraction` in `ExactViewIOS.fit`; macOS constant); Web host and JS target (`navigator.devicePosture`, `window.viewport.segments`; `env(viewport-segment-*)` as CSS text); Linux host (constant, set only by `prefer`); Agent API (`layout.env` names; `prefer posture`, `prefer segments`); Contract (nothing new: `env()` text is the kernel's, the fields are a resource's); `apps/duo-lab`; `scripts/smoke.mjs duo`
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-02
@@ -80,6 +80,15 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 ### D10 — What is refused
 
 `env(viewport-segment-* x)` with one index, more than two, a negative one, a non-integer, or an index above 15; a fallback argument (as for `safe-area-inset-*`); `prefer segments 0x1`, `1x0`, or a gap wider than the viewport. Each is refused by name at the bake (the compiler probes the kernel's parser) or by the agent, never silently zero.
+
+## Rulings (Charlie, 2026-10-02)
+
+- **Q1** — land all of it, for now: a lab app is consumer enough.
+- **Q2** — by hand, like `smoke deploy`.
+- **Q3** — gap default 0; the smoke passes 40.
+- **Q4** — the web's: a missing segment takes the row's initial value. The alternatives named (the whole viewport as segment (0, 0); zero) were considered; a page guards its segment lengths with a `when` on the count anyway, and the web is the parity oracle.
+- **Q5** — follow UIKit: the division's whole frame, margins included, belongs to no segment.
+- **Working set** — LLP 1076 stays out of `llp/current/` (the set is at its cap of 15); it may leave for good once today's tests have run and the kinks they find are worked out. Rotation and Split View wait for a released phone.
 
 ## Open questions (for Charlie)
 
