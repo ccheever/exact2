@@ -84,6 +84,7 @@ final class ControlHost: NSObject {
         switch kind {
         case "switch": made = UISwitch()
         case "checkbox": made = ExactCheckbox(frame: .zero)
+        case "button": made = makeNativeButton(node) // LLP 1069.011
         default: made = makeValueControl(kind, node.id)
         }
         made.tag = Int(node.id)
@@ -96,7 +97,9 @@ final class ControlHost: NSObject {
     func sync() {
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
-        for id in Array(controls.keys) where !live.contains(id) {
+        // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
+        let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
+        for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
             kinds.removeValue(forKey: id)
@@ -111,10 +114,13 @@ final class ControlHost: NSObject {
                 control.removeFromSuperview()
                 continue
             }
-            if control.superview !== owner { owner.addSubview(control) }
+            let mount = owner.controlMount
+            if control.superview !== mount { mount.addSubview(control) }
             let on = owner.props["checked"].map { $0 == "true" }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
-            if let s = control as? UISwitch {
+            if let b = control as? NativeButtonIOS {
+                configureNative(b, owner, accent: accent)
+            } else if let s = control as? UISwitch {
                 if let on, s.isOn != on { s.setOn(on, animated: s.window != nil) }
                 s.onTintColor = accent
             } else if let c = control as? ExactCheckbox {
@@ -123,16 +129,25 @@ final class ControlHost: NSObject {
             } else {
                 configureValue(control, owner, accent: accent)
             }
-            control.isEnabled = !owner.disabled
-            control.accessibilityLabel = owner.props["accessibilityLabel"]
-            control.accessibilityIdentifier = owner.props["testId"]
+            if !(control is NativeButtonIOS) {
+                control.isEnabled = !owner.disabled
+                control.accessibilityLabel = owner.props["accessibilityLabel"]
+                control.accessibilityIdentifier = owner.props["testId"]
+            }
             let natural = naturalSize(control, owner)
             let box = owner.contentBox()
-            // A slider's track spans its box, as the web's does; the others
-            // keep their own size, centred.
-            let width = control is UISlider ? box.width : natural.width
-            control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
-                                   width: width, height: natural.height)
+            // A slider's track spans its box, as the web's does; a native
+            // button fills it, its chrome inside (LLP 1069.011 D6); the
+            // others keep their own size, centred.
+            if control is NativeButtonIOS {
+                // The box is the button's alignment rect, as its natural size is.
+                let frame = control.frame(forAlignmentRect: box)
+                if control.frame != frame { control.frame = frame }
+            } else {
+                let width = control is UISlider ? box.width : natural.width
+                control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                                       width: width, height: natural.height)
+            }
             if reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
@@ -157,7 +172,8 @@ final class ControlHost: NSObject {
 
     /// The agent's `tap` (LLP 1069.001 D9): the control's own activation.
     func activate(_ node: NodeView) -> Bool? {
-        guard let control = controls[node.id] else { return nil }
+        // A native button takes the ordinary tap path (LLP 1069.011 D10).
+        guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
         if let s = control as? UISwitch { s.setOn(!s.isOn, animated: false); s.sendActions(for: .valueChanged) }
         else if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
@@ -167,6 +183,7 @@ final class ControlHost: NSObject {
 
     func observation(_ node: NodeView) -> [String: Any]? {
         guard let control = controls[node.id] else { return nil }
+        if let b = control as? NativeButtonIOS { return nativeObservation(b) }
         if let value = valueObservation(control) {
             return value.merging(["size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]) { a, _ in a }
         }

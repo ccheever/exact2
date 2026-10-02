@@ -33,7 +33,8 @@ enum FocusSearch {
         // focus items; a route's navigation container holds exact2's nodes,
         // whose own foreign views join the nodes themselves.
         if view is NodeView || view is PlainView || view is ScrollView || view is MetalView
-            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController { return }
+            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController
+            || view is NativeButtonIOS { return } // a native button's node keeps the focus (LLP 1069.011 D4)
         candidates.add(view)
     }
 

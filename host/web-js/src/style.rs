@@ -502,6 +502,11 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             ),
         ],
         StyleId::Animation => vec![with("animation", NONE)],
+        // @ref LLP 1069.011 D8 — and the custom property a native button reads.
+        StyleId::AccentColor => vec![
+            with("accent-color", "v=>v"),
+            with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
+        ],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         StyleId::AnimationTimeline => vec![
             with(
