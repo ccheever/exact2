@@ -1,5 +1,6 @@
 // What a view says about its page's document (LLP 1048.003), for rt.js: its
-// head (D1) and the element that scrolls it (D4).
+// head (D1) and the element that scrolls it (D4); and which routes of its
+// navigation roots it shows (LLP 1038 D6).
 //
 // The head is the runner's (runner/src/head.rs): the innermost active `head`
 // wins field by field, a deeper head over a shallower one and, at one depth,
@@ -7,12 +8,12 @@
 // not selected is inactive. A root is an element with `navigationBack` and
 // `navigationKey`, its routes its children with a `navigationKey`, and the
 // selected one the route whose key is the root's, when one is: read from
-// those attributes, never from what the projection hides (navigation.js
-// `project`, a microtask later). After each commit's tree update, once the
-// page has had a head, the active head is found again, so one that changes,
-// leaves or is covered gives its fields to the next; the page's title and
-// description follow it as the web host's `documentHead` writes them
-// (document-glue.js), the page's own title where no head sets one.
+// those attributes, never from what the projection hides (`projectRoots`).
+// After each commit's tree update, once the page has had a head, the active
+// head is found again, so one that changes, leaves or is covered gives its
+// fields to the next; the page's title and description follow it as the web
+// host's `documentHead` writes them (document-glue.js), the page's own title
+// where no head sets one.
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -65,6 +66,17 @@ function publish() {
   let m = document.querySelector('meta[name="description"]');
   if (Head.headDescription == null) m?.remove();
   else { if (!m) { m = document.createElement("meta"); m.setAttribute("name", "description"); document.head.append(m); } m.content = Head.headDescription; }
+}
+
+/** The page's navigation roots, with a router or without (`history` is
+ * navigation.js's, the web host's own): each root's routes are projected,
+ * the covered hidden and inert, now and after every commit's tree (`after`,
+ * rt.js `After`), as the web host projects after every batch; Escape on a
+ * modal route presses its back, and `navigate` takes a popstate's location. */
+export function projectRoots(history, navigate, say, after) {
+  const root = document.getElementById("exact-root"), project = () => history.project(root, say);
+  history.connect(root, navigate, say);
+  after.push(project); project();
 }
 
 /** The elements that may be the page's scroller: `<html data-scrolldocument>`
