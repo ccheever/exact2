@@ -320,7 +320,7 @@ export function install(exact) {
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       // The fold group (LLP 1076 D7) likewise, where the plan reads the fold's fields; the browser's reading otherwise.
-      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {}, fold: exact.fold ? exact.fold.prefer(req.fold) : foldEnv() }; } catch (e) { return { error: e.message }; }
+      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {}, fold: req.fold && exact.fold ? exact.fold.prefer(req.fold) : foldEnv() }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };
