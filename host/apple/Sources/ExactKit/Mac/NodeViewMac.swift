@@ -177,7 +177,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return isParagraph || tabbable
     }
     var tabbable: Bool {
-        kind == "button" || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+        kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise

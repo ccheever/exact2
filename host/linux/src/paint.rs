@@ -1077,6 +1077,10 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts)
             }
+            NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
+                let title = walk.scene.kernel.button_face(node.id).title;
+                self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
+            }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
                 node,
@@ -1118,10 +1122,13 @@ impl Painter {
             .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
             .filter(|source| source.parent == Some(node.id))
             .map(|source| source.id);
+        // A native button's children are its face, painted above (LLP 1069.011 D5).
+        let native =
+            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
         let mut children: Vec<_> = node
             .children()
             .into_iter()
-            .filter(|id| Some(*id) != lift)
+            .filter(|id| Some(*id) != lift && !native)
             .collect();
         children.sort_by(
             |a, b| match (self.placements.get(a), self.placements.get(b)) {

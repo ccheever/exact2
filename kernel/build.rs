@@ -24,6 +24,8 @@ struct Schema {
     opcodes: Vec<OpcodeRow>,
     symbols: Vec<[String; 3]>,
     materials: Vec<[String; 7]>,
+    #[serde(rename = "buttonStyles")]
+    button_styles: Vec<[String; 5]>,
 }
 #[derive(Deserialize)]
 struct NodeTypeRow {
@@ -37,6 +39,9 @@ struct PropRow {
     kind: String,
     #[serde(default)]
     measure: bool,
+    /// May be set in a `style` (LLP 1069.011 D12).
+    #[serde(default)]
+    styleable: bool,
 }
 #[derive(Deserialize)]
 struct EnumDef {
@@ -179,6 +184,33 @@ fn generate(schema: &Schema, digest: u64) -> String {
             "{name:?} => Some(Material {{ ios: {ios:?}, macos: {macos:?}, blur: {blur}.0, saturate: {saturate}.0, light: {:?}, dark: {:?} }}),",
             hex_rgba(light),
             hex_rgba(dark)
+        )
+        .unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
+    // @ref LLP 1069.011 D2 — a native button's styles.
+    writeln!(
+        w,
+        "/// `buttonStyle`'s names, one per platform button style (LLP 1069.011 D2).\npub const BUTTON_STYLES: &[&str] = &{:?};",
+        schema.button_styles.iter().map(|row| &row[0]).collect::<Vec<_>>()
+    )
+    .unwrap();
+    w.push_str(concat!(
+        "/// One `buttonStyle`: what each platform draws for it (`~` when it draws\n",
+        "/// another in its place) and the web's and Linux's stated look.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub struct ButtonStyle {\n",
+        "    /// `UIButton.Configuration`'s factory, iOS 26 and later.\n    pub ios: &'static str,\n",
+        "    /// The factory before iOS 26.\n    pub ios_before_26: &'static str,\n",
+        "    /// The `NSButton` look (`borderless`, `push`, `push-accent`, `glass`, `glass-accent`).\n    pub macos: &'static str,\n",
+        "    /// The web's and Linux's look (`ua`, `text`, `soft`, `fill`, `glass`, `glass-fill`).\n    pub look: &'static str,\n",
+        "}\n",
+    ));
+    writeln!(w, "/// A button style by its name; never a platform name.\npub fn button_style(name: &str) -> Option<ButtonStyle> {{ match name {{").unwrap();
+    for [name, ios, before, macos, look] in &schema.button_styles {
+        writeln!(
+            w,
+            "{name:?} => Some(ButtonStyle {{ ios: {ios:?}, ios_before_26: {before:?}, macos: {macos:?}, look: {look:?} }}),"
         )
         .unwrap();
     }
@@ -401,6 +433,24 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The declared value kind.").unwrap();
+    writeln!(
+        w,
+        "    /// Whether a `style` may set this prop (LLP 1069.011 D12)."
+    )
+    .unwrap();
+    writeln!(w, "    pub fn styleable(self) -> bool {{").unwrap();
+    let styleable: Vec<String> = schema
+        .props
+        .iter()
+        .filter(|row| row.styleable)
+        .map(|row| format!("PropId::{}", pascal(&row.name)))
+        .collect();
+    if styleable.is_empty() {
+        writeln!(w, "        false").unwrap();
+    } else {
+        writeln!(w, "        matches!(self, {})", styleable.join(" | ")).unwrap();
+    }
+    writeln!(w, "    }}").unwrap();
     writeln!(w, "    pub fn kind(self) -> PropKind {{").unwrap();
     writeln!(w, "        match self {{").unwrap();
     for row in &schema.props {

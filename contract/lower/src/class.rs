@@ -56,6 +56,15 @@ impl Lowerer<'_> {
                             .map_or(Expr::None(*span), |r| r.value.clone())
                     };
                     let (va, vb) = (side(sa), side(sb));
+                    // @ref LLP 1069.011 D12 — a prop has no `none` to fall to.
+                    let styleable = matches!(crate::tags::attr(&s.name), Some(crate::tags::AttrTarget::Prop(p)) if p.styleable());
+                    if styleable && (matches!(va, Expr::None(_)) || matches!(vb, Expr::None(_))) {
+                        return err(
+                            "lower-style-prop",
+                            format!("`class=(cond ? {a} : {b})`: `{}` is set by one style and not the other; set it in both or neither", s.name),
+                            s.span,
+                        );
+                    }
                     // The same literal on both sides is that literal: what lets
                     // a shared `font-family`, literal-only in v1, be chosen.
                     let value = match (&va, &vb) {

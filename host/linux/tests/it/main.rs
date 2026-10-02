@@ -8,6 +8,7 @@ mod height;
 mod height_binding;
 mod holds;
 mod image;
+mod native_buttons;
 mod presence;
 mod svg;
 mod timeline;

@@ -930,7 +930,7 @@ fn percentage_corner_radii_survive_boot_and_dynamic_updates() {
         r#"
 component Corners
   state round = false
-  action flip writes round
+  action flip
     round = not round
   view
     button press=flip testId="box" width=160 height=80 border-radius=(round ? "50%" : "4px")

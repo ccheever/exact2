@@ -857,6 +857,26 @@ host policy stays the Apple-policy spelling beside CSS `backdrop-filter` (LLP
 wins on every host (the web's material rule is `!important` over the inline
 blur).
 
+### Native buttons
+
+Exact's `button` is the author's box: its UA sheet is `appearance: none`
+(a fixed row, which `layout` reports), where a browser's is `auto`. An
+`appearance` that is the literal `auto` after class merging makes it the
+platform's own button (LLP 1069.011): a `Control` of type `button`, UIKit's
+`UIButton` with the `UIButton.Configuration` its `buttonStyle` names,
+AppKit's `NSButton`, the browser's own `<button>`, a painted button on Linux.
+Its `text` and symbol `image` children are its title and image, read from the
+kernel, never laid out. Declared: its box is `border-box` on every host with
+the platform's chrome inside it; its box refuses `padding`, `border`,
+`background`, `box-shadow`, `filter`, `overflow`, colour and typography,
+which LLP 1069.001 D6 lets other controls' boxes take, because a browser
+drops a native button's look under them; it refuses `direction` and
+`pointer-events` too (its face's order is its children's, and the platform
+hit-tests its own control); `accent-color` colours what the platform colours
+with its tint, as iOS does on the web and Linux; inherited typography is
+reset on the web's native face; Linux draws no symbol. Its size is the
+platform's, as any control's is.
+
 ### Window toolbars
 
 Charlie requested native window-toolbar presentation for Interview on 2026-09-15;
