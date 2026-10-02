@@ -356,3 +356,72 @@ pub(super) fn presence_decls(css: &mut String) -> String {
     *css = kept;
     taken
 }
+
+/// The document's attribute rules (`host/web/src/document.rs`, `Walk::element`),
+/// for a static prop: `(attributes, text content, extra CSS)`.
+pub(super) fn attributes(
+    element: &str,
+    props: &exact_kernel::SortedMap<String, String>,
+) -> (Vec<(String, String)>, Option<String>, String) {
+    let mut attrs = Vec::new();
+    let mut content = None;
+    let mut css = String::new();
+    for (name, value) in props {
+        match name.as_str() {
+            "scrollFollowEnd" | "scrollTop" | "scrollLeft" => {}
+            // An authored `autofocus=false` is kept for the agent's tree
+            // (the runner reports it); the attribute would mean true.
+            "autofocus" => {
+                if value == "true" {
+                    attrs.push((name.clone(), String::new()));
+                } else {
+                    attrs.push(("data-autofocus".into(), "false".into()));
+                }
+            }
+            "src" if element == "img" && value.starts_with("symbol:") => {
+                attrs.push((
+                    name.clone(),
+                    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'/%3E".into(),
+                ));
+            }
+            "text" => {
+                if element != "canvas" && !value.is_empty() {
+                    content = Some(value.clone());
+                }
+            }
+            "data-action" => {
+                attrs.push((name.clone(), value.clone()));
+                css.push_str("touch-action:none;");
+            }
+            "value" => match element {
+                "input" | "button" => attrs.push((name.clone(), value.clone())),
+                "textarea" => content = Some(value.clone()),
+                _ => {}
+            },
+            "checked" | "inert" | "disabled" | "readonly" => {
+                if value == "true" {
+                    attrs.push((name.clone(), String::new()));
+                }
+            }
+            "autoplay"
+            | "controls"
+            | "loop"
+            | "muted"
+            | "playsinline"
+            | "disablepictureinpicture"
+            | "disableremoteplayback"
+                if element == "video" =>
+            {
+                if value == "true" {
+                    attrs.push((name.clone(), String::new()));
+                }
+            }
+            "href" if !exact_web::host::document::navigable(value) => {}
+            "src" if element == "iframe" && !exact_web::host::document::navigable(value) => {
+                attrs.push((name.clone(), "about:blank".into()));
+            }
+            _ => attrs.push((name.clone(), value.clone())),
+        }
+    }
+    (attrs, content, css)
+}

@@ -54,6 +54,7 @@ final class NodeExtras {
     var paintedThisTurn: Bool = false
     var placement: [Double]?
     var symbolView: UIImageView?
+    var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
     var focusRing: CAShapeLayer?
@@ -123,6 +124,7 @@ extension NodeView {
     var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
     var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue } } }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
+    var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }

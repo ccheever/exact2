@@ -7,7 +7,7 @@ use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
 #[test]
-fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
+fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
     for role in [
         "back",
         "close",
@@ -43,7 +43,6 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
     for role in [
         "",
         "chevron.backward",
-        "sf/plus",
         "Search",
         "serach",
         "bookmark.fill",
@@ -54,6 +53,12 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         ))
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{error}");
+    }
+    for name in ["", "house.fill", "not.an.os.symbol", "future/opaque name"] {
+        contract::compile(&format!(
+            "component App\n  view\n    image \"symbol:sf/{name}\"\n"
+        ))
+        .unwrap();
     }
     // A dynamic source is checked by the host after it resolves.
     contract::compile(

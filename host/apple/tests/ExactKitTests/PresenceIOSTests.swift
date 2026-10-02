@@ -41,9 +41,9 @@ final class PresenceIOSTests: XCTestCase {
             ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
             ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
             ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
-            ["op": "create", "id": 13, "kind": "image", "props": ["symbolName": "house"]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:sf/house", "symbolName": "house"]],
             ["op": "create", "id": 14, "kind": "text", "props": ["text": "Home"]],
-            ["op": "create", "id": 15, "kind": "image", "props": ["symbolName": "star"]],
+            ["op": "create", "id": 15, "kind": "image", "props": ["imageSource": "symbol:sf/star", "symbolName": "star"]],
             ["op": "create", "id": 16, "kind": "text", "props": ["text": "Saved"]],
             ["op": "children", "id": 11, "ids": [13, 14]],
             ["op": "children", "id": 12, "ids": [15, 16]],
@@ -90,6 +90,46 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertNil(bar.superview)
         XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
         p.reset()
+    }
+
+    func testMissingRawSymbolsKeepTabBarsAndClearSegmentImages() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        let owner = try XCTUnwrap(p.views[10])
+        let icon = try XCTUnwrap(p.views[13])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar } as? UITabBar)
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        var sizes: [CGSize?] = []
+        p.onIntrinsic = { reports in for (id, size) in reports where id == 13 { sizes.append(size) } }
+        for name in ["airpodsmax", "exact.nonexistent.symbol", "", "airpodsmax"] {
+            p.apply(wireBatch([["op": "props", "id": 13,
+                "set": ["imageSource": "symbol:sf/\(name)", "symbolName": name]]]))
+            drainIntrinsicSizes()
+            XCTAssertTrue(bar.superview === owner, "lookup never changes projection")
+            XCTAssertEqual(bar.selectedItem?.tag, 0)
+            XCTAssertEqual(bar.items?.first?.title, "Home")
+            let found = name == "airpodsmax"
+            XCTAssertEqual(icon.image != nil, found)
+            XCTAssertEqual(bar.items?.first?.image != nil, found)
+            XCTAssertNil(icon.symbolRefusal)
+            if !found { XCTAssertEqual(sizes.last ?? nil, CGSize(width: 16, height: 16)) }
+        }
+        p.apply(wireBatch([
+            ["op": "props", "id": 11, "set": ["accessibilityLabel": "Home"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [15]],
+            ["op": "frame", "id": 13, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+        ]))
+        let segments = try XCTUnwrap(owner.subviews.first { $0 is UISegmentedControl } as? UISegmentedControl)
+        XCTAssertNotNil(segments.imageForSegment(at: 0))
+        for name in ["exact.nonexistent.symbol", "", "airpodsmax"] {
+            p.apply(wireBatch([["op": "props", "id": 13,
+                "set": ["imageSource": "symbol:sf/\(name)", "symbolName": name]]]))
+            XCTAssertEqual(icon.image != nil, name == "airpodsmax")
+            XCTAssertEqual(segments.imageForSegment(at: 0)?.accessibilityLabel, "Home")
+            XCTAssertNil(segments.titleForSegment(at: 0))
+            XCTAssertEqual(segments.selectedSegmentIndex, 0)
+        }
     }
 
     func testResetRestoresTabBarMembersAndDropsTheProjection() throws {

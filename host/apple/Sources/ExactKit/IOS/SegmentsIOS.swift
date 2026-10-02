@@ -40,10 +40,10 @@ private struct TabBarFace: Equatable {
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
         guard children.count == 2,
               let image = children.first(where: { $0.kind == "image" }),
-              let symbol = image.props["symbolName"], !symbol.isEmpty,
+              image.props["imageSource"]?.hasPrefix("symbol:") == true,
               let label = children.first(where: { $0 !== image }), label.isParagraph,
               !label.accessibleText.isEmpty else { return nil }
-        self.symbol = symbol
+        self.symbol = image.props["symbolName"] ?? ""
         title = label.accessibleText
         tint = image.color("tint_color", .label)
     }
@@ -110,15 +110,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let label = tab.accessibleName
         if case .image(let icon)? = tab.segmentFace {
             let raster = icon.raster?.image.image
-            guard let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.image,
-                  icon.bounds.width > 0, icon.bounds.height > 0 else {
-                control.setTitle(nil, forSegmentAt: index)
-                return
-            }
-            let identity: AnyObject = raster.map { $0 as AnyObject } ?? source
-            let size = icon.bounds.size
+            // A transparent image carries the segment's accessible name when
+            // the OS has no glyph; a nil image loses that native label.
+            let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.image
+            let identity: AnyObject = raster.map { $0 as AnyObject } ?? source ?? icon
+            let size = CGSize(width: max(1, icon.bounds.width), height: max(1, icon.bounds.height))
             if let old = control.icons[index], old.source === identity, old.size == size, old.label == label { return }
             let image = UIGraphicsImageRenderer(size: size).image { _ in
+                guard let source else { return }
                 let ratio = min(size.width / source.size.width, size.height / source.size.height)
                 let fit = CGSize(width: source.size.width * ratio, height: source.size.height * ratio)
                 source.draw(in: CGRect(x: (size.width - fit.width) / 2, y: (size.height - fit.height) / 2, width: fit.width, height: fit.height))
@@ -203,7 +202,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let current = bar.items ?? []
         if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.accessibilityIdentifier != $1.symbol }) {
             bar.setItems(faces.enumerated().map { index, face in
-                let item = UITabBarItem(title: face.title, image: UIImage(systemName: face.symbol), tag: index)
+                let item = UITabBarItem(title: face.title, image: face.symbol.isEmpty ? nil : UIImage(systemName: face.symbol), tag: index)
                 item.accessibilityIdentifier = face.symbol
                 return item
             }, animated: false)

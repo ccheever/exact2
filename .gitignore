@@ -17,11 +17,11 @@ game/.shells/
 apps/*/app.contract.d.ts
 
 # Messages schema bytecode is compiled at bake, never committed.
-apps/messages/snapback/backend.ts
-apps/messages/snapback/generated/
-apps/messages/assets/snapback4-device.wasm
-apps/messages/assets/snapback4-LICENSE.txt
-apps/messages/.snapback/
+apps/messages-legacy/snapback/backend.ts
+apps/messages-legacy/snapback/generated/
+apps/messages-legacy/assets/snapback4-device.wasm
+apps/messages-legacy/assets/snapback4-LICENSE.txt
+apps/messages-legacy/.snapback/
 
 # The game add-on: Godot import caches, per-twin node_modules.
 game/twins/godot/**/.godot/

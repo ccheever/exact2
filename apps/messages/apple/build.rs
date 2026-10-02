@@ -1,9 +1,7 @@
-#[path = "../bake.rs"]
-mod bake;
 fn main() {
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("ios") => "ios",
         _ => "macos",
     };
-    bake::build(platform);
+    exact_js_bake::build(std::path::Path::new(".."), platform).expect("bake the Messages");
 }

@@ -17,7 +17,7 @@ const SOURCE: &str = r#"component App
   view
     column width=400 height=500
       view id="owner" width=400 height=300 overflow-x="hidden" overflow-y="hidden"
-        view id="content" width="100%" height="100%"
+        view id="content" position="relative" width="100%" height="100%"
           text "The river carries its quiet story through the garden and beyond the trees." testId="prose" width=400 height=300
           box position="absolute" left=x top=40 width=60 height=60 wrap-flow="both" shape-outside="circle()"
         text "Waiting" id="pending"

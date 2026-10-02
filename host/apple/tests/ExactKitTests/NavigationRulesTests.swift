@@ -11,6 +11,37 @@ import XCTest
 @testable import ExactKit
 
 final class NavigationRulesTests: XCTestCase {
+    func testRawSymbolMissKeepsImageOnlySegmentsBlank() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        func apply(_ ops: [[String: Any]]) {
+            p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 2, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilityLabel": "Home", "accessibilitySelected": "true"], "handlers": ["press"]],
+            ["op": "create", "id": 3, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilityLabel": "Saved"], "handlers": ["press"]],
+            ["op": "create", "id": 4, "kind": "image", "props": ["imageSource": "symbol:sf/airpodsmax", "symbolName": "airpodsmax"]],
+            ["op": "create", "id": 5, "kind": "image", "props": ["imageSource": "symbol:sf/star", "symbolName": "star"]],
+            ["op": "children", "id": 2, "ids": [4]],
+            ["op": "children", "id": 3, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let owner = try XCTUnwrap(p.views[1]), icon = try XCTUnwrap(p.views[4])
+        let segments = try XCTUnwrap(owner.subviews.first { $0 is NSSegmentedControl } as? NSSegmentedControl)
+        for name in ["airpodsmax", "exact.nonexistent.symbol", "", "airpodsmax"] {
+            apply([["op": "props", "id": 4, "set": ["imageSource": "symbol:sf/\(name)", "symbolName": name]]])
+            XCTAssertEqual(icon.image != nil, name == "airpodsmax")
+            XCTAssertEqual(segments.image(forSegment: 0)?.accessibilityDescription, "Home")
+            XCTAssertEqual(segments.label(forSegment: 0), "")
+            XCTAssertEqual(segments.toolTip(forSegment: 0), "Home")
+            XCTAssertEqual(segments.selectedSegment, 0)
+            XCTAssertNil(icon.symbolRefusal)
+        }
+    }
+
     func testListSiblingUpdatesAndReparentingPreserveInheritedAvailability() throws {
         _ = NSApplication.shared
         let p = Presenter()

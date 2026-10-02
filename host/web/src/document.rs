@@ -13,7 +13,7 @@
 //! check (a parsed document against the live DOM, in Chrome) exists to catch.
 //!
 //! What the browser decides after layout is not in a document: font loading,
-//! symbol sizing from computed styles (a symbol image has no `src`), focus
+//! symbol masks from computed styles, focus
 //! (`autofocus` is the focus controller's), scrolling, context positioning,
 //! windows chosen from scrollport geometry, and controls the glue disables
 //! until its module is ready.
@@ -309,7 +309,7 @@ fn write<S: Source>(
     };
     let mut after = false;
     for root in roots {
-        after |= walk.element(*root, after, None)?;
+        after |= walk.element(*root, after, None, 16.)?;
     }
     let rest = walk.out[walk.sent..].to_string();
     Ok((
@@ -384,6 +384,7 @@ impl<S: Source> Walk<'_, '_, S> {
         id: ViewId,
         after: bool,
         parent: Option<exact_kernel::Display>,
+        inherited_font: f32,
     ) -> Result<bool, DocumentError> {
         let src = self.src;
         let node = src.facts(id).expect("the runner's tree names live views");
@@ -394,6 +395,11 @@ impl<S: Source> Walk<'_, '_, S> {
         let refuse = |reason: &str| DocumentError {
             view: id,
             reason: reason.to_owned(),
+        };
+        let font = if node.style.mask.has(exact_kernel::StyleId::FontSize) {
+            node.style.font_size
+        } else {
+            inherited_font
         };
         let tag = tag_of(&node, self.buttons > 0);
         match tag {
@@ -434,9 +440,14 @@ impl<S: Source> Walk<'_, '_, S> {
             match name.as_str() {
                 // Browser-owned state the glue keeps in JavaScript.
                 "scrollFollowEnd" | "scrollTop" | "scrollLeft" | "autofocus" => {}
-                // A symbol's source is its mask; the glue writes a sized
-                // placeholder after layout (`refreshSymbols`).
-                "src" if element == "img" && value.starts_with("symbol:") => {}
+                // A sized, transparent source supplies the natural box before
+                // JavaScript. The live renderer adds the portable role's mask.
+                "src" if element == "img" && value.starts_with("symbol:") => {
+                    attrs.push((
+                        name.clone(),
+                        Some(format!("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='{font}' height='{font}'/%3E")),
+                    ));
+                }
                 // `el.textContent = value` while it has no element children:
                 // a canvas already holds its surface.
                 "text" => {
@@ -567,7 +578,7 @@ impl<S: Source> Walk<'_, '_, S> {
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let mut under = false;
         for child in children.iter().copied() {
-            under |= self.element(child, under, Some(node.style.display))?;
+            under |= self.element(child, under, Some(node.style.display), font)?;
         }
         if let Some(outer) = outer {
             self.select = outer;

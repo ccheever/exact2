@@ -13,9 +13,9 @@ export function symbols(table) {
   if (typeof document === "undefined") return;
   document.head.append(Object.assign(document.createElement("style"), { textContent: STYLE }));
   PropHooks.src = (e, v) => {
-    if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); return false; }
+    if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); e.removeAttribute("data-symbol-source"); e.symbolKey = null; return false; }
     const [path, filled] = Table[v.slice(7)] ?? [""];
-    e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); e.alt = "";
+    e.setAttribute("data-symbol-source", v); e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); e.alt = "";
     return true;
   };
   After.push(refresh);
@@ -26,7 +26,7 @@ function refresh() {
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (el.symbolKey !== key) {
       el.symbolKey = key;
-      const point = path ? size : 0, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? 'fill="black" fill-rule="evenodd"' : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
       el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" ${paint}/></svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;

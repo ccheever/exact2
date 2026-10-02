@@ -28,6 +28,28 @@ fn document(src: &str) -> String {
     host(src, Says(""), "/").document().unwrap().root
 }
 
+#[test]
+fn raw_symbols_prerender_as_nonfetching_decorative_images() {
+    let doc = document(
+        r#"component App
+  view
+    row font-size=28
+      image "symbol:sf/airpodsmax" testId="raw"
+      image "symbol:sf/" width=40 testId="empty"
+"#,
+    );
+    assert!(
+        doc.contains("data-symbol-source=\"symbol:sf/airpodsmax\""),
+        "{doc}"
+    );
+    assert!(doc.contains("data-symbol-source=\"symbol:sf/\""), "{doc}");
+    assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 2, "{doc}");
+    assert!(!doc.contains("src=\"symbol:"), "{doc}");
+    assert_eq!(doc.matches("width='28' height='28'").count(), 2, "{doc}");
+    assert_eq!(doc.matches("data-symbol-path=\"\"").count(), 2, "{doc}");
+    assert_eq!(doc.matches("alt=\"\"").count(), 2, "{doc}");
+}
+
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);

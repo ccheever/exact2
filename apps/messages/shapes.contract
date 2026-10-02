@@ -1,0 +1,114 @@
+shape Message
+  id: string
+  at: number
+  status: string
+  fresh: bool
+  body: string
+  preview: string
+  from: string
+  outgoing: bool
+  time: string
+  tail: bool
+  gap: number
+  sender: string
+  avatar: bool
+  initials: string
+  stamp: string
+  receipt: string
+  receiptNew: bool
+  reaction: string
+  reply: string
+  truncated: bool
+  arrival: bool
+  edited: bool
+shape Thread
+  id: string
+  name: string
+  initials: string
+  color: string
+  model: string
+  unread: bool
+  muted: bool
+  preview: string
+  time: string
+  draft: string
+shape Snapshot
+  revision: number
+  connected: bool
+  notice: string
+  threads: list<Thread>
+  id: string
+  name: string
+  initials: string
+  color: string
+  model: string
+  draft: string
+  messages: list<Message>
+  typing: bool
+  busy: bool
+  error: string
+  count: number
+  latest: string
+shape Model
+  id: string
+  name: string
+  maker: string
+  initials: string
+  color: string
+shape Change
+  revision: number
+  id: string
+  message: string
+shape Viewport
+  width: number
+  height: number
+  prefersReducedMotion: bool
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+style Ink
+  color="light-dark(#000000, #ffffff)"
+style Secondary
+  color="light-dark(#8a8a8e, #98989f)"
+style Canvas
+  background-color="light-dark(#ffffff, #000000)"
+style GlassButton
+  width=40 height=40 border-radius=20
+  display="flex" align-items="center" justify-content="center" flex-shrink=0
+style Screen
+  position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box"
+  padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+  background-color="light-dark(#ffffff, #000000)"
+
+keyframes received
+  from opacity=0 scale=0.85
+  to opacity=1 scale=1
+keyframes stamp
+  from opacity=0
+  to opacity=1
+keyframes receipt
+  from opacity=0 scale=0.21
+  22% opacity=1
+  to opacity=1 scale=1
+keyframes dot
+  from opacity=0.2
+  to opacity=0.45
+keyframes breathe
+  from scale=1
+  50% scale=1.03
+  to scale=1
+keyframes card
+  from opacity=0 scale=0.82 translate="0px 14px"
+  to opacity=1 scale=1 translate="0px 0px"
+keyframes exit
+  to opacity=0 scale=0.94
+
+component Avatar
+  props
+    initials: string
+    color: string
+    size: number
+  view
+    column width=size height=size border-radius=(size / 2) background-color=color align-items="center" justify-content="center" flex-shrink=0
+      text initials font-family="system-ui" font-size=(size * 0.4) font-weight=500 color="#ffffff"

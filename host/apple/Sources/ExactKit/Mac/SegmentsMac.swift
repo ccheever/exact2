@@ -84,13 +84,15 @@ final class SegmentHost {
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.segmentCount = tabs.count
             for (index, tab) in tabs.enumerated() {
-                if case .image(let icon)? = tab.segmentFace, let source = icon.image {
-                    let image = source.copy() as? NSImage
-                    if icon.bounds.width > 0, icon.bounds.height > 0 { image?.size = icon.bounds.size }
-                    image?.accessibilityDescription = tab.accessibleName
+                if case .image(let icon)? = tab.segmentFace {
+                    // Keep the native accessibility description even with no glyph.
+                    let image = (icon.image?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 1, height: 1))
+                    if icon.bounds.width > 0, icon.bounds.height > 0 { image.size = icon.bounds.size }
+                    image.accessibilityDescription = tab.accessibleName
                     control.setImage(image, forSegment: index)
                     control.setImageScaling(.scaleProportionallyDown, forSegment: index)
                     control.setLabel("", forSegment: index)
+                    control.setToolTip(tab.accessibleName, forSegment: index)
                 } else {
                     control.setImage(nil, forSegment: index)
                     control.setLabel(tab.accessibleName, forSegment: index)

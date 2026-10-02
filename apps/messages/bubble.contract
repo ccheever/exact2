@@ -1,0 +1,84 @@
+use Message from "./shapes.contract"
+use Ink from "./shapes.contract"
+use Secondary from "./shapes.contract"
+use Avatar from "./shapes.contract"
+
+// The fitted iOS 26 tail from EXPChatBubblePath.mm. It hangs 6.65 pt below
+// the circular body and stays inside its width. Incoming is the mirror.
+component Tail
+  props
+    outgoing: bool
+    fill: string
+  view
+    svg position="absolute" bottom=-6.65 left=(outgoing ? "calc(100% - 26px)" : "0px") width=26 height=26.65 viewBox="0 0 26 26.65"
+      path d=(outgoing ? "M 0 0 L 26 0 A 20 20 0 0 1 19.229 15 C 17.614 16.424 16.06 18.013 16.06 20.38 C 16.06 23.394 18.599 25.038 18.19 25.72 C 17.854 26.28 18.27 26.954 16 26.5 C 14.119 25.91 11.195 24.012 10 23.21 C 7.769 21.711 6.038 20 4 20 L 0 20 Z" : "M 26 0 L 0 0 A 20 20 0 0 0 6.771 15 C 8.386 16.424 9.94 18.013 9.94 20.38 C 9.94 23.394 7.401 25.038 7.81 25.72 C 8.146 26.28 7.73 26.954 10 26.5 C 11.881 25.91 14.805 24.012 16 23.21 C 18.231 21.711 19.962 20 22 20 L 26 20 Z") fill=fill
+
+component Balloon
+  props
+    body: string
+    outgoing: bool
+    tail: bool
+    maximum: number
+    identifier: string
+  derive fill = outgoing ? "light-dark(#0088ff, #007aff)" : "light-dark(#e9e9eb, #262629)"
+  view
+    box id=identifier testId=identifier position="relative" min-width=48 max-width=maximum box-sizing="border-box" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 display="flex" justify-content="center" align-items="center"
+      when tail
+        box position="absolute" left=0 right=0 top=0 bottom=19.5 border-top-left-radius=20 border-top-right-radius=20 background-color=fill
+        box position="absolute" left=(outgoing ? 0 : 26) right=(outgoing ? 26 : 0) bottom=0 height=20 border-bottom-left-radius=(outgoing ? 20 : 0) border-bottom-right-radius=(outgoing ? 0 : 20) background-color=fill
+        Tail(outgoing=outgoing, fill=fill)
+      else
+        box position="absolute" top=0 left=0 right=0 bottom=0 border-radius=20 background-color=fill
+      text body position="relative" font-size=17 line-height="20px" font-family="system-ui" color=(outgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") white-space="pre-wrap" overflow-wrap="break-word" text-align="left" min-width=0 max-width=(maximum - 28)
+
+component MessageRow
+  props
+    m: Message
+    maximum: number
+    group: bool
+    travel: number
+    dragging: bool
+    reduced: bool
+    hidden: bool
+    select: action
+    reply: action
+    read: action
+  derive fill = m.outgoing ? "light-dark(#0088ff, #007aff)" : "light-dark(#e9e9eb, #262629)"
+  derive fraction = min(1, travel / 56)
+  view
+    column testId=`message-row-${m.id}` position="relative" padding-top=2 padding-bottom=m.gap margin-top=(m.reaction != "" ? 13 : 0) padding-left=16 padding-right=16 box-sizing="border-box" flex-shrink=0
+      when m.stamp != ""
+        text m.stamp testId=`stamp-${m.id}` font-size=11 line-height="13px" font-weight=500 class=Secondary text-align="center" margin-bottom=16 animation=(m.arrival and not reduced ? "stamp 270ms ease-out" : "none")
+      column position="relative" padding-left=(group and not m.outgoing ? 31 : 0) translate=`${0 - travel * (m.outgoing ? 1.107143 : 1)}px 0px` transition=(dragging or reduced ? "none" : "translate spring(150, 24.5, 1)")
+        when m.sender != ""
+          text m.sender class=Secondary font-size=11 line-height="13px" margin-left=12 margin-bottom=4
+        when m.avatar
+          box position="absolute" left=0 bottom=(m.tail ? 6.65 : 0)
+            Avatar(initials=m.initials, color="#97979c", size=24)
+        when m.reply != ""
+          text m.reply font-size=13 class=Secondary border-left-width=2 border-left-style="solid" border-color="#aeaeb2" padding-left=8 margin-bottom=6 line-clamp=2
+        row position="relative" justify-content=(m.outgoing ? "flex-end" : "flex-start") padding-bottom=(m.tail ? 6.65 : 0)
+          box position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate spring(300, 30, 1)" animation=(m.arrival and not m.outgoing and not reduced ? "received 220ms ease-out" : "none") aria-label=m.body
+            Balloon(body=m.preview, outgoing=m.outgoing, tail=m.tail, maximum=maximum, identifier=`bubble-${m.id}`)
+            when m.truncated
+              button press=read(m.body) testId=`read-${m.id}` aria-label="Read full message" position="absolute" right=10 bottom=7 width=22 height=22 justify-content="center"
+                text "›" font-size=20 font-weight=600 color=(m.outgoing ? "#ffffff" : "#8a8a8e")
+            when m.reaction != ""
+              button press=select(m.id, m.body, m.outgoing) retainFocus=true testId=`reaction-${m.id}` position="absolute" top=-19 left=(m.outgoing ? "calc(100% - 27px)" : "-9px") width=36 height=36 border-radius=18 background-color="#0088ff" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #000000)" display="flex" align-items="center" justify-content="center" z-index=2
+                text m.reaction font-size=21 color="#ffffff"
+          column position="absolute" top=0 bottom=(m.tail ? 6.65 : 0) right=-70 width=54 justify-content="center" opacity=(fraction * fraction) translate=`${0 - travel * 0.178571}px 0px` transition=(dragging or reduced ? "none" : "translate spring(150, 24.5, 1), opacity 220ms ease-out")
+            text m.time font-size=11 line-height="13px" class=Secondary text-align="right" white-space="nowrap" font-variant-numeric="tabular-nums"
+      when m.receipt != ""
+        text m.receipt testId=`receipt-${m.id}` text-align="right" font-size=11 line-height="13px" font-weight=600 class=Secondary margin-top=2 margin-right=19.667 animation=(m.receiptNew and not reduced ? "receipt 610ms cubic-bezier(0.25, 1, 0.5, 1)" : "none")
+
+component Typing
+  props
+    reduced: bool
+  view
+    box testId="typing-indicator" aria-label="Typing" position="relative" width=78.5 height=43 margin-top=6 margin-left=16 margin-bottom=4 animation=(reduced ? "none" : "breathe 1900ms ease-in-out infinite")
+      row position="absolute" top=0 left=14 width=57.5 height=35 border-radius=17.5 background-color="light-dark(#e9e9eb, #262629)" align-items="center" justify-content="center" gap=4
+        box width=8.5 height=8.5 border-radius=4.25 background-color="light-dark(#000000, #ffffff)" opacity=0.2 animation=(reduced ? "none" : "dot 500ms cubic-bezier(0.75673, 0.015306, 0.58, 1) infinite alternate")
+        box width=8.5 height=8.5 border-radius=4.25 background-color="light-dark(#000000, #ffffff)" opacity=0.2 animation=(reduced ? "none" : "dot 500ms cubic-bezier(0.75673, 0.015306, 0.58, 1) 250ms infinite alternate")
+        box width=8.5 height=8.5 border-radius=4.25 background-color="light-dark(#000000, #ffffff)" opacity=0.2 animation=(reduced ? "none" : "dot 500ms cubic-bezier(0.75673, 0.015306, 0.58, 1) 500ms infinite alternate")
+      box position="absolute" left=7 top=27.5 width=11.5 height=11.5 border-radius=6 background-color="light-dark(#e9e9eb, #262629)"
+      box position="absolute" left=2 top=38 width=5 height=5 border-radius=2.5 background-color="light-dark(#e9e9eb, #262629)"

@@ -19,7 +19,7 @@ impl exact_js::NativeModule for Snapback {
 pub fn module(bytecode: &[u8], app: &str, grants: &str) -> exact_js::Module {
     exact_js::Module::new(bytecode.to_vec(), app, grants).with_native(|grants| {
         Box::new(Snapback(
-            exact_snapback4::Module::new("com.exact.messages", grants)
+            exact_snapback4::Module::new("com.exact.messages.legacy", grants)
                 .expect("baked Messages grants"),
         ))
     })

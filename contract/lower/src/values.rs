@@ -497,7 +497,7 @@ pub(crate) fn check_prop_value(
     if prop == PropId::ImageSource {
         if let Expr::Str(source, _) = value {
             if let Some(role) = source.strip_prefix("symbol:") {
-                if exact_kernel::generated::symbol(role).is_none() {
+                if !role.starts_with("sf/") && exact_kernel::generated::symbol(role).is_none() {
                     return err(
                         "lower-attr-value",
                         format!(

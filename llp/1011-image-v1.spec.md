@@ -182,8 +182,14 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   resolves under the asset root — `EXACT_ASSETS`, the app's directory
   (`build.mjs --run` and the smoke set it; the current directory
   otherwise) — and must stay inside it after standardization (`..` that
-  escapes does not load); `symbol:` resolves the generated role mapping
-  locally (below); any other scheme (`file:` included) does not
+  escapes does not load); `symbol:<role>` resolves the generated role mapping
+  locally (below); `symbol:sf/<name>` passes an opaque, possibly empty name
+  directly to the running Apple OS (LLP 1035.004.000, Codex 2026-10-02).
+  An unresolved symbol paints nothing and supplies a one-font-size square
+  as fallback intrinsic size; raw SF sources are also empty on web/Linux,
+  never fetched. `layout` reports current resolution and its reason; missing
+  raw names produce no warning. Symbol/raster changes clear old image state;
+  any other scheme (`file:` included) does not
   load. A source that does not load is reported as `nil` with a line on
   stderr.
 - **Loading** (`NodeView.loadImage`): when an `image` node's
@@ -209,7 +215,8 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   the original view identity and load generation, so a replaced source or retired
   node cannot receive them. `object-fit`, padding and rounded clipping apply to
   the content box; symbols bypass the bitmap drawing path. `layout <node>` reports
-  `native.symbol` with renderer class, generated name, intrinsic size and frame.
+  `native.symbol` with renderer class, source, resolved name, `found`, missing `reason`, intrinsic
+  size and frame.
 - **Tinted rasters** (2026-09-26) use the one decoded bitmap the raster
   pipeline holds — no second decode, no tinted copy. They paint through
   `draw(_:)` on both platforms: `RasterGeometry.draw` draws the bitmap into

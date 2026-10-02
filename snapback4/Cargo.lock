@@ -1650,7 +1650,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-apple"
+name = "messages-legacy-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
@@ -1668,7 +1668,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-linux"
+name = "messages-legacy-linux"
 version = "0.1.0"
 dependencies = [
  "exact-js",
@@ -1683,7 +1683,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "messages-web"
+name = "messages-legacy-web"
 version = "0.1.0"
 dependencies = [
  "exact-js-bake",
